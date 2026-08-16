@@ -7,6 +7,7 @@ import posthog from 'lib/posthog-typed'
 import { urls } from 'scenes/urls'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import { markGoalDraftIntent } from '../replay_scanners/goalDraftIntent'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 
 export const ANALYSIS_NUDGE_THRESHOLD = 3
@@ -120,7 +121,9 @@ export const analysisNudgeLogic = kea<analysisNudgeLogicType>([
                 goal_length: goal.length,
             })
             // The wizard consumes the goal param on mount: it prefills the AI box and starts the
-            // draft, so all creation gates (consent, estimate, quota) stay in force.
+            // draft, so all creation gates (consent, estimate, quota) stay in force. The intent
+            // marker is what lets it auto-start; a bare ?goal= link only prefills.
+            markGoalDraftIntent()
             router.actions.push(urls.replayVisionTemplates(), { goal })
         },
     })),

@@ -71,6 +71,7 @@ import {
     reconcileVariantKeys,
     replaceExperimentExposureFilter,
 } from './experimentTargeting'
+import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -1552,11 +1553,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } finally {
                         cache.restoringDraft = false
                     }
-                    // A goal deep link (e.g. the in-player analysis nudge) starts the AI draft right
-                    // away; the input is set too so the template step shows the goal while it runs.
+                    // A goal deep link prefills the AI box; the draft only auto-starts for the
+                    // in-player nudge's hand-off (one-shot marker), and never over a saved draft.
+                    // A crafted external ?goal= link can therefore neither spend the user's AI
+                    // allowance nor overwrite their saved work without an explicit click.
                     if (goalParam) {
                         actions.setGoalDraftInput(goalParam)
-                        actions.draftScannerFromGoal(goalParam)
+                        if (consumeGoalDraftIntent() && !draft) {
+                            actions.draftScannerFromGoal(goalParam)
+                        }
                     }
                     return
                 }

@@ -16,7 +16,9 @@ export function AnalysisNudge(): JSX.Element | null {
     const { nudgeVisible, goalInput } = useValues(analysisNudgeLogic)
     const { dismissNudge, setGoalInput, submitGoal } = useActions(analysisNudgeLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const [consentRequested, setConsentRequested] = useState(false)
+    // The exact goal that initiated the consent ask; approving submits this, not the live input,
+    // so edits made while the popover is open can't be sent unvalidated (or blank).
+    const [pendingConsentGoal, setPendingConsentGoal] = useState<string | null>(null)
 
     // Creating a scanner needs editor access, so users who couldn't finish the flow never see it.
     if (!nudgeVisible || getReplayVisionEditDisabledReason()) {
@@ -31,7 +33,7 @@ export function AnalysisNudge(): JSX.Element | null {
         if (dataProcessingAccepted) {
             submitGoal(goal)
         } else {
-            setConsentRequested(true)
+            setPendingConsentGoal(goal)
         }
     }
 
@@ -69,12 +71,14 @@ export function AnalysisNudge(): JSX.Element | null {
                 showArrow
                 ignoreDismissal
                 hideTrainingDisclaimer
-                hidden={!consentRequested}
+                hidden={pendingConsentGoal === null}
                 onApprove={() => {
-                    setConsentRequested(false)
-                    submitGoal(goalInput.trim())
+                    if (pendingConsentGoal) {
+                        submitGoal(pendingConsentGoal)
+                    }
+                    setPendingConsentGoal(null)
                 }}
-                onDismiss={() => setConsentRequested(false)}
+                onDismiss={() => setPendingConsentGoal(null)}
             >
                 <LemonButton
                     type="primary"
