@@ -22,6 +22,7 @@ export const INBOX_EVENTS = {
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
+    REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
@@ -30,6 +31,7 @@ export const INBOX_EVENTS = {
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -319,6 +321,26 @@ export function captureInboxReportClosed(
     )
 }
 
+/**
+ * The report detail pane was scrolled, fired once per open on the first scroll. It feeds the dwell
+ * half of the "Inbox engagement" metric, whose second step reads a scroll after at least 5 seconds.
+ * Only the desktop `Inbox report scrolled` event fed that step before, so it was dead for cloud.
+ * `time_since_open_ms` is the dwell before the scroll. Mirrors the desktop event's shape.
+ */
+export function captureInboxReportScrolled(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SCROLLED, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
 export function captureInboxReportAction(params: {
     /** Omitted for bulk actions, which act on a selection rather than a single report. */
     report?: SignalReport | null
@@ -411,6 +433,28 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
 
 export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
+}
+
+/**
+ * A source's steering rules were saved. Carries only lengths and flags: the rules text names the
+ * customer's own labels, projects, and workflows, so it never leaves their project. Fired once the
+ * request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceSteeringChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    steeringLength: number
+    defaultNotActionable: boolean
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_STEERING_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        steering_length: params.steeringLength,
+        has_steering: params.steeringLength > 0,
+        default_not_actionable: params.defaultNotActionable,
+        success: params.success,
+    })
 }
 
 /**

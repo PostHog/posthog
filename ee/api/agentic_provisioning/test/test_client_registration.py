@@ -11,7 +11,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.oauth.cimd import CIMDFetchError, apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER, ClientAssertionError
 from posthog.models.oauth import OAuthApplication
 
@@ -147,6 +147,58 @@ class TestClientRegistration(ProvisioningTestBase):
         checks = {check["name"]: check for check in body["checks"]}
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
+
+    def test_brand_new_partner_is_confidential_on_its_first_registration(self):
+        # No pre-existing row: this is the client_id's first ever contact with PostHog, so the
+        # promotion has to happen inline with _create_cimd_application, not wait for the next
+        # hourly refresh to notice is_provisioning_partner has since flipped.
+        assert not OAuthApplication.objects.filter(cimd_metadata_url=CIMD_URL).exists()
+
+        res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 200, res.json()
+        body = res.json()
+        assert body["registered"] is True
+        assert body["token_endpoint_auth_method"] == "private_key_jwt"
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
+        assert app.is_provisioning_partner
+
+    def test_partner_enablement_and_confidential_promotion_land_together(self):
+        # A partner that is enabled while still public would accept the bare-client_id path,
+        # so an unauthenticated caller could act as that partner until the promotion landed.
+        # apply_provisioning_defaults therefore has to write both in one go, which this pins by
+        # calling it directly: splitting the promotion back out leaves this app public.
+        app = self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=JWKS_URI,
+            _provisioning_config=provisioning_config(active=False, can_create_accounts=False),
+        )
+
+        apply_provisioning_defaults(app)
+
+        app.refresh_from_db()
+        assert app.is_provisioning_partner
+        assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
+
+    def test_kill_switched_client_is_not_promoted_to_confidential(self):
+        # An admin can disable a client before it ever becomes a partner. The kill switch stops
+        # apply_provisioning_defaults from enabling the partner, and the promotion rides on that
+        # same write, so the client stays public rather than ending up confidential with a
+        # self-declared jwks_uri and no partner status behind it.
+        self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=None,
+            _provisioning_config=provisioning_config(disabled=True, active=False, can_create_accounts=False),
+        )
+
+        self._register({"client_id": CIMD_URL})
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.client_type == OAuthApplication.CLIENT_PUBLIC
+        assert app.is_provisioning_partner is False
 
     def test_partner_registered_by_an_admin_can_use_github_grants(self):
         self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))

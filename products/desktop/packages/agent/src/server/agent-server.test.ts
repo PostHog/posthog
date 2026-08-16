@@ -2778,6 +2778,90 @@ describe("AgentServer HTTP Mode", () => {
       expect(resetTurnMessages).not.toHaveBeenCalled();
     }, 20000);
 
+    it("declines steering while an initial or resume turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi.fn();
+      const serverInternals = s as unknown as {
+        activeOwnedTurnCount: number;
+        activeStartupTurnCount: number;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeStartupTurnCount = 1;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "steer-during-resume",
+          method: "user_message",
+          params: {
+            content: "status?",
+            messageId: "steer-during-resume",
+            steer: true,
+          },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("declines steering while a prewarmed first turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      let finishTurn!: (result: { stopReason: "end_turn" }) => void;
+      const prompt = vi.fn(
+        () =>
+          new Promise<{ stopReason: "end_turn" }>((resolve) => {
+            finishTurn = resolve;
+          }),
+      );
+      const serverInternals = s as unknown as {
+        prewarmedStartupTurnPending: boolean;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.prewarmedStartupTurnPending = true;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const token = createToken();
+      const send = (id: string, steer = false) =>
+        fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "user_message",
+            params: { content: id, messageId: id, ...(steer && { steer }) },
+          }),
+        });
+
+      const firstTurn = send("first-turn");
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce());
+
+      const steerResponse = await send("steer-during-first-turn", true);
+      await expect(steerResponse.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).toHaveBeenCalledOnce();
+
+      finishTurn({ stopReason: "end_turn" });
+      await firstTurn;
+    }, 20000);
+
     it("does not queue steering behind an active non-steering turn", async () => {
       const s = createServer();
       await s.start();
@@ -4407,7 +4491,7 @@ describe("AgentServer HTTP Mode", () => {
         };
       } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveWarmActivationSettings(): Promise<string | null>;
+      resolveActivationSettings(): Promise<string | null>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
@@ -4445,7 +4529,7 @@ describe("AgentServer HTTP Mode", () => {
           };
         };
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-        resolveWarmActivationSettings(): Promise<string | null>;
+        resolveActivationSettings(): Promise<string | null>;
       };
       t.prewarmedRun = true;
       t.session = {
@@ -4459,8 +4543,8 @@ describe("AgentServer HTTP Mode", () => {
         })),
       };
 
-      await t.resolveWarmActivationSettings();
-      await t.resolveWarmActivationSettings();
+      await t.resolveActivationSettings();
+      await t.resolveActivationSettings();
 
       expect(setSessionConfigOption).toHaveBeenCalledOnce();
       expect(setSessionConfigOption).toHaveBeenCalledWith({
@@ -4474,24 +4558,35 @@ describe("AgentServer HTTP Mode", () => {
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveWarmActivationSettings();
+      const override = await t.resolveActivationSettings();
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers auto-publish from run state when the launch flag is missing", async () => {
+      const t = makeWarmServer({ auto_publish: true });
+      t.prewarmedRun = false;
+
+      const override = await t.resolveActivationSettings();
+
+      expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
+      expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
     });
 
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -4503,7 +4598,7 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
@@ -4512,12 +4607,12 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveWarmActivationSettings()).toContain(
+      expect(await t.resolveActivationSettings()).toContain(
         "gh pr create --draft",
       );
     });
@@ -4533,8 +4628,8 @@ describe("AgentServer HTTP Mode", () => {
         setSessionConfigOption,
       );
 
-      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
-      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toBeNull();
 
       expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);

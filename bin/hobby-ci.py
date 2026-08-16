@@ -14,6 +14,7 @@ import re
 import sys
 import json
 import time
+import uuid
 import shlex
 import base64
 import datetime
@@ -458,50 +459,256 @@ runcmd:
             return False, f"Could not parse API keys from output: {result['stdout'][:200]}"
         project_api_token, personal_api_key = output_line[-1].split("|||")
 
-        event_name = "hobby_ci_smoke_test"
-        print(f"📤 Sending test event '{event_name}'...", flush=True)
+        capture_id = str(uuid.uuid4())
+        exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
+        error_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        events = [
+            {
+                "event": "hobby_ci_smoke_test",
+                "properties": {"source": "hobby-ci", "capture_id": capture_id},
+            },
+            {
+                "event": "$exception",
+                "properties": {
+                    "source": "hobby-ci",
+                    "capture_id": capture_id,
+                    "$exception_list": [
+                        {
+                            "type": "HobbyCISmokeTestError",
+                            "value": exception_value,
+                            "mechanism": {"handled": True, "synthetic": True},
+                            "stacktrace": {"type": "raw", "frames": []},
+                        }
+                    ],
+                },
+            },
+        ]
+        for event in events:
+            print(f"📤 Sending test event '{event['event']}'...", flush=True)
+            try:
+                capture_resp = requests.post(
+                    f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"api_key": project_api_token, "distinct_id": "ci-test-user", **event},
+                    timeout=30,
+                )
+            except requests.RequestException as e:
+                return False, f"Capture request failed for {event['event']}: {e}"
+            if capture_resp.status_code != 200:
+                return (
+                    False,
+                    f"Capture failed for {event['event']}: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}",
+                )
+
+        print(f"⏳ Polling for events (timeout {timeout_seconds}s)...", flush=True)
+        headers = {"Authorization": f"Bearer {personal_api_key}"}
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        pending_event_names = {event["event"] for event in events}
+        while time.time() < deadline:
+            attempt += 1
+            for event_name in pending_event_names.copy():
+                try:
+                    events_resp = requests.get(
+                        f"{base_url}/api/projects/@current/events/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                        params={"event": event_name},
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if events_resp.status_code == 200:
+                        results = events_resp.json().get("results", [])
+                        if any(result.get("properties", {}).get("capture_id") == capture_id for result in results):
+                            pending_event_names.remove(event_name)
+                            print(f"✅ Event '{event_name}' found after {attempt} poll(s)", flush=True)
+                        else:
+                            print(f"   Poll {attempt}: '{event_name}' not found yet", flush=True)
+                    else:
+                        print(f"   Poll {attempt}: '{event_name}' returned HTTP {events_resp.status_code}", flush=True)
+                except Exception as e:
+                    print(f"   Poll {attempt}: '{event_name}' returned {type(e).__name__}", flush=True)
+            if not pending_event_names:
+                break
+            time.sleep(poll_interval)
+
+        if pending_event_names:
+            missing_events = ", ".join(sorted(pending_event_names))
+            return False, f"Events did not appear within {timeout_seconds}s ({attempt} polls): {missing_events}"
+
+        log_body = f"hobby_ci_log_smoke_test_{time.time_ns()}"
+        log_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        print("📤 Sending test log...", flush=True)
         try:
             capture_resp = requests.post(
-                f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                f"{base_url}/i/v1/logs",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
                 json={
-                    "api_key": project_api_token,
-                    "event": event_name,
-                    "properties": {"source": "hobby-ci"},
-                    "distinct_id": "ci-test-user",
+                    "resourceLogs": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeLogs": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "logRecords": [
+                                        {
+                                            "timeUnixNano": str(time.time_ns()),
+                                            "severityText": "INFO",
+                                            "severityNumber": 9,
+                                            "body": {"stringValue": log_body},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
                 },
                 timeout=30,
             )
         except requests.RequestException as e:
-            return False, f"Capture request failed: {e}"
+            return False, f"Log capture request failed: {e}"
         if capture_resp.status_code != 200:
-            return False, f"Capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
+            return False, f"Log capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
 
-        print(f"⏳ Polling for event (timeout {timeout_seconds}s)...", flush=True)
-        headers = {"Authorization": f"Bearer {personal_api_key}"}
+        print(f"⏳ Polling for log (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
         while time.time() < deadline:
             attempt += 1
             try:
-                events_resp = requests.get(
-                    f"{base_url}/api/projects/@current/events/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-                    params={"event": event_name},
+                logs_resp = requests.post(
+                    f"{base_url}/api/projects/@current/logs/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "query": {
+                            "dateRange": {"date_from": log_date_from},
+                            "searchTerm": log_body,
+                            "limit": 1,
+                        }
+                    },
                     headers=headers,
                     timeout=10,
                 )
-                if events_resp.status_code == 200:
-                    results = events_resp.json().get("results", [])
-                    if len(results) > 0:
-                        print(f"✅ Event found after {attempt} poll(s)", flush=True)
-                        return True, "Event ingested successfully"
-                    print(f"   Poll {attempt}: no events yet", flush=True)
+                if logs_resp.status_code == 200:
+                    results = logs_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Log found after {attempt} poll(s)", flush=True)
+                        break
+                    print(f"   Poll {attempt}: no logs yet", flush=True)
                 else:
-                    print(f"   Poll {attempt}: HTTP {events_resp.status_code}", flush=True)
+                    print(f"   Poll {attempt}: HTTP {logs_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Log did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        print(f"⏳ Polling for error tracking issue (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                issues_resp = requests.post(
+                    f"{base_url}/api/projects/@current/error_tracking/query/issues",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "status": "all",
+                        "filterTestAccounts": False,
+                        "dateRange": {"date_from": error_date_from},
+                        "searchQuery": exception_value,
+                        "limit": 1,
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                if issues_resp.status_code == 200:
+                    results = issues_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
+                        break
+                    print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        session_id = str(uuid.uuid4())
+        snapshot_timestamp = int(time.time() * 1000)
+        print("📤 Sending test session recording...", flush=True)
+        try:
+            replay_resp = requests.post(
+                f"{base_url}/s/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json=[
+                    {
+                        "token": project_api_token,
+                        "event": "$snapshot",
+                        "distinct_id": "hobby-ci-replay-user",
+                        "$session_id": session_id,
+                        "properties": {
+                            "$session_id": session_id,
+                            "$window_id": str(uuid.uuid4()),
+                            "$snapshot_source": "web",
+                            "$snapshot_data": [
+                                {
+                                    "type": 4,
+                                    "timestamp": snapshot_timestamp,
+                                    "data": {
+                                        "href": "https://example.com/hobby-ci",
+                                        "width": 1280,
+                                        "height": 720,
+                                    },
+                                },
+                                {
+                                    "type": 2,
+                                    "timestamp": snapshot_timestamp + 1_000,
+                                    "data": {
+                                        "source": 1,
+                                        "snapshot": {"html": "<html><body>Hobby CI</body></html>"},
+                                    },
+                                },
+                                {
+                                    "type": 3,
+                                    "timestamp": snapshot_timestamp + 2_000,
+                                    "data": {
+                                        "source": 2,
+                                        "mutations": [{"type": "characterData", "id": 1}],
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ],
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Session recording capture request failed: {e}"
+        if replay_resp.status_code != 200:
+            return False, f"Session recording capture failed: HTTP {replay_resp.status_code} - {replay_resp.text[:200]}"
+
+        print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                recordings_resp = requests.get(
+                    f"{base_url}/api/projects/@current/session_recordings",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"session_ids": json.dumps([session_id]), "date_from": "-1d"},
+                    headers=headers,
+                    timeout=10,
+                )
+                if recordings_resp.status_code == 200:
+                    results = recordings_resp.json().get("results", [])
+                    if any(recording.get("id") == session_id for recording in results):
+                        print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
+                        return True, "Events, log, exception issue, and session recording ingested successfully"
+                    print(f"   Poll {attempt}: no session recording yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        return False, f"Event did not appear within {timeout_seconds}s ({attempt} polls)"
+        return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):

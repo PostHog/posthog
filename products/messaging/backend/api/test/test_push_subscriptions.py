@@ -11,13 +11,17 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
-from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
+from products.messaging.backend.api.push_subscriptions import (
+    PUSH_SUBSCRIPTION_DISCARD_COUNTER,
+    PUSH_SUBSCRIPTION_REJECTION_COUNTER,
+)
 
 
 def _es256_keypair() -> tuple[str, str]:
@@ -39,13 +43,6 @@ class TestPushSubscriptionsAPI(BaseTest):
     # Realistic length (>= 32 bytes) so signing/verification exercises a real phs_ secret.
     SECRET = "phs_project_secret_0123456789abcdef0123"
 
-    UNCONFIGURED_PAYLOAD = {
-        "distinct_id": "user-1",
-        "device_token": "device-token",
-        "platform": "android",
-        "app_id": "nonexistent-project",
-    }
-
     def setUp(self):
         super().setUp()
         self.client = Client()
@@ -64,12 +61,9 @@ class TestPushSubscriptionsAPI(BaseTest):
             config={"bundle_id": "com.example.app", "team_id": "TEAM123", "key_id": "KEY123"},
             sensitive_config={},
         )
-        self._clear_unconfigured_throttle()
-
-    def _clear_unconfigured_throttle(self):
-        # The throttle counter lives in the cache, which no transaction rolls back and which every test
-        # in the process shares. Tests here reuse one team id, so without this a test that trips the
-        # throttle would leak 429s into whichever test runs next in the same window.
+        # The discard-log window counter lives in the cache, which no transaction rolls back and which
+        # every test in the process shares. Tests here reuse one team id, so without this a test that
+        # logged a discard would suppress the line another test asserts on.
         cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
@@ -230,7 +224,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_com.example.app"]
 
-    def test_unregister_integration_not_found(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_unregister_without_integration_still_unsets(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+
         response = self._delete(
             {
                 "distinct_id": "user-1",
@@ -240,8 +237,9 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
+        assert response.status_code == status.HTTP_200_OK
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_nonexistent-project"]
 
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
@@ -281,7 +279,11 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid platform" in response.json()["detail"]
 
-    def test_integration_not_found(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):
+        counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
+        before = counter._value.get()
+
         response = self._post(
             {
                 "distinct_id": "user-1",
@@ -291,58 +293,39 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
-
-    @parameterized.expand(
-        [
-            (push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT, status.HTTP_400_BAD_REQUEST),
-            (push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 1, status.HTTP_429_TOO_MANY_REQUESTS),
-        ]
-    )
-    def test_repeated_unconfigured_registrations_are_throttled(self, attempts: int, expected_status: int):
-        for _ in range(attempts - 1):
-            self._post({**self.UNCONFIGURED_PAYLOAD})
-
-        response = self._post({**self.UNCONFIGURED_PAYLOAD})
-
-        assert response.status_code == expected_status
-
-    def test_throttled_rejection_advertises_retry_after(self):
-        for _ in range(push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 1):
-            response = self._post({**self.UNCONFIGURED_PAYLOAD})
-
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response["Retry-After"] == str(push_subscriptions._UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["stored"] is False
+        assert data["push_enabled"] is False
+        mock_capture.assert_not_called()
+        assert counter._value.get() == before + 1
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
-    def test_configured_app_is_never_throttled(self, mock_capture: MagicMock):
-        # The throttle guards the rejection path only. If it were hoisted above the integration lookup
-        # it would start 429ing real device registrations once a busy project crossed the limit.
-        mock_capture.return_value = MagicMock(status_code=200)
+    def test_discard_is_logged_once_per_window_and_counted_every_time(self, mock_capture: MagicMock):
+        # The log names the project behind the discards, so it has to survive. It also has to stay
+        # bounded: discarding is this endpoint's most common request, so a line per discard is
+        # millions of Loki lines a day restating one fact. The counter carries the volume.
+        counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
+        before = counter._value.get()
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "device-token",
+            "platform": "android",
+            "app_id": "nonexistent-project",
+        }
 
-        for _ in range(push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 5):
-            response = self._post(
-                {
-                    "distinct_id": "user-1",
-                    "device_token": "fcm-device-token-abc",
-                    "platform": "android",
-                    "app_id": "my-firebase-project",
-                }
-            )
-            assert response.status_code == status.HTTP_200_OK
+        with capture_logs() as logs:
+            for _ in range(5):
+                assert self._post(payload).status_code == status.HTTP_200_OK
 
-    @patch("products.messaging.backend.api.push_subscriptions.cache")
-    def test_throttle_fails_open_when_the_cache_is_unavailable(self, mock_cache: MagicMock):
-        # Failing closed here would turn a cache outage into a 500 on a public endpoint.
-        mock_cache.incr.side_effect = Exception("cache down")
+        discard_logs = [log for log in logs if log["event"] == "push_subscription_discarded"]
+        assert len(discard_logs) == 1
+        assert discard_logs[0]["team_id"] == self.team.id
+        assert discard_logs[0]["app_id"] == "nonexistent-project"
+        assert counter._value.get() == before + 5
 
-        response = self._post({**self.UNCONFIGURED_PAYLOAD})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "integration_not_found"
-
-    def test_team_isolation(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_team_isolation(self, mock_capture: MagicMock):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         Integration.objects.create(
             team=other_team,
@@ -361,8 +344,9 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["stored"] is False
+        mock_capture.assert_not_called()
 
     def test_get_method_not_allowed(self):
         response = self.client.get(
@@ -501,6 +485,65 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_platform",
+                status.HTTP_400_BAD_REQUEST,
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "fcm-device-token-abc",
+                    "platform": "windows_phone",
+                    "app_id": "my-firebase-project",
+                },
+            ),
+            (
+                "missing_fields",
+                status.HTTP_400_BAD_REQUEST,
+                {
+                    "distinct_id": "user-1",
+                    "platform": "android",
+                    "app_id": "my-firebase-project",
+                },
+            ),
+        ]
+    )
+    def test_rejection_increments_counter_with_code(self, code: str, status_code: int, payload: dict):
+        counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method="POST")
+        before = counter._value.get()
+
+        response = self._post(payload)
+
+        assert response.status_code == status_code
+        assert response.json()["code"] == code
+        assert counter._value.get() == before + 1
+
+    @parameterized.expand(
+        [
+            ("empty_value", {"device_token": ""}, "device_token:empty"),
+            ("absent_key", {}, "device_token:absent"),
+        ]
+    )
+    def test_missing_fields_rejection_logs_field_detail(self, _name: str, extra: dict, expected_detail: str):
+        payload = {"distinct_id": "user-1", "platform": "android", "app_id": "my-firebase-project", **extra}
+
+        with capture_logs() as logs:
+            response = self._post(payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 1
+        assert rejected[0]["detail"] == expected_detail
+
+    def test_unsupported_method_collapses_counter_label(self):
+        counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="method_not_allowed", method="other")
+        before = counter._value.get()
+
+        response = self.client.patch("/api/push_subscriptions/", data="{}", content_type="application/json")
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert counter._value.get() == before + 1
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_optional_mode_stores_even_without_a_token(self, mock_capture: MagicMock):

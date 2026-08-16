@@ -103,7 +103,6 @@ import type {
   TaskActivityPage,
   TaskActivityReadMarker,
   TaskChannel,
-  TaskCommentThreadSummary,
   TaskMention,
   TaskRun,
   TaskRunArtefact,
@@ -125,6 +124,7 @@ import {
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
+  McpAgentGrantScope,
   McpAuditCounts,
   McpAuditEvent,
   McpAuditPage,
@@ -2909,33 +2909,6 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskThreadMessage[];
   }
 
-  /** One request for the whole task, so the panel never fans out per artifact the way the
-   *  Comments tab has to.
-   *
-   *  A backend predating the read layer has no such route, so a 404 means "no comment rows
-   *  yet" rather than a failure and the timeline comes alive once the endpoint exists. */
-  async getTaskCommentActivity(
-    taskId: string,
-  ): Promise<TaskCommentThreadSummary[]> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/thread_messages/comment_activity/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (response.status === 404) return [];
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch comment activity: ${response.statusText}`,
-      );
-    }
-    const body = (await response.json()) as {
-      comments?: TaskCommentThreadSummary[];
-    };
-    return body.comments ?? [];
-  }
-
   async createTaskThreadMessage(
     taskId: string,
     content: string,
@@ -5262,6 +5235,11 @@ export class PostHogAPIClient {
     options: {
       gateway_server_id: string;
       enabled: boolean;
+      /**
+       * Reach of the caller's own share. The server defaults an omitted
+       * scope to "personal", so re-enabling without it resets a team share.
+       */
+      scope?: McpAgentGrantScope;
       /** Agent-scope tool policies to set alongside the grant. */
       policies?: McpToolPolicyEntry[];
     },

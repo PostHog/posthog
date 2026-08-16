@@ -16,6 +16,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     MockMaterializeViewWorkflow,
     _mock_workflow_should_fail,
+    stub_notify_dag_materialization_failures,
     stub_preempt_dag_run,
 )
 
@@ -76,7 +77,12 @@ class TestPostMaterializationChecks:
                 env.client,
                 task_queue="test-queue",
                 workflows=workflows,
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_materialization_gate],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_materialization_gate,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 return await env.client.execute_workflow(

@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+import structlog
 from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
@@ -35,23 +36,26 @@ PUSH_IDENTITY_VERIFICATION_COUNTER = Counter(
     labelnames=["mode", "operation", "outcome"],
 )
 
-PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER = Counter(
-    "push_subscription_unconfigured",
-    "Registrations for an app_id with no matching push integration, by whether the rejection was throttled.",
-    labelnames=["outcome"],
+PUSH_SUBSCRIPTION_REJECTION_COUNTER = Counter(
+    "push_subscription_rejection",
+    "Push subscription requests rejected, by rejection code.",
+    labelnames=["code", "method"],
 )
 
-# A device re-sends its pending registration on every process start until one succeeds, because both
-# mobile SDKs treat 4xx as terminal without persisting that decision across launches. So a project that
-# ships the SDK without a push integration produces one rejection per app launch per device
-# indefinitely, a floor that grows with installs rather than with traffic.
-#
-# Throttling the rejection keeps the first few per window visible, so a genuine app_id typo still
-# surfaces, and serves 429 beyond that, which the SDKs treat as retryable and back off on. The 400 stays
-# the default because it is what makes a device eventually register once the project is configured;
-# answering 2xx instead would mark the registration delivered and strand every installed device.
-_UNCONFIGURED_THROTTLE_LIMIT = 10
-_UNCONFIGURED_THROTTLE_WINDOW_SECONDS = 60
+PUSH_SUBSCRIPTION_DISCARD_COUNTER = Counter(
+    "push_subscription_discarded",
+    "Push subscription registrations acknowledged without storing, by reason.",
+    labelnames=["reason"],
+)
+
+logger = structlog.get_logger(__name__)
+
+# Discarding a registration is this endpoint's normal case: a device re-posts on every app open, and
+# almost no project has a push integration, so the discard runs a few thousand times a minute. The
+# counter above carries that volume. The log line exists to name the project behind it, which is the
+# same team and app_id every time, so emitting it per request buys nothing and costs millions of Loki
+# lines a day. One line per team per window keeps the identification and drops the repetition.
+_DISCARD_LOG_WINDOW_SECONDS = 60
 
 VALID_PLATFORMS = ("android", "ios")
 
@@ -73,6 +77,21 @@ _encrypted_fields = EncryptedFieldMixin()
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
 
 
+def _is_first_discard_in_window(team_id: int, app_id: str) -> bool:
+    """Fixed-window counter, keyed on the window so a missed expiry can never wedge the log shut.
+    Fails open on a cache outage: losing the cache must not lose the only line naming the project."""
+    window = int(time.time()) // _DISCARD_LOG_WINDOW_SECONDS
+    key = f"push_subscriptions:discarded:{team_id}:{app_id}:{window}"
+    try:
+        cache.add(key, 0, timeout=_DISCARD_LOG_WINDOW_SECONDS)
+        return cache.incr(key) == 1
+    except ValueError:
+        # The key expired between add and incr; this request is the window's first.
+        return True
+    except Exception:
+        return True
+
+
 # Resolve integrations from the app_id alone, not the device platform. An app_id is either a
 # Firebase project_id or an APNs bundle_id, so a device can register with either provider regardless
 # of its OS — e.g. an iOS device delivering through Firebase registers with the Firebase project_id.
@@ -85,27 +104,56 @@ def _find_integrations(team_id: int, app_id: str) -> list[Integration]:
     )
 
 
-def _unconfigured_rejection_throttled(team_id: int) -> bool:
-    """Fixed-window counter per team, keyed on the window so a missed expiry can never wedge the throttle
-    shut. Fails open: a cache outage must not turn registrations into 429s."""
-    window = int(time.time()) // _UNCONFIGURED_THROTTLE_WINDOW_SECONDS
-    key = f"push_subscriptions_unconfigured:{team_id}:{window}"
-    try:
-        cache.add(key, 0, timeout=_UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
-        count = cache.incr(key)
-    except ValueError:
-        # The key expired between add and incr; this request is the window's first.
-        count = 1
-    except Exception:
-        return False
-    return count > _UNCONFIGURED_THROTTLE_LIMIT
-
-
 def _strictest_verification_mode(integrations: list[Integration]) -> str:
     return max(
         (integration.config.get("push_identity_verification", "disabled") for integration in integrations),
         key=lambda mode: _VERIFICATION_MODE_PRECEDENCE.get(mode, 0),
         default="disabled",
+    )
+
+
+# The error body goes back to the client only, and Django's own request log records just
+# "Bad Request: /api/push_subscriptions/", so without this counter and log line the rejection
+# reason is unrecoverable from production telemetry.
+def _rejection_response(
+    request: Request,
+    message: str,
+    *,
+    error_type: str,
+    code: str,
+    status_code: int,
+    team_id: int | None = None,
+    app_id: str | None = None,
+    detail: str | None = None,
+    exc_info: bool = False,
+) -> HttpResponse:
+    # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
+    # HTTP verb reaches this view), so bound the counter label to the supported verbs to keep
+    # Prometheus cardinality fixed. The log below keeps the raw method — structured log fields aren't
+    # a time-series cardinality risk and the real verb helps diagnose who is hitting the endpoint.
+    method_label = request.method if request.method in ("POST", "DELETE") else "other"
+    PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=method_label).inc()
+    # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
+    # so a 500 is diagnosable from this single labeled event rather than just the counter.
+    logger.warning(
+        "push_subscription_rejected",
+        code=code,
+        status_code=status_code,
+        method=request.method,
+        team_id=team_id,
+        app_id=app_id,
+        detail=detail,
+        exc_info=exc_info,
+    )
+    return cors_response(
+        request,
+        generate_exception_response(
+            "push_subscriptions",
+            message,
+            type=error_type,
+            code=code,
+            status_code=status_code,
+        ),
     )
 
 
@@ -115,27 +163,21 @@ def push_subscriptions(request: Request):
         return cors_response(request, HttpResponse(""))
 
     if request.method not in ("POST", "DELETE"):
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Only POST and DELETE requests are supported.",
-                type="validation_error",
-                code="method_not_allowed",
-                status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
-            ),
+            "Only POST and DELETE requests are supported.",
+            error_type="validation_error",
+            code="method_not_allowed",
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
     if len(request.body) > MAX_BODY_BYTES:
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Request body too large.",
-                type="validation_error",
-                code="request_too_large",
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            ),
+            "Request body too large.",
+            error_type="validation_error",
+            code="request_too_large",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         )
 
     try:
@@ -146,53 +188,41 @@ def push_subscriptions(request: Request):
             # param). DELETE carries the same gzipped JSON body as POST, so decompress it directly.
             data = decompress(request.body, request.headers.get("content-encoding", "").lower())
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError):
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Invalid JSON body.",
-                type="validation_error",
-                code="invalid_json",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
+            "Invalid JSON body.",
+            error_type="validation_error",
+            code="invalid_json",
+            status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     if not isinstance(data, dict):
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Invalid JSON body.",
-                type="validation_error",
-                code="invalid_json",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
+            "Invalid JSON body.",
+            error_type="validation_error",
+            code="invalid_json",
+            status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     api_key = get_token(data, request)
     if not api_key:
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Project token not provided. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
+            "Project token not provided. You can find your project token in your PostHog project settings.",
+            error_type="authentication_error",
+            code="missing_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
     team = Team.objects.get_team_from_cache_or_token(api_key)
     if not team:
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                "Invalid project token.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
+            "Invalid project token.",
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
     distinct_id = data.get("distinct_id")
@@ -211,15 +241,20 @@ def push_subscriptions(request: Request):
         if not value or not isinstance(value, str)
     ]
     if missing_fields:
-        return cors_response(
+        # absent vs empty vs invalid separates an SDK that never sends the field (contract drift)
+        # from a client bridge passing an empty or mistyped value: they need different fixes.
+        field_detail = ",".join(
+            f"{field_name}:{'absent' if field_name not in data else 'empty' if data[field_name] == '' else 'invalid'}"
+            for field_name in missing_fields
+        )
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                f"Missing required fields: {', '.join(missing_fields)}.",
-                type="validation_error",
-                code="missing_fields",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
+            f"Missing required fields: {', '.join(missing_fields)}.",
+            error_type="validation_error",
+            code="missing_fields",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            team_id=team.id,
+            detail=field_detail,
         )
 
     assert isinstance(distinct_id, str)
@@ -228,41 +263,37 @@ def push_subscriptions(request: Request):
     assert isinstance(app_id, str)
 
     if platform not in VALID_PLATFORMS:
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-                type="validation_error",
-                code="invalid_platform",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            ),
+            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
+            error_type="validation_error",
+            code="invalid_platform",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            team_id=team.id,
+            app_id=app_id,
         )
 
     integrations = _find_integrations(team.id, app_id)
-    if not integrations:
-        if _unconfigured_rejection_throttled(team.id):
-            PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER.labels(outcome="throttled").inc()
-            throttled = generate_exception_response(
-                "push_subscriptions",
-                f"No push integration found for app_id '{app_id}'. "
-                "Please configure the integration in your PostHog project settings.",
-                type="throttled_error",
-                code="throttled",
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-            throttled["Retry-After"] = str(_UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
-            return cors_response(request, throttled)
-        PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER.labels(outcome="rejected").inc()
+    # A missing integration is an account state, not a request error: SDKs auto-register on every
+    # app open, so for most teams this is the endpoint's normal case, and a 4xx here turns the
+    # whole fleet into an error firehose. Acknowledge registration with a 200 and skip the store,
+    # so unconsumable tokens don't become person properties and capture events; devices re-register
+    # on every app open, so a team that later configures an integration is covered within a day.
+    # DELETE falls through: logout must clear any subscription stored while an integration existed.
+    if not integrations and request.method == "POST":
+        PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration").inc()
+        if _is_first_discard_in_window(team.id, app_id):
+            logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
         return cors_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                f"No push integration found for app_id '{app_id}'. "
-                "Please configure the integration in your PostHog project settings.",
-                type="validation_error",
-                code="integration_not_found",
-                status_code=status.HTTP_400_BAD_REQUEST,
+            JsonResponse(
+                {
+                    "distinct_id": distinct_id,
+                    "platform": platform,
+                    "stored": False,
+                    "push_enabled": False,
+                },
+                status=status.HTTP_200_OK,
             ),
         )
 
@@ -284,17 +315,16 @@ def push_subscriptions(request: Request):
             outcome="verified" if verified else "unverified",
         ).inc()
         if not verified and verification_mode == "required":
-            return cors_response(
+            return _rejection_response(
                 request,
-                generate_exception_response(
-                    "push_subscriptions",
-                    "A valid identity token is required for this device. Your backend must sign a "
-                    "short-lived token for the signed-in user with the key configured for this "
-                    "channel's identity verification.",
-                    type="authentication_error",
-                    code="identity_verification_failed",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
+                "A valid identity token is required for this device. Your backend must sign a "
+                "short-lived token for the signed-in user with the key configured for this "
+                "channel's identity verification.",
+                error_type="authentication_error",
+                code="identity_verification_failed",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                team_id=team.id,
+                app_id=app_id,
             )
 
     property_key = f"$device_push_subscription_{app_id}"
@@ -321,15 +351,15 @@ def push_subscriptions(request: Request):
             process_person_profile=True,
         )
     except Exception:
-        return cors_response(
+        return _rejection_response(
             request,
-            generate_exception_response(
-                "push_subscriptions",
-                failure_message,
-                type="server_error",
-                code="capture_failed",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            ),
+            failure_message,
+            error_type="server_error",
+            code="capture_failed",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            team_id=team.id,
+            app_id=app_id,
+            exc_info=True,
         )
 
     return cors_response(
