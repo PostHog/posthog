@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pymysql
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.direct_sql.mysql_adapter import mysql_error_to_message, mysql_field_type_to_clickhouse_type
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -308,8 +309,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         self.assertEqual(executor.direct_dialect, "mysql")
         self.assertEqual(executor.direct_sql, "SELECT 1")
@@ -348,8 +348,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         self.assertEqual(executor.direct_sql, query)
         self.assertEqual(response.results, [(1,)])
@@ -424,6 +423,28 @@ class TestDirectMySQLQuery(APIBaseTest):
         self.assertEqual(executed_statements[1], "START TRANSACTION READ ONLY")
         self.assertEqual(response.results, [(1, "a@b.com")])
         self.assertEqual(response.types, [("id", "Int64"), ("email", "String")])
+
+    def test_execute_raises_exposed_error_when_ssh_tunnel_fails(self):
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        implementation = MagicMock()
+        implementation.connect.side_effect = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+
+        with patch(
+            "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
+            return_value=(implementation, MagicMock()),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
 
     def test_hogql_query_for_synced_source_prints_identical_sql_to_pure_direct(self):
         direct_source = self._create_source(prefix="direct")

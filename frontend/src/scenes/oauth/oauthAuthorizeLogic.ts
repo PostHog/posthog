@@ -110,20 +110,58 @@ const isNativeProtocol = (url: string): boolean => {
 
 type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
 
+// `/oauth/authorize/` fails in two shapes, and `ApiError` reads neither usefully: the RFC 6749
+// §4.1.2.1 envelope `{ error, error_description }`, where it surfaces the machine code rather
+// than the prose, and DRF serializer errors `{ "<field>": ["<message>"] }`, where it finds no
+// key at all and falls back to the transport text ("Non-OK response [POST ...] (status 400: )").
+export const describeOAuthError = (data: unknown): string | null => {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return null
+    }
+    const body = data as Record<string, unknown>
+
+    if (typeof body.error_description === 'string' && body.error_description) {
+        return body.error_description
+    }
+
+    const sentences: string[] = []
+    for (const [field, value] of Object.entries(body)) {
+        // DRF always reports field errors as a list, which is what tells them apart from the
+        // envelope above — `{ error: 'access_denied' }` is not a parameter named "error".
+        if (!Array.isArray(value)) {
+            continue
+        }
+        const messages = value.filter((message): message is string => typeof message === 'string' && !!message)
+        if (!messages.length) {
+            continue
+        }
+        const text = messages.join(' ')
+        sentences.push(field === 'non_field_errors' ? text : `The parameter "${field}" is not correct: ${text}`)
+    }
+    if (!sentences.length) {
+        return null
+    }
+    return ['The application sent an incorrect authorization request.', ...sentences].join(' ')
+}
+
 const oauthAuthorize = async (
     values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] }
 ): Promise<OAuthAuthorizeResult | null> => {
+    // Not kea-router's `searchParams`: it JSON-parses object-like values and coerces numbers
+    // and booleans, and its own `location.search` is re-encoded from those. RFC 6749 A.5 allows
+    // any printable ASCII in `state`, so a raw-JSON state must reach the API byte-for-byte.
+    const params = new URLSearchParams(window.location.search)
     try {
         const response = await api.create('/oauth/authorize/', {
-            client_id: router.values.searchParams['client_id'],
-            redirect_uri: router.values.searchParams['redirect_uri'],
-            response_type: router.values.searchParams['response_type'],
-            state: router.values.searchParams['state'],
+            client_id: params.get('client_id'),
+            redirect_uri: params.get('redirect_uri'),
+            response_type: params.get('response_type'),
+            state: params.get('state'),
             scope: values.scopes.join(' '),
-            code_challenge: router.values.searchParams['code_challenge'],
-            code_challenge_method: router.values.searchParams['code_challenge_method'],
-            nonce: router.values.searchParams['nonce'],
-            claims: router.values.searchParams['claims'],
+            code_challenge: params.get('code_challenge'),
+            code_challenge_method: params.get('code_challenge_method'),
+            nonce: params.get('nonce'),
+            claims: params.get('claims'),
             scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
             scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
             access_level:
@@ -139,7 +177,11 @@ const oauthAuthorize = async (
         }
         return null
     } catch (error: any) {
-        const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
+        const detail =
+            error?.detail ||
+            describeOAuthError(error?.data) ||
+            error?.message ||
+            'PostHog could not authorize the application.'
         lemonToast.error(detail)
         throw error
     }
@@ -724,13 +766,22 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // object. Both the rows and the grant derive from this one set, so the consent
         // screen always displays exactly what authorizing will grant — required scopes
         // the client didn't request get a visible (locked) row, never a silent grant.
+        // Scopes outside the app's ceiling are dropped first: `/authorize` clamps them
+        // away, so rendering them would promise the user access the token won't carry.
+        // `*` survives because the server resolves it separately (`wildcard_read_scopes`)
+        // rather than matching it against the ceiling.
         consentResourceScopes: [
             (s) => [s.scopes, s.oauthApplication],
             (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+                const grantable = oauthApplication?.grantable_scopes
+                const grantableSet = grantable ? new Set(grantable) : null
+                const requested = grantableSet
+                    ? scopes.filter((scope) => scope === '*' || !scope.includes(':') || grantableSet.has(scope))
+                    : scopes
                 const required = (oauthApplication?.required_scopes ?? []).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
-                return getMinimumEquivalentScopes([...scopes, ...required]).filter(
+                return getMinimumEquivalentScopes([...requested, ...required]).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
             },
@@ -804,6 +855,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     if (row.key === '*') {
                         return row.value === 'write' ? ['*'] : wildcardReadScopes(oauthApplication)
                     }
+                    // Write grants read too, but clients diff the granted `scope` against what they
+                    // asked for, so a missing `:read` reads as a partial grant. Spell both out when
+                    // the client asked for both, and only then: granting a half it never requested
+                    // is the same mismatch in the other direction.
+                    if (row.value === 'write') {
+                        const readScope = `${row.key}:read`
+                        return scopes.includes(readScope) ? [readScope, `${row.key}:write`] : [`${row.key}:write`]
+                    }
                     return [`${row.key}:${row.value}`]
                 })
                 // Also grant the required strings verbatim: collapsing read+write pairs above
@@ -817,6 +876,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         redirectDomain: [
             (s) => [s.oauthApplication],
             (): string => {
+                // Stays on kea-router: a redirect_uri is always a URL, which `parseValue` leaves
+                // alone, and only the request payload needs verbatim bytes. Reading
+                // `window.location` here would break under Storybook's in-memory history.
                 const redirectUri = router.values.searchParams['redirect_uri'] as string
                 if (!redirectUri) {
                     return ''

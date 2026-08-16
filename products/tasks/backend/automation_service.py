@@ -63,12 +63,19 @@ def delete_automation_schedule(automation: TaskAutomation) -> None:
 
 def run_task_automation(automation_id: str, trigger_workflow_id: str | None = None) -> tuple[Task, TaskRun]:
     automation_id = str(automation_id)
+
+    # Scheduled fires bypass the HTTP gate, so re-check the creator (fail closed if deleted) before
+    # the run transaction, recording the reason to last_error instead of rolling it back.
+    automation = TaskAutomation.objects.select_related("task", "task__created_by").get(id=automation_id)
+    creator = automation.task.created_by
+    if creator is None or not has_tasks_access(creator):
+        automation.last_error = "PostHog Desktop access is required to run task automations"
+        automation.save(update_fields=["last_error", "updated_at"])
+        raise PermissionDenied("PostHog Desktop access is required to run task automations")
+
     with transaction.atomic():
         automation = TaskAutomation.objects.select_for_update(of=("self",)).select_related("task").get(id=automation_id)
         task = automation.task
-
-        if task.created_by is not None and not has_tasks_access(task.created_by):
-            raise PermissionDenied("PostHog Desktop access is required to run task automations")
 
         if trigger_workflow_id:
             existing_task_run_query = TaskRun.objects.select_related("task").filter(

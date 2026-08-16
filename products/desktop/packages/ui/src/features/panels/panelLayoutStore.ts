@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -18,7 +19,10 @@ import {
   createInitialTaskLayout,
   splitPanelTree,
 } from "@posthog/core/panels/panelLayoutTransforms";
-import { createFileTabId } from "@posthog/core/panels/panelStoreHelpers";
+import {
+  activeArtifactId,
+  createFileTabId,
+} from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
 import {
@@ -246,7 +250,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       openChannelContextInSplit: (taskId, context) => {
         const tabId = `context-${context.channelName ?? "channel"}`;
-        const label = `${context.channelName ? `#${context.channelName} ` : ""}CONTEXT.md`;
+        const label = `${context.channelName ? `${channelDisplayLabel(context.channelName)} ` : ""}CONTEXT.md`;
         set((state) =>
           updateTaskLayout(
             state,
@@ -528,3 +532,14 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     },
   ),
 );
+
+/**
+ * The artifact the reader is looking at, so a pane elsewhere (the task's
+ * comment list) can narrow itself to whatever is on screen.
+ */
+export function useActiveArtifactId(taskId: string): string | null {
+  return usePanelLayoutStore((state) => {
+    const layout = state.taskLayouts[taskId];
+    return layout ? activeArtifactId(layout) : null;
+  });
+}

@@ -19,19 +19,16 @@ logger = structlog.get_logger(__name__)
 CACHE_EVICTION_COUNTER = Counter(
     "query_cache_size_limit_evictions_total",
     "Cache entries evicted due to per-team size limits",
-    labelnames=["team_id"],
 )
 
 CACHE_EVICTION_BYTES_COUNTER = Counter(
     "query_cache_size_limit_evicted_bytes_total",
     "Bytes evicted due to per-team size limits",
-    labelnames=["team_id"],
 )
 
 CACHE_EVICTION_AGE_HISTOGRAM = Histogram(
     "query_cache_eviction_age_seconds",
     "Age of cache entries at eviction time (seconds since write)",
-    labelnames=["team_id"],
     buckets=[
         1800,  # 30 min
         3600,  # 1 hour
@@ -48,7 +45,6 @@ CACHE_EVICTION_AGE_HISTOGRAM = Histogram(
 CACHE_SIZE_HISTOGRAM = Histogram(
     "query_cache_team_size_bytes",
     "Distribution of per-team cache sizes in bytes",
-    labelnames=["team_id"],
     buckets=[
         1_000_000,  # 1MB
         10_000_000,  # 10MB
@@ -189,7 +185,7 @@ class TeamCacheSizeTracker:
 
         total_size = self.get_total_size()
         entry_count = self.redis_client.zcard(self.entries_key)
-        CACHE_SIZE_HISTOGRAM.labels(team_id=self.team_id).observe(total_size)
+        CACHE_SIZE_HISTOGRAM.observe(total_size)
 
         logger.info(
             "query_cache_write",
@@ -247,10 +243,10 @@ class TeamCacheSizeTracker:
             current_size -= removed_size
             evicted_keys.append(cache_key)
 
-            CACHE_EVICTION_COUNTER.labels(team_id=self.team_id).inc()
-            CACHE_EVICTION_BYTES_COUNTER.labels(team_id=self.team_id).inc(removed_size)
+            CACHE_EVICTION_COUNTER.inc()
+            CACHE_EVICTION_BYTES_COUNTER.inc(removed_size)
             eviction_age = time.time() - float(write_timestamp)
-            CACHE_EVICTION_AGE_HISTOGRAM.labels(team_id=self.team_id).observe(eviction_age)
+            CACHE_EVICTION_AGE_HISTOGRAM.observe(eviction_age)
 
         return evicted_keys
 

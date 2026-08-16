@@ -53,6 +53,7 @@ from products.cohorts.backend.models.cohort import Cohort
 # module attribute so it always sees the same value the scan applies (tests patch it there).
 from products.experiments.backend import metric_events
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
@@ -576,8 +577,8 @@ def _compute_chunk_contexts(
             if experiment.end_date is not None and experiment.end_date < window.recording_start:
                 continue
             flag_key = experiment.feature_flag.key
-            # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
-            # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
+            # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter
+            # in the analysis queries: a non-enrolled user's flag evaluation captures
             # `$feature_flag_response: false`, which must not surface as a variant named "false".
             defined_variants = resolved.variant_keys_by_id.get(experiment.pk, set())
             exposure_rows = [row for row in session_exposures.get(experiment.pk, []) if row[0] in defined_variants]
@@ -721,7 +722,13 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    event, variant_property = get_exposure_event_and_property(flag_key, criteria)
+    # This surface deliberately stays on the legacy default rather than resolving the
+    # $experiment_exposure rollout per experiment: its shared flag-evaluations query reads
+    # $feature_flag_called, and while ingestion emits both events every exposure still lands on
+    # the same sessions, so the legacy event stays correct here for now.
+    event, variant_property = get_exposure_event_and_property(
+        flag_key, criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+    )
     # Only experiments whose criteria resolve to the plain `$feature_flag_called` shape (no
     # extra property filters) can share the batched query. The literal is deliberate — it names
     # the batched query's shape, not the default: if DEFAULT_EXPOSURE_EVENT ever changes in
@@ -825,7 +832,10 @@ def _query_exposure_event_branches(
         # Built here, after the branch cap, so classification stays DB-free for experiments
         # the slice discards (action-based conditions cost a Postgres lookup each).
         try:
-            conditions = build_exposure_event_conditions(resolution.criteria, team, resolution.flag_key)
+            # The same deliberate legacy-event choice as `_resolve_exposure` above.
+            conditions = build_exposure_event_conditions(
+                resolution.criteria, team, resolution.flag_key, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+            )
         except (Cohort.DoesNotExist, BaseHogQLError):
             # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
             # here (e.g. a duplicated experiment carrying the source project's cohort id), or a

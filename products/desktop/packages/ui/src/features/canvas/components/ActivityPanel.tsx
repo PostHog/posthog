@@ -6,31 +6,27 @@ import {
 import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
-import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
-import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
 import {
-  AgentStatusLine,
-  ThreadLoadingState,
-  ThreadReplyComposer,
-} from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+  ActivityPanelBody,
+  type ActivityTab,
+} from "@posthog/ui/features/canvas/components/ActivityPanelBody";
+import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
+import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type ActivityTab = "timeline" | "artifacts";
+import { useCallback, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
   { key: "artifacts", label: "Artifacts" },
+  { key: "comments", label: "Comments" },
 ] as const;
 
-/** The 32px row this panel leads with: the tabs are the header, so the strip
- *  lines up with the tab bar of the pane on its left (TabbedPanel) and the
- *  review toolbar, which are the same fixed height and border. */
+/** The tabs are this panel's header, so the strip matches the fixed height and border of
+ *  the tab bar on its left (TabbedPanel) and of the review toolbar. */
 function ActivityHeader({
   tab,
   onTabChange,
@@ -53,11 +49,17 @@ function ActivityHeader({
         {/* Nothing spells out "Activity" any more, so the strip carries the name.
             The list fills the row's 32px and drops quill's 3px inset so the
             line-variant indicator (bottom: 0 of the list) lands on the row's
-            bottom border, the way the left pane's tabs underline does. */}
+            bottom border, the way the left pane's tabs underline does.
+            The z-10 lifts the indicator above the active trigger, whose
+            opaque rounded background (quill: trigger z-1, indicator z-0)
+            otherwise covers the underline's top edge and leaves its ends
+            poking out as rounded-looking nubs. The underscores are escaped
+            because Tailwind turns bare underscores in arbitrary variants
+            into spaces, so the unescaped form matches nothing. */}
         <TabsList
           variant="line"
           aria-label="Activity"
-          className="h-[31px] gap-0.5 p-0"
+          className="h-[31px] gap-0.5 p-0 [&_.quill-tabs\_\_indicator]:z-10"
         >
           {ACTIVITY_TABS.map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="px-2.5">
@@ -120,25 +122,6 @@ function ActivityConversation({
   canOpenInPlace?: boolean;
 }) {
   const taskId = task.id;
-  const {
-    timeline,
-    agentStatus,
-    events,
-    isPromptPending,
-    isReady,
-    members,
-    currentUser,
-    isTaskAuthor,
-    canForward,
-    draft,
-    setDraft,
-    isSubmitDisabled,
-    submit,
-    sendMessageToAgent,
-    deleteMessage,
-    onMentionInsert,
-  } = useThreadConversation(task, { surface: "activity_panel" });
-
   const [tab, setTab] = useState<ActivityTab>("timeline");
   const handleTabChange = useCallback(
     (next: ActivityTab) => {
@@ -153,48 +136,8 @@ function ActivityConversation({
     [taskId],
   );
 
-  const conversationItems = useMemo(
-    () =>
-      tab === "timeline"
-        ? buildConversationItems(events, isPromptPending).items
-        : [],
-    [tab, events, isPromptPending],
-  );
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [timeline, events.length, agentStatus?.phase, tab]);
-
-  const showComposer = tab === "timeline";
-
-  const body = () => {
-    if (tab === "artifacts") {
-      return (
-        <TaskArtifactsList
-          task={task}
-          timeline={timeline}
-          canOpenInPlace={canOpenInPlace}
-        />
-      );
-    }
-    if (!isReady) return <ThreadLoadingState />;
-    return (
-      <ActivityTimeline
-        task={task}
-        timeline={timeline}
-        conversationItems={conversationItems}
-        currentUserUuid={currentUser?.uuid}
-        currentUserEmail={currentUser?.email}
-        isTaskAuthor={isTaskAuthor}
-        canForward={canForward}
-        canOpenInPlace={canOpenInPlace}
-        onSendToAgent={sendMessageToAgent}
-        onDelete={deleteMessage}
-      />
-    );
-  };
+  // Not handleTabChange: a programmatic switch isn't a user tab change.
+  useCommentFocusRequest(taskId, () => setTab("comments"));
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -211,27 +154,15 @@ function ActivityConversation({
           <TaskCard task={task} channelId={channelId} inThread />
         </div>
       )}
-      <div
-        ref={scrollRef}
-        aria-busy={!isReady}
-        className="flex-1 overflow-y-auto"
-      >
-        {body()}
-      </div>
-
-      {showComposer && agentStatus && <AgentStatusLine status={agentStatus} />}
-
-      {showComposer && (
-        <ThreadReplyComposer
-          draft={draft}
-          onDraftChange={setDraft}
-          onSubmit={submit}
-          members={members}
-          allowAgentMention={isTaskAuthor && canForward}
-          onMentionInsert={onMentionInsert}
-          disabled={isSubmitDisabled}
-        />
-      )}
+      {/* Keyed by session: the body latches "the timeline has drawn" so it
+          never blinks back to a loader, and the dock reuses one body across
+          tasks, which would carry that latch onto a session still loading. */}
+      <ActivityPanelBody
+        key={taskId}
+        task={task}
+        tab={tab}
+        canOpenInPlace={canOpenInPlace}
+      />
     </div>
   );
 }
@@ -262,6 +193,10 @@ export function ActivityPanel({
     enabled: !taskProp && !collapsed,
   });
   const task = taskProp ?? fetchedTask;
+
+  // Warmed from the id alone so it doesn't queue behind the task itself, which can take
+  // seconds to arrive. Same query key as the panel's own hook, so this shares one fetch.
+  useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
 
   if (collapsed) {
     return (

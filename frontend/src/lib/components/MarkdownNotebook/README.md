@@ -32,7 +32,9 @@ Inline: bold (`**`/`__`), italic (`*`/`_`, underscores only at word boundaries),
 
 ## Visual grouping
 
-Consecutive text-like blocks (paragraphs, headings, lists, blockquotes, code blocks) render inside one shared card surface — a _text group_ (`getMarkdownNotebookVisualGroups` in `documentModel.ts`). Within a group, blockquote runs and code blocks form their own tinted sub-surfaces (`MarkdownNotebookTextSurface`: `text` | `quote` | `code`); a surface that starts or ends its group stretches flush to the card edge. Components, tables, and dividers render as standalone rows between groups.
+Consecutive text-like blocks (paragraphs, headings, lists, blockquotes, code blocks) render inside one shared card surface — a _text group_ (`getMarkdownNotebookVisualGroups` in `documentModel.ts`). Within a group, blockquote runs and code blocks form their own tinted sub-surfaces (`MarkdownNotebookTextSurface`: `text` | `quote` | `code`); a surface that starts or ends its group stretches flush to the card edge. Components and dividers render as standalone rows between groups.
+
+A table joins a card an earlier block already opened, but never opens one itself (`tableJoinsTextGroup`). A table written between two paragraphs therefore reads as part of that passage: it joins the `text` surface and drops its card chrome, keeping only the grid outline. A table carrying a card boundary, or following a standalone block, keeps its own row and its own chrome.
 
 A block carrying `startsGroup` breaks out of the run above it and starts its own card. It is set when the block was added as a node in its own right rather than typed as a continuation: the insert boundary's "+", an MCP `notebooks-add-cell` insert, `appendMarkdownNotebookBlock`. Enter inside a card keeps making blocks in that same card, so the two stay distinguishable. The flag lives in the markdown as a **second blank line** before the block (`NOTEBOOK_BLOCK_SEPARATOR`) — nothing else would survive a save, since markdown is the only storage. It never applies to the first block, which has no separator to widen.
 

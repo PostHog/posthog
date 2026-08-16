@@ -51,6 +51,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
+    NULL_MARKER,
     TRUNCATED_MARKER,
     BoxPlotResultsFormatter,
     FunnelResultsFormatter,
@@ -630,6 +631,10 @@ async def execute_and_format_query(
     has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
         TRUNCATED_MARKER in results and not used_fallback
     )
+    # Check if SQL results contain null values
+    has_null_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        NULL_MARKER in results and not used_fallback
+    )
 
     query_result = format_prompt_string(
         QUERY_RESULTS_PROMPT,
@@ -640,6 +645,7 @@ async def execute_and_format_query(
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         has_truncated_values=has_truncated_values,
+        has_null_values=has_null_values,
         sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 

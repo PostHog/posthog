@@ -23,6 +23,66 @@ import {
 // Last-resort attribution if we can't resolve the signed-in user (and the
 // canvas didn't pass its own distinctId).
 const FALLBACK_DISTINCT_ID = "freeform-canvas";
+const MAX_CANVAS_RESULT_ROWS = 1_000;
+const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
+
+const utf8Encoder = new TextEncoder();
+
+// True when the JSON's UTF-8 encoding exceeds the byte limit. UTF-8 is 1–3
+// bytes per UTF-16 code unit, so the string length bounds the byte count from
+// both sides — only payloads in the ambiguous band pay for a full encode.
+function exceedsByteLimit(json: string): boolean {
+  if (json.length > MAX_CANVAS_RESULT_BYTES) return true;
+  if (json.length * 3 <= MAX_CANVAS_RESULT_BYTES) return false;
+  return utf8Encoder.encode(json).byteLength > MAX_CANVAS_RESULT_BYTES;
+}
+
+function boundedResult(result: CanvasDataResult): CanvasDataResult {
+  if (
+    result.results.length > MAX_CANVAS_RESULT_ROWS ||
+    exceedsByteLimit(JSON.stringify(result))
+  ) {
+    throw new Error("Canvas data result exceeds the result limit");
+  }
+  return result;
+}
+
+// Compare a requested SQL-variable value against the one the server resolved.
+// Values round-trip verbatim, so structural equality is enough; `undefined`
+// normalizes to null because that's how it serializes over the wire.
+function sameVariableValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/**
+ * Fail loudly when a requested SQL variable didn't actually take effect.
+ *
+ * The insights API drops an override whose `code_name` matches no variable on the
+ * insight, and ignores overrides wholesale under sharing-token auth. Both are
+ * SILENT: the insight then computes from its own saved defaults and returns numbers
+ * that look real. On a per-product board that means every product rendering the
+ * insight's default product — precisely the wrong-but-plausible data a canvas must
+ * never show. So verify against what the server says it used, and refuse otherwise.
+ */
+function assertVariablesApplied(
+  requested: Record<string, unknown> | undefined,
+  resolved: Record<string, unknown>,
+  shortId: string,
+): void {
+  for (const [codeName, requestedValue] of Object.entries(requested ?? {})) {
+    if (!(codeName in resolved)) {
+      const known = Object.keys(resolved);
+      throw new Error(
+        `Insight "${shortId}" has no SQL variable "${codeName}" (it uses: ${known.length > 0 ? known.join(", ") : "none"})`,
+      );
+    }
+    if (!sameVariableValue(resolved[codeName], requestedValue)) {
+      throw new Error(
+        `SQL variable "${codeName}" was not applied to insight "${shortId}" — it resolved to ${JSON.stringify(resolved[codeName])}, not ${JSON.stringify(requestedValue)}`,
+      );
+    }
+  }
+}
 
 /**
  * The host-side data avenue behind a freeform canvas's `ph.query` shim.
@@ -70,7 +130,7 @@ export class CanvasDataService {
       const { columns, results } = await runQuery(this.authService, node, {
         refresh: "blocking",
       });
-      return {
+      return boundedResult({
         columns,
         // HogQL returns rows; normalise a bare scalar row to a 1-cell array.
         // Typed nodes return SERIES OBJECTS — pass them through untouched (wrapping
@@ -78,7 +138,7 @@ export class CanvasDataService {
         results: isTyped
           ? results
           : results.map((r) => (Array.isArray(r) ? r : [r])),
-      };
+      });
     } catch (err) {
       this.log.warn("Canvas query failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -89,25 +149,31 @@ export class CanvasDataService {
 
   // The preferred data avenue: load a SAVED insight by short id and return its
   // STORED result from the insights endpoint (not a fresh /query/ run). The
-  // canvas date picker's window rides along as the insight's date override.
+  // canvas date picker's window rides along as the insight's date override, and
+  // `variables` supplies the insight's SQL variables for this request.
   async loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult> {
     try {
       const insight = await fetchInsightByShortId(
         this.authService,
         input.shortId,
-        { dateRange: input.dateRange },
+        { dateRange: input.dateRange, variables: input.variables },
+      );
+      assertVariablesApplied(
+        input.variables,
+        insight.resolvedVariables,
+        input.shortId,
       );
       // Mirror the shape handling in `query`: a SQL insight returns rows (coerce a
       // bare scalar row to a 1-cell array); a trends-style insight returns SERIES
       // OBJECTS, which must pass through untouched (wrapping them reads every value
       // as 0).
       const isRows = insight.queryKind === "HogQLQuery";
-      return {
+      return boundedResult({
         columns: insight.columns,
         results: isRows
           ? insight.results.map((r) => (Array.isArray(r) ? r : [r]))
           : insight.results,
-      };
+      });
     } catch (err) {
       this.log.warn("Canvas loadInsight failed", {
         shortId: input.shortId,

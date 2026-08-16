@@ -8,15 +8,7 @@ pub struct AppContext {
     pub pool: PgPool,
 
     pub query_manager: Manager,
-    pub skip_writes: bool,
     pub skip_reads: bool,
-
-    // sentinel flag used to identify the "mirror" deployments (property-defs-rs-v2) in
-    // production environments to special case code that only works in those envs. Primary
-    // use so far is to condition which database the service writes to. When disabled, it
-    // targets the shared PostHog cloud DB. When enabled, it targets the new, isolated
-    // property definitions database instace.
-    pub enable_mirror: bool,
 
     group_type_resolver: GroupTypeResolver,
 }
@@ -31,9 +23,7 @@ impl AppContext {
         Ok(Self {
             pool,
             query_manager: qmgr,
-            skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
-            enable_mirror: config.enable_mirror,
             group_type_resolver,
         })
     }
