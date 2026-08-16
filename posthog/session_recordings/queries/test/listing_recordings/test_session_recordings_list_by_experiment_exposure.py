@@ -28,7 +28,7 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
-from posthog.test.persons import create_person
+from posthog.test.persons import add_distinct_id, create_person
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
@@ -195,6 +195,32 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         self._assert_query_matches_session_ids(
             {"experiment_exposure": {"experiment_id": experiment.id}},
             ["session-on-browser"],
+        )
+
+    def test_distinct_id_reassigned_away_from_an_exposed_person_stays_excluded(self) -> None:
+        # The linkage narrows its distinct-id scan to ids that ever mapped to an exposed person,
+        # then resolves each id's latest mapping over all its version rows. Resolving from only
+        # the exposed person's rows instead would resurrect the stale mapping here and leak the
+        # reassigned id's sessions into the exposed list.
+        experiment = self._create_experiment()
+        exposed = create_person(team=self.team, distinct_ids=["exposed-id", "reassigned-id"])
+        unexposed = create_person(team=self.team, distinct_ids=["unexposed-id"])
+        add_distinct_id(person=unexposed, distinct_id="reassigned-id", version=1)
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event("exposed-id", exposure_time, "test", person_uuid=str(exposed.uuid))
+        flush_persons_and_events()
+
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-id", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "reassigned-id", "session-of-reassigned", session_start, session_start + timedelta(minutes=10)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-of-exposed"],
         )
 
     def test_excludes_persons_exposed_to_multiple_variants(self) -> None:
