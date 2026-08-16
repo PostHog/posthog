@@ -72,11 +72,11 @@ interface LogsListRowProps {
     userSetCursorIndex: (index: number) => void
     prettifiedLogIds: Set<string>
     togglePrettifyLog: (logId: string) => void
-    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
     newLogUuids?: Set<string>
 }
 
 function LogsListRow({
+    ariaAttributes,
     index,
     style,
     dataSource,
@@ -96,24 +96,16 @@ function LogsListRow({
     userSetCursorIndex,
     prettifiedLogIds,
     togglePrettifyLog,
-    dynamicRowHeight,
     newLogUuids,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
     style: CSSProperties
 } & LogsListRowProps): JSX.Element {
-    const rowRef = useRef<HTMLDivElement>(null)
     const log = dataSource[index]
 
-    useEffect(() => {
-        if (rowRef.current) {
-            return dynamicRowHeight.observeRowElements([rowRef.current])
-        }
-    }, [dynamicRowHeight])
-
     return (
-        <div ref={rowRef} style={style} data-index={index} data-row-key={log.uuid}>
+        <div {...ariaAttributes} style={style} data-index={index} data-row-key={log.uuid}>
             <LogRow
                 log={log}
                 logIndex={index}
@@ -245,13 +237,20 @@ export function VirtualizedLogsList({
 
     // Scroll to cursor when requested (subscription fires when cursorIndex changes)
     useEffect(() => {
-        if (!disableCursor && cursorIndex !== null && cursorIndex >= 0) {
-            listRef.current?.scrollToRow({ index: cursorIndex })
-            const raf = requestAnimationFrame(() => {
-                listRef.current?.scrollToRow({ index: cursorIndex })
-            })
-            return () => cancelAnimationFrame(raf)
+        if (disableCursor || cursorIndex === null || cursorIndex < 0) {
+            return
         }
+        // The cursor is persisted, so a stale index can outrun a list that is still
+        // empty on load. Read the live row count each time — the list can empty
+        // between the effect running and the queued frame firing.
+        const scrollToCursor = (): void => {
+            if (cursorIndex < dataSourceRef.current.length) {
+                listRef.current?.scrollToRow({ index: cursorIndex })
+            }
+        }
+        scrollToCursor()
+        const raf = requestAnimationFrame(scrollToCursor)
+        return () => cancelAnimationFrame(raf)
     }, [disableCursor, scrollToCursorRequest, cursorIndex, listRef])
 
     // Tracks the last range we dispatched so we don't fire setVisibleRowRange on
@@ -316,7 +315,6 @@ export function VirtualizedLogsList({
             userSetCursorIndex,
             prettifiedLogIds,
             togglePrettifyLog,
-            dynamicRowHeight,
             newLogUuids,
         }),
         [
@@ -336,7 +334,6 @@ export function VirtualizedLogsList({
             userSetCursorIndex,
             prettifiedLogIds,
             togglePrettifyLog,
-            dynamicRowHeight,
             newLogUuids,
         ]
     )

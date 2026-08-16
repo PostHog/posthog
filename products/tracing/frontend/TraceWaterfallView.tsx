@@ -295,7 +295,6 @@ interface WaterfallRowData {
     onSelect: (spanId: string) => void
     collapsedSpanIds: Set<string>
     onToggleCollapse: (spanId: string) => void
-    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
 function WaterfallRow({
@@ -472,24 +471,16 @@ function WaterfallListRow({
     onSelect,
     collapsedSpanIds,
     onToggleCollapse,
-    dynamicRowHeight,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
 } & WaterfallRowData): JSX.Element {
-    const rowRef = useRef<HTMLDivElement>(null)
     const node = flatSpans[index]
-
-    useEffect(() => {
-        if (rowRef.current) {
-            return dynamicRowHeight.observeRowElements([rowRef.current])
-        }
-    }, [dynamicRowHeight])
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div {...ariaAttributes} ref={rowRef} style={style} data-index={index} data-row-key={node.span.uuid}>
+        <div {...ariaAttributes} style={style} data-index={index} data-row-key={node.span.uuid}>
             <WaterfallRow
                 node={node}
                 traceStartUs={traceStartUs}
@@ -828,7 +819,6 @@ export function TraceWaterfallView({
                             onSelect: handleSelect,
                             collapsedSpanIds,
                             onToggleCollapse: handleToggleCollapse,
-                            dynamicRowHeight,
                         }}
                         onRowsRendered={handleRowsRendered}
                         listRef={listRef}

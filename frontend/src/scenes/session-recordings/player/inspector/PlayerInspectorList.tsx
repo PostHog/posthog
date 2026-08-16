@@ -20,35 +20,26 @@ const LOAD_MORE_INSET_STYLE: CSSProperties = { bottom: 36 }
 interface InspectorRowProps {
     items: InspectorListItem[]
     displayGroups: DisplayGroup[]
-    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
 function InspectorRow({
+    ariaAttributes,
     index,
     style,
     items,
     displayGroups,
-    dynamicRowHeight,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
     style: CSSProperties
 } & InspectorRowProps): JSX.Element {
-    const rowRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (rowRef.current) {
-            return dynamicRowHeight.observeRowElements([rowRef.current])
-        }
-    }, [dynamicRowHeight])
-
     const group = displayGroups[index]
     const item = items[group.indices[0]]
     const groupCount = group.indices.length > 1 ? group.indices.length : undefined
     const groupedItems = group.indices.length > 1 ? group.indices.map((i) => items[i]) : undefined
 
     return (
-        <div ref={rowRef} style={style} data-index={index}>
+        <div {...ariaAttributes} style={style} data-index={index}>
             <PlayerInspectorListItem
                 key={index}
                 item={item}
@@ -130,7 +121,7 @@ export function PlayerInspectorList(): JSX.Element {
                                         rowCount={displayGroups.length}
                                         rowHeight={dynamicRowHeight}
                                         rowComponent={InspectorRow}
-                                        rowProps={{ items, displayGroups, dynamicRowHeight }}
+                                        rowProps={{ items, displayGroups }}
                                         listRef={listRef}
                                         id="PlayerInspectorList"
                                         onScroll={handleScroll}
