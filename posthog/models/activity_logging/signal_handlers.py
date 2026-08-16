@@ -139,38 +139,61 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)
@@ -628,15 +651,15 @@ def handle_tagged_item_change(
     if not tagged_item or not tagged_item.tag:
         return
 
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    related_object = get_tagged_item_related_object_info(tagged_item)
 
     context = TaggedItemContext(
         tag_name=tagged_item.tag.name,
         tag_id=str(tagged_item.tag.id),
         team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
+        related_object_type=related_object.type,
+        related_object_id=related_object.id,
+        related_object_name=related_object.name,
     )
 
     team = tagged_item.tag.team
@@ -663,19 +686,19 @@ def handle_tagged_item_change(
 
     # Mirror the tag change onto the related object's own activity stream
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
+    if related_logger and related_object.id:
         tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=related_object_id,
+            item_id=related_object.id,
             scope=related_logger.scope,
             activity="updated",
             detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
+                name=related_logger.resolve_name(tagged_item, related_object.name),
                 changes=[
                     Change(
                         type=related_logger.scope,

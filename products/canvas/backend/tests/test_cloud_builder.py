@@ -95,6 +95,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
         self.assertIn('event.data?.type!=="connect"', runtime)
         self.assertIn("event.ports[0]", runtime)
+        self.assertIn("port.postMessage", runtime)
         self.assertIn("port?.postMessage", runtime)
         self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
         self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
@@ -107,6 +108,86 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("getSelection()?.removeAllRanges()", runtime)
         self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
+
+    def test_runtime_flushes_data_requests_queued_before_the_port_connects(self) -> None:
+        # The host delivers the MessagePort only after the artifact iframe's
+        # load event, so a ph.query issued while the app mounts runs before the
+        # port exists. Dropping it leaves the request to die on its 30s timeout.
+        # A request whose timeout already rejected must not be delivered on
+        # connect — the caller has given up, so executing it anyway would fire
+        # late host side effects.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                'window.ph.query("SELECT expired").catch(() => {});',
+                "timers.get(timerId)();",
+                'window.ph.query("SELECT 1");',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                'const requests = received.filter((m) => m.type === "data-request" && m.method === "query");',
+                'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
+                'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
+                'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_runtime_rejects_pre_connect_action_invocations(self) -> None:
+        # Reads queue until the port connects, but a write queued during module
+        # initialization would fire on connect as the viewer — an on-open task
+        # or annotation the viewer never asked for. Writes must reject instead.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                "let rejected = false;",
+                'window.ph.actions.invoke("tasks.create", { title: "on-open" }).catch(() => { rejected = true; });',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                "setImmediate(() => {",
+                'if (!rejected) { console.error("pre-connect action was not rejected"); process.exit(1); }',
+                'if (received.some((m) => m.type === "data-request" && m.method === "actionInvoke")) { console.error("pre-connect action was delivered on connect"); process.exit(1); }',
+                "process.exit(0);",
+                "});",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
 
     def test_runtime_bounds_host_side_effects(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

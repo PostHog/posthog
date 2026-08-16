@@ -310,6 +310,8 @@ export type CyclotronJobInvocation = {
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
+    /** The invocation deliberately finished without running because its trigger did not match. */
+    skipped?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]

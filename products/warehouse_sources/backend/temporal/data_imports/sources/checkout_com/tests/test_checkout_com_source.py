@@ -8,6 +8,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    SYNC_BUDGET_EXCEEDED_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
@@ -107,9 +110,13 @@ class TestCheckoutComSource:
         [
             "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+            # A run stopped at its per-run API budget is incomplete, not broken: it raises so
+            # the schema never reports Completed over an unfilled range, and the retry resumes
+            # from the last checkpointed window. Classified as a bug, it would page instead.
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for payment_actions before reaching 2024-03-01T00:00:00Z",
         ],
     )
-    def test_retryable_errors_match_payments_search_503(self, observed_error):
+    def test_retryable_errors_match_transient_and_partial_run_failures(self, observed_error):
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 
