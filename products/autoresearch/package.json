@@ -12,9 +12,11 @@
         "zod": "^4.0.0"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:"
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",

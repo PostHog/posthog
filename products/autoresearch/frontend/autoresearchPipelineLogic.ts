@@ -134,6 +134,13 @@ export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRu
     }
 }
 
+/** One scoring day's volume: emitted prediction events and their average probability as a 0-100 percentage. */
+export interface DailyVolumePoint {
+    day: string
+    users: number
+    avgProbabilityPct: number
+}
+
 /** Flattened row for the online performance table. */
 export interface OnlinePerformanceRow {
     run_id: string
@@ -154,6 +161,9 @@ export interface autoresearchPipelineLogicValues {
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
+    dailyVolume: DailyVolumePoint[] | null
+    dailyVolumeError: boolean
+    dailyVolumeLoading: boolean
     expandedRunId: string | null
     models: AutoresearchModelApi[]
     modelsLoading: boolean
@@ -200,6 +210,21 @@ export interface autoresearchPipelineLogicActions {
         payload?: any
     ) => {
         viewedArtifact: null
+        payload?: any
+    }
+    loadDailyVolume: () => any
+    loadDailyVolumeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDailyVolumeSuccess: (
+        dailyVolume: DailyVolumePoint[],
+        payload?: any
+    ) => {
+        dailyVolume: DailyVolumePoint[]
         payload?: any
     }
     loadModels: () => any
@@ -527,6 +552,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadProbabilityDistributionFailure: () => true,
             },
         ],
+        dailyVolumeError: [
+            false,
+            {
+                loadDailyVolume: () => false,
+                loadDailyVolumeFailure: () => true,
+            },
+        ],
     }),
     loaders(({ values, props }) => ({
         pipeline: [
@@ -721,6 +753,35 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
             },
         ],
+        dailyVolume: [
+            null as DailyVolumePoint[] | null,
+            {
+                loadDailyVolume: async () => {
+                    // Latest 60 scoring days, returned oldest-first for left-to-right display.
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT toDate(timestamp) AS day,
+                                   count() AS users_scored,
+                                   round(100 * avg(toFloat(properties.$autoresearch_p_y)), 1) AS avg_probability
+                            FROM events
+                            WHERE event = 'autoresearch_prediction'
+                              AND properties.$autoresearch_pipeline_id = ${props.id}
+                            GROUP BY day
+                            ORDER BY day DESC
+                            LIMIT 60
+                        `,
+                        { productKey: 'autoresearch', name: 'autoresearch_daily_volume' }
+                    )
+                    return (response.results ?? [])
+                        .map((row: any[]) => ({
+                            day: String(row[0]),
+                            users: Number(row[1]),
+                            avgProbabilityPct: Number(row[2]),
+                        }))
+                        .reverse()
+                },
+            },
+        ],
         suggestionSubmitResult: [
             null as AutoresearchSuggestionApi | null,
             {
@@ -747,7 +808,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
                 {
                     key: [Scene.AutoresearchPipeline, pipeline?.id ?? 'unknown'],
-                    name: pipeline?.name ?? 'Pipeline',
+                    name: pipeline?.name ?? 'Model',
                 },
             ],
         ],
@@ -808,9 +869,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadPipelineSuccess: ({ pipeline }) => {
-            // The distribution query is only worth running once the pipeline has ever scored.
+            // The prediction-event queries are only worth running once the pipeline has ever scored.
             if (pipeline?.last_scored_at && !values.probabilityDistribution && !values.probabilityDistributionLoading) {
                 actions.loadProbabilityDistribution()
+            }
+            if (pipeline?.last_scored_at && !values.dailyVolume && !values.dailyVolumeLoading) {
+                actions.loadDailyVolume()
             }
         },
         startTrainingSuccess: () => {
@@ -822,21 +886,22 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.error('Could not start training run')
         },
         pausePipelineSuccess: () => {
-            lemonToast.success('Pipeline paused. Daily scoring is on hold.')
+            lemonToast.success('Model paused. Daily scoring is on hold.')
         },
         pausePipelineFailure: () => {
-            lemonToast.error('Could not pause the pipeline')
+            lemonToast.error('Could not pause the model')
         },
         resumePipelineSuccess: () => {
-            lemonToast.success('Pipeline resumed')
+            lemonToast.success('Model resumed')
         },
         resumePipelineFailure: () => {
-            lemonToast.error('Could not resume the pipeline')
+            lemonToast.error('Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
             actions.loadRuns()
             actions.loadPipeline()
             actions.loadProbabilityDistribution()
+            actions.loadDailyVolume()
             const scored = scoreResult?.rows_scored
             lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
         },

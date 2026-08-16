@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconPause, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -17,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { autoresearchLogic } from './autoresearchLogic'
+import { autoresearchEmptyState } from './emptyState/autoresearchEmptyState'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 import { PipelineStatusTag } from './PipelineStatusTag'
 
@@ -24,12 +23,12 @@ export const scene: SceneExport = {
     component: AutoresearchScene,
     logic: autoresearchLogic,
     productKey: ProductKey.AUTORESEARCH,
+    emptyState: autoresearchEmptyState,
 }
 
 export function AutoresearchScene(): JSX.Element {
     const { pipelines, pipelinesLoading, mutatingPipelineIds } = useValues(autoresearchLogic)
     const { deletePipeline, pausePipeline, resumePipeline } = useActions(autoresearchLogic)
-    const isEmpty = pipelines.length === 0 && !pipelinesLoading
 
     const columns: LemonTableColumn<AutoresearchPipelineApi, keyof AutoresearchPipelineApi | undefined>[] = [
         {
@@ -121,7 +120,7 @@ export function AutoresearchScene(): JSX.Element {
                             size="small"
                             icon={<IconTrash />}
                             status="danger"
-                            tooltip="Delete pipeline"
+                            tooltip="Delete model"
                             loading={mutating}
                             disabledReason={mutating ? 'Another change is still saving' : undefined}
                             onClick={(e) => {
@@ -129,7 +128,7 @@ export function AutoresearchScene(): JSX.Element {
                                 LemonDialog.open({
                                     title: `Delete "${record.name}"?`,
                                     description:
-                                        'The pipeline, its training runs, models, and predictions metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
+                                        'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -160,17 +159,7 @@ export function AutoresearchScene(): JSX.Element {
                 }
             />
 
-            <ProductIntroduction
-                isEmpty={isEmpty}
-                productName="Autoresearch"
-                productKey={ProductKey.AUTORESEARCH}
-                thingName="prediction pipeline"
-                description="Autoresearch automatically finds the best model to predict user behavior, scoring your users daily and emitting predictions as PostHog events."
-                action={() => router.actions.push(urls.autoresearchNew())}
-                className="my-0"
-            />
-
-            {!isEmpty && <LemonTable loading={pipelinesLoading} columns={columns} dataSource={pipelines} rowKey="id" />}
+            <LemonTable loading={pipelinesLoading} columns={columns} dataSource={pipelines} rowKey="id" />
         </SceneContent>
     )
 }

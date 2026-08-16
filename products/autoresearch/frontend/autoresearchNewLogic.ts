@@ -192,7 +192,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
         newPipeline: {
             defaults: DEFAULTS,
             errors: (formValues: NewPipelineFormValues) => ({
-                name: !formValues.name.trim() ? 'Give the pipeline a name' : undefined,
+                name: !formValues.name.trim() ? 'Give the model a name' : undefined,
                 target_event:
                     formValues.target_type === 'event' && !formValues.target_event.trim()
                         ? 'Pick a target event to predict'
@@ -214,7 +214,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             }),
             submit: async (payload: NewPipelineFormValues) => {
                 if (!values.currentTeamId) {
-                    lemonToast.error('Select a project before creating a pipeline')
+                    lemonToast.error('Select a project before creating a model')
                     return
                 }
                 if (values.validationLoading || !values.validation) {
@@ -256,7 +256,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     lemonToast.error(
                         error?.detail ??
                             error?.data?.detail ??
-                            'Failed to create pipeline. Check the form and try again.'
+                            'Failed to create the model. Check the form and try again.'
                     )
                     throw error
                 }

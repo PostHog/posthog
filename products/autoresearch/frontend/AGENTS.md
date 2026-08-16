@@ -10,10 +10,14 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `AutoresearchScene.tsx`         | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point. |
 | `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form.                                                                                  |
-| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — one pipeline: its models, training runs, iterations, and runs.                                    |
-| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions.                                                                        |
+| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — one pipeline: its models, training runs, iterations, runs, and predictions.                       |
+| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                   |
 | `autoresearchNewLogic.ts`       | Create form — a `kea-forms` form that validates the target, then calls the generated `autoresearchCreate`.              |
 | `autoresearchPipelineLogic.ts`  | Detail logic.                                                                                                           |
+| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                              |
+| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                             |
+| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                    |
+| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                               |
 | `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/api/serializers.py` and run `hogli build:openapi`. |
 
 Scene registration, routes, and urls live in `../manifest.tsx`.
@@ -48,14 +52,10 @@ Follow `frontend/src/AGENTS.md` — it applies to product frontends too.
 
 ## Copy
 
-Sentence case, not Title Case. Say what a user sees, not what the model is called internally — "prediction", not "pipeline recipe". Invoke `/writing-user-facing-copy` before adding or changing any visible string.
+Sentence case, not Title Case. Invoke `/writing-user-facing-copy` before adding or changing any visible string.
 
-Note the vocabulary is currently inconsistent: the button says "New model", the scene description says "prediction pipeline", and the backend calls it a pipeline. Worth settling on one word.
-
-## Known gaps
-
-- `AutoresearchScene.tsx` still uses `ProductIntroduction`, which is deprecated in favor of the shared `ProductEmptyState` / `SceneExport.emptyState` pattern. See the `building-product-empty-states` skill.
-- There is no UI for `AutoresearchSuggestion` — hypotheses can be created over the API but not from the product.
+The settled user-facing word for the entity is **"model"** ("New model", "Delete model", "Model paused").
+"Pipeline" is the internal name — it stays in code symbols and the backend, and must not appear in copy.
 
 ## When editing this flow
 

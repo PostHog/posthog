@@ -540,8 +540,8 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automatically find the best model to predict user behavior and score your users daily.',
         iconType: 'experiment',
     },
-    AutoresearchNew: { name: 'New prediction', projectBased: true },
-    AutoresearchPipeline: { name: 'Autoresearch pipeline', projectBased: true },
+    AutoresearchNew: { name: 'New model', projectBased: true },
+    AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,

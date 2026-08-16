@@ -3,6 +3,7 @@ import { Meta } from '@storybook/react'
 import type { Mocks } from '~/mocks/utils'
 
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
+import { autoresearchEmptyState } from 'products/autoresearch/frontend/emptyState/autoresearchEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
@@ -58,4 +59,11 @@ export const MCPAnalyticsWithoutWizard: ProductEmptyStateStory = productEmptySta
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
     'needs-setup'
+)
+
+// Autoresearch is creation-first: detection is an entity count, so no waiting-for-data state.
+export const AutoresearchNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    autoresearchEmptyState,
+    'needs-setup',
+    { mocks: { get: { '/api/projects/:team_id/autoresearch/': [200, { results: [] }] } } }
 )

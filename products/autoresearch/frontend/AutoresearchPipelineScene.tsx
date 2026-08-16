@@ -36,6 +36,7 @@ import {
     autoresearchPipelineLogic,
     trainingRunProgress,
 } from './autoresearchPipelineLogic'
+import { DailyVolumeChart } from './DailyVolumeChart'
 import {
     AutoresearchIterationStatusEnumApi,
     AutoresearchModelApi,
@@ -125,7 +126,7 @@ function OverviewTab(): JSX.Element {
             </div>
             <p className="text-sm text-muted">
                 Editing the target, populations, and budget in the UI is coming soon. For now, use the{' '}
-                <code>autoresearch</code> API or MCP tools, or recreate the pipeline.
+                <code>autoresearch</code> API or MCP tools, or recreate the model.
             </p>
         </div>
     )
@@ -641,6 +642,25 @@ function ProbabilityUsersTable({
     )
 }
 
+function DailyVolumePanel(): JSX.Element {
+    const { dailyVolume, dailyVolumeError } = useValues(autoresearchPipelineLogic)
+
+    if (dailyVolumeError) {
+        return (
+            <p className="text-sm text-muted mb-0">Couldn't load the scoring volume. Refresh the page to try again.</p>
+        )
+    }
+    if (dailyVolume == null) {
+        return <LemonSkeleton className="h-44" />
+    }
+    if (dailyVolume.length === 0) {
+        return (
+            <p className="text-sm text-muted mb-0">No prediction events found. Score now to emit fresh predictions.</p>
+        )
+    }
+    return <DailyVolumeChart points={dailyVolume} />
+}
+
 function ProbabilityDistributionPanel(): JSX.Element {
     const { probabilityHistogram, probabilityDistributionError } = useValues(autoresearchPipelineLogic)
 
@@ -680,8 +700,6 @@ function PredictionsTab(): JSX.Element {
         )
     }
 
-    const values = { pipeline_id: pipeline.id }
-
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between gap-2">
@@ -715,37 +733,7 @@ function PredictionsTab(): JSX.Element {
                     {
                         key: 'volume',
                         header: 'Daily scoring volume',
-                        content: (
-                            <Query
-                                readOnly
-                                context={{
-                                    columns: {
-                                        day: { title: 'Day' },
-                                        users_scored: { title: 'Users scored' },
-                                        avg_probability: { title: 'Average probability', render: PercentCell },
-                                    },
-                                }}
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.HogQLQuery,
-                                        query: `
-                                            SELECT
-                                                toDate(timestamp) AS day,
-                                                count() AS users_scored,
-                                                round(100 * avg(toFloat(properties.$autoresearch_p_y)), 1) AS avg_probability
-                                            FROM events
-                                            WHERE event = 'autoresearch_prediction'
-                                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                            GROUP BY day
-                                            ORDER BY day DESC
-                                            LIMIT 60
-                                        `,
-                                        values,
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <DailyVolumePanel />,
                     },
                 ]}
             />
@@ -1073,7 +1061,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
         { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },
     ]
 
-    const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Pipeline')
+    const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Model')
     const subheading = pipeline ? `Predict ${pipeline.target_event} within ${pipeline.horizon_days ?? '?'}d` : undefined
 
     return (

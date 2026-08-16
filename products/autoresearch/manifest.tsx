@@ -15,12 +15,12 @@ export const manifest: ProductManifest = {
             iconType: 'experiment',
         },
         AutoresearchNew: {
-            name: 'New prediction',
+            name: 'New model',
             import: () => import('./frontend/AutoresearchNewScene'),
             projectBased: true,
         },
         AutoresearchPipeline: {
-            name: 'Autoresearch pipeline',
+            name: 'Autoresearch model',
             import: () => import('./frontend/AutoresearchPipelineScene'),
             projectBased: true,
         },
