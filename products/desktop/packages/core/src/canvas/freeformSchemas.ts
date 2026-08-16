@@ -94,6 +94,21 @@ export type CanvasCaptureInput = z.infer<typeof canvasCaptureInput>;
 export const canvasCaptureResultSchema = z.object({ ok: z.boolean() });
 export type CanvasCaptureResult = z.infer<typeof canvasCaptureResultSchema>;
 
+export const canvasAgentRequestInputSchema = z.object({
+  prompt: z.string().min(1).max(10_000),
+});
+export type CanvasAgentRequestInput = z.infer<
+  typeof canvasAgentRequestInputSchema
+>;
+
+export const canvasAgentRequestResultSchema = z.object({
+  requestOutcome: z.enum(["signaled", "new_run", "already_queued", "reported"]),
+  taskId: z.string().min(1),
+});
+export type CanvasAgentRequestResult = z.infer<
+  typeof canvasAgentRequestResultSchema
+>;
+
 // What the host hands the UI to bootstrap in-iframe analytics/replay. The
 // public capture key + the signed-in user's distinct_id; the private token is
 // never included. The UI forwards this into the iframe `init` frame.
@@ -274,6 +289,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "stateSet",
       "stateList",
       "actionInvoke",
+      "agentRequest",
     ]),
     payload: z.unknown(),
   }),
