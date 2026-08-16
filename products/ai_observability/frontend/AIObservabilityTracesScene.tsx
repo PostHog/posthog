@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
@@ -135,11 +136,44 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+// Same target as the ID and trace-name links, so a row click, a link click, and
+// open-in-new-tab all land on the trace detail view.
+function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, any>): string {
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    return combineUrl(urls.aiObservabilityTrace(row.id), {
+        ...nonTraceSearchParams,
+        back_to: 'traces',
+        timestamp: getTraceTimestamp(row.createdAt),
+    }).url
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+    // Stable identity so DataTable's `onRow` useCallback holds and rows are not re-rendered each poll cycle.
+    const rowProps = useCallback(
+        (record: unknown): ReturnType<NonNullable<QueryContext['rowProps']>> => {
+            const row = (record as DataTableRow).result as LLMTrace | undefined
+            if (!row?.id) {
+                return {}
+            }
+            return {
+                onClick: (event) => {
+                    // Cells with their own link or button (ID, trace name, person) handle their own clicks.
+                    if ((event.target as HTMLElement).closest('button, a, [role="button"]')) {
+                        return
+                    }
+                    push(buildTraceDetailUrl(row, searchParams))
+                },
+            }
+        },
+        [push, searchParams]
+    )
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
+        rowProps,
         columns: {
             id: {
                 title: 'ID',
@@ -200,20 +234,10 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-id-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-id-link">
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
             </Tooltip>
@@ -224,20 +248,10 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-name-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
                     {row.traceName || '–'}
                 </Link>
             </strong>

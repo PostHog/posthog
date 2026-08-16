@@ -342,7 +342,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 dateTo: INITIAL_DATE_TO,
             },
             {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                // Only dashboard-scoped actions move this. `setDates` (the events tabs' action)
+                // must not, or it would move the picker without setting dashboardDateOverride,
+                // leaving the picker and the tiles on different ranges.
                 setDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 applyDashboardUrlDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 restoreSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),

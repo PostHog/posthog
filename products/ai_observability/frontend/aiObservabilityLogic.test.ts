@@ -223,6 +223,19 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    it('does not move the dashboard date range when the events tabs change dates', () => {
+        // setDates is the traces/generations action. It must leave dashboardDateFilter and
+        // dashboardDateOverride untouched, so the dashboard picker and tiles stay on one range.
+        logic.actions.setDates('-30d', '-1d')
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-30d', dateTo: '-1d' },
+            dashboardDateFilter: { dateFrom: '-7d', dateTo: null },
+            dashboardDateOverride: false,
+            dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+    })
+
     it('keeps dashboard dates while restoring shared filters from the URL', () => {
         router.actions.push(urls.aiObservabilityDashboard(), {
             date_from: '-30d',
