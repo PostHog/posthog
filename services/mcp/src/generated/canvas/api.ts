@@ -163,7 +163,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -221,7 +221,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -420,7 +420,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -480,7 +480,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -622,7 +622,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -684,7 +684,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
