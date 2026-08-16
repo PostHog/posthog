@@ -331,8 +331,12 @@ export function shapeDashboardPreview(
     )
     .filter((name): name is string => typeof name === "string" && name !== "");
   if (names.length > 0) {
-    facts.push(...names.slice(0, 3));
-    if (tiles.length > 3) facts.push(`+${tiles.length - 3} more`);
+    const shown = names.slice(0, 3);
+    facts.push(...shown);
+    // Count from what we showed, not from tiles.length: unnamed tiles are
+    // filtered out of names, so a fixed -3 undercounts the remainder.
+    const remaining = tiles.length - shown.length;
+    if (remaining > 0) facts.push(`+${remaining} more`);
   } else if (Array.isArray(dashboard.tiles)) {
     facts.push(count(tiles.length, "tile"));
   }

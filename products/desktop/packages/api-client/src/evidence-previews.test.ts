@@ -151,6 +151,32 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  // The remainder counts unnamed tiles too: named tiles are shown, but every
+  // tile that filtered out of the name list still has to appear in "+N more".
+  it.each([
+    [
+      [{ insight: { name: "DAU" } }, {}, {}],
+      ["DAU", "+2 more"],
+    ],
+    [
+      [
+        { insight: { name: "DAU" } },
+        { insight: { name: "Revenue" } },
+        {},
+        {},
+        {},
+      ],
+      ["DAU", "Revenue", "+3 more"],
+    ],
+  ])("counts unnamed tiles in the remainder", (tiles, expected) => {
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles,
+    } as unknown as Schemas.Dashboard);
+    expect(preview.facts).toEqual(expected);
+  });
+
   it("describes a cohort by its size, falling back to the description", () => {
     expect(
       shapeCohortPreview({
