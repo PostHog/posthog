@@ -13,6 +13,7 @@ from products.slack_app.backend.services.model_catalogue import (
     group_by_runtime,
 )
 from products.slack_app.backend.services.run_preferences import (
+    SLACK_DEFAULT_MODEL,
     LiveRunModelChange,
     find_model_choice,
     resolve_live_run_override,
@@ -20,6 +21,7 @@ from products.slack_app.backend.services.run_preferences import (
 )
 
 __all__ = [
+    "SLACK_DEFAULT_MODEL",
     "LiveRunModelChange",
     "ModelChoice",
     "available_model_choices",

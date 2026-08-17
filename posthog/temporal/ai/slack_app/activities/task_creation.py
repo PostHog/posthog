@@ -638,9 +638,25 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
+    from products.slack_app.backend.facade.run_preferences import SLACK_DEFAULT_MODEL, resolve_run_preferences
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
 
-    run_prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    # Slack's own floor would make the project and user defaults unreachable from Slack:
+    # the run would always carry an explicit model. Dropping the floor when a central
+    # default exists leaves the triple empty, so `create_run` resolves it (and a warm run
+    # provisioned under that default still matches). Anything pinned in Slack — including a
+    # model named in the mention itself — still wins over the central default.
+    central_default = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, user_id)
+    has_central_default = central_default.source != "none"
+    run_prefs = resolve_run_preferences(
+        integration,
+        slack_user_id,
+        override=model_override,
+        default_model=None if has_central_default else SLACK_DEFAULT_MODEL,
+        deferred_default=central_default,
+    )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
     # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.

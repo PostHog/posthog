@@ -583,7 +583,8 @@ def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> 
     """
     header = _section_title(
         "🤖 AI model",
-        "Which Claude / Codex configuration handles your @PostHog mentions.",
+        "Which Claude / Codex configuration handles your @PostHog mentions. "
+        "Applies to Slack only. Runs you start in PostHog use the defaults set there.",
     )
     source_blurb = {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source.label}"}]}
 
@@ -797,7 +798,7 @@ def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
     """Personal AI override sub-card. Always editable by the user themselves."""
 
     has_override = bool(user_row and user_row.runtime_adapter and user_row.model)
-    summary = _row_summary(user_row) if has_override else "_No personal override — using PostHog's default._"
+    summary = _row_summary(user_row) if has_override else "_No personal override — inheriting the project default._"
 
     actions: list[dict] = [
         {
