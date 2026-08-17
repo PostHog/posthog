@@ -1,15 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
@@ -20,8 +17,63 @@ import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
+import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
+
+function FlagCleanupField({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
+    const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
+
+    if (!cleanupTask) {
+        return null
+    }
+
+    let text = 'Preparing cleanup PR…'
+    let prUrl: string | null = null
+    if (cleanupTask.is_terminal) {
+        if (cleanupTask.run_status === 'completed' && cleanupTask.pr_url) {
+            text = 'Cleanup PR opened'
+            prUrl = cleanupTask.pr_url
+        } else if (cleanupTask.run_status === 'completed') {
+            text = 'Cleanup found no flag code to remove'
+        } else if (cleanupTask.run_status === 'failed') {
+            text = 'Cleanup PR failed'
+        } else {
+            text = 'Cleanup PR cancelled'
+        }
+    }
+
+    const isExternalLink = prUrl !== null
+    // The task page 404s for everyone but the task's creator — hide the internal link from others.
+    const showLink = isExternalLink || cleanupTask.can_view_task
+
+    return (
+        <div className="flex flex-col" data-attr="experiment-flag-cleanup">
+            <Label intent="menu">Flag cleanup</Label>
+            <div className="flex items-center gap-1">
+                {text}
+                {showLink && (
+                    <>
+                        ·
+                        <Link
+                            target={isExternalLink ? '_blank' : undefined}
+                            className="flex items-center gap-0.5"
+                            to={prUrl ?? urls.taskDetail(taskId)}
+                        >
+                            {isExternalLink ? (
+                                <>
+                                    View on GitHub <IconOpenInNew fontSize="14" />
+                                </>
+                            ) : (
+                                'View task'
+                            )}
+                        </Link>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
 
 export function Info(): JSX.Element {
     const {
@@ -33,16 +85,7 @@ export function Info(): JSX.Element {
         isSingleVariantShipped,
         shippedVariantKey,
     } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
-
-    const [tempDescription, setTempDescription] = useState(experiment.description || '')
-
-    useEffect(() => {
-        setTempDescription(experiment.description || '')
-    }, [experiment.description])
+    const { openEditConclusionModal, openRunningTimeConfigModal } = useActions(modalsLogic)
 
     const { created_by } = experiment
 
@@ -59,7 +102,7 @@ export function Info(): JSX.Element {
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[3fr_2fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
@@ -135,54 +178,33 @@ export function Info(): JSX.Element {
                                     : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                             </span>
                         </div>
-                    </div>
-
-                    <div className="max-w-[500px]">
-                        <div className="flex items-center gap-2 mt-2">
-                            <Label intent="menu">Hypothesis</Label>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                onClick={openDescriptionModal}
-                            />
-                        </div>
-                        {experiment.description ? (
-                            <p className={cn('m-0 mt-2')}>{experiment.description}</p>
-                        ) : (
-                            <p className={cn('m-0 mt-2 text-secondary italic')}>Add your hypothesis for this test</p>
-                        )}
-
-                        <LemonModal
-                            isOpen={isDescriptionModalOpen}
-                            onClose={closeDescriptionModal}
-                            title="Edit hypothesis"
-                            footer={
-                                <div className="flex items-center gap-2 justify-end">
-                                    <LemonButton type="secondary" onClick={closeDescriptionModal}>
-                                        Cancel
-                                    </LemonButton>
+                        {experiment.conclusion && experiment.end_date && (
+                            <div className="flex flex-col" data-attr="experiment-conclusion">
+                                <Label intent="menu">Conclusion</Label>
+                                <div className="flex items-center gap-2">
+                                    <div
+                                        className={clsx(
+                                            'w-2 h-2 rounded-full shrink-0',
+                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
+                                        )}
+                                    />
+                                    <span className="font-semibold">
+                                        {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title ||
+                                            experiment.conclusion}
+                                    </span>
                                     <LemonButton
-                                        type="primary"
-                                        onClick={() => {
-                                            updateExperiment({ description: tempDescription })
-                                            closeDescriptionModal()
-                                        }}
-                                    >
-                                        Save
-                                    </LemonButton>
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconPencil />}
+                                        onClick={openEditConclusionModal}
+                                        tooltip="Edit conclusion"
+                                    />
                                 </div>
-                            }
-                        >
-                            <LemonTextArea
-                                className="w-full"
-                                value={tempDescription}
-                                onChange={(value) => setTempDescription(value)}
-                                placeholder="Add your hypothesis for this test"
-                                minRows={6}
-                                maxLength={400}
-                            />
-                        </LemonModal>
+                            </div>
+                        )}
+                        {experiment.flag_cleanup_task_id && typeof experiment.id === 'number' && (
+                            <FlagCleanupField experimentId={experiment.id} taskId={experiment.flag_cleanup_task_id} />
+                        )}
                     </div>
                 </div>
 
@@ -210,35 +232,9 @@ export function Info(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className="flex gap-6">
-                {experiment.conclusion && experiment.end_date && (
-                    <div className="max-w-[500px]">
-                        <div className="flex items-center gap-2">
-                            <Label intent="menu">Conclusion</Label>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                onClick={openEditConclusionModal}
-                            />
-                        </div>
-                        <div>
-                            <div className="font-semibold flex items-center gap-2">
-                                <div
-                                    className={clsx(
-                                        'w-2 h-2 rounded-full',
-                                        CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
-                                    )}
-                                />
-                                <span>
-                                    {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
-                                </span>
-                            </div>
-                            <div>{experiment.conclusion_comment}</div>
-                        </div>
-                    </div>
-                )}
-            </div>
+            {experiment.conclusion && experiment.end_date && experiment.conclusion_comment && (
+                <div className="mt-2 max-w-[600px] text-secondary">{experiment.conclusion_comment}</div>
+            )}
         </>
     )
 }

@@ -12,7 +12,9 @@ from posthog.event_usage import (
     EventSource,
     get_event_source,
     get_mcp_properties,
+    is_wizard_self_driving_program,
     report_user_action,
+    report_user_signed_up,
     sanitize_header_value,
 )
 
@@ -352,6 +354,48 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
+class TestIsWizardSelfDrivingProgram(BaseTest):
+    @parameterized.expand(
+        [
+            # Direct wizard → Django: the marker rides on the User-Agent itself.
+            ("direct_with_marker", "posthog/wizard; version: 2.44.0; program: self-driving-setup", None, True),
+            ("direct_without_marker", "posthog/wizard; version: 2.44.0", None, False),
+            ("direct_other_program", "posthog/wizard; version: 2.44.0; program: revenue-analytics", None, False),
+            # Proxied via the MCP server: it overwrites User-Agent with its own token and forwards
+            # the wizard's real UA (marker included) in X-Posthog-Mcp-User-Agent. The marker must
+            # still be found there — this is the case that previously went undetected.
+            (
+                "proxied_with_marker",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0; program: self-driving-setup",
+                True,
+            ),
+            (
+                "proxied_without_marker",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0",
+                False,
+            ),
+            (
+                "proxied_other_program",
+                "posthog/mcp-server; version: 1.0.0; for posthog/wizard",
+                "posthog/wizard; version: 2.45.0; program: web-analytics-doctor",
+                False,
+            ),
+            # A stray marker with no wizard token anywhere must not qualify.
+            ("marker_without_wizard", "some-agent/1.0; program: self-driving", None, False),
+            ("no_signals", "some-random-agent/1.0", None, False),
+        ]
+    )
+    def test_is_wizard_self_driving_program(self, _name, user_agent, mcp_user_agent, expected):
+        factory = APIRequestFactory()
+        kwargs = {"HTTP_USER_AGENT": user_agent}
+        if mcp_user_agent is not None:
+            kwargs["HTTP_X_POSTHOG_MCP_USER_AGENT"] = mcp_user_agent
+        request = factory.get("/fake", **kwargs)
+        assert is_wizard_self_driving_program(request) is expected
+
+
 class TestGetMcpProperties(BaseTest):
     def test_extracts_all_mcp_headers(self):
         factory = APIRequestFactory()
@@ -381,6 +425,33 @@ class TestGetMcpProperties(BaseTest):
             "mcp_protocol_version": None,
             "mcp_oauth_client_name": None,
         }
+
+
+class TestSignupCrmExclusion(BaseTest):
+    @parameterized.expand(
+        [
+            ("staff_creating_new_organization", "hedgehog@posthog.com", True, True),
+            ("staff_joining_existing_organization", "hedgehog@posthog.com", False, False),
+            ("customer_creating_new_organization", "owner@example.com", True, False),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.group_identify")
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_new_organizations_of_posthog_staff_are_excluded_from_crm(
+        self, _name, email, is_organization_first_user, expect_flagged, _mock_capture, mock_group_identify
+    ):
+        user = self._create_user(email)
+
+        report_user_signed_up(user, is_instance_first_user=False, is_organization_first_user=is_organization_first_user)
+
+        if expect_flagged:
+            mock_group_identify.assert_called_once_with(
+                "organization",
+                str(self.organization.id),
+                properties={"exclude_from_crm": True},
+            )
+        else:
+            mock_group_identify.assert_not_called()
 
 
 class TestSanitizeHeaderValue(BaseTest):

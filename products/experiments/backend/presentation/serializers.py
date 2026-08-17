@@ -9,6 +9,8 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Any, TypeGuard
 
+from django.utils import timezone
+
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
@@ -20,6 +22,7 @@ from posthog.schema import (
     ExperimentApiMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
+    MultipleVariantHandling,
 )
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
@@ -32,8 +35,10 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
+from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -42,8 +47,18 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
+from products.experiments.backend.session_buckets import MAX_BUCKET_SCAN_DAYS, MAX_SESSION_BUCKET_LIMIT, SessionBucket
+from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
+from products.experiments.backend.session_event_deltas import (
+    MAX_CARD_HIGHLIGHTS,
+    MAX_CARD_RECORDINGS,
+    MAX_DELTA_SCAN_DAYS,
+    MAX_FALLBACK_DELTA_SCAN_DAYS,
+    DeltaStrength,
+    WatchCardKind,
+)
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -76,8 +91,8 @@ def _normalized_flag_variants(variants: list) -> list:
     """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
     variants = deepcopy(variants)
     # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-    # to lowercase 'control'. The downstream validator and runtime treat 'control'
-    # as a special key, so a typo in casing was the leading cause of the
+    # to lowercase 'control'. 'control' is the conventional baseline key (the default
+    # baseline when present), and a typo in casing was the leading cause of the
     # "Feature flag variants must contain a control variant" error in MCP traces —
     # most often from LLM-generated payloads. Only rewrite when no exact 'control'
     # match already exists, so we never collapse two distinct keys into a duplicate.
@@ -262,7 +277,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         """
         if flag is None:
             return
-        parameters = dict(data.get("parameters") or {})
+        stored = data.get("parameters")
+        # The JSON column can legally hold a non-dict on legacy rows (see migration 0026); the flag
+        # is the source of truth for the keys below, so a malformed blob is simply dropped.
+        parameters = dict(stored) if isinstance(stored, dict) else {}
 
         parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
@@ -361,7 +379,71 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "without this flag is rejected."
         ),
     )
+    can_freeze_exposure = serializers.SerializerMethodField(
+        help_text=(
+            "Whether enrollment can be frozen right now: the experiment must be running (not draft, "
+            "paused, stopped, or already frozen) and its feature flag must have release conditions "
+            "that a person cohort can narrow (no group aggregation, no holdout, no early access "
+            "conditions)."
+        ),
+    )
+    resolved_exposure_event = serializers.SerializerMethodField(
+        help_text=(
+            "The event exposures are actually counted on when the experiment doesn't configure a "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
+            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "clients display the same event the results queries read. For a draft, this is what the "
+            "experiment would resolve to if launched now."
+        ),
+    )
+    version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optimistic-concurrency token. Reads return the experiment's current version, bumped on "
+            "every update. Send the version you last read with an update to detect concurrent edits: "
+            "a stale update merges concurrent changes where safe — metric collections per metric "
+            "uuid, other fields per field — using the base values sent in `original_experiment`, and "
+            "fails with HTTP 409 only when the same metric or field changed on both sides (or no "
+            "base value was sent for a changed field). Omit to skip the check."
+        ),
+    )
+    original_experiment = serializers.DictField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The experiment state as the client last read it, used together with `version` to "
+            "resolve concurrent edits: metric collections merge per metric uuid, and any other "
+            "field the update carries merges per field against its base value here (only a "
+            "same-field double edit fails). Relevant keys are metrics, metrics_secondary, "
+            "saved_metrics_ids, plus the last-read values of whichever scalar fields the update "
+            "writes; unknown keys are ignored. Changed fields without a base value — and, without "
+            "this object, any version mismatch — fail with HTTP 409."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository holding this experiment's feature-flag code, in `organization/repository` "
+            "format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on "
+            "end/ship_variant. When not set, cleanup targets the team's only connected repository and is "
+            "skipped if the team has several."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -398,12 +480,18 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
+            "repository",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
+            "version",
+            "original_experiment",
             "status",
             "is_legacy",
+            "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
         read_only_fields = [
@@ -416,6 +504,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout",
             "saved_metrics",
             "status",
+            "can_freeze_exposure",
+            "resolved_exposure_event",
             "user_access_level",
         ]
 
@@ -427,6 +517,16 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
+        return obj.can_freeze_exposure
+
+    @extend_schema_field(serializers.CharField())
+    def get_resolved_exposure_event(self, obj: Experiment) -> str:
+        # A draft has no start_date yet, so resolve against now: that's the event it would get if
+        # launched today, which is what the setup UI needs to show.
+        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -484,6 +584,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def validate_saved_metrics_ids(self, value):
         ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
         return value
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return value.lower()
 
     def validate(self, data):
         ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
@@ -556,28 +664,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @staticmethod
     def _assert_flag_variants_valid(config: dict) -> None:
-        """Experiment-specific variant rules on the validated (already normalized) config. Raised as
-        plain top-level errors so the messages surface directly to LLM/API callers."""
+        """Variant rules on the validated (already normalized) config, raised as plain top-level
+        errors so the messages surface directly to LLM/API callers. Absent or empty variants are
+        allowed here — the service fills in the default control/test pair."""
         variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
-        if variants is None:
+        if not variants:
             return
-        if len(variants) >= 21:
-            raise serializers.ValidationError("Feature flag variants must be less than 21")
-        if len(variants) > 0:
-            if len(variants) < 2:
-                raise serializers.ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            keys = [variant["key"] for variant in variants]
-            if "control" not in keys:
-                # Capitalized 'Control' is auto-normalized (ExperimentFlagMultivariateSerializer), so
-                # anything reaching this branch genuinely lacks a baseline variant. Surface the keys
-                # we did receive so LLM callers can self-correct without a second roundtrip.
-                raise serializers.ValidationError(
-                    "Feature flag variants must contain a variant with key 'control' "
-                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
-                    "'key' to 'control'."
-                )
+        error = experiment_eligibility_error(variants)
+        if error:
+            raise serializers.ValidationError(error)
 
     @staticmethod
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
@@ -694,6 +789,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             deleted=self.validated_data.get("deleted", False),
             conclusion=self.validated_data.get("conclusion"),
             conclusion_comment=self.validated_data.get("conclusion_comment"),
+            repository=self.validated_data.get("repository"),
             holdout_id=holdout_id,
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
@@ -708,6 +804,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Pop fields not needed for DTO but needed for validation
         validated_data.pop("update_feature_flag_params", None)
+        # Concurrency keys are update-only; ignore them on create so clients can share payload builders
+        validated_data.pop("version", None)
+        validated_data.pop("original_experiment", None)
 
         # Check for unexpected fields
         expected_fields = {
@@ -734,6 +833,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "deleted",
             "conclusion",
             "conclusion_comment",
+            "repository",
             "holdout",
             "filters",
             "scheduling_config",
@@ -795,7 +895,7 @@ class ExperimentFlagVariantSerializer(serializers.Serializer):
     """A single multivariate variant. Extra per-variant keys are dropped."""
 
     key = serializers.CharField(
-        help_text="Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+        help_text="Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
     )
     name = serializers.CharField(
         required=False,
@@ -814,7 +914,7 @@ class ExperimentFlagMultivariateSerializer(_StrictFieldsMixin, serializers.Seria
 
     variants = ExperimentFlagVariantSerializer(
         many=True,
-        help_text="Variant definitions. Exactly one variant key must be the literal string 'control'.",
+        help_text="Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -887,8 +987,9 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
     filters = ExperimentFeatureFlagFiltersSerializer(
         required=False,
         help_text=(
-            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
-            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to "
+            "the variant keyed 'control' when present, else the first variant), "
+            "`groups` (a single group with `rollout_percentage` only; release "
             "conditions are not supported here, edit the feature flag directly), "
             "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
             "On update, config this object omits is preserved from the linked flag's current state."
@@ -1004,9 +1105,81 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
+            "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
+            "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
+            "omitted, the experiment's saved repository, the team's default cleanup repository, or the "
+            "team's only connected repository is used."
+        ),
+    )
+    set_repository_as_team_default = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, also save `repository` as this environment's default cleanup repository, used for "
+            "experiments that have no repository of their own. Only acts when open_cleanup_pr is true and "
+            "`repository` is provided and belongs to the team's GitHub installation. Requires project admin "
+            "access (403 otherwise)."
+        ),
+    )
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return value.lower()
+
+
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
+    )
+    can_view_task = serializers.BooleanField(
+        help_text=(
+            "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
+            "visible to their creator only, so other viewers should not be shown a task link."
+        ),
+    )
+
+
+class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=["explicit", "team_default", "single_repo", "ambiguous", "no_integration"],
+        help_text=(
+            "How the repository was determined: `explicit` (saved on the experiment), `team_default` (the "
+            "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
+            "`ambiguous` (several connected repositories and none saved — pass one via repository on "
+            "end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "connected repositories, so no cleanup PR can be opened)."
+        ),
+    )
+    candidates = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories connected to the team's GitHub integration, to choose a target from.",
     )
 
 
@@ -1171,6 +1344,17 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     )
 
 
+class ActiveRecalculationRunSerializer(serializers.Serializer):
+    """Pointer to a recalculation run that is still executing, surfaced alongside the latest terminal results."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Status of the executing run (pending or in_progress)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -1195,6 +1379,16 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    metric_retries = serializers.JSONField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, "
+            "next_retry_at}. message is a user-safe description of the error that triggered the retry. "
+            "Present only while a metric is between failed attempts; cleared when it succeeds or "
+            "fails terminally, so treat entries for metrics that already have a result as stale."
+        ),
+    )
     trigger = serializers.ChoiceField(
         choices=ExperimentMetricsRecalculation.Trigger.choices,
         read_only=True,
@@ -1214,8 +1408,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
-    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
-    # the metric_errors-vs-errors rename above.
+
+    active_run = ActiveRecalculationRunSerializer(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
+    )
+
     result_source = serializers.ChoiceField(
         choices=["recalculation", "timeseries_fallback"],
         required=False,
@@ -1384,6 +1584,77 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSessionMetricSourceHitSerializer(serializers.Serializer):
+    """One event/action source of a metric with at least one matching event in a session recording."""
+
+    source_role = serializers.ChoiceField(
+        source="role",
+        choices=[role.value for role in MetricSourceRole],
+        help_text=(
+            "What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel "
+            "step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or "
+            "'retention_start'/'retention_completion' (a retention metric's start event and return visit). "
+            "A hit on one source is not a hit on the metric as the analysis counts it."
+        ),
+    )
+    source_name = serializers.CharField(source="name", help_text="Display name of the source event or action.")
+    source_index = serializers.IntegerField(
+        source="index",
+        help_text=(
+            "0-based position of this source among all the metric's sources, data-warehouse ones included — so a "
+            "funnel step keeps its real step number even when an earlier step has no session events."
+        ),
+    )
+    source_total = serializers.IntegerField(
+        source="total", help_text="Total number of sources the metric is defined over."
+    )
+    event_count = serializers.IntegerField(help_text="Number of events in the session matching this source.")
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching this source."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of this source's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+
+
+class ExperimentSessionMetricHitSerializer(serializers.Serializer):
+    """One experiment metric with at least one matching event in a session recording."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the experiment metric (inline primary/secondary or saved) whose events fired."
+    )
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+    event_count = serializers.IntegerField(
+        help_text="Total number of events in the session matching any of the metric's event/action sources."
+    )
+    first_timestamp = serializers.DateTimeField(
+        help_text="Timestamp of the first event in the session matching the metric."
+    )
+    timestamps = serializers.ListField(
+        child=serializers.DateTimeField(),
+        help_text=(
+            "Ascending timestamps of the metric's matching events in the session, capped at the first 50. "
+            "event_count is the true total, so this list may be shorter — treat these as seek points, not a count."
+        ),
+    )
+    sources = ExperimentSessionMetricSourceHitSerializer(
+        many=True,
+        help_text=(
+            "Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a "
+            "retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event "
+            "are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention "
+            "metric whose start and completion are the same event contributes only the start source: the "
+            "completion would match the identical events and render a duplicate."
+        ),
+    )
+
+
 class ExperimentSessionContextItemSerializer(serializers.Serializer):
     """One experiment whose feature flag a session recording saw."""
 
@@ -1392,8 +1663,9 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
     variant = serializers.CharField(
         help_text=(
-            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
-            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+            "Variant the session saw. Taken from the earliest event matching the experiment's exposure criteria "
+            "when one exists, otherwise from the earliest flag evaluation in the session, otherwise from the "
+            "$feature/<key> property stamped on the session's events."
         )
     )
     variants_seen = serializers.ListField(
@@ -1407,18 +1679,27 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     multiple_variants = serializers.BooleanField(
         help_text="True when the session saw more than one variant of this flag."
     )
-    first_flag_evaluation_timestamp = serializers.DateTimeField(
+    first_exposure_timestamp = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
-            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
-            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
-            "exposure criteria this is not the experiment's exposure moment."
+            "Timestamp of the first event in the session matching the experiment's exposure criteria — "
+            "the default exposure event ($feature_flag_called), or the configured custom event/action. Null when "
+            "no event in the session matched the criteria; the variant is then known from flag evaluations or "
+            "stamped $feature/<key> properties. "
+            "Session-scoped: the experiment analysis counts exposure per person across the whole run window, "
+            "so the person's counted first exposure may lie in an earlier session."
         ),
     )
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
     experiment_end_date = serializers.DateTimeField(
         allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+    metrics_in_session = ExperimentSessionMetricHitSerializer(
+        many=True,
+        help_text=(
+            "This experiment's metrics with at least one matching event in the session, sorted by first "
+            "occurrence. Empty when none of the experiment's metric events fired during the session."
+        ),
     )
 
 
@@ -1432,4 +1713,388 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
             "Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched "
             "experiment's run window overlaps the recording or no flag data was observed in the session."
         ),
+    )
+
+
+class ExperimentActivityQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
+    page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+class ExperimentSessionContextsRequestSerializer(serializers.Serializer):
+    """Request body for the batch session-context endpoint."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="ID of one session recording."),
+        min_length=1,
+        max_length=MAX_SESSION_CONTEXT_BATCH,
+        help_text=(
+            f"IDs of the session recordings to resolve experiment context for, at most "
+            f"{MAX_SESSION_CONTEXT_BATCH} per request. Duplicates are ignored."
+        ),
+    )
+
+
+class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a batch of session recordings."""
+
+    results = ExperimentSessionContextResponseSerializer(
+        many=True,
+        help_text=(
+            "Per-session experiment context, in the order the session IDs were requested. Sessions whose "
+            "recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, "
+            "as are recordings you don't have access to and sessions beyond the batch's recording-day budget "
+            "(only the most recent days are computed). Fetch omitted sessions individually via the "
+            "single-session endpoint."
+        ),
+    )
+
+
+class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
+    """Request body for the session-bucket endpoint."""
+
+    bucket = serializers.ChoiceField(
+        choices=[bucket.value for bucket in SessionBucket],
+        help_text=(
+            "Which question the returned session set answers. 'fired_any': the session fired at least one event "
+            "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
+            "session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the "
+            "funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the "
+            "experiment analysis. All three are session-scoped and goal-free: they say what happened in the "
+            "session, not whether it helped or hurt the metric."
+        ),
+    )
+    metric_uuids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="UUID of one of the experiment's metrics."),
+        required=False,
+        default=list,
+        help_text=(
+            "Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the "
+            "other buckets to use every metric of the experiment that can be matched to recordings."
+        ),
+    )
+    variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than "
+            "one variant matches each variant it saw."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=MAX_SESSION_BUCKET_LIMIT,
+        min_value=1,
+        max_value=MAX_SESSION_BUCKET_LIMIT,
+        help_text=(
+            f"Maximum session IDs to return, at most {MAX_SESSION_BUCKET_LIMIT}. The most recently active "
+            "matching sessions win."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["bucket"] == SessionBucket.FUNNEL_DROPOFF and len(attrs.get("metric_uuids") or []) != 1:
+            raise serializers.ValidationError(
+                {"metric_uuids": ["The drop-off bucket takes exactly one funnel metric."]}
+            )
+        return attrs
+
+
+class ExperimentSessionBucketMetricSerializer(serializers.Serializer):
+    """One metric the bucket was computed over."""
+
+    metric_uuid = serializers.CharField(help_text="UUID of the experiment metric.")
+    metric_name = serializers.CharField(
+        help_text="Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed."
+    )
+
+
+class ExperimentSessionBucketExcludedMetricSerializer(serializers.Serializer):
+    """One requested metric the bucket could not be computed over."""
+
+    metric_uuid = serializers.CharField(help_text="UUID of the experiment metric.")
+    metric_name = serializers.CharField(help_text="Display name of the metric.")
+    reason = serializers.CharField(
+        help_text=(
+            "Why the metric can't be matched to recordings: a data-warehouse-only source, a retention window, "
+            "or events only ever captured server-side."
+        )
+    )
+
+
+class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
+    """Session recordings of an experiment matching a bucket."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "IDs of matching sessions that have a recording, most recently active first. Feed these to a "
+            "recordings query as session_ids; they are a subset of the experiment's exposed sessions, so the "
+            "exposure filter can stay in place alongside them."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text="True when more sessions matched than the limit returned. Older matches were dropped first."
+    )
+    considered_metrics = ExperimentSessionBucketMetricSerializer(
+        many=True,
+        help_text=(
+            "The metrics the bucket was actually computed over. Load-bearing for 'no_metric_activity': "
+            "'fired nothing' only means something next to the list of metrics it was evaluated against."
+        ),
+    )
+    excluded_metrics = ExperimentSessionBucketExcludedMetricSerializer(
+        many=True,
+        help_text=(
+            "Requested metrics left out of the bucket because they can never match a recording, with the reason. "
+            "They are reported rather than silently producing an empty result."
+        ),
+    )
+    date_from = serializers.DateTimeField(
+        help_text=(
+            f"Start of the window scanned: the experiment's run window, clamped to its most recent "
+            f"{MAX_BUCKET_SCAN_DAYS} days. Matches outside it are not returned."
+        )
+    )
+    date_to = serializers.DateTimeField(
+        help_text="End of the window scanned: the experiment's end date, or now while it runs."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the project's test-account filters were applied, following the experiment's exposure "
+            "criteria, the same rule the experiment's recordings list uses."
+        )
+    )
+    used_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the exposed population was matched on the stamped $feature/<flag key> event property "
+            "instead of the exposure event, because the default exposure event has only ever been captured "
+            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
+            "session', not 'the exposure moment was captured'. The variant comes from the flag's value on each "
+            "event, so a returning user can appear under a variant they were re-bucketed into later."
+        )
+    )
+
+
+class ExperimentSessionEventDeltaRequestSerializer(serializers.Serializer):
+    """The watch cards endpoint takes no parameters: the shelf is computed per experiment, every
+    variant at once."""
+
+
+class ExperimentWatchHighlightSerializer(serializers.Serializer):
+    """One recording a card names first, and the phrase that says why."""
+
+    session_id = serializers.CharField(help_text="The recording to open. Always one of the card's own session_ids.")
+    reason = serializers.CharField(
+        help_text=(
+            "Everything this recording carries that earned it the place, ready to render as-is, for example "
+            "'6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is "
+            "listed, so the phrase is the whole picture rather than the single strongest part of it. Friction "
+            "counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison "
+            "and not a reason the card exists."
+        )
+    )
+
+
+class ExperimentWatchCardSerializer(serializers.Serializer):
+    """One group of recordings worth opening, and the sentence that justifies it.
+
+    Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+    an effect size, and the experiment's results publish those for everything it measures, computed
+    over a different window and a different unit. The only number here is how many recordings the
+    card can actually show.
+    """
+
+    kind = serializers.ChoiceField(
+        choices=[kind.value for kind in WatchCardKind],
+        help_text=(
+            "What the card is: 'behavior' for an event this variant did clearly more than the other variants "
+            "together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event "
+            "no other variant fired at all, and 'metric' for a shortcut to recordings around one of the "
+            "experiment's own metric events. A 'variant_only' card shows the variant rendering its own change "
+            "rather than a behavior difference, so present it as confirmation the change is live and never as a "
+            "finding. Metric cards claim nothing about how the metric moved: that is the experiment results' "
+            "answer."
+        ),
+    )
+    event = serializers.CharField(help_text="The event behind the card.")
+    variant = serializers.CharField(
+        help_text="The variant whose recordings these are: for comparison cards, the one that did the event more."
+    )
+    strength = serializers.ChoiceField(
+        choices=[strength.value for strength in DeltaStrength],
+        allow_null=True,
+        help_text=(
+            "How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in "
+            "the other variants did it at all among the people compared, then 'far_more', 'more' and "
+            "'slightly_more'. Read off the conservative end of the difference, so a card that clears the bar "
+            "only because the sample is large reports as slight. Null on metric cards, which compare nothing. "
+            "Present a band as a comparison ('far more common in test'), never convert it into a multiple."
+        ),
+    )
+    metric_name = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When "
+            "set, the experiment's results measure this event over the whole run window with the statistics "
+            "that go with a result, so say the card points there and never present the card as a second answer "
+            "about that metric. Null when no metric counts the event."
+        ),
+    )
+    recording_count = serializers.IntegerField(
+        help_text=(
+            f"How many recordings the card carries, at most max_card_recordings ({MAX_CARD_RECORDINGS}). Every "
+            "card is backed by recordings that actually exist: a finding whose sessions were never recorded is "
+            "dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at "
+            "least' and never compare two such counts: how often the event happened is the experiment's results, "
+            "and this only counts what replay kept."
+        )
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The recordings themselves, most recent first, ready to hand to the recordings list as-is.",
+    )
+    highlights = ExperimentWatchHighlightSerializer(
+        many=True,
+        help_text=(
+            f"Which of the card's recordings to open first, at most {MAX_CARD_HIGHLIGHTS}, ranked by how much "
+            "each one carries: recordings showing several kinds of signal at once come before recordings "
+            "showing more of a single kind. Offer these before the full list: the recordings list orders "
+            "by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share "
+            "an event are otherwise indistinguishable in it. Empty when no recording the viewer can open "
+            "carries a signal, which is worth saying rather than hiding."
+        ),
+    )
+
+
+class ExperimentWatchArmSerializer(serializers.Serializer):
+    """One variant's compared population."""
+
+    key = serializers.CharField(help_text="The variant key.")
+    persons = serializers.IntegerField(
+        help_text=(
+            "Exposed people the comparison covered for this variant. People rather than sessions because a "
+            "variant can change how often the flag is evaluated again later, which moves a variant's session "
+            "count without anyone behaving differently. Each person is read from the first session the "
+            "comparison covers them in, so every variant gets the same amount of behavior per person."
+        )
+    )
+    sessions = serializers.IntegerField(
+        help_text=(
+            "Exposed sessions those people were seen in, which is more than the comparison reads: it says how "
+            "much recorded material sits behind the variant."
+        )
+    )
+
+
+class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
+    """The recordings worth watching for this experiment, grouped into cards.
+
+    Descriptive, never a result: cards say where behavior visibly differed and hand over the
+    recordings, while the experiment's results measure its metrics over the whole run window and
+    state the magnitudes. Nothing here says a variant is winning.
+    """
+
+    cards = ExperimentWatchCardSerializer(
+        many=True,
+        help_text=(
+            "The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. "
+            "Events the variants can't be told apart on get no card at all rather than a weak one, so an empty "
+            "shelf means no difference was big enough to be sure of, not that nothing was measured. Group by "
+            "kind before presenting: a 'variant_only' card outranks every real difference by construction, and "
+            "reading the shelf in order would report it as the headline."
+        ),
+    )
+    arms = ExperimentWatchArmSerializer(
+        many=True,
+        help_text="Every variant's compared population, in the flag's variant order.",
+    )
+    multiple_variant_persons = serializers.IntegerField(
+        help_text=(
+            "People who saw more than one variant and were left out of every card. Always 0 when the experiment "
+            "attributes such users to the variant they saw first."
+        )
+    )
+    multiple_variant_handling = serializers.ChoiceField(
+        choices=[handling.value for handling in MultipleVariantHandling],
+        help_text=(
+            "How the experiment handles someone who saw more than one variant, followed here so the cards split "
+            "their people the same way the analysis does."
+        ),
+    )
+    metric_events = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The events the experiment's own metrics count. A card on one of these carries metric_name and must "
+            "be read as pointing at the experiment's results, which measure the same event over the whole run "
+            "window with the statistics that go with a result. Cards state no magnitude for exactly this "
+            "reason, so never turn one into a claim about how the metric moved."
+        ),
+    )
+    date_from = serializers.DateTimeField(
+        help_text=(
+            f"Start of what was actually compared. The requested window is the experiment's run window clamped "
+            f"to its most recent {MAX_DELTA_SCAN_DAYS} days ({MAX_FALLBACK_DELTA_SCAN_DAYS} when sessions are "
+            "matched on the stamped flag property, which no event name can prune a scan on), but a busy "
+            "experiment reaches the session ceiling long before that, and this reports where the compared "
+            "sessions really begin - often hours rather than days back. Display this, not the experiment's own "
+            "dates."
+        )
+    )
+    date_to = serializers.DateTimeField(
+        help_text="End of what was compared: the experiment's end date, or now while it runs."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the project's test-account filters were applied, following the experiment's exposure "
+            "criteria, the same rule the experiment's recordings list uses."
+        )
+    )
+    used_exposure_fallback = serializers.BooleanField(
+        help_text=(
+            "True when the compared sessions were matched on the stamped $feature/<flag key> event property "
+            "instead of the exposure event, because the default exposure event has only ever been captured "
+            "server-side and can never match a session. The sessions then mean 'the flag was active in this "
+            "session', and the variant comes from the flag's value on each event, so a returning user can be "
+            "counted under a variant they were re-bucketed into later."
+        )
+    )
+    sessions_truncated = serializers.BooleanField(
+        help_text=(
+            "True when the experiment had more exposed sessions in the requested window than one comparison "
+            "covers, so the most recent ones were used and date_from is later than the experiment's own window. "
+            "Every variant is still covered over the same stretch of time."
+        )
+    )
+    events_truncated = serializers.BooleanField(
+        help_text=(
+            "True when the project has more distinct event names in the window than one comparison can rank, so "
+            "some were never considered."
+        )
+    )
+    min_arm_persons = serializers.IntegerField(
+        help_text=(
+            "How many exposed people a variant needs before it can be compared at all. Below it a variant's "
+            "cards would be noise whatever the evidence bar allows."
+        )
+    )
+    max_card_recordings = serializers.IntegerField(
+        help_text=(
+            "The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, "
+            "so report it as 'at least this many' rather than as a count."
+        )
+    )
+    dropped_duplicate_cards = serializers.IntegerField(
+        help_text=(
+            "How many cards were removed because their recordings were already another card's on the same "
+            "shelf. Nothing was lost: the recordings are all reachable through the cards that stayed."
+        )
+    )
+    too_early = serializers.BooleanField(
+        help_text=(
+            "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
+            "cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented "
+            "without this would read as 'the variants behaved identically'."
+        )
     )

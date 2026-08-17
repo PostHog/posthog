@@ -17,6 +17,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+from products.replay_vision.backend.prompt_evaluation import EVALUATION_PREVIEW_TYPES
 from products.replay_vision.backend.temporal.activities import (
     cleanup_gemini_file_activity,
     ensure_session_asset_activity,
@@ -80,7 +81,11 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         selection: SelectEvaluationSessionsOutput = await wf.execute_activity(
             select_evaluation_sessions_activity,
             SelectEvaluationSessionsInputs(
-                suggestion_id=inputs.suggestion_id, team_id=inputs.team_id, session_limit=inputs.session_limit
+                suggestion_id=inputs.suggestion_id,
+                team_id=inputs.team_id,
+                session_limit=inputs.session_limit,
+                config_override=inputs.config_override,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=_STATE_RETRY,
@@ -143,6 +148,8 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # The activity heartbeats, so a dead worker costs ~2 minutes, not the full budget.
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             call_output: ScannerCallOutput = await wf.execute_activity(
@@ -155,6 +162,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                     snapshot_override=selection.snapshot,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             await self._record(
@@ -182,6 +190,9 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         after_output: dict | None = None,
         error: str | None = None,
     ) -> None:
+        # Derived from the recorded snapshot output, so it is deterministic on replay. This is a new field on
+        # an existing activity's input, not a new command, so it is safe for in-flight executions.
+        preview = bool(selection.snapshot and selection.snapshot.scanner_type in EVALUATION_PREVIEW_TYPES)
         await wf.execute_activity(
             record_evaluation_result_activity,
             RecordEvaluationResultInputs(
@@ -191,6 +202,8 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 model=selection.snapshot.model if selection.snapshot else None,
                 after_output=after_output,
                 error=error,
+                preview=preview,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_RETRY,

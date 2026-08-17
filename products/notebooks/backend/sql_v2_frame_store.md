@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **proposal** — not started; materialization is deliberately clamped at 50k rows until phase 1 lands.
+Status: **phase 1 shipped**, gated per user by the `notebooks-frame-store` feature flag (off by default) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. **Phase 2 implemented dark**, gated per user by the `notebooks-frame-store-ch-writes` feature flag (off by default) — CH writes the object itself; see the phase-2 prerequisites before flipping. Phase 3 not started.
 
 ## Problem
 
@@ -14,12 +14,13 @@ When a python node reads an upstream SQLV2 frame, the sandbox kernel fetches the
 
 The frame is fully copied ~5 times, and the middle copy sits in Redis — the shared cache for the whole deployment.
 This transport is implicitly sized by the 50k row ceiling (`MAX_SELECT_RETURNED_ROWS` under the async limit context),
-so materialized frames are silently clipped at 50k rows today.
+so inline materialized frames are silently clipped at 50k rows.
 A `LimitContext.NOTEBOOK_MATERIALIZE` context raising the ceiling to 2M (`_MATERIALIZE_ROW_CAP`) was built and then
 **deliberately reverted**: without a better payload transport, wide multi-hundred-thousand-row frames stress Redis
 (single-threaded, 512MB per-value hard cap, eviction pressure) and the workers that render/parse the JSON.
-The clamp is pinned by `test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling` and comes off as
-part of phase 1, when the transport can carry what the limit allows.
+With phase 1 the context is back, applied **only on the object path** and at a 500k tier-1 ceiling
+(`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`, raised toward 2M on query-log evidence); the inline path — now the
+degraded fallback — keeps the 50k clamp, pinned by `test_inline_materialization_stays_clipped_at_the_row_ceiling`.
 
 ## Decision sketch: durable object handoff, not live push
 
@@ -37,8 +38,10 @@ A wins on every axis that matters here except single-transfer latency:
   Draining into S3 happens at datacenter speed, so CH resources are held for ~pure execution time.
   Draining into a Modal container is paced by public-internet throughput and the kernel's ingest —
   backpressure propagates into CH (memory pinned, query slot held, execution-time clock ticking).
-- **Reuse.** Frames are keyed by `query_hash`; an object serves retries, kernel restarts, and unchanged upstream
-  queries without re-executing CH. Push has no reuse story — every delivery is a fresh execution.
+- **Reuse.** Frames are keyed by `query_hash`; an object serves download retries and kernel restarts without
+  re-executing CH. Cross-run reuse of an unchanged query is phase 3 — and gated on a staleness policy,
+  because the key has no freshness component (see the stale-read hazard there). Push has no reuse story —
+  every delivery is a fresh execution.
 - **Attack surface.** Pull keeps the sandbox ingress-free; push requires a new streamed-upload endpoint on the
   kernel server, exposed to the internet, plus a request/callback correlation protocol.
 
@@ -71,9 +74,10 @@ Every building block already runs in production. Inventory (per deep-dive, 2026-
 
 ### Relevant negative
 
-There is **no generic S3-backed query-result cache** — `query_cache_factory.py` only returns the Redis manager.
-That cache exists to reuse identical insight queries within a TTL; the notebook flow already gets its reuse from
-`query_hash`-keyed frames, so we are not duplicating (or blocked on) any platform facility.
+There is **no generic S3-backed query-result cache** — the query cache (`posthog/query_cache/`) is Redis-only.
+That cache exists to reuse identical insight queries within a TTL; the notebook flow gets its reuse from
+`query_hash`-keyed frames (in-flight dedup and retry re-fetch today; cross-run reuse is phase 3), so we are
+not duplicating (or blocked on) any platform facility.
 
 ## Security model for sandbox reads
 
@@ -101,9 +105,10 @@ token-authed; only the bulk-bytes leg moves to object storage.
 - **Presigned GET discipline.** Short expiry (minutes — long enough for a resume-with-Range retry loop, no more),
   HTTPS-only, never logged. A presigned URL is a bearer secret of the same class as the existing command tokens;
   its blast radius is one object for a few minutes.
-- **Write-side auth.** CH writes via its instance role (keyless, batch-exports pattern), write-scoped to the
-  notebooks prefix. If tighter isolation is wanted later: STS prefix-scoped credentials per run
-  (file-download-export pattern).
+- **Write-side auth.** Phase 1: the Temporal worker writes with the standard worker-held object-storage
+  credentials (`OBJECT_STORAGE_*` — no new identity). Phase 2, if CH writes directly: CH's instance role
+  (keyless, batch-exports pattern), write-scoped to the notebooks prefix. If tighter isolation is wanted
+  later: STS prefix-scoped credentials per run (file-download-export pattern).
 - **Egress.** The sandbox already makes outbound HTTPS calls to the PostHog API; fetching a presigned S3 URL adds
   one more allowed destination. If Modal egress policy must stay single-destination, the fallback is proxying the
   object through the data-plane endpoint as a bounded stream — bytes transit Django once, but never Redis and
@@ -114,87 +119,233 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Resource governance — not hammering ClickHouse
 
-Materialization is **user-facing** — someone is waiting on their cell — so it belongs on the ONLINE pool with
-interactive queries (OFFLINE is where batch exports, usage reports, and cohort calculations run, with
-explicitly accepted latency variance and failure rates; a user-waiting query must not queue behind those).
-The risk is different: a single materialization can be far more expensive than an insight query, an
-**uncapped whale in a pool tuned for bounded queries**. The governance goal is therefore not relocation but
-making the whale impossible. Note the cap that matters is not the row count — an insight query with
-`LIMIT 50000` can still scan billions of rows; cost is bounded by execution time, bytes read, memory,
-and threads.
+Materialization runs on the **OFFLINE pool** (batch exports' home), as a **dedicated `notebooks` ClickHouse
+user**, for any run whose user has the `notebooks-frame-store-ch-writes` flag. One flag carries the whole new
+flow: the pool, the CH user, and (phase 2) handing the object write to ClickHouse. Without it a run keeps the
+interactive pool and the default user, so the rollout is per user rather than per deployment.
+An earlier draft argued for ONLINE — someone is waiting on their cell — but the query itself is
+batch-shaped: a 500k-row streaming pull with minutes-scale deadlines (the kernel's object-delivery poll
+already tolerates 11 minutes), far closer to a batch export than to an insight query. The decisive risk runs
+the other way: a single materialization can be far more expensive than an insight query, an **uncapped whale
+in a pool tuned for bounded queries** — so it contends with batch work, whose latency variance the async flow
+absorbs, instead of degrading interactive latency. Where no offline cluster exists (EU, self-hosted, dev/test)
+the offline URL falls back to the online one, and the remaining levers below still bound the whale. Note the
+cap that matters is not the row count — an insight query with `LIMIT 50000` can still scan billions of rows;
+cost is bounded by execution time, bytes read, memory, and threads.
 
 Layered levers:
 
 - **Per-query SETTINGS (batch-exports recipe).** The staging query carries hard caps, as `internal_stage.py`
-  does: `max_execution_time` (modestly above the insight ceiling — frame pulls are legitimately heavier),
-  `max_bytes_to_read` (refuse oversized scans up front), `max_memory_usage`,
-  `max_bytes_before_external_sort/group_by` (spill to disk), `max_threads`, `min_insert_block_size_bytes`
-  (64MiB there). `max_network_bandwidth` can throttle the S3 write rate if needed.
-- **Scheduler priority, not pool exile.** CH's `priority` setting lets materialization run ONLINE while
-  yielding CPU to interactive queries under genuine contention — dashboards get right-of-way without
-  sending notebooks to a worse pool.
+  does. Phase 1 ships `max_execution_time` 600s (via the `NOTEBOOK_MATERIALIZE` limit context — modestly
+  above the insight ceiling, frame pulls are legitimately heavier), `max_bytes_to_read` 50GB (refuse
+  oversized scans up front), `max_threads` 16, and `max_result_bytes` 2GB with `result_overflow_mode=throw`
+  (row/scan caps don't bound the _output_ — `repeat('x', 10000)` over 500k rows would make a ~5GB object
+  from a near-zero scan; the output cap bounds object size, storage abuse, and what the kernel later decodes
+  into pandas, and it throws rather than silently truncating); memory stays on the cluster profile default
+  for tier 1 (the typed `MEMORY_LIMIT_EXCEEDED` handling is the backstop). Further levers if data demands:
+  `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk), `max_network_bandwidth`
+  to throttle the S3 write rate.
+- **No scheduler priority.** CH's `priority` setting could make materialization yield CPU to other offline
+  work under genuine contention. Phase 1 deliberately does not set it: everything else runs unprioritized
+  (0), so a nonzero value would form a scheduling class of one — revisit if the cluster ever adopts
+  priorities broadly.
 - **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
   watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
 - **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
-  add a per-team concurrency cap (one concurrent materialization per team initially) and a small dedicated
-  Celery queue so global concurrency equals worker count. The refs resolver already minimizes demand —
-  only frames the code actually reads are materialized.
-- **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
-  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
-  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
-  application bug can exceed.
+  phase 1 adds the Redis-Lua concurrency slots (global 10, per-team 2) acquired at Temporal activity start.
+  The refs resolver already minimizes demand — only frames the code actually reads are materialized.
+- **Dedicated ClickHouse user as the backstop (shipped).** The repo already splits traffic across CH users
+  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. Materializations run as
+  `ClickHouseUser.NOTEBOOKS` (credentials from `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD`,
+  falling back to the default user where not provisioned), so the user gets profile limits, QUOTAs, and
+  `max_concurrent_queries_for_user` — a hard server-enforced ceiling no application bug can exceed.
 - **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
   long-term this is the strongest lever.
-- **Escalation path.** If notebooks' share of online capacity becomes meaningful, the router already supports
-  product-specific pools (`Workload.ENDPOINTS` is precedent) — a dedicated notebooks pool with online-grade
-  latency is the growth answer, decided with data rather than up front.
+- **Escalation path.** If notebooks' share of offline capacity becomes meaningful (or batch-export contention
+  starts hurting frame latency), the router already supports product-specific pools (`Workload.ENDPOINTS` is
+  precedent) — a dedicated notebooks pool is the growth answer, decided with data rather than up front.
 
 The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
 query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
 
 ## Phased plan — start basic, improve later
 
-**Phase 0 (current state).** Materialization runs over the existing Redis transport, clipped at 50k rows.
+**Phase 0.** Materialization runs over the existing Redis transport, clipped at 50k rows.
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
+Since phase 1 this path survives only as the degraded fallback (frame store disabled or unconfigured).
 
-**Phase 1 — swap the payload path, minimal moving parts.**
-Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` together with the new transport (tiered ceiling — see
-resource governance — landing eventually at `_MATERIALIZE_ROW_CAP`).
-When the data-plane task runs under it, the worker streams the CH result
-(`output_format="ArrowStream"`, bounded batches — data-modeling pattern) into one object,
-stores the **object key** in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
-**302 redirect to a presigned URL**.
-The kernel's `requests` client follows redirects by default and drops the `Authorization` header on cross-host
-redirects, so the existing executor works nearly unchanged and the presigned URL needs no auth.
-Keep the Redis path as fallback when object storage is unconfigured (dev parity, degraded mode).
+**Phase 1 — swap the payload path, minimal moving parts. (Shipped, gated by the `notebooks-frame-store` flag.)**
+The kernel opts in per request with `delivery: "object"` (pages and envelope fetches stay `"inline"`).
+The data plane registers a `notebook-frame:{team}:{query_hash}` dedup mapping and dispatches a Temporal
+materialize workflow (`temporal/frame_materialize.py`, general-purpose queue, Redis-Lua concurrency slots
+global 10 / per-team 2): the activity prints the HogQL through the guarded executor under
+`LimitContext.NOTEBOOK_MATERIALIZE` (tier-1 ceiling 500k, not yet 2M), executes over the CH HTTP interface
+with `FORMAT ArrowStream`, and relays the raw bytes into one multipart upload
+(`frame_store.py`, key `notebooks/frames/team_{team}/{notebook}/{query_hash}.arrow`).
+The **object key** lands in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
+**302 redirect to a presigned URL** (≤5 min, minted only after token verification, team-prefix-checked).
+A frame key is a slot holding the query's current result, not an immutable blob: `query_hash` is
+`sha256(user_id + wrapped query)` with no freshness component, and dedup only joins **in-flight**
+materializations — a completed status is never served as a cache. Every re-run therefore re-executes against
+ClickHouse and atomically overwrites the same key, so a re-run after new events lands returns fresh rows
+modulo offline replica lag — materialization reads the OFFLINE pool, which can trail ingestion further than
+the online nodes the inline path reads, so a frame can briefly miss rows an inline preview of the same query
+just showed (batch exports accept the same window). A reader holding a presign across an overwrite gets one
+complete object or the other, never torn bytes.
+One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
+`Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
+credential-free request instead of auto-following.
+Stream integrity: ClickHouse sends `200 OK` before execution finishes, so a mid-stream failure can't change
+the status code — current versions deliberately break the chunked encoding (the read tears, the multipart
+upload aborts), but older versions/intermediaries can close the body cleanly with exception text appended.
+The worker therefore refuses to finalize unless the streamed bytes end with the Arrow end-of-stream marker
+(a corrupt object at the deterministic key is deleted), and on any stream failure it recovers the real
+ClickHouse error from `system.query_log` — a confirmed query-side exception is terminal (no doomed
+re-scans), an unconfirmed failure stays retryable.
+The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
+
+_Gating (`sql_v2_data_plane.py`):_ the `notebooks-frame-store` feature flag carries the rollout by itself.
+There is deliberately no environment switch beside it — one gate means one place to look, and a flag
+retargets instantly where an env var needs a deploy. The only other condition is `OBJECT_STORAGE_ENABLED`,
+which is a configuration guard rather than a rollout control: without it the storage client is a silent
+no-op, so a materialization would "succeed", fail its post-write HEAD, and burn the activity's retry budget
+re-running the query. Failing either condition degrades that request to the inline transport and its 50k
+clamp. The flag is checked in the web process at delivery-decision time, which is the only place a
+materialization is ever enqueued — nothing downstream re-checks it. `DEBUG` stands in for the flag, so local
+dev takes the object path with no flag to evaluate. The `reason` label on
+`posthog_notebooks_frame_store_fallback_inline` separates the two: `not_in_rollout` is the expected state
+during a ramp, `not_configured` means the deployment has no object storage and should never appear in cloud.
+
+Consequence worth knowing: a self-hosted instance evaluates this flag against PostHog's own cloud project
+(`posthog/apps.py`), so it stays on the inline transport unless that flag targets it. That matches how
+`revamped-py-notebooks` already gates the whole revamped-notebooks surface.
+
+_Rollout prerequisites (per environment, before flipping the flag on):_
+
+- Target the `notebooks-frame-store` flag only **after** both the web and general-purpose Temporal worker
+  fleets are on the new image. Temporal accepts a `start_workflow` for a workflow type no worker has
+  registered yet — so flipping the flag early produces a bounded window of hung polls that the enqueue
+  rollback (which only catches a dispatch _exception_) cannot recover.
+- Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
+  kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
+  makes every download fail (loud, not silent).
+- Provision the `notebooks` ClickHouse user, **in this order**: create and verify the user server-side first
+  (a `SELECT 1` as the user), then set `CLICKHOUSE_NOTEBOOKS_USER`/`CLICKHOUSE_NOTEBOOKS_PASSWORD` on the
+  general-purpose Temporal worker fleet — env vars pointing at a not-yet-created user (or a rotated password;
+  creds are cached per worker process, rotation needs a fleet restart) fail every materialization with a
+  generic retried auth error, a hard outage rather than a fallback. The user spec, since HogQL fans out to
+  distributed tables (remote legs authenticate as the initiating user via the interserver secret): exists on
+  **every** node of the `posthog` cluster, SELECT grants mirroring the app user (including data-warehouse
+  table functions), a profile with `readonly = 2` — `readonly = 1` rejects the per-query SETTINGS/HTTP params
+  this path sends, and if the phase-2 CH-writes flag is enabled the phase-2 writer-identity spec (`readonly
+= 0`, zero table-write grants) supersedes this — and no setting constraints below the app-side caps; prefer
+  per-query `max_memory_usage`
+  over `..._for_user` so a `MEMORY_LIMIT_EXCEEDED` stays attributable to the offending query, and leave QUOTA
+  headroom since a shared-user quota breach reads as a (wrong) "narrow your query" message to whichever
+  tenant trips it. Deliberately fail-open: until provisioned, the flow runs as the default CH user
+  (dev/self-hosted parity) — the `ch_user` label on `posthog_notebooks_frame_materializations_started` is the
+  signal that the dedicated user actually engaged.
+- Confirm `CLICKHOUSE_OFFLINE_CLUSTER_HOST` is set on the **general-purpose** Temporal worker fleet (US) —
+  batch exports prove offline routing on _their_ deployment, not this one, and an unset host silently
+  falls back to the online URL, no-opping the pool isolation. The `pool` label on the started counter
+  verifies routing from metrics.
+- Provision the bucket lifecycle TTL (~24h) on the `notebooks/frames/` prefix **before** enabling.
+  Successful objects are never deleted by app code, and query-text variations (even comment-only edits)
+  mint new hashes, so without the lifecycle rule an authenticated user can accumulate unbounded durable
+  objects. The rule is infra-owned; app-level cleanup would duplicate it poorly.
+- Known degraded-mode caveat: with the flag off (the default) or object storage down, a `delivery: "object"`
+  request falls back to the inline path clamped at 50k rows and the frame is silently truncated. Fine for
+  frames under the clamp; a user-visible truncation signal is a follow-up before GA.
 
 Two decisions locked in for this phase:
 
 - **Format: one plain Arrow IPC stream object per frame — not Delta, not Parquet.** Delta earns its machinery
-  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame is an immutable
-  write-once blob keyed by `query_hash`, read by pandas — an "update" is a different hash, i.e. a different
-  key. The executor already consumes ArrowStream from the data plane, so the sandbox-side change is just
-  "read the same bytes from a different host". If size matters, Arrow IPC supports LZ4/ZSTD buffer
-  compression without a format change; multi-file partitioning waits for phase 2, if ever.
-- **The queue is the throttle.** Under worker streaming, one active task = one running CH query = one upload,
-  so the dedicated queue's concurrency directly bounds CH concurrency, worker memory (~100MB × concurrency),
-  and S3 parallelism with a single knob — no dedicated CH user needed for v1 (that stays as hardening).
-  Throttling moves load in time (backlog), never above the cap; the real amplification risk is impatient
-  re-runs, and the async manager's existing `cache_key` dedup (`get_running_query_by_cache_key`) closes it:
-  enqueue with `cache_key = query_hash` and duplicate in-flight materializations join the running query
+  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame key is a slot
+  holding one query's current result (see above — re-runs overwrite it atomically), read once by pandas;
+  versioned re-read machinery buys nothing for that flow. The executor already consumes ArrowStream from the
+  data plane, so the sandbox-side change is just "read the same bytes from a different host". If size matters,
+  Arrow IPC supports LZ4/ZSTD buffer compression without a format change; multi-file partitioning waits for
+  phase 2, if ever.
+- **An explicit concurrency limiter is the throttle.** Under worker streaming, one active task = one running
+  CH query = one upload — but the materialize workflow runs on the **shared** general-purpose Temporal queue,
+  so queue slots alone don't cap notebooks. The shipped throttle is the Redis-Lua concurrency limiter
+  (the `process_query_task` mechanism): slots acquired at activity start, global 10 / per-team 2, bounding CH
+  concurrency, worker memory, and S3 parallelism with one knob — the dedicated `notebooks` CH user is the
+  server-side backstop behind it, and a dedicated notebooks task queue stays a later infra option. Throttling moves load
+  in time (retry backoff), never above the cap; the real amplification risk is impatient re-runs, and the
+  async manager's `cache_key` dedup (`get_running_query_by_cache_key`) closes it: enqueue with
+  `cache_key = notebook-frame:{team}:{sha256(user_id + query)}` (user-scoped, so differently-permissioned
+  teammates never share a job or an object) and duplicate in-flight materializations join the running query
   instead of stacking new ones.
 
-**Phase 2 — let ClickHouse do the writing (only if the data says so).**
-Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
-the worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python.
-Add partitioned files + a manifest for very large frames, and Range-based resume in the executor.
+**Phase 2 — let ClickHouse do the writing (implemented, behind the `notebooks-frame-store-ch-writes`
+feature flag, off by default).**
+The flag is resolved per user in the web process and travels with the job as a field on
+`FrameMaterializeInputs`, because the Temporal activity that acts on it has no request user of its own.
+The field is defaulted, so a history recorded before it existed replays on the streaming path.
+The worker-streamed upload is replaced with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports
+recipe), issued through the pooled native clients (`sync_execute`, offline workload, `notebooks` user) with a
+bounded socket timeout (the pooled clients' prod default is effectively infinite; a sync activity can't be
+interrupted, so a half-open connection would pin the worker thread — the timeout mirrors the streaming path's
+read-timeout defense). The worker's job shrinks to issuing one statement; zero result bytes transit PostHog
+Python, and errors arrive in-band and typed — so the EOS-marker check and `system.query_log` recovery have no
+role, but note the budget codes come back as `sync_execute`'s wrapped exception types (`ClickHouse*` for
+241/159/160, `CHQueryError*`/`InternalCHQueryError` for 158/307/396), all mapped to terminal here. The s3()
+endpoint/bucket/key/credentials are **bound as query parameters**, not spliced as literals: `sync_execute`'s
+one `%`-substitution pass escapes them, so a `%` or quote in operator config can't corrupt the statement or
+reach the credential zone (this is the real binding channel — client-side `escape_param`, the same all HogQL
+`sync_execute` uses — not server-side binding). One object per frame, deliberately no `PARTITION BY`: the
+poll/presign contract is a single object, and partitioned files + a manifest + Range-based resume stay future
+work if frames outgrow it.
 
-Why phase 1 streams from the worker instead of starting here:
+The output cap is enforced **post-write** (`max_result_bytes` bounds a result set returned to a client, not
+an INSERT's sink). This is a real cost delta worth eyes-on: the in-flight bound is gone, so a pathological
+wide-row query (`repeat('x', N)` over 500k rows) can have CH write tens of GB to the store — bounded only by
+the 50GB scan budget, 600s time budget, and CH→S3 throughput — before the size check deletes it and fails the
+run terminal (no retry). A post-write freshness check (LastModified vs the write start, 5-min skew margin)
+also guards against a silent no-op write serving a stale prior-run object under endpoint skew.
+
+The s3() target URL is built from a **dedicated** `NOTEBOOKS_FRAME_STORE_S3_ENDPOINT`, not the app's shared
+`OBJECT_STORAGE_ENDPOINT` — mirroring `IDENTITY_MATCHING_S3_ENDPOINT`, the sibling CH-side s3 writer, for two
+reasons that bit that product first. (1) The endpoint must be reachable from the **ClickHouse cluster's**
+network, which isn't always the app's: CI points `OBJECT_STORAGE_ENDPOINT` at `localhost:19000`, but CH runs
+in compose and reaches the store as `objectstorage:19000` — `localhost` there makes CH connect to itself and
+the s3() call hangs. (2) On prod `OBJECT_STORAGE_ENDPOINT` is empty (the app's boto3 uses the AWS default
+endpoint), so concatenating it would yield a scheme-less URL CH rejects. So the endpoint defaults to the
+cluster-reachable host in TEST/DEBUG and is empty on prod, where the URL builder falls back to the
+virtual-hosted AWS form (`https://{bucket}.s3.{region}.amazonaws.com/{key}`) and the cluster authenticates via
+its IAM role.
+
+_Prerequisites for flipping the flag (per environment, on top of the phase-1 list):_
+
+- Set `NOTEBOOKS_FRAME_STORE_S3_ENDPOINT` to a host the **ClickHouse cluster** can reach (or leave empty on
+  cloud AWS to use the virtual-hosted URL + instance role). Frames live in `NOTEBOOKS_FRAME_STORE_S3_BUCKET`
+  (cloud: a dedicated bucket with its own 1-day TTL and a least-privilege CH-node grant; defaults to
+  `OBJECT_STORAGE_BUCKET` for dev/CI/self-hosted). Writer and reader agree on the bucket — the app presigns
+  and the kernel fetches from the same one — so only the CH-reachable endpoint differs.
+- Credentials: keyless in cloud (the CH instance role, write-scoped to the frames bucket);
+  where `OBJECT_STORAGE_ACCESS_KEY_ID`/`SECRET` are set they ride inline in the statement and land in
+  `system.query_log` — acceptable for dev/self-hosted, not for cloud. Verify the deployed CH version masks
+  `s3(url, key, secret, ...)` credential arguments as `[HIDDEN]` in `query_log` (masking is signature-based).
+- The writer identity per the security notes above: `readonly = 0` with **zero** table-write grants,
+  `GRANT S3` + `CREATE TEMPORARY TABLE`, `remote_url_allow_hosts` pinned to our storage endpoints. This
+  supersedes the phase-1 `readonly = 2` spec for the `notebooks` user once the flag is on. Fail-safe: the code
+  refuses to run the write-capable statement as the default user in a real deployment — if the flag is flipped
+  before this identity is provisioned (creds still resolving to default), materialization degrades to the
+  read-only streaming path with a warning rather than handing S3-egress to the broad account.
+- Resource note (not a blocker, but size the profile for it): Arrow encoding and S3 upload buffering now burn
+  CH initiator-node CPU/memory (the default S3 write buffers are ~hundreds of MiB per INSERT, counted against
+  the query's `max_memory_usage`), the trade for freeing worker CPU/NIC. The `mode` label on the started /
+  finished counters and the `clickhouse_seconds` histogram separates this path's footprint from the streaming
+  path's for the flip decision.
+
+Why the worker relay stays the default until then:
 
 - **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
   at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
   and splice it into a raw `INSERT ... SELECT` executed outside the runner; batch exports does this safely,
-  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a ride-along.
+  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a
+  ride-along — the phase-2 security notes below break down what it entails.
 - **Credentials.** Workers already hold object-storage credentials; the CH-side write needs the cluster's IAM
   role extended to the notebooks prefix (see open questions) and local CH → SeaweedFS config.
 - **Load placement.** Worker streaming actually puts _less_ work on ClickHouse — CH only executes and streams
@@ -202,20 +353,105 @@ Why phase 1 streams from the worker instead of starting here:
   drain pace is set by an in-region worker→S3 leg, so CH's result-hold time is near-identical either way.
 - **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
   double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
-  MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
+  MB, neither matters yet — flip on query-log evidence (upload-half p95 dominating the split metrics, worker
+  contention, or a byte-cap raise); the flag can stay off indefinitely if the data never asks.
+
+_Phase-2 security notes (splice analysis, 2026-07) — read before building the CH-side write:_
+
+This section is the pre-implementation analysis. As built (see the phase-2 block above), the s3() arguments
+are **bound as query parameters** rather than literal-spliced — which resolves the injection and escaping
+issue classes below by construction — and the interim-write bound became a post-write size check. The
+privilege amplification analysis stands unchanged and is the load-bearing part.
+
+The statement is `INSERT INTO FUNCTION s3('<url>/<key>', '<creds?>', 'ArrowStream') PARTITION BY rand() % N
+<printed SELECT ... SETTINGS ...>` — three trust zones: the prefix (our code, our metadata), the printed
+SELECT (user HogQL via the guarded printer), and the query parameters (client-side `escape_param` inlining —
+the same channel all HogQL `sync_execute` uses; not literally server-side binding). Two facts
+cap the risk: the printed SELECT is already the trusted-executable artifact (executed verbatim today, and
+already spliced once into `DESCRIBE TABLE (...)`), and ClickHouse refuses multi-statement execution over both
+HTTP and native protocols — realistic injection is clause-level corruption of the prefix, not stacked
+statements. Issue classes, by zone:
+
+- **The new injection surface is our own s3() arguments, not the user's query.** Today the object key is an
+  inert boto3 API argument; in phase 2 it sits inside a SQL string literal in the most privileged statement
+  we run. Key segments are safe today (int team id, hex digest, `[A-Za-z0-9_-]+`-validated short id), but
+  that makes charset validation load-bearing forever — someone relaxing the short-id charset later turns a
+  cosmetic change into SQL injection. Manual escaping is subtler than it looks: the batch-exports builder
+  (`get_s3_function_call`) quote-doubles credentials but not the URL/folder, and quote-doubling alone
+  mishandles a value ending in `\` — both fine there only because the inputs have known charsets.
+- **Assembly-context grammar bugs.** The printer must run without `output_format` (a trailing
+  `FORMAT ArrowStream` is invalid inside `INSERT ... SELECT`; the object format comes from the s3() arg);
+  the printer's trailing `SETTINGS` must merge with INSERT-level settings (`s3_truncate_on_insert`) since two
+  SETTINGS clauses are a syntax error; WITH-leading and UNION-set shapes interact with `PARTITION BY`
+  placement, and the tempting `SELECT * FROM (<printed>)` wrap breaks the settings clause (invalid in a
+  subquery), forcing settings-hoisting string surgery. Most failures are fail-safe syntax errors — but every
+  workaround is string surgery on printer output, which is where the risk concentrates.
+- **The parameter channel must survive.** The `%(hogql_val_N)s` placeholders resolve through `sync_execute`'s
+  single `escape_param` substitution pass (client-side, the same as all HogQL) — and the s3() arguments now
+  ride the same channel. An implementation that hand-inlines any of these values instead reintroduces classic
+  injection for every user literal.
+- **Privilege amplification is the deepest issue and is not about splicing — but it is narrower than it
+  first looks, because `readonly` and GRANTs are independent layers.** An INSERT is a write statement even
+  into a table function, so `readonly = 2` is off the table: the writer identity needs `readonly = 0`.
+  That does NOT mean it can write ClickHouse: `INSERT` privileges are per-table and `s3()` is gated by its
+  own source grant, so the right shape is `readonly = 0` with a grant set of SELECT on the HogQL-reachable
+  tables, `GRANT S3 ON *.*`, `CREATE TEMPORARY TABLE`, and **zero** INSERT/ALTER/CREATE/DROP/TRUNCATE on
+  any database or table — a user that physically cannot mutate CH state yet can run
+  `INSERT INTO FUNCTION s3`. The `readonly` downgrade then costs only defense-in-depth redundancy, not
+  authorization. What grants cannot close: `GRANT S3` is source-level, not resource-level — no per-user
+  "only this bucket" exists, and a holder can call `s3('https://anywhere/...', key, secret)` with **inline
+  attacker credentials**, bypassing our IAM entirely. That residual exfiltration channel is fenced
+  server-side, not per-user: `remote_url_allow_hosts` pinned to our storage endpoints (verify it covers
+  `s3()` on our CH version), plus confining the write-capable identity to the one materialize code path
+  while everything else notebook-shaped stays on a read-only user. With allowlist + minimal grants, the
+  blast radius of a hypothetical printer bug shrinks from "exfiltrate anywhere" to "write malformed objects
+  into our own lifecycle-TTL'd frames prefix" — integrity, not confidentiality. One tempting dead end,
+  preempted: an admin-created `ENGINE = S3` table (plain table-scoped INSERT grant, no S3 source grant, no
+  URL in SQL at all) fails on schema — engine tables are fixed-schema and every frame carries its own
+  arbitrary column set, which is exactly why `INSERT INTO FUNCTION s3` (per-statement schema inference) is
+  the only shape that fits.
+
+The playbook, if/when built: keep the URL out of the statement via a named collection pinned to bucket +
+`notebooks/frames/` prefix (only a charset-validated **and** escaped `filename` override in SQL — validation
+as policy, escaping as defense in depth; also keeps credentials out of `system.query_log` and error text);
+build the INSERT wrapper as a printer-level construct rather than post-hoc string surgery, with a shape-matrix
+test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; keep every
+s3() value in the `sync_execute` parameter map, with no interpolation ahead of its single client-side
+escaping pass (there is no server-side binding on this path to fall back on); give the writer identity the
+minimal-grant shape above (`readonly = 0`, no
+table-write grants, S3 source grant) confined to the materialize path; pin `remote_url_allow_hosts` to our
+storage endpoints; scope the CH-side credentials write-only to the notebooks prefix. Verdict: the splice is a
+contained engineering problem with a known playbook and its own security review, and the table-mutation half
+of the amplification is fully closable through grants; what is permanent is the S3-egress capability itself —
+containable to our-own-bucket blast radius via the host allowlist, never eliminable — and that residual is
+what must be consciously accepted.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
 (`query_hash` in the key makes this a HEAD check), tighten lifecycle (delete on supersede),
 and align the format with the local-DuckDB engine direction so materialized frames double as DuckDB-readable
 tables without re-encoding.
+**Stale-read hazard — must be solved before the HEAD check ships:** the key has no freshness dimension, so a
+bare exists-check would serve a frame materialized before newer events landed. Phase 1 stays fresh only
+because it always re-executes and overwrites; cross-run reuse needs an explicit staleness input first — an
+age-based reuse rule (the insight cache's target-age precedent), a data watermark, or a time bucket folded
+into the key.
 
 ## Open questions
 
-- Bucket choice: reuse `OBJECT_STORAGE_BUCKET` under a `notebooks/` prefix vs a dedicated bucket
-  (dedicated is cleaner for lifecycle rules and IAM scoping; more infra to provision).
-- Does cloud CH's instance role already permit writes to the chosen bucket, or does that need infra work
-  (batch exports suggests the pattern is established)?
+- ~~Bucket choice~~ — resolved in phase 1 as `OBJECT_STORAGE_BUCKET` under the `notebooks/frames/` prefix,
+  then superseded for cloud: `NOTEBOOKS_FRAME_STORE_S3_BUCKET` points at a dedicated frames bucket
+  (1-day lifecycle TTL, least-privilege CH-node grant), falling back to `OBJECT_STORAGE_BUCKET` for
+  dev/CI/self-hosted. The lifecycle TTL is a bucket rule owned by infra, not app code.
+  **Both write paths target that one bucket**, which is easy to misread from the CH-node grant alone:
+  ClickHouse writes it on the phase-2 path, and the worker writes it on the phase-1 streaming path —
+  still the default, and the fallback whenever the CH writer identity is missing. So the worker's IAM
+  role needs `PutObject` plus the multipart actions there, not just the read/delete it needs to size-check
+  and clean up. One bucket also means one TTL covers frames from either path. Drop the worker's write
+  grant only if the streaming path itself is removed.
+- ~~Does cloud CH's instance role already permit writes to the chosen bucket?~~ — infra work, in flight for
+  dev: the dedicated bucket grants the CH node role Put/Get/List/Abort (no Delete), mirrored in the CH
+  identity policy's allowed-bucket list; prod-us/prod-eu follow after dev verification.
 - Presign from SeaweedFS in local dev: verify the presigned host is reachable from the locally-run kernel.
 - Whether phase 1 should also carry SQLV2 (hogql-node) first pages, or stay materialization-only
   (recommendation: materialization-only — envelopes are small and the current path serves them well).

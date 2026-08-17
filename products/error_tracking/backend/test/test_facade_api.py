@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -22,8 +23,10 @@ from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):
-    def _create_issue(self, *, team, name: str, description: str | None = None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=team, name=name, description=description)
+    def _create_issue(
+        self, *, team, name: str, description: str | None = None, severity: str | None = None
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=team, name=name, description=description, severity=severity)
         ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp-{issue.id}")
         return issue
 
@@ -78,12 +81,68 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 issue_id=issue.id,
                 integration_id=integration.id,
                 config={"team_id": "other-team-id", "title": "Checkout TypeError", "description": ""},
+                distinct_id=self.user.id,
             )
 
         assert str(context.exception) == (
             "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
         )
         mock_list_teams.assert_called_once_with()
+
+    @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    def test_create_external_reference_links_linear_attachment_via_fingerprint(
+        self, mock_list_teams, mock_create_issue
+    ):
+        mock_list_teams.return_value = [{"id": "linear-team-id", "name": "Engineering"}]
+        mock_create_issue.return_value = {"id": "LIN-1"}
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Checkout TypeError")
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp/with#chars")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme", "name": "Acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config={"team_id": "linear-team-id", "title": "Checkout TypeError", "description": ""},
+            distinct_id=self.user.id,
+        )
+
+        attachment_url = mock_create_issue.call_args.args[0]
+        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+
+    @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    def test_create_external_reference_falls_back_to_issue_url_without_fingerprints(
+        self, mock_list_teams, mock_create_issue
+    ):
+        mock_list_teams.return_value = [{"id": "linear-team-id", "name": "Engineering"}]
+        mock_create_issue.return_value = {"id": "LIN-1"}
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="No fingerprints yet")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme", "name": "Acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config={"team_id": "linear-team-id", "title": "No fingerprints yet", "description": ""},
+            distinct_id=self.user.id,
+        )
+
+        attachment_url = mock_create_issue.call_args.args[0]
+        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
 
     def test_issue_exists(self):
         assert api.issue_exists(team_id=self.team.id) is False
@@ -105,13 +164,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         [
             ["name", "name", "checkout", ["Checkout timeout", "Checkout type error"]],
             ["issue_description", "issue_description", "timeout", ["A timeout during payment"]],
+            ["severity", "severity", "hi", ["high"]],
             ["missing_key", None, "timeout", []],
             ["missing_value", "name", None, []],
             ["unknown_key", "unknown", "checkout", []],
         ]
     )
     def test_get_issue_values(self, _name: str, key: str | None, value: str | None, expected: list[str]):
-        self._create_issue(team=self.team, name="Checkout timeout", description="A timeout during payment")
+        self._create_issue(
+            team=self.team,
+            name="Checkout timeout",
+            description="A timeout during payment",
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
         self._create_issue(team=self.team, name="Checkout type error", description="Type mismatch in checkout")
 
         values = api.get_issue_values(team_id=self.team.id, key=key, value=value)

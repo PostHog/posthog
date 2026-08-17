@@ -67,17 +67,17 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         return cast(ExperimentQueryResponse, runner.calculate())
 
     def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
-        exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-            experiment.exposure_criteria
+        exposure_params = get_exposure_config_params_for_builder(
+            experiment.exposure_criteria, experiment.team, experiment.start_date
         )
         as_of = experiment.end_date or datetime.now(UTC)
         date_range = experiment_window(experiment, self.team, as_of)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=[v["key"] for v in feature_flag.variants],
             date_range_query=QueryDateRange(
                 date_range=date_range, team=self.team, interval=IntervalType.DAY, now=as_of
@@ -282,6 +282,73 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                     settings["max_bytes_before_external_group_by"] == MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
                     for settings in settings_list
                 )
+
+    def test_group_aggregated_experiment_skips_precompute(self):
+        # Group-aggregated builds always fail on ClickHouse (the INSERT can't resolve the
+        # materialized $group_N column), so the runners must not submit them at all.
+        feature_flag = self.create_feature_flag(key="group-agg-test")
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        for variant, group_key in (("control", "org:1"), ("test", "org:2")):
+            user = f"group_user_{variant}"
+            _create_person(distinct_ids=[user], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=user,
+                timestamp=datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC),
+                properties={
+                    feature_flag_property: variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": feature_flag.key,
+                    "$group_0": group_key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=user,
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: variant, "$group_0": group_key},
+            )
+
+        self._enable_precomputation()
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+        result = cast(ExperimentQueryResponse, runner.calculate())
+
+        assert result.baseline is not None
+        assert runner._precompute_skip_reason() == "group_aggregation"
+        assert PreaggregationJob.objects.count() == 0
+
+        # Query dict without the group index in its filters — the runner must gate on the
+        # DB flag, not on whatever feature_flag shape the caller happened to pass.
+        flag_dict = model_to_dict(feature_flag)
+        flag_dict["filters"] = {k: v for k, v in flag_dict["filters"].items() if k != "aggregation_group_type_index"}
+        exposure_query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=flag_dict,
+            holdout=None,
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        ExperimentExposuresQueryRunner(team=self.team, query=exposure_query).calculate()
+
+        assert PreaggregationJob.objects.count() == 0
 
     def test_lazy_computed_results_match_direct_scan_multiple_jobs(self):
         feature_flag = self.create_feature_flag(key="multi-job-test")

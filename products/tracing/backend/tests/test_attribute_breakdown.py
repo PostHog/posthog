@@ -147,10 +147,44 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_filter_group_exclusion_scopes_the_span_list(self):
+        # The spans-list WHERE is built separately from the aggregation WHERE — an is_not status
+        # filter must scope the trace list too, not just facet counts. Fixture reused from this
+        # file because it is the only spans fixture with mixed status codes.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/query/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "flatSpans": True,
+                    "limit": 100,
+                    "filterGroup": [{"key": "status_code", "operator": "is_not", "type": "span", "value": "Error"}],
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()["results"]), 6)
+
+    def test_filter_group_exclusion_scopes_the_breakdown(self):
+        # The rail's is_not exclusions must remove matching spans from other facets' counts, with
+        # label values normalising through the same path as exact ("Error" → 2). The span with no
+        # server.address at all survives (exclude-by-value, not require-the-attribute).
+        rows = self._breakdown(
+            breakdownKey="server.address",
+            breakdownType="span_attribute",
+            filterGroup=[{"key": "status_code", "operator": "is_not", "type": "span", "value": "Error"}],
+        )
+        self.assertEqual(
+            {(row["value"], row["count"]) for row in rows},
+            {("api2.amplitude.com", 2), ("api.mixpanel.com", 3), ("", 1)},
+        )
+
     @parameterized.expand(
         [
-            # Each case selects one value of the facet's own dimension; with exclusion the facet
-            # must still list every value (not collapse to the selected one).
+            # Each case selects (or excludes) one value of the facet's own dimension; with exclusion
+            # the facet must still list every value (not collapse or zero out the targeted one) —
+            # the strip is by key, both polarities.
             (
                 "service_names_filter",
                 {"breakdownKey": "service_name", "breakdownType": "span", "serviceNames": ["other"]},
@@ -197,6 +231,31 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
                 },
                 {"pod-a", "pod-b", "pod-c"},
             ),
+            (
+                "span_column_exclusion",
+                {
+                    "breakdownKey": "status_code",
+                    "breakdownType": "span",
+                    "filterGroup": [{"key": "status_code", "operator": "is_not", "type": "span", "value": "Error"}],
+                },
+                {"0", "2"},
+            ),
+            (
+                "resource_attribute_exclusion",
+                {
+                    "breakdownKey": "k8s.pod.name",
+                    "breakdownType": "span_resource_attribute",
+                    "filterGroup": [
+                        {
+                            "key": "k8s.pod.name",
+                            "operator": "is_not",
+                            "type": "span_resource_attribute",
+                            "value": "pod-a",
+                        }
+                    ],
+                },
+                {"pod-a", "pod-b", "pod-c"},
+            ),
         ]
     )
     def test_exclude_breakdown_filter_keeps_facet_complete(self, _name, query_fields, expected_values):
@@ -217,3 +276,17 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
         )
         by_value = {row["value"]: row["count"] for row in rows}
         self.assertEqual(by_value["api2.amplitude.com"], 5)
+
+    @parameterized.expand(
+        [
+            ("case_insensitive_substring", "span_attribute", "server.address", "AMPLITUDE", {"api2.amplitude.com"}),
+            # ILIKE wildcards in the search must match literally: unescaped, "api_" would match
+            # both addresses via the any-one-char wildcard.
+            ("wildcards_match_literally", "span_attribute", "server.address", "api_", set()),
+            ("span_column", "span", "service_name", "cd", {"cdp"}),
+            ("resource_attribute", "span_resource_attribute", "k8s.pod.name", "pod-b", {"pod-b"}),
+        ]
+    )
+    def test_facet_search_filters_values(self, _name, breakdown_type, breakdown_key, search, expected_values):
+        rows = self._breakdown(breakdownKey=breakdown_key, breakdownType=breakdown_type, facetSearch=search)
+        self.assertEqual({row["value"] for row in rows}, expected_values)

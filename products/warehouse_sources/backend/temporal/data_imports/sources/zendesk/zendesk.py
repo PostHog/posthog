@@ -1,7 +1,7 @@
 import re
 import base64
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -11,11 +11,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONLinkPaginator,
+    SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
+    FANOUT_PARENTS,
+    ZENDESK_ENDPOINTS,
+    ZendeskEndpointConfig,
+)
+
+# Lower bound for the ISO 8601 time filters on the first run / full refresh, mirroring the `0`
+# epoch seed the incremental exports use.
+ZENDESK_EPOCH_START = "1970-01-01T00:00:00Z"
 
 
 def to_zendesk_start_time(value: Any) -> int:
@@ -28,7 +47,78 @@ def to_zendesk_start_time(value: Any) -> int:
     return int(value)
 
 
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+def to_zendesk_iso8601(value: Any) -> str:
+    """Format an incremental cursor value for the ISO 8601 UTC filters (`since`) on the plain
+    Support list endpoints, which — unlike the incremental exports — don't take Unix epochs."""
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return str(value)
+
+
+def zendesk_incremental_window(start_param: str, cursor_path: str) -> IncrementalConfig:
+    return {
+        "start_param": start_param,
+        "cursor_path": cursor_path,
+        "initial_value": ZENDESK_EPOCH_START,
+        "convert": to_zendesk_iso8601,
+    }
+
+
+def paginator_for(config: ZendeskEndpointConfig) -> BasePaginator:
+    if not config.paginated:
+        return SinglePagePaginator()
+    if config.next_url_path == "after_url":
+        return ZendeskAfterUrlPaginator()
+    return JSONLinkPaginator(next_url_path=config.next_url_path)
+
+
+def get_declarative_resource(
+    config: ZendeskEndpointConfig,
+    should_use_incremental_field: bool,
+    incremental_field_name: str | None = None,
+) -> EndpointResource:
+    """Build a resource for one of the plain Support API list endpoints in `ZENDESK_ENDPOINTS`."""
+    if config.fanout:
+        raise ValueError(f"Fan-out endpoint '{config.name}' must be built through the fan-out path")
+
+    params: dict[str, Any] = dict(config.params)
+    if config.paginated:
+        params["page[size]"] = config.page_size
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": config.data_selector,
+        # Every one of these responses wraps its rows in a documented key, so a response without
+        # it means the API shape changed — fail loud rather than silently syncing 0 rows.
+        "data_selector_required": True,
+        "paginator": paginator_for(config),
+    }
+
+    use_incremental = should_use_incremental_field and bool(config.incremental_fields)
+    if use_incremental:
+        if config.incremental_start_param is None:
+            raise ValueError(f"Endpoint '{config.name}' advertises incremental fields but has no start param")
+        endpoint_config["incremental"] = zendesk_incremental_window(
+            config.incremental_start_param,
+            incremental_field_name or config.default_incremental_field or "created_at",
+        )
+
+    return {
+        "name": config.name,
+        "table_name": config.name,
+        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
+        "endpoint": endpoint_config,
+        "table_format": "delta",
+    }
+
+
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool,
+    incremental_field_name: str | None = None,
+) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "brands": {
             "name": "brands",
@@ -253,7 +343,10 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         },
     }
 
-    return resources[name]
+    if name in resources:
+        return resources[name]
+
+    return get_declarative_resource(ZENDESK_ENDPOINTS[name], should_use_incremental_field, incremental_field_name)
 
 
 class ZendeskCursorIncrementalPaginator(BasePaginator):
@@ -340,6 +433,24 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         request.params = {}
 
 
+class ZendeskAfterUrlPaginator(JSONLinkPaginator):
+    """Cursor pagination for `/api/v2/ticket_audits`, which returns its next-page link as
+    `after_url` rather than the `links.next` the newer list endpoints use.
+
+    An empty page also terminates: the endpoint keeps handing back a cursor URL once the stream
+    is exhausted, so the link on its own isn't a reliable stop condition.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="after_url")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if data is not None and len(data) == 0:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
 def normalize_subdomain(subdomain: str) -> str:
     """Reduce whatever the user entered to the bare Zendesk subdomain label.
 
@@ -357,6 +468,55 @@ def normalize_subdomain(subdomain: str) -> str:
     return re.sub(r"\.zendesk\.com$", "", subdomain, flags=re.IGNORECASE)
 
 
+def zendesk_client_config(subdomain: str, api_key: str, email_address: str) -> ClientConfig:
+    return {
+        "base_url": f"https://{normalize_subdomain(subdomain)}.zendesk.com/",
+        "auth": {
+            "type": "http_basic",
+            "username": f"{email_address}/token",
+            "password": api_key,
+        },
+    }
+
+
+def zendesk_fanout_source(
+    client_config: ClientConfig,
+    config: ZendeskEndpointConfig,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool = False,
+    incremental_field_name: str | None = None,
+) -> Resource:
+    """Fan out over a parent list endpoint, then page the child endpoint per parent row."""
+    assert config.fanout is not None
+    parent = FANOUT_PARENTS[config.fanout.parent_name]
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs={config.name: config, parent.name: parent},
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field_name,
+            page_size_param="page[size]",
+            parent_endpoint_extra={
+                "paginator": JSONLinkPaginator(next_url_path="links.next"),
+                "data_selector": parent.data_selector,
+            },
+            child_endpoint_extra={
+                "paginator": paginator_for(config),
+                "data_selector": config.data_selector,
+            },
+        ),
+    )
+
+
 def zendesk_source(
     subdomain: str,
     api_key: str,
@@ -366,16 +526,24 @@ def zendesk_source(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
+    incremental_field_name: str | None = None,
 ):
+    client_config = zendesk_client_config(subdomain, api_key, email_address)
+
+    endpoint_config = ZENDESK_ENDPOINTS.get(endpoint)
+    if endpoint_config is not None and endpoint_config.fanout is not None:
+        return zendesk_fanout_source(
+            client_config,
+            endpoint_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            should_use_incremental_field,
+            incremental_field_name,
+        )
+
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": f"https://{normalize_subdomain(subdomain)}.zendesk.com/",
-            "auth": {
-                "type": "http_basic",
-                "username": f"{email_address}/token",
-                "password": api_key,
-            },
-        },
+        "client": client_config,
         "resource_defaults": {
             "write_disposition": {
                 "disposition": "merge",
@@ -384,7 +552,7 @@ def zendesk_source(
             if should_use_incremental_field
             else "replace",
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field_name)],
     }
 
     return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)

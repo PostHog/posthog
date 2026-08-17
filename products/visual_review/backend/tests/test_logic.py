@@ -4,9 +4,14 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.visual_review.backend import logic
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -1971,6 +1976,8 @@ class TestMergeBaseBaselineHealing:
         merge_base_sha="abc123",
         default_branch="master",
         commit_sha_baselines=None,
+        pr_head_sha=None,
+        pr_head_is_ancestor=True,
     ):
         mock_github = mocker.MagicMock()
         mock_github.integration.sensitive_config = {"access_token": "fake"}
@@ -1989,8 +1996,22 @@ class TestMergeBaseBaselineHealing:
                 return {k: {"hash": v} for k, v in baselines.items()}, "sha2"
             return {}, None
 
+        pr_response = mocker.MagicMock()
+        if pr_head_sha is None:
+            pr_response.status_code = 404
+            pr_response.json.return_value = {"message": "Not Found"}
+        else:
+            pr_response.status_code = 200
+            pr_response.json.return_value = {"head": {"sha": pr_head_sha}}
+        mock_github.api_request.return_value = pr_response
+
+        def fake_merge_base(github, repo_full_name, base, head):
+            if pr_head_sha is not None and base == pr_head_sha:
+                return pr_head_sha if pr_head_is_ancestor else "unrelated-sha"
+            return merge_base_sha
+
         mocker.patch("products.visual_review.backend.logic._fetch_baseline_file", side_effect=fake_fetch)
-        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", return_value=merge_base_sha)
+        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", side_effect=fake_merge_base)
         mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
         mocker.patch(
             "products.visual_review.backend.logic._verify_baseline_hashes", side_effect=lambda repo, hashes: hashes
@@ -2251,27 +2272,101 @@ class TestMergeBaseBaselineHealing:
         assert snapshot.baseline_hash == "master_hash"
 
     @pytest.mark.parametrize(
-        "prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned",
+        "run_branch, prior_branch, prior_pr_number, prior_run_type, prior_approved, prior_review_state, pr_head_sha, pr_head_is_ancestor, expect_tombstoned",
         [
-            ("my-branch", RunType.STORYBOOK, True, ReviewState.APPROVED, True),
-            ("someone-else", RunType.STORYBOOK, True, ReviewState.APPROVED, False),
-            ("my-branch", "playwright", True, ReviewState.APPROVED, False),
-            ("my-branch", RunType.STORYBOOK, False, ReviewState.PENDING, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, True),
+            ("my-branch", "someone-else", None, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, False),
+            ("my-branch", "my-branch", None, "playwright", True, ReviewState.APPROVED, None, True, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, False, ReviewState.PENDING, None, True, False),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                True,
+                True,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                43,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                True,
+                False,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                False,
+                False,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                None,
+                True,
+                False,
+            ),
+            ("my-branch", "someone-else", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, False),
         ],
-        ids=["approved_on_branch", "wrong_branch", "wrong_run_type", "not_approved"],
+        ids=[
+            "approved_on_branch",
+            "wrong_branch",
+            "wrong_run_type",
+            "not_approved",
+            "merge_queue_source_pr",
+            "merge_queue_other_pr",
+            "merge_queue_spoofed_branch_not_ancestor",
+            "merge_queue_source_pr_not_found",
+            "pr_number_ignored_off_queue",
+        ],
     )
     def test_tombstone_excludes_only_approved_removals_on_branch(
-        self, repo, team, mocker, prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned
+        self,
+        repo,
+        team,
+        mocker,
+        run_branch,
+        prior_branch,
+        prior_pr_number,
+        prior_run_type,
+        prior_approved,
+        prior_review_state,
+        pr_head_sha,
+        pr_head_is_ancestor,
+        expect_tombstoned,
     ):
         branch_baseline: dict[str, str] = {}
         merge_base_baseline = {"candidate": "h1"}
-        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+        self._mock_github(
+            mocker,
+            branch_baseline=branch_baseline,
+            merge_base_baseline=merge_base_baseline,
+            pr_head_sha=pr_head_sha,
+            pr_head_is_ancestor=pr_head_is_ancestor,
+        )
 
         prior_run = Run.objects.create(
             team_id=team.id,
             repo=repo,
             run_type=prior_run_type,
             branch=prior_branch,
+            pr_number=prior_pr_number,
             commit_sha="prior-sha",
             status=RunStatus.COMPLETED,
             approved=prior_approved,
@@ -2286,7 +2381,7 @@ class TestMergeBaseBaselineHealing:
             review_state=prior_review_state,
         )
 
-        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, run_branch)
 
         if expect_tombstoned:
             assert merged == {}
@@ -2430,6 +2525,69 @@ class TestVerifyUploadsAndCreateArtifacts:
         assert artifact is not None
         assert artifact.content_hash == server_hash
         assert artifact.size_bytes == len(png)
+        snapshot = RunSnapshot.objects.get(run=run)
+        assert snapshot.current_artifact_id == artifact.id
+
+    def test_verification_query_count_does_not_grow_per_hash(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
+            images: dict[str, bytes] = {}
+            snapshots: list[dict[str, str]] = []
+            for index in range(count):
+                png = self._png((color_offset + index, 20, 30, 255))
+                content_hash = hash_image(png)
+                images[content_hash] = png
+                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+
+            run, _ = logic.create_run(
+                repo_id=repo.id,
+                team_id=repo.team_id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"sha-{count}-{color_offset}",
+                branch="main",
+                pr_number=None,
+                snapshots=snapshots,
+            )
+            return run, images
+
+        single_run, single_images = create_run_with_images(1, 10)
+        mock_read = mocker.patch(
+            "products.visual_review.backend.storage.ArtifactStorage.read",
+            side_effect=lambda content_hash: single_images.get(content_hash),
+        )
+        with CaptureQueriesContext(connections[WRITER_DB]) as single_queries:
+            logic.verify_uploads_and_create_artifacts(single_run.id)
+
+        scaled_run, scaled_images = create_run_with_images(5, 100)
+        mock_read.side_effect = lambda content_hash: scaled_images.get(content_hash)
+        with CaptureQueriesContext(connections[WRITER_DB]) as scaled_queries:
+            logic.verify_uploads_and_create_artifacts(scaled_run.id)
+
+        assert len(scaled_queries) <= len(single_queries)
+
+    def test_verification_relinks_existing_artifacts_across_hash_batches(self, repo, mocker):
+        from products.visual_review.backend.hashing import hash_image
+
+        mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
+        snapshots: list[dict[str, str]] = []
+        for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
+            content_hash = hash_image(self._png(color))
+            logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
+            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="sha-retry",
+            branch="main",
+            pr_number=None,
+            snapshots=snapshots,
+        )
+
+        assert logic.verify_uploads_and_create_artifacts(run.id) == 0
+        assert RunSnapshot.objects.filter(run=run, current_artifact__isnull=False).count() == 3
 
     def test_hash_mismatch_raises_and_persists_no_artifacts(self, repo, mocker):
         # Two snapshots: first verifies cleanly, second has a mismatched claim.
@@ -2941,14 +3099,13 @@ class TestApprovalComment:
         cell = logic._image_cell("https://cdn.example/full", "after")
         assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
 
-    @pytest.mark.parametrize(
-        "identifier,expected",
+    @parameterized.expand(
         [
-            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
-            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+            ("pipe", "a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("backtick", "a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
         ],
     )
-    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+    def test_snapshot_name_cell_escapes_markdown(self, _name, identifier, expected):
         assert logic._snapshot_name_cell(identifier) == expected
 
     def test_snapshot_name_cell_collapses_control_characters(self):

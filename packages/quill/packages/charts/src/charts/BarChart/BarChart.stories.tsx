@@ -78,7 +78,7 @@ export const WithBarTrackCeiling: Story = {
             barLayout: 'grouped',
             showGrid: true,
             barCornerRadius: 6,
-            bars: { track: true, valueDomain: [0, 100] },
+            bars: { track: true, valueDomain: { min: 0, max: 100 } },
         }
         return (
             <Stage>
@@ -104,7 +104,7 @@ export const StackedWithTrackCeiling: Story = {
             axisOrientation: 'horizontal',
             showGrid: true,
             barCornerRadius: 6,
-            bars: { valueDomain: [0, 100] },
+            bars: { valueDomain: { min: 0, max: 100 } },
         }
         return (
             <Stage height={120}>
@@ -209,6 +209,57 @@ export const WithValueLabels: Story = {
         return (
             <Stage>
                 <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
+export const DenseValueLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Many bars with widely varying heights. Labels sit at each bar's tip, so neighbours
+        // rarely share a height — collision avoidance should keep every label that actually fits
+        // rather than dropping every other bar.
+        const labels = Array.from({ length: 20 }, (_, i) => `D${i + 1}`)
+        const series: Series[] = [
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [128, 24, 205, 61, 172, 39, 240, 88, 15, 199, 54, 143, 27, 218, 76, 165, 33, 187, 96, 231],
+            },
+        ]
+        const config: BarChartConfig = { showGrid: true }
+        return (
+            <Stage width={900} height={320}>
+                <BarChart series={series} labels={labels} config={config} theme={theme}>
+                    <ValueLabels />
+                </BarChart>
+            </Stage>
+        )
+    },
+}
+
+export const DenseValueLabelsHorizontal: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Same stress test on a horizontal bar chart — labels track each bar's length, so the
+        // 2D collision check keeps labels whose bars differ enough in value.
+        const labels = Array.from({ length: 16 }, (_, i) => `Row ${i + 1}`)
+        const series: Series[] = [
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [128, 24, 205, 61, 172, 39, 240, 88, 15, 199, 54, 143, 27, 218, 76, 165],
+            },
+        ]
+        const config: BarChartConfig = { axisOrientation: 'horizontal', showGrid: true }
+        return (
+            <Stage width={520} height={480}>
+                <BarChart series={series} labels={labels} config={config} theme={theme}>
                     <ValueLabels />
                 </BarChart>
             </Stage>

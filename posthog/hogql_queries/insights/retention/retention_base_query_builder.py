@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import EntityType
 
 from posthog.hogql import ast
@@ -71,12 +73,19 @@ class RetentionBaseQueryBuilder(ABC):
     def entity_timestamp_field(self, entity: RetentionEntity) -> ast.Expr:
         if entity.type == EntityType.DATA_WAREHOUSE:
             if not entity.table_name or not entity.timestamp_field:
-                raise ValueError(
-                    f"DATA_WAREHOUSE RetentionEntity requires table_name and timestamp_field, "
-                    f"got table_name={entity.table_name!r}, timestamp_field={entity.timestamp_field!r}"
-                )
+                # ValidationError so a half-configured entity surfaces as HTTP 400; a bare ValueError becomes a 500.
+                raise ValidationError("A data warehouse retention series requires table_name and timestamp_field.")
             return ast.Field(chain=[entity.table_name, entity.timestamp_field])
         return ast.Field(chain=["events", "timestamp"])
+
+    def entity_actor_id_column(self, entity: RetentionEntity) -> str:
+        # The column that identifies the actor (person or group) for an entity: the configured join field
+        # for a data warehouse entity, or the runner's resolved person/group column for events.
+        if entity.type == EntityType.DATA_WAREHOUSE:
+            if not entity.aggregation_target_field:
+                raise ValidationError("A data warehouse retention series requires aggregation_target_field.")
+            return entity.aggregation_target_field
+        return self.aggregation_target_events_column
 
     @cached_property
     def start_entity_expr_no_props(self) -> ast.Expr:

@@ -29,7 +29,7 @@ function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
 }
 
 /**
- * Names of the tools `render-ui` can render — those whose UI app has a generated view.
+ * Names of the tools `render-ui` can render — those whose UI app exposes a reusable view.
  * Restricted to read-only tools: `render-ui` is annotated read-only, so it must not be a
  * back door for dispatching state-changing tools (e.g. `survey-launch`, `workflows-create`).
  */

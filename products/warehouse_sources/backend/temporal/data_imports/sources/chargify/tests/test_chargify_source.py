@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.chargify import ChargifyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.settings import (
     CHARGIFY_ENDPOINTS,
@@ -18,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source import ChargifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChargifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
+    ChargifySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -66,7 +68,6 @@ class TestChargifySource:
         assert config.label == "Chargify"
         assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/chargify"
         assert config.iconPath == "/static/services/chargify.png"
 

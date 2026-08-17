@@ -1,1 +1,1 @@
-0287_events_recent_inserted_at_not_nullable
+0298_logs34_mv_explicit_columns

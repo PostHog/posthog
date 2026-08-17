@@ -10,6 +10,7 @@ import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insi
 import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import __trendsLineBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import __trendsLineMulti from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import __trendsMetric from '../../mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
 import __trendsNumber from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
 import __trendsPie from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
 import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
@@ -140,6 +141,45 @@ export const TrendsAreaBreakdownInsight: Story = {
 export const TrendsNumberInsight: Story = {
     args: { insight: __trendsNumber as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
+}
+
+/** The Metric sparkline is SVG/canvas, so it captures cleanly and guards against the exported card
+ * collapsing to a fixed-height sparkline that floats mid-card instead of filling and hugging the bottom.
+ * The fixed-width wrapper mirrors the backend's 600px metric export viewport — the test runner's
+ * shrink-to-fit root would otherwise collapse the chart band to its text width, leaving the filling
+ * sparkline no height at all. */
+export const TrendsMetricInsight: Story = {
+    args: { insight: __trendsMetric as any },
+    decorators: [(StoryFn): JSX.Element => <div className="w-[600px]">{StoryFn()}</div>],
+    parameters: {
+        mockDate: '2022-04-01',
+        testOptions: {
+            snapshotBrowsers: ['chromium'],
+            waitForSelector: '.Metric canvas',
+        },
+    },
+}
+
+/** A long description pushes the metric card's header tall. The card has to grow to keep the chart band
+ * at full height — a ratio on the card itself squeezed the sparkline to a sliver that spilled past the
+ * bottom edge. */
+export const TrendsMetricInsightLongDescription: Story = {
+    args: {
+        insight: {
+            ...(__trendsMetric as any),
+            name: 'Scanners created — total',
+            description:
+                'Total Replay Vision scanners created (autocaptured "Create scanner" clicks, data-attr=vision-editor-save). Last 90 days, excludes internal/test accounts.',
+        },
+    },
+    decorators: [(StoryFn): JSX.Element => <div className="w-[600px]">{StoryFn()}</div>],
+    parameters: {
+        mockDate: '2022-04-01',
+        testOptions: {
+            snapshotBrowsers: ['chromium'],
+            waitForSelector: '.Metric canvas',
+        },
+    },
 }
 
 export const TrendsTableInsight: Story = {

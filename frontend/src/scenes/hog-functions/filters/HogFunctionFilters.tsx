@@ -19,7 +19,10 @@ import MaxTool from 'scenes/max/MaxTool'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { truncateHogFunctionContext } from '../hog-function-utils'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -98,6 +101,16 @@ export function HogFunctionFilters({
         reportAIFiltersPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
+    useAttachedContext([
+        {
+            type: 'hog_function_filters',
+            value: truncateHogFunctionContext(
+                JSON.stringify({ filters: configuration?.filters ?? {}, function_type: type })
+            ),
+            label: 'Current filters',
+        },
+    ])
+
     const isTransformation = type === 'transformation'
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
@@ -106,10 +119,15 @@ export function HogFunctionFilters({
     // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
     // automatically in this scene — kick it off when a warehouse table is the source.
     const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
-    const { loadDatabase } = useActions(databaseTableListLogic)
+    const { loadDatabase, ensureAllTableFields } = useActions(databaseTableListLogic)
     useEffect(() => {
-        if (isDataWarehouse && !dataWarehouseTables.length) {
-            loadDatabase()
+        if (isDataWarehouse) {
+            if (!dataWarehouseTables.length) {
+                loadDatabase()
+            } else {
+                // The store may hold a shallow (fields-less) schema left by the SQL editor.
+                ensureAllTableFields()
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isDataWarehouse])

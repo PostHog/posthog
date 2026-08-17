@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Data pipelines
 feature: batch_exports
-url_prefix: /data-pipelines/destinations
+url_prefix: /data-management/destinations
 ui_apps: {}
 tools:
     batch-export-create:
@@ -20,11 +20,12 @@ tools:
             idempotent: false
         title: Create batch export
         description: >
-            Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob
-            destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination
-            types are permitted by the API but typically must be created via the PostHog UI because their credentials
-            are stored in the destination config. Always specify the model field (events, persons, or sessions) —
-            omitting it defaults to events but the field should be set explicitly.
+            Create a new batch export. Typed destination config schemas are available for Databricks, AzureBlob,
+            BigQuery, Postgres, AwsS3, S3Compatible and Snowflake destinations. All of those except Snowflake require a
+            team-scoped Integration for credentials (use integrations-list to find one). Other destination types are
+            permitted by the API but typically must be created via the PostHog UI because their credentials are stored
+            in the destination config. Always specify the model field (events, persons, or sessions) — omitting it
+            defaults to events but the field should be set explicitly.
         exclude_params:
             - id
             - team_id

@@ -58,7 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 tracer = trace.get_tracer(__name__)
 
@@ -121,7 +121,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
@@ -138,9 +138,15 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DayRange:
+    start: datetime.datetime
+    end: datetime.datetime
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the preceding day.
+    Returns the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -159,12 +165,12 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
         tzinfo=ZoneInfo("UTC"),
     )  # start of the previous day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the current day.
+    Returns the start and end of the current day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -183,7 +189,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.da
         tzinfo=ZoneInfo("UTC"),
     )  # start of the reference day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
 def relative_date_parse_with_delta_mapping(
@@ -531,7 +537,17 @@ def _build_template_context(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        if posthoganalytics.api_key:
+        # posthog-js uses this token to evaluate PostHog's own gating flags, so it must point at the
+        # team those flags are synced to — the dogfood-flags team (first team by PK), the same team
+        # the server-side bootstrap evaluates against via _build_flag_provider(). Do NOT use the
+        # self-capture team here (posthoganalytics.api_key = most-recently-active user's current_team):
+        # it drifts onto demo teams that hold no internal flags, so flags load from the bootstrap and
+        # then vanish the moment posthog-js reloads them against that team.
+        dogfood_team = resolve_dogfood_flags_team()
+        if dogfood_team is not None:
+            context["js_posthog_api_key"] = dogfood_team.api_token
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
+        elif posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
@@ -659,6 +675,8 @@ def _build_template_context(
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
+    if "oauth_mcp_consent" in context:
+        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -814,6 +832,9 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
     initialize_self_capture_api_token() (ASGI). Callers assign the result to
     posthoganalytics.flag_definition_cache_provider and handle loading themselves.
     """
+    from products.feature_flags.backend.cache_keys import (
+        EU_CROSS_REGION_MIRROR_CACHE_KEY,  # noqa: PLC0415 — this core module doesn't otherwise depend on product code
+    )
     from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
         HyperCacheFlagProvider,
     )
@@ -830,7 +851,11 @@ def _build_flag_provider() -> "HyperCacheFlagProvider":
         # Intentionally the FIRST team, not self-capture's current_team — see
         # resolve_dogfood_flags_team().
         return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
-    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    if get_instance_region() == "EU":
+        # EU has no rows for PostHog's own team — reads go to the sentinel-keyed
+        # mirror that cross_region_flag_sync writes (see the key's definition).
+        return HyperCacheFlagProvider.for_static_team(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # Cloud (SELF_CAPTURE off) or E2E, non-EU: the canonical PostHog-internal team is 2.
     return HyperCacheFlagProvider.for_static_team(2)
 
 
@@ -1075,6 +1100,17 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def sanitize_ip_address(ip: Any) -> Optional[str]:
+    """Return the value only if it is a valid IP address string, otherwise None.
+
+    Use this before persisting an externally supplied IP so a malformed or non-string
+    value can't reach an IP database column and fail the write.
+    """
+    if not isinstance(ip, str):
+        return None
+    return _normalize_ip(ip)
+
+
 def _normalize_ip(ip: str) -> Optional[str]:
     """Strip an optional port and validate; returns None if the result isn't a valid IP."""
     if ip.startswith("["):
@@ -1198,8 +1234,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -1588,6 +1629,14 @@ def get_safe_cache(cache_key: str):
         except Exception:
             pass
     return None
+
+
+def ensure_utc(value: dt.datetime) -> dt.datetime:
+    """Treat a tz-naive datetime as UTC, so it can be compared against tz-aware values.
+
+    ClickHouse and some third-party APIs hand back naive datetimes that are UTC by contract.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
 
 
 def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:

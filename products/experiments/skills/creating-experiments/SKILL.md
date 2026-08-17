@@ -86,7 +86,7 @@ Two different percentages live in there, do NOT mix them up:
 
 Key details:
 
-- Exactly one variant key must be the literal string `"control"` (the baseline). Minimum 2, maximum 20 variants.
+- Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
 - `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
 - `ensure_experience_continuity` persists a user's variant across authentication steps; leave it `false` unless the flag is shown to both logged-out and logged-in users (see `configuring-experiment-rollout`).
 - Stats default to Bayesian. Only set `stats_config` if the user requests Frequentist.
@@ -100,3 +100,9 @@ Key details:
 3. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
 4. **Launch** when ready — use the `experiment-launch` tool.
+
+## Related skills
+
+- **`configuring-experiment-rollout`** — variant splits, rollout percentage, and who sees the test
+- **`configuring-experiment-analytics`** — exposure criteria and primary/secondary metrics
+- **`managing-experiment-lifecycle`** — launch, pause, ship, and end once the experiment exists

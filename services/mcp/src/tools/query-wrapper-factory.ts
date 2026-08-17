@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { compactTraceResults } from '@/lib/trace-compaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -7,6 +8,11 @@ import {
     type ToolBase,
     type ZodObjectAny,
 } from '@/tools/types'
+
+// LLM trace query kinds return every event with its full properties (entire
+// prompts, completions, tool payloads). Their results are bounded before being
+// returned so a single huge trace can't blow the caller's context window.
+const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -19,7 +25,11 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * override entirely and returns raw JSON. Omit to fall back to the default TOON encoding.
      */
     outputFormat?: 'optimized' | 'json'
-    /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
+    /**
+     * When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`.
+     * May contain `{param}` placeholders filled from the query body, e.g.
+     * `/ai-observability/traces/{traceId}`.
+     */
     urlPrefix?: string
 }
 
@@ -64,6 +74,47 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
     }) as unknown as T
 }
 
+/**
+ * Kea Router decodes paths before route matching, and scenes decode captured parameters again.
+ * Double encoding keeps opaque values within the route matcher character set through both steps.
+ */
+function encodeRouterPathSegment(value: string): string {
+    const encodedValue = encodeURIComponent(value).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+    return encodeURIComponent(encodedValue).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+}
+
+/**
+ * Fill `{param}` placeholders in a `urlPrefix` from the query body. A placeholder the query
+ * leaves unset (or sets to something other than a non-empty string/number) truncates the path
+ * at that segment, so the link falls back to the closest parent page instead of pointing at a
+ * literal `{traceId}`.
+ */
+function resolveUrlPrefix(urlPrefix: string, query: Record<string, unknown>): string {
+    if (!urlPrefix.includes('{')) {
+        return urlPrefix
+    }
+    const segments: string[] = []
+    for (const segment of urlPrefix.split('/')) {
+        if (!segment.includes('{')) {
+            segments.push(segment)
+            continue
+        }
+        const paramName = /^\{(\w+)\}$/.exec(segment)?.[1]
+        const value = paramName === undefined ? undefined : query[paramName]
+        if ((typeof value !== 'string' && typeof value !== 'number') || value === '') {
+            break
+        }
+        segments.push(encodeRouterPathSegment(String(value)))
+    }
+    return segments.join('/')
+}
+
 function buildInsightUrl(
     kind: 'InsightVizNode' | 'DataTableNode',
     query: Record<string, unknown>,
@@ -71,7 +122,7 @@ function buildInsightUrl(
     urlPrefix?: string
 ): string {
     if (urlPrefix) {
-        return `${baseUrl}${urlPrefix}`
+        return `${baseUrl}${resolveUrlPrefix(urlPrefix, query)}`
     }
     const q = encodeURIComponent(JSON.stringify({ kind, source: query }))
     return `${baseUrl}/insights/new#q=${q}`
@@ -142,12 +193,13 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            const results = TRACE_QUERY_KINDS.has(config.kind) ? compactTraceResults(data.results) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
             return {
                 query,
-                results: data.results,
+                results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),

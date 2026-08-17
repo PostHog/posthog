@@ -91,6 +91,10 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
+    propertyDefinitionsOverride,
+    propertyKeyEditable = true,
+    singleLine,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -157,9 +161,10 @@ export function TaxonomicPropertyFilter({
 
     // For data warehouse person properties, use columnsJoinedToPersons, otherwise use property definitions
     const propertyDefinitions =
-        filter?.type === PropertyFilterType.DataWarehousePersonProperty
+        propertyDefinitionsOverride ??
+        (filter?.type === PropertyFilterType.DataWarehousePersonProperty
             ? columnsJoinedToPersons
-            : propertyDefinitionsByType(basePropertyType, groupTypeIndex)
+            : propertyDefinitionsByType(basePropertyType, groupTypeIndex))
 
     // Look up cohort name, if not already provided in filter
     const cohortValue =
@@ -216,6 +221,7 @@ export function TaxonomicPropertyFilter({
                       })}`
                     : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
             }
+            staticValues={typeof filter?.key === 'string' ? (staticValueOptions?.(filter.key) ?? null) : null}
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {
@@ -253,7 +259,9 @@ export function TaxonomicPropertyFilter({
             ? cohortName || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
-              : filter?.type === PropertyFilterType.Flag && filter?.label
+              : (filter?.type === PropertyFilterType.Flag ||
+                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
+                  filter?.label
                 ? filter.label
                 : filter?.key && (
                       <PropertyKeyInfo
@@ -391,9 +399,13 @@ export function TaxonomicPropertyFilter({
                             )}
                         </div>
                     )}
-                    <div className="TaxonomicPropertyFilter__row-items">
+                    <div
+                        className={clsx('TaxonomicPropertyFilter__row-items', {
+                            'TaxonomicPropertyFilter__row-items--single-line': singleLine,
+                        })}
+                    >
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        {editable ? editablePicker : filterContent}
+                        {editable && propertyKeyEditable ? editablePicker : filterContent}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

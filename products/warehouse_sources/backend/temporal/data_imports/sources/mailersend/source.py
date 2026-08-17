@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MailerSendSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
+    MailerSendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
     MailerSendResumeConfig,
     check_credentials,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
+    api_docs_url = "https://developers.mailersend.com/api/v1/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MAILERSEND
@@ -47,7 +48,6 @@ class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeC
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerSend",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your MailerSend API token to automatically pull your MailerSend data into the PostHog Data warehouse.
 
 You can create an API token in your [MailerSend domain settings](https://app.mailersend.com/api-tokens).
@@ -93,6 +93,7 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
@@ -117,7 +118,11 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         return schemas
 
     def validate_credentials(
-        self, config: MailerSendSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MailerSendSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return check_credentials(config.api_token, schema_name)
 
@@ -140,7 +145,8 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         return mailersend_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

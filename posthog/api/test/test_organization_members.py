@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import ANY, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
@@ -43,6 +45,98 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     #         response = self.client.get("/api/organizations/@current/members/")
 
     #     assert len(response.json()["results"]) == 2
+
+    def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+        admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=project_mate.organization_memberships.get(organization=self.organization),
+            access_level="member",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        return project_mate, outsider, admin
+
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+
+        # Restricted members see themselves and their project mates — not org admins or other members
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, project_mate.email}
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_stale_access_control_rules_are_ignored_without_the_entitlement(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        # Plan downgrade: the private-project rows stay in the DB but must stop being enforced
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_open_project_keeps_all_members_visible_when_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
+        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
+        # An explicit "none" override can't lower access below an open default today (max-wins);
+        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=demoted.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other.email,
+            demoted.email,
+        }
 
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
@@ -633,3 +727,43 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         member = next(m for m in results if m["user"]["email"] == f"{_name}@posthog.com")
 
         self.assertEqual(member["is_2fa_enabled"], expected)
+
+    @parameterized.expand(
+        [
+            # `@`-anchored, so a domain that merely ends with the filter value must not match.
+            (
+                "email_domain",
+                True,
+                {"email_domain": "posthog.com"},
+                {"user1@posthog.com", "inside@posthog.com"},
+            ),
+            (
+                "outside_verified_domains",
+                True,
+                {"outside_verified_domains": "true"},
+                {"outside@hedgebox.net", "lookalike@notposthog.com"},
+            ),
+            # Pins which way the empty case reads: no verified domain admits nobody, so everyone is
+            # outside. The opposite reading (nobody is outside) is the one that silently blocks an org.
+            (
+                "outside_verified_domains_with_nothing_verified",
+                False,
+                {"outside_verified_domains": "true"},
+                {"user1@posthog.com", "inside@posthog.com", "outside@hedgebox.net", "lookalike@notposthog.com"},
+            ),
+        ]
+    )
+    def test_list_organization_members_filter_by_domain(self, _name, verify_domain, params, expected_emails):
+        User.objects.create_and_join(self.organization, "inside@posthog.com", None)
+        User.objects.create_and_join(self.organization, "outside@hedgebox.net", None)
+        User.objects.create_and_join(self.organization, "lookalike@notposthog.com", None)
+        OrganizationDomain.objects.create(
+            domain="posthog.com",
+            organization=self.organization,
+            verified_at=timezone.now() if verify_domain else None,
+        )
+
+        response = self.client.get("/api/organizations/@current/members/", params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertSetEqual({member["user"]["email"] for member in response.json()["results"]}, expected_emails)

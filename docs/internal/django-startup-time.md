@@ -48,7 +48,7 @@ There is deliberately no `gc.collect()` before the freeze: a full pass over the 
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
 Pytest processes get the same window via a dedicated early-loaded plugin, `pytest_boot_gc.py`, registered with `-p pytest_boot_gc` in `pytest.ini`.
 `-p` plugins load before pytest-django's `load_initial_conftests` hook, which is what runs `django.setup()`, so the disable is already in effect when setup's several million permanent allocations happen.
-The root conftest still closes the window (freeze, re-enable, threshold tuning) via `_end_gc_boot_window` at collection finish; its own `gc.disable()` call stays as a fallback for test configs that do not load the plugin (e.g. `ee/pytest.ini`).
+The root conftest still closes the window (freeze, re-enable, threshold tuning) via `_end_gc_boot_window` at collection finish; its own `gc.disable()` call stays as a fallback for test configs that do not load the plugin.
 This saves ~0.2–0.4s per test process.
 Celery's `django.setup()` happens inside its Django fixup, not in an entrypoint we own, so celery workers do not get the window yet.
 
@@ -196,6 +196,9 @@ If the constant lives in a heavy module (a Temporal destination, an SDK wrapper)
 Deferring an import does not delete the work; it moves it to first use, and first use may be a live request.
 The general question to ask of any deferral: _which process pays now, on what path, and is that path latency-sensitive?_
 Background workers paying lazily is almost always fine; web workers paying on first requests usually is not.
+When first use is latency-sensitive, move the cost back deliberately with a targeted, per-process warm-up rather than re-eagering the import for everyone.
+The warehouse source catalog (every vendor SDK, lazy via `SourceRegistry`) has two of these: temporal workers whose queues run data-import syncs call `load_all_sources()` at worker boot, and web workers call `posthog/warehouse_source_prewarm.py` at startup (during `posthog.wsgi` module import, inside the boot GC window; during lifespan startup for ASGI), behind `PREWARM_WAREHOUSE_SOURCE_REGISTRY`, which deployment configuration enables only for the dedicated Granian deployment that serves warehouse queries (the shared launcher leaves it off).
+Both warm synchronously before the process starts serving; a failed prewarm logs and leaves the worker to the lazy path, and every other process keeps that path.
 
 **Pydantic `defer_build` on the generated schema: attempted and reverted.**
 Generating `posthog.schema` against a `defer_build` base took ~400ms of core-schema construction off every setup, and looked safe — validation, `model_dump`, `model_json_schema`, and `TypeAdapter` all build on demand in round-trip tests.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import math
 import time
+import errno
 import socket
 import ipaddress
 import threading
@@ -37,27 +38,26 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    incremental_type_to_initial_value,
-    incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_TABLE_SIZE_BYTES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
@@ -76,7 +76,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -109,6 +112,14 @@ XMIN_PROJECTED_COLUMN = "_ph_xmin"
 # xmin replication relies on `pg_snapshot_xmin` / `xid8`, both PG13+.
 XMIN_MIN_SERVER_VERSION = 130000
 
+# Raised when `xmin` (type `IncrementalFieldType.XID`) is configured as a plain incremental/append
+# field instead of going through the dedicated xmin replication sync type. Matched verbatim in
+# `PostgresSource.get_non_retryable_errors`.
+XMIN_AS_INCREMENTAL_FIELD_ERROR = (
+    "'xmin' incremental field type is only valid for the xmin replication sync type, not for "
+    "incremental or append syncs"
+)
+
 # In-process retries for a recovery conflict before the abort (non-retryable, see source.py). The
 # read path counts these only once the chunk has shrunk to the floor.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
@@ -127,6 +138,14 @@ _MAX_SETUP_CONNECTION_DROPPED_RETRIES = 5
 # the read from scratch is safe even for an unordered full-table scan. Past this the drop is treated
 # as sustained and re-raised for Temporal to retry the whole activity.
 _MAX_INITIAL_READ_DROP_RETRIES = 5
+
+# Bounded in-process retries for a source-side lock_timeout hit while opening the main server-cursor
+# read *before* the first row is yielded — the DECLARE waited past the source's lock_timeout for a
+# lock another transaction held (a concurrent DDL / VACUUM FULL taking ACCESS EXCLUSIVE conflicts
+# with our ACCESS SHARE). It's transient: the lock frees once that transaction ends. At offset 0
+# nothing has been emitted, so re-running the read from scratch is safe for any sync type. Past this
+# the conflict is treated as sustained and re-raised for Temporal to retry the whole activity.
+_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
 
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
@@ -219,6 +238,48 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
+    # the tenant's own backend database to fetch/cache the password secret used to validate the
+    # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
+    # managing the tenant) and the backend is briefly slow to answer, Supavisor's own wait for the
+    # secret times out and it refuses the connect with a bare OperationalError carrying its
+    # "(EAUTHQUERY)" code: "FATAL: (EAUTHQUERY) auth_query secret check timed out". This is a race in
+    # the pooler's own bookkeeping, not a rejection of the credentials, so a fresh connect once the
+    # secret is cached typically succeeds — recover by reconnecting rather than failing the whole
+    # activity. Match the stable code, distinct from genuine credential-rejection wordings
+    # ("password authentication failed", "SASL authentication failed").
+    "(eauthquery)",
+    # Supavisor caches the per-tenant database credentials it needs to authenticate and proxy
+    # connections; when it can't fetch them (e.g. its own metadata store is briefly unreachable) it
+    # retries internally and, after exhausting those attempts, trips an internal circuit breaker
+    # that rejects new connects outright rather than retrying forever: a bare OperationalError
+    # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
+    # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
+    # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
+    # stable code, distinct from genuine credential-rejection wordings.
+    "(ecircuitbreaker)",
+    # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
+    # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
+    # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
+    # AllServersDown"), which psycopg maps to OperationalError. It's transient by construction (a
+    # banned server rejoins once it passes a health check, or the ban expires), the pgcat analog of
+    # Supavisor's ECHECKOUT* pool-checkout failures above, so a fresh reconnect recovers. It can land
+    # on the first discovery query (`SELECT version()` in `_is_duckdb_connection`), so the discovery
+    # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
+    # (e.g. BadConfig) to surface.
+    "could not get connection from the pool - allserversdown",
+    # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
+    # ever begins and libpq has no server-reported error text to attach (see
+    # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
+    # connect-time failure — which completes enough of the protocol to get an actual message, e.g.
+    # "FATAL: password authentication failed" — this one is a purely local failure before any bytes
+    # reach the network, typically the worker running out of a local resource needed to open a new
+    # socket (file descriptors, ephemeral ports). Transient: the condition clears once the worker's
+    # resource pressure eases, so a fresh connect attempt after backoff usually succeeds. The literal
+    # "no error details available" suffix is the signal — libpq only omits the message in this local,
+    # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
+    "connection is bad: no error details available",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -283,12 +344,16 @@ _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
 # yields — psycopg maps it to InternalError, not OperationalError, so it must be
 # named explicitly or the type-based catch below would miss it. InternalError_ is the
 # generic XX000 class Supavisor's "DbHandler exited" pooler drop arrives as; it's only
-# treated as a drop when its message matches the narrow pooler signature above.
+# treated as a drop when its message matches the narrow pooler signature above. OSError
+# is not psycopg-specific — it's the bare exception the connect-path socket setup raises on
+# EMFILE/ENFILE (see `_is_too_many_open_files_error`) — but every site below narrows it with
+# a message/errno-based predicate before retrying, so an unrelated OSError still re-raises.
 _CONNECTION_DROPPED_ERROR_TYPES = (
     psycopg.errors.ProtocolViolation,
     psycopg.OperationalError,
     psycopg.errors.IdleInTransactionSessionTimeout,
     psycopg.errors.InternalError_,
+    OSError,
 )
 
 
@@ -349,24 +414,78 @@ def _is_connection_limit_error(error: BaseException) -> bool:
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
 
 
+def _is_too_many_open_files_error(error: BaseException) -> bool:
+    """True if the connect attempt failed because this worker process is out of file descriptors.
+
+    The tunnel/TLS socket setup on the connect path (`_tunnel_with_handshake_translation`,
+    psycopg's own socket creation before libpq takes over) raises a bare `OSError` — not a
+    psycopg exception — when `socket()` hits EMFILE (this process's fd table is full) or ENFILE
+    (the system-wide table is full). Same transient-capacity class as `_is_connection_limit_error`:
+    a descriptor frees the moment another connection/cursor/tunnel in this worker closes, so a
+    fresh connect after backoff usually succeeds. It's fd pressure on our own worker, never a
+    customer database or config problem, so it stays retryable and must never become a
+    `NonRetryableError`.
+    """
+    return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
+
+
+# Connect-time "server not ready" refusals: PostgreSQL rejects a *new* connection with SQLSTATE
+# 57P03 (cannot_connect_now) while it is still coming up — a primary or standby booting ("the
+# database system is starting up"), a server replaying WAL after a crash ("the database system is
+# in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
+# a consistent recovery point ("the database system is not yet accepting connections", DETAIL
+# "Consistent recovery state has not been yet reached"). The same SQLSTATE also covers the mirror
+# case at the other end of the server's lifecycle: a smart/fast shutdown in progress refuses new
+# connections with "the database system is shutting down" while existing backends are terminated
+# (that termination surfaces separately as "terminating connection due to administrator command",
+# already retried via `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`). All are transient: the server begins
+# accepting connections again within seconds once startup/recovery/restart completes, so a fresh
+# connect after a short backoff succeeds. libpq surfaces these as a bare OperationalError at connect
+# time (no SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# hot-standby-disabled refusal — that reads "the database system is not accepting connections"
+# (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
+# `get_non_retryable_errors`); none of the substrings below appear in it.
+_SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
+    "the database system is starting up",
+    "the database system is not yet accepting connections",
+    "the database system is in recovery mode",
+    "the database system is shutting down",
+)
+
+
+def _is_server_starting_up_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _SERVER_STARTING_UP_ERROR_SUBSTRINGS)
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, or a connect-time
-    connection-limit refusal (`_is_connection_limit_error`). psycopg raises `ConnectionTimeout`
-    ("connection timeout expired") only while *establishing* a connection, never mid-query, so on the
-    import/read path it's transient: the source was reachable moments earlier in the same sync, and
-    the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
-    etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
-    read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    schema-discovery path retries drops and connection-limit refusals too (via
-    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
-    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
-    and `get_non_retryable_errors`).
+    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
+    connection-limit refusal (`_is_connection_limit_error`), a connect-time "server not ready"
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), or
+    this worker process running out of file descriptors while opening the socket
+    (`_is_too_many_open_files_error`). psycopg raises `ConnectionTimeout` ("connection timeout
+    expired") only while *establishing* a connection, never mid-query, so on the import/read path
+    it's transient: the source was reachable moments earlier in the same sync, and the reconnect
+    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.) and
+    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.)
+    are likewise transient — a slot frees the moment another connection closes, and the server
+    begins accepting connections once startup/recovery finishes. A file-descriptor exhaustion is the
+    same shape on our side of the wire: a descriptor frees the moment another connection/cursor in
+    this worker closes. Used by the read/sync connect retry (`_connect_with_dropped_retry`) and the
+    `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
+    server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
+    deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
+    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
+        or _is_too_many_open_files_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
 
@@ -374,15 +493,26 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
 def _is_dropped_or_connection_limit(error: BaseException) -> bool:
     """Transient conditions the background schema-discovery retry recovers from in process.
 
-    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
-    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
-    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
-    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
-    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
-    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
-    should fail fast rather than burn the retry budget.
+    A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
+    (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
+    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
+    pooler-cached login failure clears once the upstream has capacity, the server begins accepting
+    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
+    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
+    instead of failing the activity and surfacing captured error-tracking noise. The import read path
+    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
+    discovery just needed the same treatment. Unlike the read/sync connect path
+    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
+    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
+    the retry budget.
     """
-    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
+    return (
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or _is_server_starting_up_error(error)
+        or _is_recovery_conflict_error(error)
+    )
 
 
 def _is_recovery_conflict_error(error: BaseException) -> bool:
@@ -541,6 +671,25 @@ def _raised_while_closing_generator(error: BaseException) -> bool:
     return False
 
 
+def _schema_discovery_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the schema discovery catalog scan in `_schemas_from_conn`.
+
+    That function already raises `statement_timeout` to `METADATA_STATEMENT_TIMEOUT_MS` before this
+    query, so hitting it here means the catalog has enough tables/columns in scope that enumerating
+    them can't finish even under the generous timeout — a fixed cost of the schema's size, not
+    something a retry against the same schema fixes. Narrowing the source's `schema` field, or the
+    tables selected for sync, is the customer's lever. Distinct wording from
+    `_statement_timeout_as_non_retryable`'s incremental-field message, which doesn't apply here —
+    this query scans every table in scope, not one column.
+    """
+    return QueryTimeoutException(
+        "Timed out listing table columns while discovering the database schema. There are enough "
+        "tables in scope that PostHog could not enumerate their columns within the timeout. Narrow "
+        "the schema selected for this source, or reduce the number of tables synced, then re-enable "
+        "the sync."
+    )
+
+
 def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
     """Build the timeout error for the fallback `id` primary-key uniqueness probe.
 
@@ -592,12 +741,15 @@ def _get_sslmode(require_ssl: bool) -> str:
 # Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
 # Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
 # parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
-# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
-# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
-# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
-# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+# options". Neon's pooler names the offending setting instead — "unsupported startup parameter in
+# options: statement_timeout" — so match on the prefix rather than any one parameter name.
+# Beyond client_encoding=UTF8 for Redshift's legacy UNICODE alias (see FORCE_UTF8_CLIENT_ENCODING),
+# `options` only ever carries server-side timeouts that the caller's own deadlines already bound —
+# so when a server rejects it, dropping it and retrying is safe. The RDS Proxy text uses a
+# typographic apostrophe, so match the apostrophe-free tail.
 _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
     "unsupported startup parameter: options",
+    "unsupported startup parameter in options",
     "support command-line options",
 )
 
@@ -629,18 +781,24 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str | None:
-    """Resolve `host` to an IP under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
+def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
+    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
 
     psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved address
-    to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so a stalled
-    or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as long as the
-    OS resolver takes. It never trips `connect_timeout`; the activity instead runs until Temporal's
-    `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a misleading
-    `CancelledError` and burning the whole activity's retry budget. Resolving here and passing the
-    address via `hostaddr` (which makes psycopg skip its own lookup) turns a stalled resolver into a
-    fast, retryable error instead.
+    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
+    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
+    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
+    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
+    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
+    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
+    stalled resolver into a fast, retryable error instead.
+
+    Returns every resolved address, not just one: when a host resolves to more than one address (most
+    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
+    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
+    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
+    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
+    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
 
     Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
     already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
@@ -677,8 +835,17 @@ def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> str 
     if not addrinfo:
         return None
     # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type).
-    return str(addrinfo[0][4][0])
+    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
+    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
+    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
+    seen: set[str] = set()
+    addresses: list[str] = []
+    for info in addrinfo:
+        address = str(info[4][0])
+        if address not in seen:
+            seen.add(address)
+            addresses.append(address)
+    return addresses
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
@@ -721,9 +888,14 @@ def _connect_to_postgres(
     # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
     # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
     if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        hostaddr = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if hostaddr is not None:
-            kwargs["hostaddr"] = hostaddr
+        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
+        if addresses:
+            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
+            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
+            # keeps its per-address failover intact for a dual-stack host instead of pinning the
+            # connection to whichever single address `getaddrinfo` happened to return first.
+            host = ",".join([host] * len(addresses))
+            kwargs["hostaddr"] = ",".join(addresses)
     try:
         return _connect_with_options_fallback(
             host=host,
@@ -1292,39 +1464,49 @@ def _schemas_from_conn(
         )
         schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
-        cursor.execute(
-            f"""
-            SELECT * FROM (
-                SELECT
-                    table_schema,
-                    table_name,
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    ordinal_position
-                FROM information_schema.columns
-                WHERE table_schema IN ({schema_placeholders})
-                UNION ALL
-                SELECT
-                    n.nspname AS table_schema,
-                    c.relname AS table_name,
-                    a.attname AS column_name,
-                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-                    a.attnum AS ordinal_position
-                FROM pg_class c
-                JOIN pg_namespace n ON c.relnamespace = n.oid
-                JOIN pg_attribute a ON a.attrelid = c.oid
-                WHERE c.relkind = 'm'
-                  AND n.nspname IN ({schema_placeholders})
-                  AND a.attnum > 0
-                  AND NOT a.attisdropped
-            ) t
-            ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
-            """,
-            schema_params,
-        )
-        result = cursor.fetchall()
+        try:
+            cursor.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
+                    UNION ALL
+                    SELECT
+                        n.nspname AS table_schema,
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                ) t
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
+            )
+            result = cursor.fetchall()
+        except psycopg.errors.QueryCanceled as e:
+            # QueryCanceled also covers a hot-standby recovery conflict mid-scan ("conflict with
+            # recovery"), which `get_schemas`'s outer `_retry_on_connection_dropped` already retries
+            # via `_is_recovery_conflict_error` — that one is transient and must keep propagating
+            # unconverted. Only a genuine statement_timeout means the catalog is too big to enumerate
+            # in time, where retrying re-runs the same futile scan against the same schema.
+            if "statement timeout" not in " ".join(str(arg) for arg in e.args).lower():
+                raise
+            raise _schema_discovery_timeout_error() from e
 
         columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         discovered_pairs_by_schema_and_table = {
@@ -1373,8 +1555,11 @@ def get_schemas(
     # captured error-tracking noise even though the next attempt would succeed. Connection-limit
     # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
     # retried the same way — the customer's database is momentarily out of slots and frees one as
-    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
-    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
+    # connections close. A hot-standby recovery conflict ("canceling statement due to conflict with
+    # recovery") is retried too — the same transient condition the import read path already recovers
+    # from mid-stream — since discovery can run against a read replica just like the row-copy path.
+    # Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -1873,6 +2058,14 @@ def _build_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
+    # `xmin` is a synthetic system column with no ordering operators against a plain integer
+    # (see `_xmin_predicate`) — it only works through the dedicated xmin replication sync type,
+    # which never reaches this generic path (it always sets `xmin_bounds` and returns above).
+    # Picking `xmin` as a plain incremental/append field builds `"xmin" >= 0`, which Postgres
+    # rejects with `UndefinedFunction`.
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
+
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
@@ -1996,6 +2189,9 @@ def _build_count_query(
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if incremental_field_type == IncrementalFieldType.XID:
+        raise ValueError(XMIN_AS_INCREMENTAL_FIELD_ERROR)
 
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
@@ -2473,7 +2669,18 @@ class PostgreSQLColumn(Column):
 
 
 def _is_read_replica(cursor: psycopg.Cursor) -> bool:
-    cursor.execute("SELECT pg_is_in_recovery()")
+    try:
+        cursor.execute("SELECT pg_is_in_recovery()")
+    except Exception as e:
+        # Postgres-wire-compatible engines (e.g. DuckDB-backed proxies) accept the connection but
+        # don't implement `pg_is_in_recovery` — a Postgres-only replication concept. Such an engine
+        # is never a physical hot-standby, so degrade to "not a replica" like the other best-effort
+        # probes on this connection (mirrors `_is_unsupported_function_error` callers). The setup
+        # connection runs autocommit, so this failed statement can't poison later probes on it.
+        if not _is_unsupported_function_error(e, "pg_is_in_recovery"):
+            raise
+        return False
+
     row = cursor.fetchone()
     if row is None:
         return False
@@ -2509,12 +2716,17 @@ def _get_table(
     # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
     # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
     # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
-    # reject the SET, so clear any aborted transaction and fall back to the default.
+    # reject the SET, so clear any aborted transaction and fall back to the default. A genuine
+    # connection drop/limit (mirrors `_schemas_from_conn`) fails this statement too, and rolling
+    # that back raises a misleading "the connection is lost" that buries the real cause — re-raise
+    # instead so the discovery retry recovers on a fresh connection.
     try:
         cursor.execute(
             sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
         )
-    except psycopg.Error:
+    except psycopg.Error as e:
+        if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+            raise
         cursor.connection.rollback()
 
     is_mat_view_query = sql.SQL(
@@ -2899,6 +3111,12 @@ def postgres_source(
                             logger.debug("Checking if source is a read replica...")
                             using_read_replica = _is_read_replica(cursor)
                             logger.debug(f"using_read_replica = {using_read_replica}")
+                            # DuckDB/duckgres-backed Postgres-wire engines don't implement
+                            # `DECLARE CURSOR` (or the `pg_catalog.pg_cursors` check psycopg's
+                            # ServerCursor runs before it), so `get_rows` must skip the
+                            # server-side cursor read path against them.
+                            is_duckdb = _is_duckdb_connection(cursor)
+                            logger.debug(f"is_duckdb = {is_duckdb}")
                             logger.debug("Getting primary keys...")
                             primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                             if primary_keys:
@@ -3145,7 +3363,7 @@ def postgres_source(
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
-            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
+            cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
             def get_connection():
                 try:
@@ -3307,7 +3525,10 @@ def postgres_source(
 
                             offset += len(rows)
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            yield table_from_iterator(
+                                (dict(zip(column_names, row)) for row in rows),
+                                restrict_schema_to_columns(arrow_schema, column_names),
+                            )
 
                             successive_errors = 0
                             successive_conn_errors = 0
@@ -3403,6 +3624,13 @@ def postgres_source(
                 # propagates, so a partially read window/partition is never re-yielded.
                 return _connect_with_dropped_retry(get_connection, logger)
 
+            if is_duckdb:
+                # No server-side cursor support (see `is_duckdb` above), so read with the same
+                # LIMIT/OFFSET fallback a read replica uses on a recovery conflict — a plain client
+                # cursor, no DECLARE required.
+                yield from offset_chunking(0, chunk_size)
+                return
+
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
                 def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
@@ -3468,6 +3696,7 @@ def postgres_source(
                 return
 
             initial_read_drop_retries = 0
+            initial_read_lock_timeout_retries = 0
             while True:
                 offset = 0
                 try:
@@ -3498,6 +3727,7 @@ def postgres_source(
                             cursor.execute(query)
 
                             column_names = [column.name for column in cursor.description or []]
+                            read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
                             while True:
                                 rows = cursor.fetchmany(chunk_size)
@@ -3506,7 +3736,7 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), arrow_schema)
+                                yield table_from_iterator(iter(dicts), read_schema)
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:
@@ -3542,6 +3772,26 @@ def postgres_source(
                     )
                     if timeout_error is not None:
                         raise timeout_error from e
+                    raise
+                except psycopg.errors.LockNotAvailable as e:
+                    # The server-cursor DECLARE waited past the source's lock_timeout for a lock
+                    # another transaction holds (a concurrent DDL / VACUUM FULL takes ACCESS
+                    # EXCLUSIVE, which conflicts with our ACCESS SHARE). It's transient — the lock
+                    # frees once that transaction ends — so it must stay retryable and is never a
+                    # NonRetryableError. LockNotAvailable subclasses OperationalError, so this clause
+                    # must precede the connection-dropped handler below. At offset 0 nothing has been
+                    # emitted, so re-running the read from scratch is safe for any sync type; retry in
+                    # process with bounded backoff instead of failing the activity and flooding error
+                    # tracking. Once a row is out, or the conflict is sustained, propagate so Temporal
+                    # retries the whole activity.
+                    if offset == 0 and initial_read_lock_timeout_retries < _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES:
+                        initial_read_lock_timeout_retries += 1
+                        logger.debug(
+                            f"Lock timeout before first row ({e}). Retrying read "
+                            f"(attempt {initial_read_lock_timeout_retries}/{_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES})."
+                        )
+                        time.sleep(min(2 * initial_read_lock_timeout_retries, 30))
+                        continue
                     raise
                 except _CONNECTION_DROPPED_ERROR_TYPES as e:
                     # The server cursor holds a transaction open across the slow

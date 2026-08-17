@@ -25,12 +25,20 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
+    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
+    merged_pr_count: 56,
+    merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
+    median_ready_to_merge_seconds: 9 * 3600,
+    median_ready_to_merge_seconds_prev: 12 * 3600,
     billable_minutes: 5230,
     billable_minutes_prev: 4890,
     estimated_cost_usd: 412.5,
     estimated_cost_usd_prev: 361.0,
+    // A slice of billable_minutes above, not an addition to it.
+    merge_queue_billable_minutes: 1180,
+    merge_queue_billable_minutes_prev: 940,
     jobs_available: true,
     default_branch: 'master',
     cost_series_granularity: 'day',
@@ -57,6 +65,13 @@ const OVERVIEW: RepoOverviewApi = {
         })
     ),
     open_to_merge_series_granularity: 'day',
+    ready_to_merge_series: [9 * 3600, 11 * 3600, null, 8 * 3600, 10 * 3600, 12 * 3600, 9 * 3600].map(
+        (p50_seconds, i) => ({
+            bucket_start: `2026-06-${25 + i}T00:00:00Z`,
+            p50_seconds,
+        })
+    ),
+    ready_to_merge_series_granularity: 'day',
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {
@@ -83,6 +98,8 @@ function healthItem(
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         workflow_name: workflowName,
         run_count: 320,
+        successful_run_count: Math.round(320 * successRate),
+        conclusive_run_count: 320,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
         p50_seconds: 540,
@@ -90,6 +107,8 @@ function healthItem(
         last_failure_at: failures.some((f) => f > 0) ? '2026-07-01T16:00:00Z' : null,
         latest_run_failed: false,
         latest_run_conclusion: 'success',
+        latest_run_id: 123456,
+        latest_run_attempt: 1,
         granularity: 'day',
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
@@ -146,6 +165,7 @@ const PULL_REQUESTS: PullRequestListApi = {
             created_at: '2026-06-24T10:00:00Z',
             merged_at: null,
             open_to_merge_seconds: null,
+            ready_to_merge_seconds: null,
             labels: [],
             pushes: 9,
             rerun_cycles: 3,
@@ -186,6 +206,7 @@ const PULL_REQUESTS: PullRequestListApi = {
             created_at: '2026-06-30T09:00:00Z',
             merged_at: '2026-07-01T08:30:00Z',
             open_to_merge_seconds: 84600,
+            ready_to_merge_seconds: 79200,
             labels: [],
             pushes: 3,
             rerun_cycles: 0,
@@ -215,7 +236,6 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
-                'api/projects/:team_id/engineering_analytics/master_failures/': [],
                 'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,

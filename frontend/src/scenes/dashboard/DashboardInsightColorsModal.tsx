@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { DataColorToken } from 'lib/colors'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorThemesLogic'
 
@@ -14,25 +14,49 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DashboardMode } from '~/types'
 
+import {
+    BreakdownColorConfig,
+    BreakdownValueAndType,
+    COHORT_BREAKDOWN_PROPERTY_KEY,
+    denormalizeBreakdownValue,
+    findBreakdownColorConfig,
+    parseBreakdownPropertyKey,
+} from './dashboardBreakdownColors'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
-export type BreakdownColorConfig = {
-    colorToken: DataColorToken | null
-    breakdownValue: string
-    breakdownType: BreakdownFilter['breakdown_type']
+type BreakdownColorRow = BreakdownColorConfig & { pinnedConfig?: BreakdownColorConfig }
+
+function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?: string }): JSX.Element {
+    if (breakdownProperty == null) {
+        // The property-less group holds entries that apply under every property, like the funnel baseline.
+        return <LemonTag type="muted">All properties</LemonTag>
+    }
+    if (breakdownProperty === COHORT_BREAKDOWN_PROPERTY_KEY) {
+        return <LemonTag type="muted">Cohorts</LemonTag>
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {parseBreakdownPropertyKey(breakdownProperty).map((part, index) => (
+                <BreakdownTag key={index} breakdown={part.property} breakdownType={part.type} size="small" />
+            ))}
+        </div>
+    )
 }
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
-    const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+    const { isOpen, insightTilesLoading, breakdownValueGroups } = useValues(dashboardInsightColorsModalLogic)
+    const { hideInsightColorsModal, cancelColorChanges } = useActions(dashboardInsightColorsModalLogic)
 
     const { themes: _themes, themesLoading } = useValues(dataColorThemesLogic)
 
     const {
-        temporaryBreakdownColors: dashboardBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         dashboardMode,
+        dashboardLoading,
+        canEditDashboard,
+        hasUnsavedColorChanges,
     } = useValues(dashboardLogic)
     const { setBreakdownColorConfig, setDataColorThemeId, setDashboardMode } = useActions(dashboardLogic)
 
@@ -41,14 +65,35 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const themes = _themes || []
 
-    const columns: LemonTableColumns<BreakdownColorConfig> = [
+    const ensureEditMode = (): void => {
+        if (dashboardMode !== DashboardMode.Edit) {
+            setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+        }
+    }
+
+    const toRow = (breakdownValue: BreakdownValueAndType): BreakdownColorRow => {
+        const config = findBreakdownColorConfig(
+            effectiveBreakdownColors,
+            breakdownValue.breakdownValue,
+            breakdownValue.breakdownType,
+            breakdownValue.breakdownProperty
+        )
+        return {
+            ...breakdownValue,
+            colorToken: config?.colorToken || null,
+            source: config?.source,
+            pinnedConfig: config,
+        }
+    }
+
+    const columns: LemonTableColumns<BreakdownColorRow> = [
         {
             title: 'Breakdown',
             key: 'breakdown_value',
-            render: (_, { breakdownValue, ...config }) => {
-                const breakdownFilter: BreakdownFilter = { breakdown_type: config.breakdownType }
+            render: (_, { breakdownValue, breakdownType }) => {
+                const breakdownFilter: BreakdownFilter = { breakdown_type: breakdownType }
                 const breakdownLabel = formatBreakdownLabel(
-                    breakdownValue,
+                    denormalizeBreakdownValue(breakdownValue),
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay
@@ -61,33 +106,92 @@ export function DashboardInsightColorsModal(): JSX.Element {
         {
             title: 'Color',
             key: 'color',
-            width: 400,
-            render: (_, { colorToken, ...config }) => {
+            render: (_, { colorToken, source, pinnedConfig, ...config }) => {
                 return (
-                    <LemonColorPicker
-                        selectedColorToken={colorToken}
-                        onSelectColorToken={(colorToken) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+                    <div className="flex items-center gap-2">
+                        <LemonColorPicker
+                            selectedColorToken={colorToken}
+                            onSelectColorToken={(colorToken) => {
+                                ensureEditMode()
+                                setBreakdownColorConfig({
+                                    ...config,
+                                    colorToken,
+                                    source: 'manual',
+                                })
+                            }}
+                            customButton={
+                                colorToken === null ? (
+                                    <LemonButton type="tertiary">Customize color</LemonButton>
+                                ) : undefined
                             }
-
-                            setBreakdownColorConfig({
-                                ...config,
-                                colorToken,
-                            })
-                        }}
-                        customButton={
-                            colorToken === null ? <LemonButton type="tertiary">Customize color</LemonButton> : undefined
-                        }
-                        themeId={dataColorThemeId}
-                    />
+                            themeId={dataColorThemeId}
+                        />
+                        {source === 'auto' ? (
+                            <LemonTag type="muted">Auto</LemonTag>
+                        ) : colorToken !== null ? (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip="Reset to automatic color"
+                                onClick={() => {
+                                    ensureEditMode()
+                                    // Clearing must target the entry that provides the pin: a
+                                    // property-less legacy pin cleared from a scoped row would
+                                    // otherwise survive and keep coloring other properties.
+                                    setBreakdownColorConfig({
+                                        ...(pinnedConfig ?? config),
+                                        colorToken: null,
+                                        source: 'manual',
+                                    })
+                                }}
+                            >
+                                Reset
+                            </LemonButton>
+                        ) : null}
+                    </div>
                 )
             },
         },
     ]
 
     return (
-        <LemonModal title="Customize Breakdown Colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
+        <LemonModal
+            title="Customize breakdown colors"
+            isOpen={isOpen}
+            onClose={hideInsightColorsModal}
+            maxWidth="42rem"
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-colors-cancel"
+                        onClick={cancelColorChanges}
+                        tooltip="Revert the changes made in this dialog"
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        data-attr="dashboard-colors-save"
+                        onClick={() => {
+                            hideInsightColorsModal()
+                            setDashboardMode(null, DashboardEventSource.DashboardInsightColorsModal)
+                        }}
+                        disabledReason={
+                            dashboardLoading
+                                ? 'Wait for dashboard to finish loading'
+                                : !canEditDashboard
+                                  ? 'Not privileged to edit this dashboard'
+                                  : !hasUnsavedColorChanges
+                                    ? 'No color changes to save'
+                                    : undefined
+                        }
+                    >
+                        Save
+                    </LemonButton>
+                </>
+            }
+        >
             <LemonLabel info="Select a color theme for all insights on this dashboard. If a theme is selected, it will be applied to all series and breakdowns.">
                 Color theme
             </LemonLabel>
@@ -96,42 +200,48 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 value={dataColorThemeId || null}
                 placeholder="Defined by insight"
                 onChange={(id) => {
-                    if (dashboardMode !== DashboardMode.Edit) {
-                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
-                    }
-
+                    ensureEditMode()
                     setDataColorThemeId(id)
                 }}
                 loading={themesLoading}
                 options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
             />
 
-            <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
-            <p className="text-muted-alt mb-4">
-                Assign custom colors to breakdown values that will be used consistently across all insights on this
-                dashboard. <i>Note: This feature currently only works for trend and step-based funnel insights.</i>
-            </p>
-            {insightTilesLoading ? (
-                <div className="flex flex-col items-center">
-                    <p className="text-primary">Waiting for dashboard tiles to load and refresh…</p>
-                </div>
+            <LemonLabel
+                className="mt-4 mb-2"
+                info={
+                    <>
+                        <p className="mb-1">
+                            Colors are grouped by breakdown property, so each property picks its colors on its own.
+                        </p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>
+                                A value shown on two or more insights gets one color across the dashboard, and keeps it
+                                under every property it appears in, as far as the palette allows.
+                            </li>
+                            <li>Values on a single insight keep their own colors.</li>
+                            <li>Pick a color to pin a value to it.</li>
+                        </ul>
+                    </>
+                }
+            >
+                Breakdown colors
+            </LemonLabel>
+            {breakdownValueGroups.length === 0 ? (
+                <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
             ) : (
-                <>
-                    <LemonTable
-                        columns={columns}
-                        dataSource={breakdownValues.map((breakdownValue) => ({
-                            ...breakdownValue,
-                            colorToken:
-                                dashboardBreakdownColors.find(
-                                    (c) =>
-                                        c.breakdownValue === breakdownValue.breakdownValue &&
-                                        c.breakdownType === breakdownValue.breakdownType
-                                )?.colorToken || null,
-                        }))}
-                        loading={insightTilesLoading || undefined}
-                    />
-                </>
+                breakdownValueGroups.map((group) => (
+                    <div key={group.breakdownProperty ?? ''} className="mb-4">
+                        <LemonLabel className="mb-1">
+                            <BreakdownPropertyGroupTitle breakdownProperty={group.breakdownProperty} />
+                        </LemonLabel>
+                        <LemonTable columns={columns} dataSource={group.values.map(toRow)} showHeader={false} />
+                    </div>
+                ))
             )}
+            {insightTilesLoading ? (
+                <p className="text-muted-alt mt-2">Tiles are still loading. More breakdown values may appear.</p>
+            ) : null}
         </LemonModal>
     )
 }

@@ -23,13 +23,13 @@ Who supplies which ingredient (browser flow): posthog-js sends `$raw_user_agent`
 
 Which ingredient is missing points at which layer is broken:
 
-1. `posthog:ingestion-warnings-list` with `q: 'cookieless'` (or per type). Samples carry the event name and UUID.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cookieless_missing_timestamp', 'cookieless_timestamp_out_of_range', 'cookieless_missing_user_agent', 'cookieless_missing_ip', 'cookieless_missing_host') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one ingredient). The `details` JSON carries the event name and UUID.
 2. Map the missing field to the layer:
    - **`$raw_user_agent` / `$host` missing** → the events aren't coming from stock posthog-js: a non-browser producer sending the cookieless sentinel, or middleware (`before_send`, a rewriting proxy) stripping properties.
    - **`$ip` missing** → the capture path saw no client IP — a proxy/CDN in front of PostHog not passing the client address through, or middleware explicitly deleting `$ip` before the identity is computed.
    - **timestamp missing** → server-side batching that strips timestamps.
    - **timestamp out of range** → a historical import routed through cookieless (can't work, see below), badly skewed client clocks, or offline queues flushing much later.
-3. If cookieless events produce **no warnings and no events at all**, check the project setting first: cookieless server hash mode must be enabled on the team — with it disabled, sentinel events are dropped without a warning.
+3. If cookieless events produce **no warnings and no events at all**, check the project setting first: cookieless tracking must be enabled on the team (Settings → Web analytics → Cookieless tracking, stored as `cookieless_server_hash_mode`) — with it disabled, sentinel events are dropped without a warning.
 
 ## Fix
 
@@ -41,7 +41,7 @@ Which ingredient is missing points at which layer is broken:
 
 ## Verify
 
-Re-run the flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new `cookieless_*` occurrences — and confirm cookieless events appear with computed anonymous IDs.
+Re-run the flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cookieless_missing_timestamp', 'cookieless_timestamp_out_of_range', 'cookieless_missing_user_agent', 'cookieless_missing_ip', 'cookieless_missing_host')`, `timestamp` after your fix) — no new `cookieless_*` occurrences — and confirm cookieless events appear with computed anonymous IDs.
 
 ## Related
 

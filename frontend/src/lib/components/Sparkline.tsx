@@ -13,6 +13,7 @@ import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useLingeringTooltip } from 'lib/hooks/useLingeringTooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -42,6 +43,20 @@ export interface SparklineTimeSeries {
     /** Check vars.scss for available colors. @default 'muted' */
     color?: string
     hoverColor?: string
+}
+
+export interface SparklineMarker {
+    /**
+     * X position in the x-axis's own units: epoch ms (or a parseable date string) for a
+     * time scale, a label for a category scale.
+     */
+    xValue: number | string
+    /** Y position in data units. Omit to pin the marker to the bottom of the chart. */
+    yValue?: number
+    /** Color name from `vars.scss`. @default 'primary' */
+    color?: string
+    /** Makes the marker clickable (e.g. to open the trace behind an exemplar). */
+    onClick?: () => void
 }
 
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
@@ -79,6 +94,11 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
     referenceLines?: SparklineReferenceLine[]
+    /**
+     * Point markers drawn over the chart (e.g. trace exemplars). Hover shows the marker's
+     * label; a marker with `onClick` is clickable.
+     */
+    markers?: SparklineMarker[]
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
     /**
@@ -96,6 +116,12 @@ export interface SparklineProps {
      * `indices` array to clear.
      */
     incompleteBars?: { indices: number[]; tooltip?: string } | null
+    /**
+     * Let the pointer move onto the tooltip without dismissing it, so a tooltip taller than its
+     * max height can be scrolled. Off by default: an interactive tooltip sits over the canvas and
+     * would swallow clicks meant for the chart (e.g. clickable markers or drag-to-select).
+     */
+    interactiveTooltip?: boolean
 }
 
 /** Normalize the permissive `data` prop into one `SparklineTimeSeries` per series. */
@@ -157,6 +183,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         props.highlightedRange ||
         props.incompleteBars?.indices?.length ||
         props.referenceLines?.length ||
+        props.markers?.length ||
         props.withXScale ||
         props.withYScale
     )
@@ -289,6 +316,8 @@ function LegacySparkline({
     renderTooltipValue,
     highlightedRange,
     incompleteBars,
+    markers,
+    interactiveTooltip = false,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -463,6 +492,39 @@ function LegacySparkline({
                                 }
                             }
 
+                            if (markers && markers.length > 0) {
+                                markers.forEach((marker, i) => {
+                                    const markerColor = getColorVar(marker.color || 'primary')
+                                    annotations[`marker${i}`] = {
+                                        type: 'point',
+                                        xValue: marker.xValue,
+                                        // Markers don't participate in autoscaling, so an absent
+                                        // yValue pins to the bottom of whatever range the data set —
+                                        // exemplar-tick style, immune to out-of-range raw values.
+                                        yValue:
+                                            marker.yValue ?? ((ctx: { chart: Chart }) => ctx.chart.scales.y?.min ?? 0),
+                                        radius: 4,
+                                        backgroundColor: hexToRGBA(markerColor, 0.85),
+                                        borderColor: markerColor,
+                                        borderWidth: 1,
+                                        // enter/leave double as hover affordance for clickable markers.
+                                        enter: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 6
+                                            if (marker.onClick) {
+                                                ctx.chart.canvas.style.cursor = 'pointer'
+                                            }
+                                            return true
+                                        },
+                                        leave: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 4
+                                            ctx.chart.canvas.style.cursor = ''
+                                            return true
+                                        },
+                                        ...(marker.onClick ? { click: () => marker.onClick?.() } : {}),
+                                    }
+                                })
+                            }
+
                             return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
                         })(),
                     },
@@ -487,12 +549,19 @@ function LegacySparkline({
             referenceLines,
             highlightedRange,
             incompleteBars,
+            markers,
         ],
     })
 
     const finalClassName = sparklineClassName(adjustedData[0]?.values?.length || 0, className)
 
-    const tooltipVisible = !!(tooltip && tooltip.opacity > 0)
+    // Chart.js keeps `dataPoints` populated after it zeroes `opacity`, so the content survives the
+    // linger — only visibility needs holding open.
+    const {
+        visible: tooltipVisible,
+        onMouseEnter: onTooltipMouseEnter,
+        onMouseLeave: onTooltipMouseLeave,
+    } = useLingeringTooltip(!!(tooltip && tooltip.opacity > 0), interactiveTooltip)
     const toolTipDataPoints = tooltip && tooltip.dataPoints ? tooltip.dataPoints : []
 
     const hoveredElementX = toolTipDataPoints[0]?.element?.x ?? 0
@@ -621,6 +690,8 @@ function LegacySparkline({
                     }
                     placement="bottom-start"
                     padded={false}
+                    onMouseEnterInside={interactiveTooltip ? onTooltipMouseEnter : undefined}
+                    onMouseLeaveInside={interactiveTooltip ? onTooltipMouseLeave : undefined}
                 >
                     <div ref={tooltipRef} />
                 </Popover>

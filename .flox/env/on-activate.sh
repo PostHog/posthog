@@ -204,7 +204,7 @@ warn_step() {
 }
 
 # ── Interactive mode detection ────────────────────────────────────
-# Skip all interactive prompts in non-interactive terminals or when running under PostHog Code (automated agent).
+# Skip all interactive prompts in non-interactive terminals or when running under PostHog Desktop (automated agent).
 _interactive=false
 if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
   _interactive=true
@@ -224,6 +224,12 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
+# is not on PATH. Add it here so non-interactive commands can find hogli and
+# Python tooling.
+if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
+  export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+fi
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
@@ -419,11 +425,15 @@ if [[ ! -f "$DOTENV_FILE" ]] && [[ -f ".env.example" ]]; then
   cp .env.example "$DOTENV_FILE"
 fi
 if [[ -f "$DOTENV_FILE" ]]; then
-  set -o allexport
-  # shellcheck disable=SC1090
-  source "$DOTENV_FILE"
-  set +o allexport
-  done_step "Environment vars"
+  if [[ "${POSTHOG_SKIP_DOTENV:-}" == "1" ]]; then
+    done_step "Environment vars (deferred)"
+  else
+    set -o allexport
+    # shellcheck disable=SC1090
+    source "$DOTENV_FILE"
+    set +o allexport
+    done_step "Environment vars"
+  fi
 else
   warn_step "Environment vars  ${C_DIM}(.env not found)${C_RESET}"
 fi
@@ -497,7 +507,8 @@ ${C_DIM}  ${C_BOLD}q${C_RESET}${C_DIM} / ${C_BOLD}r${C_RESET}${C_DIM} in phrocs$
 fi
 
 # ── Silent background cleanup ──────────────────────────────────────
-# Clean old flox log files (>7 days). Fire-and-forget after activation.
+# Trim flox logs: drop >7-day-old files and cap total size (see doctor:disk).
+# Fire-and-forget after activation. The find fallback (no venv) is age-only.
 (
   if [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" && -f "$FLOX_ENV_PROJECT/bin/hogli" ]]; then
     POSTHOG_TELEMETRY_OPT_OUT=1 "$UV_PROJECT_ENVIRONMENT/bin/python" \

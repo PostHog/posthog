@@ -74,6 +74,13 @@ describe('PieChart', () => {
         expect(text).toContain('50%')
     })
 
+    it('renders value and percentage on one line when sliceValueDisplay is both', () => {
+        const { chart } = renderHogChart(
+            <PieChart series={SERIES} theme={THEME} config={{ sliceValueDisplay: 'both' }} />
+        )
+        expect(sliceLabels(chart.element).join('|')).toContain('50 (50%)')
+    })
+
     it('suppresses on-slice value labels when showValueOnSlice is false', () => {
         const { chart } = renderHogChart(
             <PieChart series={SERIES} theme={THEME} config={{ showValueOnSlice: false }} />
@@ -161,6 +168,42 @@ describe('PieChart', () => {
             fireEvent.mouseMove(chart.element, { clientX: layout.cx, clientY: layout.cy })
             fireEvent.click(chart.element)
             expect(onSliceClick).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('interactive legend', () => {
+        function legendButtons(container: HTMLElement): HTMLButtonElement[] {
+            return Array.from(
+                container.querySelectorAll<HTMLButtonElement>('[data-attr="hog-chart-pie-legend"] button')
+            )
+        }
+
+        it('renders no legend by default', () => {
+            const { container } = renderHogChart(<PieChart series={SERIES} theme={THEME} />)
+            expect(container.querySelector('[data-attr="hog-chart-pie-legend"]')).toBeNull()
+        })
+
+        it('isolates a slice on legend click and restores them all on a second click', () => {
+            const { container } = renderHogChart(
+                <PieChart series={SERIES} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(legendButtons(container).map((b) => b.textContent)).toEqual(['Chrome', 'Firefox'])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 2 slices'
+            )
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 1 slices'
+            )
+            // The isolated-away row stays in the legend (dimmed) so it can be restored.
+            const dimmed = legendButtons(container).filter((b) => b.className.includes('opacity-40'))
+            expect(dimmed.map((b) => b.textContent)).toEqual(['Chrome'])
+
+            fireEvent.click(legendButtons(container)[1])
+            expect(container.querySelector('canvas[aria-label]')?.getAttribute('aria-label')).toBe(
+                'Pie chart with 2 slices'
+            )
         })
     })
 

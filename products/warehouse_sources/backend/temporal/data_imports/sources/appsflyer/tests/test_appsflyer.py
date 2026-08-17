@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
@@ -229,8 +230,11 @@ class TestAppsFlyerSourceResponse:
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["date"]
-        # Dimension keys can collide (blank campaigns etc).
-        assert response.has_duplicate_primary_keys is True
+        # Dimension keys can collide (blank campaigns etc), but that's expected for report data
+        # and must not block incremental syncing - regression test for the schema-wide incremental
+        # sync outage this caused when has_duplicate_primary_keys was set unconditionally.
+        assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
 
     def test_geo_report_key_includes_country(self):
         response = appsflyer_source("token", "id123", "geo_report", mock.MagicMock())

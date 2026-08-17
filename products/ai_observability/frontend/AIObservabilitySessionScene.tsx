@@ -43,6 +43,10 @@ const LLMASessionFeedbackDisplay = lazyWithRetry(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
 )
 
+const LLMASessionEvaluationsDisplay = lazyWithRetry(() =>
+    import('./LLMASessionEvaluationsDisplay').then((m) => ({ default: m.LLMASessionEvaluationsDisplay }))
+)
+
 type TurnPhase = 'userThinking' | 'aiThinking' | 'complete'
 
 export const scene: SceneExport = {
@@ -169,8 +173,6 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         }
     }, [playing, revealedTurnCount])
 
-    const showSessionSummarization = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-
     // Calculate session aggregates
     const sessionStats = traces.reduce(
         (acc, trace) => ({
@@ -235,6 +237,9 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                             <LLMASessionFeedbackDisplay sessionId={sessionId} />
                         </Suspense>
                     )}
+                    <Suspense fallback={<Spinner />}>
+                        <LLMASessionEvaluationsDisplay sessionId={sessionId} />
+                    </Suspense>
                 </div>
                 <SummarizeAllButton
                     loading={summariesLoading}
@@ -252,7 +257,6 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                         turn={turn}
                         phase={isScrubbing ? phaseOf(i) : 'complete'}
                         showSentiment
-                        showSessionSummarization={!!showSessionSummarization}
                         traceSearchParams={traceSearchParams}
                     />
                 ))}
@@ -386,14 +390,12 @@ function SessionTurnView({
     turn,
     phase = 'complete',
     showSentiment,
-    showSessionSummarization,
     traceSearchParams,
     rootRef,
 }: {
     turn: SessionTurn
     phase?: TurnPhase
     showSentiment: boolean
-    showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
     rootRef?: Ref<HTMLDivElement>
 }): JSX.Element {
@@ -433,9 +435,7 @@ function SessionTurnView({
             </div>
             <div className="pb-4">
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
-                    {isComplete && showSessionSummarization && summary && (
-                        <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
-                    )}
+                    {isComplete && summary && <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />}
 
                     <TurnBody
                         turn={turn}

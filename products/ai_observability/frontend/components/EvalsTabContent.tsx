@@ -12,7 +12,7 @@ import { LLMTraceEvent } from '~/queries/schema/schema-general'
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { formatLLMEventTitle } from '../utils'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
@@ -77,7 +77,7 @@ function EvalsTabContentInner({
                         </Link>
                     ) : generationEvent && !evaluationsLoading && runnableEvaluations.length === 0 ? (
                         <span className="text-muted text-sm">
-                            No generation-target evaluations to run manually. Trace-target evaluations run
+                            No generation-target evaluations to run manually. Trace and session evaluations run
                             automatically.
                         </span>
                     ) : generationEvent ? (

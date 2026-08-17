@@ -36,6 +36,7 @@ from posthog.temporal.common.schedule import (
     a_update_schedule,
     create_schedule,
     delete_schedule,
+    describe_schedule,
     pause_schedule,
     schedule_exists,
     trigger_schedule,
@@ -152,18 +153,30 @@ def to_temporal_schedule(
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: ExternalDataSchema, create: bool = False, should_sync: bool = True
+    external_data_schema: ExternalDataSchema,
+    create: bool = False,
+    should_sync: bool = True,
+    trigger_immediately: bool = True,
 ) -> ExternalDataSchema:
+    """Create or update the schema's Temporal schedule.
+
+    Runs fired through the schedule use its stored action, whose `billable` is always True,
+    so callers that must not bill (e.g. admin recovery) pass trigger_immediately=False and
+    start their own ad-hoc run if one is needed.
+    """
     temporal = sync_connect()
 
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         try:
-            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+            create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=trigger_immediately
+            )
         except ScheduleAlreadyRunningError:
             update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
-            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+            if trigger_immediately:
+                trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -218,17 +231,35 @@ async def a_external_data_workflow_exists(id: str) -> bool:
 
 def pause_external_data_schedule(id: str):
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    try:
+        pause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    try:
+        unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 async def a_unpause_external_data_schedule(id: str):
     temporal = await async_connect()
-    await a_unpause_schedule(temporal, schedule_id=id)
+    try:
+        await a_unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def delete_external_data_schedule(schedule_id: str):
@@ -392,15 +423,6 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 def is_cdc_enabled_for_team(team: Team) -> bool:
     return feature_enabled_or_false(
         "dwh-postgres-cdc",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
-
-
-def is_xmin_enabled_for_team(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "dwh-postgres-xmin",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -583,6 +605,23 @@ def unpause_cdc_extraction_schedule(source_id: str) -> None:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return
         raise
+
+
+@async_to_sync
+async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
+    """Whether the source's CDC extraction schedule exists and is currently paused.
+
+    A missing schedule reads as not paused — there is nothing to resume.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = await async_connect()
+    try:
+        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.schedule.state.paused
 
 
 @async_to_sync

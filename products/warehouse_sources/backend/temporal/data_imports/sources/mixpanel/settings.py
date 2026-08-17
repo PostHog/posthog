@@ -2,8 +2,28 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Mixpanel vendor API version labels. `v1` is PostHog's legacy placeholder — the source
+# predates explicit versioning — and `2.0` is Mixpanel's current published API version.
+MIXPANEL_API_VERSION_V1 = UNVERSIONED_API_VERSION
+MIXPANEL_API_VERSION_2_0 = "2.0"
+
+SUPPORTED_API_VERSIONS: tuple[str, ...] = (MIXPANEL_API_VERSION_V1, MIXPANEL_API_VERSION_2_0)
+DEFAULT_API_VERSION = MIXPANEL_API_VERSION_2_0
+
+# Mixpanel serves the Raw Event Export under a versioned path segment (`/api/2.0/export`).
+# Both supported labels currently resolve to Mixpanel's `2.0` export path; deriving the
+# segment from the pin keeps a future export-API version a one-line change here rather than
+# a hunt through the request layer.
+EXPORT_API_PATH_SEGMENT: dict[str, str] = {
+    MIXPANEL_API_VERSION_V1: "2.0",
+    MIXPANEL_API_VERSION_2_0: "2.0",
+}
 
 
 class MixpanelRegion(StrEnum):
@@ -12,12 +32,18 @@ class MixpanelRegion(StrEnum):
     IN = "in"
 
 
-# region -> (query/app API base, raw export API base). Mixpanel splits the heavy raw
-# export traffic onto a separate `data*` host per data-residency region.
-REGION_HOSTS: dict[str, tuple[str, str]] = {
-    MixpanelRegion.US: ("https://mixpanel.com", "https://data.mixpanel.com"),
-    MixpanelRegion.EU: ("https://eu.mixpanel.com", "https://data-eu.mixpanel.com"),
-    MixpanelRegion.IN: ("https://in.mixpanel.com", "https://data-in.mixpanel.com"),
+@frozen
+class RegionHosts:
+    query_base: str  # query/app API base
+    export_base: str  # raw export API base
+
+
+# Mixpanel splits the heavy raw export traffic onto a separate `data*` host per
+# data-residency region.
+REGION_HOSTS: dict[str, RegionHosts] = {
+    MixpanelRegion.US: RegionHosts(query_base="https://mixpanel.com", export_base="https://data.mixpanel.com"),
+    MixpanelRegion.EU: RegionHosts(query_base="https://eu.mixpanel.com", export_base="https://data-eu.mixpanel.com"),
+    MixpanelRegion.IN: RegionHosts(query_base="https://in.mixpanel.com", export_base="https://data-in.mixpanel.com"),
 }
 
 # First sync of the raw export endpoint only pulls this far back to avoid replaying

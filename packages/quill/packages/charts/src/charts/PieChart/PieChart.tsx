@@ -1,16 +1,26 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { mixColors } from '../../core/color-utils'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
-import type { ChartDrawArgs, ChartTheme, ResolvedSeries, Series, TooltipContext } from '../../core/types'
+import type {
+    ChartDrawArgs,
+    ChartLegendConfig,
+    ChartTheme,
+    ResolvedSeries,
+    Series,
+    TooltipContext,
+} from '../../core/types'
 import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
 import { PieTooltip } from './PieTooltip'
 import { SliceLabels } from './SliceLabels'
+import type { SliceValueDisplay } from './SliceLabels'
 
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
@@ -19,6 +29,10 @@ export interface PieChartConfig<Meta = unknown> {
     showValueOnSlice?: boolean
     /** Show the breakdown label above the slice. Default false. */
     showLabelOnSlice?: boolean
+    /** What the on-slice numeric line contains. Defaults to `'percent'` when `isPercent` is set,
+     *  else `'value'`. `'both'` renders `value (percent)` on one line. Gated by
+     *  `showValueOnSlice`, which stays the on/off switch for that line. */
+    sliceValueDisplay?: SliceValueDisplay
     /** Render slice values as percentages of total. Drives both axes-label-style formatting
      *  and the on-slice / tooltip formatting. */
     isPercent?: boolean
@@ -46,6 +60,9 @@ export interface PieChartConfig<Meta = unknown> {
     tooltip?: {
         enabled?: boolean
     }
+    /** Built-in legend, one row per slice. Hidden by default; toggling a row off removes the
+     *  slice and the rest rescale to the full circle. Same semantics as the other charts. */
+    legend?: ChartLegendConfig
 }
 
 export interface PieChartProps<Meta = unknown> {
@@ -133,6 +150,7 @@ function PieChartInner<Meta = unknown>({
         innerRadiusRatio = 0,
         showValueOnSlice = true,
         showLabelOnSlice = false,
+        sliceValueDisplay,
         isPercent = false,
         hoverGrowth = DEFAULT_HOVER_GROWTH,
         hoverAnimationMs = DEFAULT_HOVER_ANIMATION_MS,
@@ -143,9 +161,12 @@ function PieChartInner<Meta = unknown>({
         sort = null,
         sliceValue,
         tooltip: tooltipConfig,
+        legend,
     } = config ?? {}
 
     const showTooltip = tooltipConfig?.enabled !== false
+
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
 
     const buildLayout = useCallback<RadialLayoutBuilder<Meta>>(
         (resolvedSeries, dimensions) =>
@@ -226,31 +247,34 @@ function PieChartInner<Meta = unknown>({
     )
 
     return (
-        <RadialChart<Meta>
-            series={series}
-            theme={theme}
-            buildLayout={buildLayout}
-            drawStatic={drawStatic}
-            drawHover={drawHover}
-            tooltip={renderTooltip}
-            showTooltip={showTooltip}
-            onSliceClick={onSliceClick}
-            hitOuterSlack={effectiveHoverGrowth}
-            hoverAnimationMs={effectiveHoverAnimationMs}
-            className={className}
-            dataAttr={dataAttr}
-        >
-            <SliceLabels
-                valueFormatter={valueFormatter}
-                showValueOnSlice={showValueOnSlice}
-                showLabelOnSlice={showLabelOnSlice}
-                minSlicePercentForLabel={minSlicePercentForLabel}
-                labelRadiusRatio={labelRadiusRatio}
-                isPercent={isPercent}
-            />
-            <PieCenterLabel>{centerLabel}</PieCenterLabel>
-            {children}
-        </RadialChart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
+            <RadialChart<Meta>
+                series={visibleSeries}
+                theme={theme}
+                buildLayout={buildLayout}
+                drawStatic={drawStatic}
+                drawHover={drawHover}
+                tooltip={renderTooltip}
+                showTooltip={showTooltip}
+                onSliceClick={onSliceClick}
+                hitOuterSlack={effectiveHoverGrowth}
+                hoverAnimationMs={effectiveHoverAnimationMs}
+                className={className}
+                dataAttr={dataAttr}
+            >
+                <SliceLabels
+                    valueFormatter={valueFormatter}
+                    showValueOnSlice={showValueOnSlice}
+                    showLabelOnSlice={showLabelOnSlice}
+                    sliceValueDisplay={sliceValueDisplay}
+                    minSlicePercentForLabel={minSlicePercentForLabel}
+                    labelRadiusRatio={labelRadiusRatio}
+                    isPercent={isPercent}
+                />
+                <PieCenterLabel>{centerLabel}</PieCenterLabel>
+                {children}
+            </RadialChart>
+        </ChartLegend>
     )
 }
 

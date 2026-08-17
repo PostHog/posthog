@@ -62,13 +62,16 @@ export function StartupProgram(): JSX.Element {
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
         isAdminOrOwner,
+        isAnnualPlanCustomer,
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        shouldShowEmailDomainBlockedGate,
+        user,
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
@@ -411,6 +414,21 @@ export function StartupProgram(): JSX.Element {
                                             Return to PostHog
                                         </LemonButton>
                                     </div>
+                                ) : shouldShowEmailDomainBlockedGate ? (
+                                    <LemonBanner type="warning">
+                                        <h3 className="mb-2">A company email is required</h3>
+                                        <p>
+                                            You're signed in as {user?.email}, which uses a personal email domain. The
+                                            startup program requires a company email address.
+                                        </p>
+                                        <p>
+                                            Change your account email in settings and verify it, then come back to
+                                            apply.
+                                        </p>
+                                        <LemonButton type="primary" to={urls.settings('user')} className="mt-2">
+                                            Update your email
+                                        </LemonButton>
+                                    </LemonBanner>
                                 ) : (
                                     <Form
                                         logic={startupProgramLogic}

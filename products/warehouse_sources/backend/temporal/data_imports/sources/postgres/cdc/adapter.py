@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import psycopg
 import structlog
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
@@ -80,6 +81,11 @@ class PostgresCDCAdapter:
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
 
+    def position_to_seq(self, position_serialized: str) -> int:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
+
+        return PgLSN.deserialize(position_serialized).value
+
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
             PgCDCConnectionParams,
@@ -144,6 +150,13 @@ class PostgresCDCAdapter:
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
         return is_slot_invalidation_error(exc)
+
+    def is_connection_error(self, exc: BaseException) -> bool:
+        # psycopg raises OperationalError for every failure to reach the source DB
+        # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
+        # Neither points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)

@@ -403,10 +403,8 @@
     & .LemonButtonWithSideAction__spacer {
         box-sizing: content-box;
         width: calc(
-            var(--lemon-button-side-action-width) - var(
-                    --lemon-button-padding-right,
-                    var(--lemon-button-padding-horizontal)
-                )
+            var(--lemon-button-side-action-width) -
+                var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
         color: var(--color-text-secondary);

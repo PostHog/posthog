@@ -3,6 +3,11 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
+# Vendor API version labels. v1 is the legacy `*.api` interface (token header, page-number
+# pagination); v2 is the GA `/api/v2/` REST interface (bearer token, next-URL pagination).
+EZOFFICEINVENTORY_API_VERSION_V1 = "v1"
+EZOFFICEINVENTORY_API_VERSION_V2 = "v2"
+
 
 @dataclass
 class EZOfficeInventoryEndpointConfig:
@@ -116,6 +121,79 @@ EZOFFICEINVENTORY_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(EZOFFICEINVENTORY_ENDPOINTS.keys())
+
+# v2 (`/api/v2/`) serves the core inventory resources as flat REST list endpoints. Paths and
+# response envelopes differ from v1: records are no longer wrapped per row (no `unwrap_key`), the
+# list key is renamed for some resources (inventory, stock assets), and vendors expose no
+# `created_at`, so that table can't be datetime-partitioned under v2. The v1-only endpoints
+# (`checked_out_assets`, `subgroups`, `labels`, `custom_fields`) have no flat v2 list equivalent
+# and stay v1-only — pinned v1 sources keep serving them.
+EZOFFICEINVENTORY_V2_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
+    "assets": EZOfficeInventoryEndpointConfig(
+        name="assets",
+        path="api/v2/assets",
+        data_selector="assets",
+        primary_keys=["identifier"],
+        partition_key="created_at",
+    ),
+    "inventories": EZOfficeInventoryEndpointConfig(
+        name="inventories",
+        path="api/v2/inventory",
+        data_selector="inventory",
+        primary_keys=["identifier"],
+        partition_key="created_at",
+    ),
+    "asset_stocks": EZOfficeInventoryEndpointConfig(
+        name="asset_stocks",
+        path="api/v2/stock_assets",
+        data_selector="asset_stock",
+        primary_keys=["identifier"],
+        partition_key="created_at",
+    ),
+    "members": EZOfficeInventoryEndpointConfig(
+        name="members",
+        path="api/v2/members",
+        data_selector="members",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+    "locations": EZOfficeInventoryEndpointConfig(
+        name="locations",
+        path="api/v2/locations",
+        data_selector="locations",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+    "groups": EZOfficeInventoryEndpointConfig(
+        name="groups",
+        path="api/v2/groups",
+        data_selector="groups",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+    "vendors": EZOfficeInventoryEndpointConfig(
+        name="vendors",
+        path="api/v2/vendors",
+        data_selector="vendors",
+        primary_keys=["id"],
+    ),
+    "purchase_orders": EZOfficeInventoryEndpointConfig(
+        name="purchase_orders",
+        path="api/v2/purchase_orders",
+        data_selector="purchase_orders",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+}
+
+V2_ENDPOINTS = tuple(EZOFFICEINVENTORY_V2_ENDPOINTS.keys())
+
+
+def endpoints_for_version(api_version: str) -> dict[str, EZOfficeInventoryEndpointConfig]:
+    if api_version == EZOFFICEINVENTORY_API_VERSION_V2:
+        return EZOFFICEINVENTORY_V2_ENDPOINTS
+    return EZOFFICEINVENTORY_ENDPOINTS
+
 
 # Every endpoint is full refresh — no server-side timestamp filter is available.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

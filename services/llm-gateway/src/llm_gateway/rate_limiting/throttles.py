@@ -47,8 +47,10 @@ class ThrottleContext:
     end_user_id: str | None = None
     plan_key: str | None = None
     seat_created_at: str | None = None
+    seat_missing: bool = False
+    code_usage_billed: bool = False
     billing_period_start: str | None = None
-    ai_credits_exhausted: bool = False
+    credits_exhausted: bool = False
 
 
 @dataclass
@@ -60,6 +62,10 @@ class ThrottleResult:
     retry_after: int | None = None
     used_usd: float | None = None
     limit_usd: float | None = None
+    # False when retry_after is only a client back-off hint (e.g. exhausted
+    # credits, zero limit) — retrying then won't succeed, so user-facing
+    # messages must not promise it will.
+    retry_after_resets_limit: bool = True
 
     @classmethod
     def allow(cls) -> ThrottleResult:
@@ -74,6 +80,7 @@ class ThrottleResult:
         retry_after: int | None = None,
         used_usd: float | None = None,
         limit_usd: float | None = None,
+        retry_after_resets_limit: bool = True,
     ) -> ThrottleResult:
         return cls(
             allowed=False,
@@ -83,6 +90,7 @@ class ThrottleResult:
             retry_after=retry_after,
             used_usd=used_usd,
             limit_usd=limit_usd,
+            retry_after_resets_limit=retry_after_resets_limit,
         )
 
 

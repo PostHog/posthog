@@ -3,7 +3,8 @@ from time import perf_counter
 from typing import NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
+from django.http.response import HttpResponseBase
 
 import orjson
 import structlog
@@ -51,6 +52,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -161,8 +163,28 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "AccountsTableQuery": ["query:read", "account:read"],
     "MetricsQuery": ["metrics:read"],
+    # Both scopes listed: this result replaces the view's default query:read
+    # rather than adding to it, and a token must hold every listed scope.
+    "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
 }
+
+
+def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+    current_query = query
+    while isinstance(current_query, dict):
+        kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
+        if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
+            return _QUERY_KIND_SCOPES[kind]
+        current_query = current_query.get("source")
+    return None
 
 
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -178,8 +200,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        kind = query.get("kind") if isinstance(query, dict) else None
-        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
+        return _required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -342,8 +363,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
-            capture_exception(e)
+            # Breaker replays were already captured when the original failure happened.
+            if not getattr(e, "served_from_query_failure_cache", False):
+                capture_exception(e)
             raise
 
     @extend_schema(
@@ -444,8 +470,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
-            capture_exception(e)
+            # Breaker replays were already captured when the original failure happened.
+            if not getattr(e, "served_from_query_failure_cache", False):
+                capture_exception(e)
             raise
 
     def handle_column_ch_error(self, error):
@@ -465,7 +496,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         tag_queries(client_query_id=query_id)
 
     @extend_schema(operation_id="query_create_with_kind")
-    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z0-9]*)")
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)
 
@@ -499,7 +530,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 MAX_QUERY_TIMEOUT = 600
 
 
-async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+async def progress(request: Request, *args, **kwargs) -> HttpResponseBase:
     # TEMPORARY endpoint to avoid breaking changes
 
     return sse_streaming_response(

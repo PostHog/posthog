@@ -86,11 +86,15 @@ RUN cd /scripts && \
 # Runs configured for user-authored pull requests receive
 # GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
 RUN git config --global user.email "code@posthog.com" && \
-    git config --global user.name "PostHog Code"
+    git config --global user.name "PostHog Desktop"
 
 # Block `git commit`/`git push` so unsigned commits cannot leave the sandbox.
 COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
 RUN chmod +x /opt/posthog/bin/git
+# Inject the per-actor GitHub token into every `gh` call (BASH_ENV only reaches
+# non-interactive `bash -c`; the agent's interactive shell needs this shim).
+COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
+RUN chmod +x /opt/posthog/bin/gh
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
@@ -131,5 +135,24 @@ ENV PATH="/opt/notebook-venv/bin:$PATH"
 RUN python3 --version && \
     node --version && \
     npm --version
+
+# Bake the notebooks SQLV2 kernel package. The backend launches it from here when
+# the stamp matches the package hash it expects, and uploads the same modules as a
+# tarball when it does not, so a kernel edit never waits on an image build.
+# kernel_package.py supplies both the destination and the stamp, so this image and
+# the backend cannot drift apart on where the package lives or how its hash is
+# derived. This stays last because it invalidates on every kernel edit and the pip
+# layer above is expensive to rebuild. The import check enforces the package's rule
+# that it may only use libraries this image already carries.
+COPY products/notebooks/backend/kernel_package.py /tmp/nb_kernel_build/kernel_package.py
+COPY products/notebooks/backend/sandbox/kernel/ /tmp/nb_kernel_build/sandbox/kernel/
+RUN ROOT="$(python3 /tmp/nb_kernel_build/kernel_package.py --baked-root)" && \
+    mkdir -p "$ROOT" && \
+    cp -R /tmp/nb_kernel_build/sandbox/kernel "$ROOT/nb_kernel" && \
+    python3 /tmp/nb_kernel_build/kernel_package.py > "$ROOT/VERSION" && \
+    rm -rf /tmp/nb_kernel_build && \
+    test -s "$ROOT/VERSION" && \
+    PYTHONPATH="$ROOT" python3 -c \
+      "import nb_kernel.server, nb_kernel.executor, nb_kernel.bootstrap, nb_kernel.result_store"
 
 CMD ["/bin/bash"]

@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WordpressSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
+    WordpressSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.wordpress.org/rest-api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WORDPRESS
@@ -99,7 +102,23 @@ To sync private content or authenticate, create an [Application Password](https:
             "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
+            # A 2xx response whose body isn't JSON (an HTML error/login/maintenance page, often from
+            # a security or caching plugin) can't be turned into rows by retrying. Matches the stable
+            # prefix RESTClientNonRetryableError uses, not the variable URL that follows.
+            "Non-JSON response from": "The WordPress site returned a non-JSON response (for example an HTML error, login, or maintenance page) instead of data. Confirm the REST API is enabled and reachable at this URL and isn't blocked by a security or caching plugin, then try again.",
+            # The site's TLS certificate doesn't cover its own hostname — common on shared hosting
+            # platforms whose default certificate doesn't include the customer's custom domain. The
+            # cert is wrong every time, not just this request, so retrying can't help. Match the
+            # exception class name that `ssl_match_hostname.match_hostname` raises, not the hostname
+            # or cert names that follow it in the message.
+            "CertificateError": "The WordPress site's TLS certificate doesn't match its domain. This is often caused by a hosting platform's default certificate not covering a custom domain. Ask your hosting provider to install a certificate for this domain, then try again.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Raised by get_rows()'s fetch_page for a 429/5xx response, only once its own tenacity
+        # retry budget (5 attempts with backoff) is already exhausted. The status code and URL
+        # that follow are variable, so match the stable prefix only.
+        return {"WordPress API error (retryable):"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.canonical_descriptions import (
@@ -115,6 +134,7 @@ To sync private content or authenticate, create an [Application Password](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -131,7 +151,11 @@ To sync private content or authenticate, create an [Application Password](https:
         return schemas
 
     def validate_credentials(
-        self, config: WordpressSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WordpressSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_wordpress_credentials(config.site_url, config.username, config.application_password, team_id)
 

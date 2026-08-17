@@ -5,6 +5,14 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 PaginationStyle = Literal["cursor", "offset", "none"]
 
+# Cal.com serves its EU data region from a separate host, and an API key is only valid against the
+# region its account lives in. The host is chosen by the `region` form field rather than by a
+# user-supplied URL (no SSRF surface — the set is fixed).
+CAL_COM_HOSTS: dict[str, str] = {
+    "us": "https://api.cal.com/v2",
+    "eu": "https://api.cal.eu/v2",
+}
+
 _BOOKING_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "updatedAt",
@@ -39,6 +47,9 @@ class CalComEndpointConfig:
     # Maps an incremental field name to the server-side query param that filters on it.
     incremental_param_by_field: dict[str, str] = field(default_factory=dict)
     default_incremental_field: Optional[str] = None
+    # Max items per page. Cal.com caps this per endpoint and rejects larger values with 400: the
+    # bookings `limit` maxes at 100, while the webhooks `take` allows up to 250.
+    page_size: int = 100
 
 
 # Cal.com API v2 list endpoints (https://cal.com/docs/api-reference/v2/introduction). Only bookings
@@ -76,6 +87,7 @@ CAL_COM_ENDPOINTS: dict[str, CalComEndpointConfig] = {
         name="webhooks",
         path="/webhooks",
         pagination="offset",
+        page_size=250,
     ),
     "me": CalComEndpointConfig(
         name="me",

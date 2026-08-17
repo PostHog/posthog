@@ -223,8 +223,14 @@ describe('taxonomicFilterLogic', () => {
         // react-window new rowProps every render, which drives its layout-effect setState past React's
         // update limit (error #185). This locks the reference in so that cascade cannot start.
         const state = getContext().store.getState()
-        const propsA = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
-        const propsB = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+        const propsA: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
+        const propsB: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
 
         expect(propsA.metadataSource).not.toBe(propsB.metadataSource)
 
@@ -1461,6 +1467,82 @@ describe('taxonomicFilterLogic', () => {
             }).toDispatchActions(['selectItem'])
 
             expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
+        })
+    })
+
+    describe('exception property selection', () => {
+        it('provides the value and event filter type needed to commit an exception property', () => {
+            const exceptionLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'exceptionPropertySelection',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingProperties],
+                onChange: jest.fn(),
+            })
+            exceptionLogic.mount()
+
+            const group = exceptionLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.ErrorTrackingProperties
+            )
+            const option = group?.options?.find((candidate) => candidate.name === '$exception_values') as
+                | { name: string; propertyFilterType: PropertyFilterType }
+                | undefined
+
+            expect(group?.getValue?.(option)).toBe('$exception_values')
+            expect(option?.propertyFilterType).toBe(PropertyFilterType.Event)
+
+            exceptionLogic.unmount()
+        })
+    })
+
+    describe('error tracking issue property selection', () => {
+        it('provides issue severity as a filter with value suggestions', () => {
+            const issueLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'errorTrackingIssuePropertySelection',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingIssues],
+                onChange: jest.fn(),
+            })
+            issueLogic.mount()
+
+            const group = issueLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.ErrorTrackingIssues
+            )
+            const option = group?.options?.find((candidate) => candidate.name === 'Issue severity') as
+                | { name: string; value: string }
+                | undefined
+
+            expect(group?.getValue?.(option)).toBe('severity')
+            expect(group?.valuesEndpoint?.('severity')).toContain('/error_tracking/issues/values?key=severity')
+
+            issueLogic.unmount()
+        })
+    })
+
+    describe('event feature flag properties are a separate group from event properties', () => {
+        let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            splitLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'eventFeatureFlagsSplit',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                ],
+            })
+            splitLogic.mount()
+        })
+
+        afterEach(() => {
+            splitLogic.unmount()
+        })
+
+        const isFeatureFlagParam = (endpoint: string | undefined): string | null =>
+            new URLSearchParams((endpoint ?? '').split('?')[1] ?? '').get('is_feature_flag')
+
+        it.each([
+            { groupType: TaxonomicFilterGroupType.EventFeatureFlags, expected: 'true' },
+            { groupType: TaxonomicFilterGroupType.EventProperties, expected: 'false' },
+        ])('$groupType endpoint filters is_feature_flag=$expected', ({ groupType, expected }) => {
+            const group = splitLogic.values.taxonomicGroups.find((g) => g.type === groupType)
+            expect(isFeatureFlagParam(group?.endpoint)).toBe(expected)
         })
     })
 })

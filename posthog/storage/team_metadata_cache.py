@@ -54,6 +54,7 @@ from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
+    CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches as get_teams_generic,
     refresh_expiring_caches as refresh_generic,
@@ -410,6 +411,10 @@ TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=update_team_metadata_cache,
     cache_name="team_metadata",
     get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_teams,
+    # The refresh serializes exactly these columns (plus organization/project names
+    # via select_related), so narrowing the SELECT to them keeps the job resilient to
+    # newly added Team columns the read replica may not have yet.
+    refresh_only_fields=TEAM_METADATA_FIELDS,
 )
 
 
@@ -446,7 +451,7 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5
     return get_teams_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
-def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
     Refresh caches that are expiring soon to prevent cache misses.
 
@@ -464,7 +469,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
         limit: Maximum number of teams to refresh per run (default 5000)
 
     Returns:
-        Tuple of (successful_refreshes, failed_refreshes)
+        CacheRefreshCounts with successful and failed refresh counts
     """
     return refresh_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 

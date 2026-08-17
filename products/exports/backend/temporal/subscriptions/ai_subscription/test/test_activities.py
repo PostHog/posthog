@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    DiagnosticCounts,
     _load_snapshot,
     _persist_ai_report,
     _report_diagnostic_counts,
@@ -94,6 +95,31 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
 
 
+async def test_persist_ai_report_strips_null_bytes(team, user) -> None:
+    # Regression witness: LLM output, diagnostics, and the prompt are untrusted NUL sources. Without
+    # the scrub, the NUL reaches content_snapshot and Postgres rejects the whole save with a DataError,
+    # so this test would fail on the write itself; with it, the NULs are gone and the rest survives.
+    delivery = await _create_delivery(team, user)
+
+    await _persist_ai_report(
+        delivery.id,
+        AiReportResult(
+            markdown="# Weekly\x00 report",
+            window_end_utc=_WINDOW_END_UTC,
+            diagnostics=(
+                QueryStepDiagnostic(description="adop\x00tion", hogql="SELECT co\x00unt()", ok=True, error_type=None),
+            ),
+        ),
+        prompt="weekly\x00 report",
+    )
+
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+    assert snapshot[AI_REPORT_DIAGNOSTICS_KEY][0]["description"] == "adoption"
+    assert snapshot[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == "SELECT count()"
+    assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly report"
+
+
 @pytest.mark.parametrize("prompt", [None, ""])
 async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
     # A non-AI sub passes prompt=None and a cleared prompt passes ""; neither should write the key
@@ -135,7 +161,9 @@ class TestReportDiagnosticCounts:
                 for i, ok in enumerate(oks)
             ),
         )
-        assert _report_diagnostic_counts(result) == (expected_failed, expected_total, expected_types)
+        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+            failed_step_count=expected_failed, total_step_count=expected_total, error_types=expected_types
+        )
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
@@ -147,7 +175,9 @@ class TestReportDiagnosticCounts:
                 QueryStepDiagnostic(description="c", hogql="z", ok=False, error_type="ResolutionError"),
             ),
         )
-        assert _report_diagnostic_counts(result) == (3, 3, ["ExposedHogQLError", "ResolutionError"])
+        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+            failed_step_count=3, total_step_count=3, error_types=["ExposedHogQLError", "ResolutionError"]
+        )
 
 
 # On Temporal redispatch the report is already persisted, so the failure shape is read back from the
@@ -167,11 +197,14 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
         prompt=None,
     )
 
-    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (1, 2, ["ResolutionError"])
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == DiagnosticCounts(
+        failed_step_count=1, total_step_count=2, error_types=["ResolutionError"]
+    )
 
 
 async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
     # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
-    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (0, 0, [])
-    assert _snapshot_diagnostic_counts(None) == (0, 0, [])
+    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
+    assert _snapshot_diagnostic_counts(None) == empty_counts

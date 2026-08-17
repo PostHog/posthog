@@ -48,6 +48,10 @@ pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_di
 /// Detail tag for events dropped by the event restriction service.
 pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 
+/// Detail tag for batches dropped by an Import-mode deployment because they
+/// were not flagged `historical_migration: true`.
+pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
+
 /// Detail tag for events dropped due to uncoercible options fields.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 

@@ -1,3 +1,4 @@
+import os
 import sys
 import copy
 import random
@@ -9,6 +10,7 @@ from types import FrameType
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from cachetools import LRUCache
 from hogql_parser import (
@@ -179,17 +181,55 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
+# Parser modes whose *primary* backend is the C++ parser. `parserMode` is a public
+# `HogQLQueryModifier`, so a client can supply it — but the C++ backend's recursion guard is
+# best-effort (a token pre-scan that can't bound recursive statement productions like nested
+# `if`), so untrusted callers must not be able to force it as primary. cpp-as-*shadow* modes
+# are safe: the shadow only runs after the rust primary parses successfully, and rust rejects
+# pathologically deep input via `MAX_RECURSION_DEPTH` first, so the shadow never sees it.
+_CPP_PRIMARY_PARSER_MODES = frozenset(
+    {ParserMode.CPP_ONLY, ParserMode.CPP_WITH_RUST_SHADOW, ParserMode.CPP_WITH_RUST_PY_SHADOW}
+)
+
+
+def sanitize_client_parser_mode(parser_mode: ParserMode | None) -> ParserMode | None:
+    """Neutralize a client-supplied `parserMode` that would force the C++ backend as primary.
+
+    Returns None (→ safe default resolution: rust-py primary, cpp sampled shadow) for
+    cpp-primary modes, else the value unchanged. `parserMode` is an internal rollout knob
+    never set by server-side code, so dropping these values costs nothing legitimate while
+    closing the "authenticated caller selects the unguarded cpp parser" vector.
+    """
+    if parser_mode in _CPP_PRIMARY_PARSER_MODES:
+        return None
+    return parser_mode
+
+
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
 # the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
 # surfaces and tighter coverage is needed.
 _SHADOW_SAMPLE_RATE = 0.001
 
 
+def _is_test_mode() -> bool:
+    """Whether we're running under the test settings, without requiring Django to be configured.
+
+    Reads Django's `settings.TEST` when settings are available; falls back to the `TEST` env var
+    (then `False`) so the parser can run in environments that never boot Django (CLIs, workers,
+    fuzzing scripts). Test mode only tightens parser behavior (100% shadow sampling, raise-on-
+    divergence), so defaulting to non-test when settings are absent is safe for production paths.
+    """
+    try:
+        return bool(settings.TEST)
+    except ImproperlyConfigured:
+        return os.environ.get("TEST", "").lower() in ("1", "true", "t")
+
+
 def _shadow_sample_rate() -> float:
     """Shadow sampling fraction: 100% in tests (an explicitly requested shadow mode compares every parse, so
     regressions fail loud and deterministically), `_SHADOW_SAMPLE_RATE` in prod. Divergence behavior also differs
     by env (TEST raises, prod records) in `_run_shadow_comparison`."""
-    return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
+    return 1.0 if _is_test_mode() else _SHADOW_SAMPLE_RATE
 
 
 def _resolve_parser_mode(
@@ -235,7 +275,7 @@ def _resolve_parser_mode(
     if backend is not None:
         return backend, None
     if _RUST_PARSER_AVAILABLE:
-        if settings.TEST:
+        if _is_test_mode():
             return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_ONLY]
         return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
     return DEFAULT_BACKEND, None
@@ -282,7 +322,7 @@ def _run_shadow_comparison(
     """
     if random.random() >= _shadow_sample_rate():
         return
-    test_mode = settings.TEST
+    test_mode = _is_test_mode()
     rule_label = str(rule)
     primary_version = _BACKEND_VERSION.get(primary_backend, "unknown")
     shadow_version = _BACKEND_VERSION.get(shadow_backend, "unknown")

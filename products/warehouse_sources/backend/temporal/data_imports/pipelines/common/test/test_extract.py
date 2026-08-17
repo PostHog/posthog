@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,57 +9,130 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
+    handle_reset_or_full_refresh,
+    persist_primary_keys,
     report_heartbeat_timeout,
-    run_pre_write_defensive_compact,
+    resolve_primary_keys,
+    validate_incremental_sync,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
 
-class TestRunPreWriteDefensiveCompact:
+class TestResolvePrimaryKeys:
     @parameterized.expand(
         [
-            # (schema_partition_count, resource_partition_count, expected_passed_to_run_maintenance)
-            ("schema_value_wins", 10, 72, 10),
-            ("falls_back_to_resource", None, 72, 72),
-            ("both_none_passes_none", None, None, None),
+            # A persisted key (user override or earlier detection) always wins over live detection.
+            ("persisted_wins_over_live", ["user_pk"], ["live_pk"], {"columns": [{"name": "id"}]}, ["user_pk"]),
+            # No persisted key -> use what the source detected live this run.
+            ("live_used_when_no_persisted", None, ["live_pk"], {"columns": [{"name": "id"}]}, ["live_pk"]),
+            # Neither persisted nor live, but the table has `id` -> mirror the discovery-time fallback.
+            ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
+            # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
+            ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        persisted: list[str] | None,
+        live: list[str] | None,
+        schema_metadata: dict,
+        expected: list[str] | None,
+    ):
+        schema = MagicMock(primary_key_columns=persisted, schema_metadata=schema_metadata)
+        resource = MagicMock(primary_keys=live)
+        assert resolve_primary_keys(schema, resource) == expected
+
+
+class TestPersistPrimaryKeys:
+    @parameterized.expand(
+        [
+            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
+            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            # A stored PK is already the source of truth — nothing to backfill.
+            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
+            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            # The fix: an incremental schema with no stored PK backfills the resolved one.
+            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
+            (
+                "does_not_clobber_concurrent_write",
+                True,
+                None,
+                ["id"],
+                {"primary_key_columns": ["already"]},
+                {"primary_key_columns": ["already"]},
+            ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_resolves_partition_count_schema_over_resource(
-        self, _name: str, schema_count: int | None, resource_count: int | None, expected: int | None
+    async def test_persists_only_when_incremental_and_empty(
+        self,
+        _name: str,
+        is_incremental: bool,
+        persisted: list[str] | None,
+        resource_pks: list[str] | None,
+        db_config_before: dict,
+        expected_written: dict | None,
     ):
-        run_maintenance = AsyncMock(return_value=None)
-        helper = MagicMock(run_maintenance=run_maintenance)
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        resource = MagicMock(primary_keys=resource_pks)
 
-        await run_pre_write_defensive_compact(
-            helper,
-            MagicMock(partition_count=schema_count, sync_type_config={}),
-            MagicMock(partition_count=resource_count),
-            MagicMock(aexception=AsyncMock()),
-        )
+        captured: dict = {}
 
-        assert run_maintenance.await_args is not None
-        assert run_maintenance.await_args.kwargs["partition_count"] == expected
+        def fake_pool(fn):
+            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
+                config = dict(db_config_before)
+                if mutate is not None:
+                    mutate(config)
+                captured["config"] = config
+                return config
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, is_incremental, AsyncMock())
+
+        assert captured.get("config") == expected_written
 
     @pytest.mark.asyncio
-    async def test_swallows_maintenance_failure(self):
-        # The whole point of the wrapper: a maintenance error must never propagate and
-        # block the sync — it's captured and logged instead.
-        helper = MagicMock(run_maintenance=AsyncMock(side_effect=RuntimeError("maintenance blew up")))
-        logger = MagicMock(aexception=AsyncMock())
+    async def test_persistence_failure_does_not_raise(self):
+        # Best-effort: a DB failure while backfilling the PK must not fail an otherwise good sync.
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=None)
+        resource = MagicMock(primary_keys=["id"])
+        logger = AsyncMock()
 
-        schema = MagicMock(partition_count=5, sync_type_config={})
-        with patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture:
-            await run_pre_write_defensive_compact(helper, schema, MagicMock(partition_count=None), logger)
+        def fake_pool(fn):
+            async def _call(*args, **kwargs):
+                raise RuntimeError("pooler dropped the connection")
 
-        mock_capture.assert_called_once()
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, True, logger)
+
         logger.aexception.assert_awaited_once()
 
 
@@ -107,6 +181,70 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.host == "pod-abc"
             assert event.run_id == "run-1"
             assert event.gap_seconds == pytest.approx(gap_seconds)
+            # No workload reports were seeded, so evidence must be honestly absent (fails open), not 0.
+            assert event.self_phase is None and event.self_peak_buffer_bytes is None
+            assert event.self_report_age_at_death_seconds is None
+
+    def test_row_snapshots_workload_evidence_without_co_tenant_identifiers(self) -> None:
+        # The whole point of the stack: the dead attempt's own self-report and its pod's aggregates
+        # must survive onto the durable row (the Redis source expires in hours), and nothing on the
+        # row may carry another team's schema or run ids — this is a team-scoped table.
+        import json as _json
+
+        from django.forms.models import model_to_dict
+
+        from products.warehouse_sources.backend.temporal.data_imports import workload_report
+
+        schema = self._schema()
+        inputs = MagicMock(team_id=self.team.pk, schema_id=schema.id, source_id=str(uuid.uuid4()), run_id="run-1")
+        redis = workload_report._redis_client()
+        assert redis is not None
+        # Reports flushed 5s before the last heartbeat: fresh, so the rules may act on the evidence.
+        heartbeat_ts = datetime(2026, 7, 6, 12, 0, 0, tzinfo=UTC).timestamp() - 300
+        for run_id, schema_id, phase, peak, ts in (
+            ("run-1", str(schema.id), "merge", 900, heartbeat_ts - 5),
+            ("run-neighbour", "other-team-schema", "merge", 700_000, heartbeat_ts - 5),
+            # A neighbour that crashed an hour before the death: its lingering key must not
+            # reach the row's culprit evidence, however large its historical peak.
+            ("run-ancient", "other-team-schema-2", "merge", 9_000_000, heartbeat_ts - 3600),
+        ):
+            redis.setex(
+                workload_report.run_key(run_id),
+                60,
+                _json.dumps(
+                    {
+                        "run_id": run_id,
+                        "schema_id": schema_id,
+                        "host": "pod-abc",
+                        "phase": phase,
+                        "buffer_bytes": peak,
+                        "peak_buffer_bytes": peak,
+                        "ts": ts,
+                    }
+                ),
+            )
+            redis.sadd(workload_report.host_key("pod-abc"), run_id)
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=self._info(attempt=2, gap_seconds=300)),
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+        ):
+            report_heartbeat_timeout(inputs, MagicMock())
+
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).get(schema_id=schema.id)
+        assert event.self_phase == "merge"
+        assert event.self_report_age_at_death_seconds == pytest.approx(5.0)
+        assert event.self_peak_buffer_bytes == 900
+        assert event.co_tenant_correlated_max_peak_buffer_bytes == 700_000, (
+            "stale neighbour peak must not reach the row"
+        )
+        assert event.co_tenant_report_count == 2
+        # The serialized row is what any admin, API or export surface would expose: no field on it
+        # may carry the co-tenant's identifiers, only the aggregates asserted above.
+        serialized_row = _json.dumps({field: str(value) for field, value in model_to_dict(event).items()})
+        assert "other-team-schema" not in serialized_row and "run-neighbour" not in serialized_row
+        # The culprit rule then discounts this row: a strictly larger co-tenant makes us the victim.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
@@ -164,6 +302,90 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
 
+    def test_reset_failure_routes_through_non_retryable_handler(self, team):
+        # A reset that can't even complete (e.g. the storage backend rejects the delete) must not
+        # propagate unguarded — the revive markers would stay set, so every subsequent sync would
+        # repeat the exact same failing reset forever. It must go through the same give-up-after-
+        # N-attempts policy as any other import error, rather than looping and flooding error tracking.
+        schema, job = self._schema_and_job(team)
+        reset_error = RuntimeError("An error occurred (InvalidAccessKeyId) when calling ListObjectsV2")
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock(side_effect=reset_error)
+        )
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(
+                f"{_EXTRACT_MODULE}.handle_non_retryable_error",
+                new=AsyncMock(side_effect=NonRetryableException()),
+            ) as handle_mock,
+        ):
+            with pytest.raises(NonRetryableException):
+                async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+
+        handle_mock.assert_awaited_once()
+        assert handle_mock.await_args is not None
+        assert handle_mock.await_args.args[0] == schema.team_id
+        assert handle_mock.await_args.args[1] == str(job.pipeline_id)
+        assert handle_mock.await_args.args[2] == str(job.id)
+        assert handle_mock.await_args.args[-1] is reset_error
+        # The reset itself failed, so the non-billable flip (which only happens after a successful
+        # reset) must never be reached.
+        job.refresh_from_db()
+        assert job.billable is True
+
+    def test_reset_transient_object_store_error_retries_next_sync(self, team):
+        # An S3 rate-limit blip purging the old table's prefix (see `_purge_s3_prefix`) is not a bug:
+        # it must skip the non-retryable-error escalation above (which would burn through its attempt
+        # budget on pure throttling) and leave the revive markers set so the next sync retries the
+        # reset from scratch, instead of minting an error-tracking issue for a self-healing blip.
+        schema, job = self._schema_and_job(team)
+        reset_error = OSError("[Errno 16] Please reduce your request rate.")
+        helper = MagicMock(
+            is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock(side_effect=reset_error)
+        )
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+            patch(f"{_EXTRACT_MODULE}.handle_non_retryable_error") as handle_mock,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        handle_mock.assert_not_called()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
+    def test_is_table_corrupted_transient_object_store_error_skips_without_capturing(self, team):
+        # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can raise the
+        # same IMDS/STS credential-provider blip as any other delta-rs object-store call. That isn't
+        # evidence of corruption — it must be treated like the reset-path blip above (skip, log a
+        # warning, no error-tracking capture) rather than unconditionally reported as a defect.
+        schema, job = self._schema_and_job(team)
+        corrupt_check_error = OSError(
+            "Operation not supported: an error occurred while loading credentials: dispatch failure: "
+            "timeout: client error (Connect): HTTP connect timeout occurred after 3.1s: timed out"
+        )
+        helper = MagicMock(is_table_corrupted=AsyncMock(side_effect=corrupt_check_error), reset_table=AsyncMock())
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        helper.reset_table.assert_not_awaited()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
@@ -182,6 +404,11 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        # The in-memory copy must be refreshed too: the pipeline keeps saving this same schema
+        # object for the rest of the run (incremental staging, partition bookkeeping), and a stale
+        # copy writes the marker back — re-arming a non-billable full rebuild on every sync.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
         schema.refresh_from_db()
         assert "delta_revive_required" not in schema.sync_type_config
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
@@ -191,8 +418,11 @@ class TestHandleCorruptedDeltaLog:
         # rather than reset — the customer's data is recovered without a rebuild, so reset_table never runs
         # and the job stays billable. Guards the salvage-from-temp branch against regressing to a reset.
         schema, job = self._schema_and_job(team)
+        # A hollow-table marker can coexist with the interrupted swap (the repartition scan set it
+        # before the swap crashed) — the salvage must clear it in memory as well as in the DB.
         schema.sync_type_config = {
-            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"}
+            "repartition_swap": {"state": "ready", "temp_uri": "s3://bucket/temp", "live_uri": "s3://bucket/live"},
+            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
         }
         schema.save(update_fields=["sync_type_config"])
         helper = MagicMock(
@@ -201,7 +431,7 @@ class TestHandleCorruptedDeltaLog:
             _get_credentials=MagicMock(return_value={}),
         )
 
-        repartition_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition"
+        repartition_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
         repartition_table_module = (
             "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
         )
@@ -218,7 +448,177 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        # Same stale-copy guard as the reset path: a later full-config save off this schema object
+        # must not write the cleared marker back.
+        assert "delta_revive_required" not in schema.sync_type_config
+        schema.stage_incremental_field_value("run-1", 5)
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
         # A salvage must be observable too, tagged as recovered-from-temp with the rebuild left billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+# transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
+# which writes from the async thread pool and can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestHandleResetOrFullRefresh:
+    def _webhook_schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Github"
+        )
+        return ExternalDataSchema.objects.create(
+            name="workflow_jobs",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config={"reset_pipeline": True, "incremental_field_last_value": "2026-01-01T00:00:00"},
+            initial_sync_complete=True,
+        )
+
+    def test_webhook_only_reset_preserves_table_and_state(self, team):
+        # The data-loss regression: a reset on a webhook-only schema must not wipe the Delta
+        # table (the poll can't rebuild webhook-accumulated rows). The reset request is consumed,
+        # while the watermark and initial_sync_complete survive so webhook ingestion resumes.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=True
+        )
+
+        helper.reset_table.assert_not_awaited()
+        # In-memory config is cleared too — otherwise a later watermark save re-persists
+        # reset_pipeline and every subsequent run is treated as a reset.
+        assert "reset_pipeline" not in schema.sync_type_config
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-01-01T00:00:00"
+        assert schema.initial_sync_complete is True
+
+    def test_poll_backfillable_reset_still_wipes(self, team):
+        # Guard against over-correction: a reset on a schema whose poll CAN rebuild the data
+        # must keep wiping so the re-crawl starts from a clean table.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+        )
+
+        helper.reset_table.assert_awaited_once()
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        # An explicit reset redoes the initial sync, so the latch must drop (CDC's snapshot->
+        # streaming flip fires on the False->True transition).
+        assert schema.initial_sync_complete is False
+
+    def test_full_refresh_sync_keeps_initial_sync_complete(self, team):
+        # The prod regression: routine full-refresh runs cleared the latch at extraction start,
+        # and a zero-row run never reaches post-load to re-set it, so the flag read false
+        # between runs on ~1k schemas despite daily completed syncs.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Clickhouse"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="events",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"incremental_field_last_value": "2026-01-01T00:00:00"},
+            initial_sync_complete=True,
+        )
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            False, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+        )
+
+        helper.reset_table.assert_awaited_once()
+        assert schema.initial_sync_complete is True
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
+
+class TestValidateIncrementalSync:
+    @parameterized.expand(
+        [
+            # The failure this guard exists for: a keyless incremental table can never merge into
+            # the Delta table that an earlier run already wrote.
+            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            # The first run writes the whole table, so it doesn't need a merge key. Raising here
+            # would break every initial sync of a keyless table.
+            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            # Full refresh overwrites, so it never merges on a key.
+            ("keyless_full_refresh_allowed", False, False, None, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False),
+        ]
+    )
+    def test_missing_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        is_first_sync: bool,
+        primary_keys: list[str] | None,
+        expect_raise: bool,
+    ):
+        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+
+        if not expect_raise:
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+            return
+
+        with pytest.raises(MissingPrimaryKeysException):
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+
+    def test_message_stays_classified_as_non_retryable(self):
+        # The message is what pauses the schema: without a matching Any_Source_Errors entry the
+        # run is retried on every schedule even though only the user can resolve it.
+        message = str(MissingPrimaryKeysException())
+        assert [key for key in Any_Source_Errors if key in message]
+
+
+class TestHandleNonRetryableError:
+    def _fake_get_redis(self, incr_return: int):
+        redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
+
+        @asynccontextmanager
+        async def _get_redis():
+            yield redis_client
+
+        return _get_redis
+
+    def test_retry_attempt_is_not_reported_to_error_tracking(self):
+        # `handle_non_retryable_error` only runs once a source has already classified `error` as
+        # a known non-retryable condition (e.g. Meta Ads' "Ad account owner has NOT granted
+        # ads_read permission"). Re-raising the raw `error` on a below-limit attempt reported that
+        # already-understood error to error tracking on every retry; it must come back as a
+        # NonReportableError so the activity interceptor skips capturing it.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=1)):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_gives_up_after_retry_limit_without_reporting(self):
+        # Past the retry budget, the give-up exception is the exact same already-classified
+        # condition and must stay out of error tracking too.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(
+            f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1)
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.__cause__ is original_error

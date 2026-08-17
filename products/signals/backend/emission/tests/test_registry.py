@@ -7,6 +7,7 @@ from products.signals.backend.emission.registry import (
     _SIGNAL_TABLE_CONFIGS,
     SignalSourceTableConfig,
     get_signal_config,
+    get_signal_source_identity,
     is_signal_emission_registered,
     register_signal_source,
 )
@@ -53,10 +54,27 @@ class TestGetSignalConfig:
             ("NonExistent", "tickets"),
             ("Zendesk", "nonexistent_table"),
             ("", ""),
+            ("Zendesk", "acme/support.tickets"),
+            ("Github", "posthog/posthog.pull_requests"),
         ],
     )
     def test_returns_none_for_unregistered(self, source_type, schema_name):
         assert get_signal_config(source_type, schema_name) is None
+
+
+class TestQualifiedGithubSchemaNames:
+    # The gate resolves through get_signal_source_identity and the activity through
+    # get_signal_config, so normalizing only one of them leaves emission silently dead.
+    @pytest.mark.parametrize(
+        "lookup",
+        [get_signal_config, is_signal_emission_registered, get_signal_source_identity],
+        ids=["get_signal_config", "is_signal_emission_registered", "get_signal_source_identity"],
+    )
+    def test_every_lookup_resolves_qualified_name(self, lookup):
+        assert lookup("Github", "posthog/posthog.issues")
+
+    def test_qualified_name_resolves_to_the_bare_registration(self):
+        assert get_signal_config("Github", "posthog/posthog.issues") is get_signal_config("Github", "issues")
 
 
 class TestIsSignalEmissionRegistered:

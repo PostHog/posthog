@@ -25,6 +25,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -138,6 +139,39 @@ class TestPersonalSpendValidation(APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d&date_to=-30d")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand(
+        [
+            ("hourly_within_cap", 60, "-7d", status.HTTP_200_OK),
+            ("hourly_over_cap", 60, "-30d", status.HTTP_400_BAD_REQUEST),
+            ("five_min_within_cap", 5, "-1d", status.HTTP_200_OK),
+            ("five_min_over_cap", 5, "-7d", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_bucket_window_cap(self, _label: str, bucket_minutes: int, date_from: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&bucket_minutes={bucket_minutes}")
+        assert response.status_code == expected
+
+    def test_unsupported_bucket_size_rejected(self) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&bucket_minutes=7")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            # 25 days is exactly 600 hourly buckets of duration, but the half-hour offset
+            # touches 601 bucket starts; a duration-only check would let 601 rows through.
+            ("unaligned_at_cap", "2026-06-01T00:30:00", "2026-06-26T00:30:00", status.HTTP_400_BAD_REQUEST),
+            ("aligned_under_cap", "2026-06-01T00:00:00", "2026-06-25T23:30:00", status.HTTP_200_OK),
+            # date_to is exclusive, so an end aligned exactly on a bucket boundary never
+            # reaches its own bucket: the full advertised 600-bucket window must pass.
+            ("aligned_at_cap_exclusive_end", "2026-06-01T00:00:00", "2026-06-26T00:00:00", status.HTTP_200_OK),
+        ]
+    )
+    def test_bucket_cap_counts_partial_edge_buckets(
+        self, _label: str, date_from: str, date_to: str, expected: int
+    ) -> None:
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}&date_to={date_to}&bucket_minutes=60")
+        assert response.status_code == expected
+
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -198,7 +232,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         ai_product: str = "posthog_code",
-        model: str = "claude-opus-4-8",
+        model: str | None = "claude-opus-4-8",
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
         cost: float | None = 1.5,
@@ -206,6 +240,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         output_tokens: int = 500,
         event_name: str = "$ai_generation",
         timestamp: datetime | None = None,
+        extra_props: dict | None = None,
     ) -> None:
         props: dict = {
             "$ai_input_tokens": input_tokens,
@@ -218,6 +253,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             props["$ai_total_cost_usd"] = cost
         if tool is not None:
             props["$ai_tools_called"] = tool
+        if extra_props:
+            props.update(extra_props)
         kwargs: dict = {}
         if timestamp is not None:
             kwargs["timestamp"] = timestamp
@@ -242,6 +279,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["by_tool"] == {"items": [], "truncated": False}
         assert body["by_model"] == {"items": [], "truncated": False}
         assert body["by_day"] == {"items": [], "truncated": False}
+        assert body["by_day_model"] == []
         assert body["top_traces"] == {"items": [], "truncated": False}
 
     def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
@@ -358,9 +396,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # 5 fetchers run once (summary, by_product, by_tool, by_model, by_day). top_traces
+        # 7 fetchers run once (summary, by_product, by_tool, by_model, by_day, and the two
+        # by_day_model queries). top_traces
         # is deprecated and returned empty without a query.
-        assert mock_exec.call_count == 5
+        assert mock_exec.call_count == 7
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
@@ -419,14 +458,28 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert rows["Bash"]["share_of_scoped"] == 0.5
         assert rows["Read"]["share_of_scoped"] == 0.5
 
-    def test_by_day_groups_spend_per_utc_day_scoped_to_product(self) -> None:
+    def test_by_day_includes_tokens_and_by_day_model_scopes_product(self) -> None:
         earlier = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)
         later = datetime(2026, 6, 15, 20, 0, tzinfo=UTC)
-        self._create_generation(cost=1.0, trace_id="old-1", timestamp=earlier)
-        self._create_generation(cost=0.5, trace_id="old-2", timestamp=earlier)
-        self._create_generation(cost=2.0, trace_id="new", timestamp=later)
+        self._create_generation(cost=1.0, input_tokens=100, output_tokens=10, trace_id="old-1", timestamp=earlier)
+        self._create_generation(cost=0.5, input_tokens=50, output_tokens=5, trace_id="old-2", timestamp=earlier)
+        self._create_generation(
+            cost=2.0,
+            input_tokens=200,
+            output_tokens=20,
+            model="gpt-5",
+            trace_id="new",
+            timestamp=later,
+        )
         # Same day as `earlier` but another product: must not leak into the scoped series.
-        self._create_generation(ai_product="background_agents", cost=99.0, timestamp=earlier)
+        self._create_generation(
+            ai_product="background_agents",
+            cost=99.0,
+            input_tokens=9900,
+            output_tokens=990,
+            model="leaked-model",
+            timestamp=earlier,
+        )
         flush_persons_and_events()
 
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
@@ -434,9 +487,134 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert by_day["truncated"] is False
         # Ordered by day ascending, not by cost.
         assert by_day["items"] == [
-            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5},
-            {"day": "2026-06-15", "event_count": 1, "cost_usd": 2.0},
+            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5, "input_tokens": 150, "output_tokens": 15},
+            {"day": "2026-06-15", "event_count": 1, "cost_usd": 2.0, "input_tokens": 200, "output_tokens": 20},
         ]
+        assert response.json()["by_day_model"] == [
+            {
+                "day": "2026-06-13",
+                "model": "claude-opus-4-8",
+                "cost_usd": 1.5,
+                "input_tokens": 150,
+                "output_tokens": 15,
+                "generation_count": 2,
+            },
+            {
+                "day": "2026-06-15",
+                "model": "gpt-5",
+                "cost_usd": 2.0,
+                "input_tokens": 200,
+                "output_tokens": 20,
+                "generation_count": 1,
+            },
+        ]
+
+    def test_by_day_model_does_not_include_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        _create_person(
+            distinct_ids=["other-team-distinct"],
+            team=other_team,
+            properties={"email": self.user.email},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=other_team,
+            distinct_id="other-team-distinct",
+            properties={
+                "$ai_input_tokens": 999,
+                "$ai_output_tokens": 99,
+                "$ai_total_cost_usd": 99.0,
+                "$ai_model": "other-team-model",
+                "ai_product": "posthog_code",
+            },
+        )
+        self._create_generation(cost=1.0, input_tokens=10, output_tokens=1, model="visible-model")
+        flush_persons_and_events()
+
+        response = self.client.get(ENDPOINT_OK)
+
+        assert response.json()["by_day_model"][0]["model"] == "visible-model"
+        assert response.json()["by_day_model"][0]["cost_usd"] == 1.0
+
+    def test_by_day_model_aggregates_long_tail_models_as_other(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        for index in range(11):
+            self._create_generation(
+                cost=float(11 - index),
+                model=f"model-{index}",
+                timestamp=timestamp,
+                trace_id=f"trace-{index}",
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert len(rows) == 7
+        assert rows[None]["generation_count"] == 5
+
+    def test_by_day_model_keeps_a_model_named_other_separate_from_the_aggregate(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        self._create_generation(cost=100.0, model="Other", timestamp=timestamp, trace_id="named-other")
+        for index in range(7):
+            self._create_generation(
+                cost=float(7 - index),
+                model=f"model-{index}",
+                timestamp=timestamp,
+                trace_id=f"trace-{index}",
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert rows["Other"]["cost_usd"] == 100.0
+        assert rows[None]["cost_usd"] == 3.0
+
+    def test_by_day_model_selects_top_models_by_cost_not_generation_count(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        self._create_generation(cost=100.0, model="rare-expensive", timestamp=timestamp, trace_id="rare")
+        for occurrence in range(7):
+            self._create_generation(
+                cost=1.0,
+                model="frequent-cheap",
+                timestamp=timestamp,
+                trace_id=f"frequent-{occurrence}",
+            )
+        for index in range(6):
+            self._create_generation(
+                cost=10.0,
+                model=f"medium-{index}",
+                timestamp=timestamp,
+                trace_id=f"medium-{index}",
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert "rare-expensive" in rows
+        assert "frequent-cheap" not in rows
+        assert rows[None]["cost_usd"] == 17.0
+
+    def test_by_day_model_keeps_named_top_models_when_unmodeled_events_exist(self) -> None:
+        timestamp = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+        for index in range(6):
+            for occurrence in range(2):
+                self._create_generation(
+                    cost=1.0,
+                    model=f"model-{index}",
+                    timestamp=timestamp,
+                    trace_id=f"model-{index}-{occurrence}",
+                )
+        self._create_generation(cost=100.0, model=None, timestamp=timestamp, trace_id="unmodeled")
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16")
+        rows = {row["model"]: row for row in response.json()["by_day_model"]}
+
+        assert {f"model-{index}" for index in range(6)} <= rows.keys()
+        assert rows[None]["cost_usd"] == 100.0
 
     def test_by_day_ignores_request_limit(self) -> None:
         self._create_generation(cost=1.0, trace_id="a", timestamp=datetime(2026, 6, 12, 12, 0, tzinfo=UTC))
@@ -460,6 +638,125 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
         assert [r["day"] for r in response.json()["by_day"]["items"]] == ["2026-06-15"]
 
+    def test_by_bucket_absent_unless_requested(self) -> None:
+        response = self.client.get(ENDPOINT_OK)
+        assert response.status_code == status.HTTP_200_OK
+        assert "by_bucket" not in response.json()
+
+    def test_by_bucket_groups_cost_components_per_utc_hour(self) -> None:
+        warm = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
+        cold = datetime(2026, 6, 15, 11, 5, tzinfo=UTC)
+        # As stored on real events, $ai_input_cost_usd INCLUDES the cache read/write
+        # costs (input + output = total); the endpoint must derive the uncached split.
+        # Warm turn: most of the prompt served from cache (0.1 uncached inside 0.8).
+        self._create_generation(
+            cost=1.0,
+            trace_id="warm",
+            timestamp=warm,
+            input_tokens=1000,
+            output_tokens=500,
+            extra_props={
+                "$ai_input_cost_usd": 0.8,
+                "$ai_output_cost_usd": 0.2,
+                "$ai_cache_read_cost_usd": 0.6,
+                "$ai_cache_creation_cost_usd": 0.1,
+                "$ai_cache_read_input_tokens": 400000,
+                "$ai_cache_creation_input_tokens": 20000,
+            },
+        )
+        # Cold-revival turn: the whole context re-written to cache, nothing read back
+        # (0.2 uncached inside 2.7).
+        self._create_generation(
+            cost=3.0,
+            trace_id="cold",
+            timestamp=cold,
+            input_tokens=2000,
+            output_tokens=800,
+            extra_props={
+                "$ai_input_cost_usd": 2.7,
+                "$ai_output_cost_usd": 0.3,
+                "$ai_cache_read_cost_usd": 0.0,
+                "$ai_cache_creation_cost_usd": 2.5,
+                "$ai_cache_read_input_tokens": 0,
+                "$ai_cache_creation_input_tokens": 500000,
+            },
+        )
+        # Same hour, another product: must not leak into the scoped series.
+        self._create_generation(ai_product="background_agents", cost=99.0, timestamp=cold)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=60")
+        by_bucket = response.json()["by_bucket"]
+        assert by_bucket["truncated"] is False
+        assert by_bucket["bucket_minutes"] == 60
+        assert by_bucket["items"] == [
+            {
+                "bucket_start": "2026-06-15T09:00:00Z",
+                "event_count": 1,
+                "cost_usd": 1.0,
+                "input_cost_usd": 0.1,
+                "output_cost_usd": 0.2,
+                "cache_read_cost_usd": 0.6,
+                "cache_creation_cost_usd": 0.1,
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "cache_read_input_tokens": 400000,
+                "cache_creation_input_tokens": 20000,
+            },
+            {
+                "bucket_start": "2026-06-15T11:00:00Z",
+                "event_count": 1,
+                "cost_usd": 3.0,
+                "input_cost_usd": 0.2,
+                "output_cost_usd": 0.3,
+                "cache_read_cost_usd": 0.0,
+                "cache_creation_cost_usd": 2.5,
+                "input_tokens": 2000,
+                "output_tokens": 800,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 500000,
+            },
+        ]
+
+    def test_by_bucket_five_minute_buckets_split_within_the_hour(self) -> None:
+        # Two calls 15 minutes apart share an hourly bucket but must split at 5-minute
+        # resolution — this is what isolates a cold-revival spike from surrounding traffic.
+        self._create_generation(cost=1.0, trace_id="a", timestamp=datetime(2026, 6, 15, 9, 2, tzinfo=UTC))
+        self._create_generation(cost=3.0, trace_id="b", timestamp=datetime(2026, 6, 15, 9, 17, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=5")
+        by_bucket = response.json()["by_bucket"]
+        assert by_bucket["bucket_minutes"] == 5
+        assert [(r["bucket_start"], r["cost_usd"]) for r in by_bucket["items"]] == [
+            ("2026-06-15T09:00:00Z", 1.0),
+            ("2026-06-15T09:15:00Z", 3.0),
+        ]
+
+    def test_by_bucket_defaults_components_to_zero_when_breakdown_missing(self) -> None:
+        # Fallback-priced events carry only $ai_total_cost_usd — components must be 0, not an error.
+        self._create_generation(cost=1.5, timestamp=datetime(2026, 6, 15, 9, 30, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-15&date_to=2026-06-16&bucket_minutes=60")
+        items = response.json()["by_bucket"]["items"]
+        assert len(items) == 1
+        assert items[0]["cost_usd"] == 1.5
+        assert items[0]["input_cost_usd"] == 0.0
+        assert items[0]["cache_creation_cost_usd"] == 0.0
+        assert items[0]["cache_read_input_tokens"] == 0
+
+    def test_cache_key_includes_bucket_minutes(self) -> None:
+        # Without `bucket_minutes` in the cache key, this second call would be served
+        # the cached bucketless payload and silently drop `by_bucket`. The window must
+        # stay under the 600-bucket cap, so pin it to a day rather than the 30d default.
+        with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
+            mock_exec.return_value.results = []
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-1d")
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-1d&bucket_minutes=60")
+        assert response.status_code == status.HTTP_200_OK
+        assert "by_bucket" in response.json()
+
     def test_by_day_counts_embeddings_and_costless_events(self) -> None:
         day_one = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)
         self._create_generation(cost=1.0, timestamp=day_one)
@@ -470,8 +767,20 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
         assert response.json()["by_day"]["items"] == [
-            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5},
-            {"day": "2026-06-15", "event_count": 1, "cost_usd": 0.0},
+            {
+                "day": "2026-06-13",
+                "event_count": 2,
+                "cost_usd": 1.5,
+                "input_tokens": 200000,
+                "output_tokens": 1000,
+            },
+            {
+                "day": "2026-06-15",
+                "event_count": 1,
+                "cost_usd": 0.0,
+                "input_tokens": 100000,
+                "output_tokens": 500,
+            },
         ]
 
 
@@ -698,6 +1007,17 @@ class TestPersonalSpendEUProxy(APIBaseTest):
         with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
             with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
                 response = self._get({"product": "wibble"}, user=self.user)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        post.assert_not_called()
+
+    def test_over_cap_bucket_window_rejected_without_upstream_call(self) -> None:
+        # The window cap must be enforced EU-side before the cache lookup, not
+        # delegated to the US receiver.
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                response = self._get(
+                    {"product": "posthog_code", "date_from": "-30d", "bucket_minutes": "60"}, user=self.user
+                )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         post.assert_not_called()
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Convergence gate, step 1 of 2: introspect the live OPS/LOGS nodes on a booted
-# multinode stack (see tools/infra-scripts/clickhouse-multinode/) into one HCL
-# dump per <env>-<role>. Step 2 (check-live.sh) diffs those dumps against the
-# committed golden — offline. Splitting keeps the cluster/network-dependent
-# capture separate from the deterministic comparison.
+# Convergence gate, step 1 of 2: introspect every node the booted multinode stack
+# runs (see tools/infra-scripts/clickhouse-multinode/) into one HCL dump per
+# <env>-<role> — the roles listed in ROLES below, one per published port. Step 2
+# (check-live.sh) diffs those dumps against the committed golden — offline.
+# Splitting keeps the cluster/network-dependent capture separate from the
+# deterministic comparison.
 #
 # Transient / unmanaged objects are dropped at introspect time via exclude.hcl.
 #
@@ -13,7 +14,7 @@
 #   Keep it under $TMPDIR or the repo so the containerized hclexp can see it.
 #
 # Env knobs:
-#   VERIFY_LIVE_ENV=<env>  names the dump files (default: local).
+#   VERIFY_LIVE_ENV=<env>  names the dump files (default: local-multi).
 #   HCLEXP_BIN=<path>      local hclexp binary (host network); otherwise a
 #                          `--network host` container reaches the published ports.
 #   <ROLE>_HOST/_PORT/_DB  override a role's connection (e.g. OPS_PORT=9300).
@@ -22,7 +23,7 @@ set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 EXCLUDE="$HCL/exclude.hcl"
-ENV="${VERIFY_LIVE_ENV:-local}"
+ENV="${VERIFY_LIVE_ENV:-local-multi}"
 CH_USER="${CLICKHOUSE_USER:-default}"
 CH_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 OUTDIR="${1:-${LIVE_DUMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")}}"
@@ -43,16 +44,20 @@ ROLES=(
   "sessions  localhost 9400 posthog"
 )
 
-# Pin to the same chschema build as bin/hclexp; override via repo variable.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-0409212}"
+# Same pin as bin/hclexp; override for a single run via $HCLEXP_IMAGE.
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HCL/bin/image.txt")}"
 
-# hclexp that can reach ClickHouse on the host's published ports. Prefer a local
-# binary; otherwise a container sharing the host network namespace so localhost
-# resolves to the published compose ports (works on Linux CI; on macOS set
-# HCLEXP_BIN to a locally built binary).
+# hclexp that can reach ClickHouse on the host's published ports. Prefer a native
+# binary (bin/install-hclexp puts one on $PATH); otherwise a container sharing the
+# host network namespace so localhost resolves to the published compose ports
+# (works on Linux CI; on macOS install the binary or set HCLEXP_BIN).
 run_hclexp() {
   if [[ -n "${HCLEXP_BIN:-}" ]]; then
     "$HCLEXP_BIN" "$@"
+    return
+  fi
+  if command -v hclexp >/dev/null 2>&1; then
+    hclexp "$@"
     return
   fi
   local tmp="${TMPDIR:-/tmp}"; tmp="${tmp%/}"

@@ -1,15 +1,17 @@
 import json
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -28,16 +30,22 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
+    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
+    _merge_metric_arrays,
+    _merge_saved_metric_links,
+    _resolve_scalar_updates,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -50,8 +58,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -309,6 +316,55 @@ class TestExperimentService(APIBaseTest):
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
 
+    def test_lifecycle_save_does_not_clobber_concurrent_metric_change(self):
+        from django.utils import timezone
+
+        self._create_flag(key="lifecycle-clobber")
+        service = self._service()
+
+        metric_one = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-1",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        metric_two = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "metric-2",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+
+        experiment = service.create_experiment(
+            name="Lifecycle Clobber",
+            feature_flag_key="lifecycle-clobber",
+            allow_unknown_events=True,
+            metrics=[metric_one],
+            start_date=timezone.now(),  # launched, so end_experiment is valid
+        )
+
+        # A request that loaded the experiment before the concurrent metric add.
+        stale = Experiment.objects.get(pk=experiment.pk)
+        stale_version = stale.version or 0
+
+        # A concurrent request adds a second metric.
+        service.update_experiment(
+            Experiment.objects.get(pk=experiment.pk),
+            {"metrics": [metric_one, metric_two]},
+            allow_unknown_events=True,
+        )
+
+        # Ending from the stale instance must not revert metric-2: the scoped, row-locked
+        # save touches only end_date/conclusion/version, never the metric collections.
+        service.end_experiment(stale)
+
+        final = Experiment.objects.get(pk=experiment.pk)
+        assert final.end_date is not None
+        assert {m["uuid"] for m in (final.metrics or [])} == {"metric-1", "metric-2"}
+        # Both writes advanced the token; the lifecycle bump reads the locked row, so it
+        # lands above the concurrent update rather than colliding with it.
+        assert (final.version or 0) > stale_version + 1
+
     # ------------------------------------------------------------------
     # Metric ordering
     # ------------------------------------------------------------------
@@ -392,7 +448,9 @@ class TestExperimentService(APIBaseTest):
     # Flag validation errors
     # ------------------------------------------------------------------
 
-    def test_existing_flag_without_control_raises(self):
+    def test_existing_flag_without_control_pins_baseline_to_first_variant(self):
+        # Without 'control' the default baseline is order-sensitive, so create
+        # must persist the inferred key instead of leaving it implicit.
         self._create_flag(
             key="no-control",
             variants=[
@@ -402,10 +460,209 @@ class TestExperimentService(APIBaseTest):
         )
         service = self._service()
 
+        experiment = service.create_experiment(name="No Control", feature_flag_key="no-control")
+
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "baseline"
+
+    def test_existing_flag_with_control_leaves_baseline_unset(self):
+        self._create_flag(key="with-control")
+        service = self._service()
+
+        experiment = service.create_experiment(name="With Control", feature_flag_key="with-control")
+
+        assert "baseline_variant_key" not in (experiment.stats_config or {})
+
+    def test_create_web_experiment_without_control_raises(self):
+        # The toolbar editor and WebExperimentsAPISerializer hard-require 'control'.
+        self._create_flag(
+            key="no-control-web",
+            variants=[
+                {"key": "baseline", "name": "Baseline", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+
         with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(name="Bad Flag", feature_flag_key="no-control")
+            service.create_experiment(name="Bad Web", feature_flag_key="no-control-web", type="web")
 
         assert "control" in str(ctx.exception)
+
+    def test_update_web_experiment_variants_dropping_control_raises(self):
+        # Same guard as create/launch, on the update path: a web experiment must not
+        # be PATCHable into a control-less variant set the toolbar can't edit.
+        self._create_flag(key="web-update-flag")
+        service = self._service()
+        experiment = service.create_experiment(name="Web Update", feature_flag_key="web-update-flag", type="web")
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(
+                experiment,
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-a", "name": "A", "rollout_percentage": 50},
+                                {"key": "variant-b", "name": "B", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        assert "control" in str(ctx.exception)
+
+    def test_update_variants_dropping_control_defers_pin_to_launch(self):
+        # Replacing 'control' changes the baseline's identity. Pinning the new order's
+        # first key at update time would dangle if the flag write lands via a rejected
+        # or pending change request, so the pin waits for launch (which reads the
+        # flag's final state).
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "variant-a", "name": "A", "rollout_percentage": 50},
+                            {"key": "variant-b", "name": "B", "rollout_percentage": 50},
+                        ]
+                    }
+                }
+            },
+        )
+
+        assert "baseline_variant_key" not in (updated.stats_config or {})
+
+        launched = service.launch_experiment(updated)
+
+        assert launched.stats_config is not None
+        assert launched.stats_config["baseline_variant_key"] == "variant-a"
+
+    def test_update_variants_reorder_pins_currently_effective_baseline(self):
+        # An unpinned control-less experiment implicitly uses the first variant; a
+        # reorder must pin that same variant, not the new order's first.
+        experiment = self._create_draft_experiment(flag_key="reorder-flag")
+        flag = experiment.feature_flag
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant-a", "rollout_percentage": 50},
+            {"key": "variant-b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+        service = self._service()
+
+        updated = service.update_experiment(
+            experiment,
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "variant-b", "rollout_percentage": 50},
+                            {"key": "variant-a", "rollout_percentage": 50},
+                        ]
+                    }
+                }
+            },
+        )
+
+        assert updated.stats_config is not None
+        assert updated.stats_config["baseline_variant_key"] == "variant-a"
+
+    def test_update_variants_baseline_pin_survives_approval_gate(self):
+        # A gated variants change lands later via the approved change request, which
+        # never re-enters the experiment service — the pin must already be committed
+        # when ApprovalRequired aborts the update.
+        experiment = self._create_draft_experiment(flag_key="approval-pin-flag")
+        flag = experiment.feature_flag
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant-a", "rollout_percentage": 50},
+            {"key": "variant-b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        # The gate detects rollout changes, so the reorder also shifts the split.
+        with self.assertRaises(ApprovalRequired):
+            self._service().update_experiment(
+                experiment,
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-b", "rollout_percentage": 60},
+                                {"key": "variant-a", "rollout_percentage": 40},
+                            ]
+                        }
+                    }
+                },
+            )
+
+        experiment.refresh_from_db()
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "variant-a"
+
+    @parameterized.expand(
+        [
+            (
+                "variants_update",
+                {},
+                {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "variant-a", "rollout_percentage": 34},
+                                {"key": "variant-b", "rollout_percentage": 33},
+                                {"key": "variant-c", "rollout_percentage": 33},
+                            ]
+                        }
+                    }
+                },
+            ),
+            ("baseline_update", {"stats_config": {"baseline_variant_key": "variant-a"}}, None),
+        ]
+    )
+    def test_update_moving_baseline_onto_excluded_variant_raises(self, _name, update_data, feature_flag_config):
+        # Stored exclusions must be revalidated when the variant set or baseline moves
+        # under them — a variant both baseline and excluded breaks result queries.
+        self._create_flag(
+            key="excluded-baseline-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                {"key": "variant-a", "name": "A", "rollout_percentage": 33},
+                {"key": "variant-b", "name": "B", "rollout_percentage": 33},
+            ],
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Excluded Baseline",
+            feature_flag_key="excluded-baseline-flag",
+            excluded_variants=["variant-a"],
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, update_data, feature_flag_config=feature_flag_config)
+
+        assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
@@ -539,6 +796,19 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "activation_config_not_a_dict",
+                {"activation_config": "purchase"},
+                "exposure_criteria.activation_config must be an object, got str",
+            ),
+            (
+                "activation_config_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+                "exposure_criteria.activation_config requires the default exposure event",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -576,6 +846,35 @@ class TestExperimentService(APIBaseTest):
             (
                 "event_payload_without_explicit_kind",
                 {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+            (
+                "activation_payload",
+                {"activation_config": {"event": "purchase", "properties": []}},
+            ),
+            (
+                "explicit_null_configs",
+                {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "null_activation_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": None,
+                },
+            ),
+            (
+                "activation_with_default_exposure_config",
+                {
+                    "exposure_config": {"event": "$feature_flag_called", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+            ),
+            (
+                "activation_with_pinned_exposure_event",
+                {
+                    "exposure_config": {"event": "$experiment_exposure", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
             ),
         ]
     )
@@ -1783,6 +2082,81 @@ class TestExperimentService(APIBaseTest):
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
 
+    @contextmanager
+    def _concurrent_write_in_lock_window(self, experiment_id: int, **twin_update: Any):
+        """Commit a concurrent write inside update_experiment's race window: after the
+        unlocked concurrency resolution but before the row-locked version re-check, by
+        hooking the flag sync that runs between them."""
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=experiment_id).update(version=F("version") + 1, **twin_update)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            yield
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_duplicate_update_racing_the_lock_window_succeeds_as_noop(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(flag_key="lock-window-noop")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="the same edit"):
+            result = service.update_experiment(
+                experiment,
+                {"description": "the same edit", "version": version},
+                serializer_context=service._build_serializer_context(),
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "the same edit"
+        # Only the twin's bump: a second bump for the same logical change would re-stale
+        # every other open tab.
+        assert stored.version == version + 1
+        concurrency_events = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment update concurrency"
+        ]
+        assert [call.args[2]["resolution"] for call in concurrency_events] == ["noop"]
+        assert concurrency_events[0].args[2]["versions_behind"] == 1
+
+    def test_conflicting_update_racing_the_lock_window_still_conflicts(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-conflict")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="their edit"):
+            with self.assertRaises(ExperimentVersionConflict) as ctx:
+                service.update_experiment(experiment, {"description": "my edit", "version": version})
+
+        assert ctx.exception.conflicting_fields == []
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "their edit"
+        assert stored.version == version + 1
+
+    def test_duplicate_metrics_update_racing_the_lock_window_ignores_fingerprint_churn(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-fingerprint")
+        service = self._service()
+        version = experiment.version or 0
+        stored_metric = (experiment.metrics or [])[0]
+        resubmitted = {key: value for key, value in stored_metric.items() if key != "fingerprint"}
+
+        with self._concurrent_write_in_lock_window(
+            experiment.pk, metrics=[{**stored_metric, "fingerprint": "recomputed-by-the-twin"}]
+        ):
+            result = service.update_experiment(
+                experiment, {"metrics": [resubmitted], "version": version}, allow_unknown_events=True
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.version == version + 1
+        # The short-circuit skipped the save: the twin's row (fingerprint included) is intact.
+        assert (stored.metrics or [])[0]["fingerprint"] == "recomputed-by-the-twin"
+
     def _updated_events(self, mock_report_user_action):
         return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
 
@@ -2426,12 +2800,54 @@ class TestExperimentService(APIBaseTest):
         assert groups[0]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
         assert groups[0]["rollout_percentage"] == 50
 
-    def test_launch_experiment_flag_modified_to_invalid_raises(self):
-        """Flag modified after experiment creation to remove control variant. Launch should fail."""
-        flag = self._create_flag(key="will-break")
-        experiment = self._create_launchable_experiment(name="Will Break", feature_flag_key="will-break")
+    def test_launch_experiment_flag_modified_to_control_less_launches(self):
+        # A flag renamed away from 'control' out-of-band stays launchable, but the
+        # inferred baseline must be pinned at launch — otherwise a later reorder
+        # would silently move it under historical results.
+        flag = self._create_flag(key="renamed-variants")
+        experiment = self._create_launchable_experiment(name="Renamed Variants", feature_flag_key="renamed-variants")
 
-        # Simulate someone modifying the flag to remove "control"
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        launched = self._service().launch_experiment(experiment)
+
+        assert launched.start_date is not None
+        experiment.refresh_from_db()
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "variant_a"
+
+    def test_launch_via_start_date_patch_pins_baseline_for_control_less_flag(self):
+        # PATCHing start_date is an alternate launch path and must pin the inferred
+        # baseline exactly like the dedicated launch action.
+        flag = self._create_flag(key="patch-launch-flag")
+        experiment = self._create_launchable_experiment(name="Patch Launch", feature_flag_key="patch-launch-flag")
+
+        flag.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        flag.save()
+        experiment.feature_flag.refresh_from_db()
+
+        updated = self._service().update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert not updated.is_draft
+        assert updated.stats_config is not None
+        assert updated.stats_config["baseline_variant_key"] == "variant_a"
+
+    def test_launch_web_experiment_flag_modified_to_control_less_raises(self):
+        # The web guard on create can be bypassed by editing the flag out-of-band;
+        # launch must re-check it, or the toolbar editor breaks on a live experiment.
+        flag = self._create_flag(key="web-launch-flag")
+        experiment = self._create_launchable_experiment(
+            name="Web Launch", feature_flag_key="web-launch-flag", type="web"
+        )
+
         flag.filters["multivariate"]["variants"] = [
             {"key": "variant_a", "rollout_percentage": 50},
             {"key": "variant_b", "rollout_percentage": 50},
@@ -2442,7 +2858,7 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             self._service().launch_experiment(experiment)
 
-        assert "control" in str(ctx.exception).lower()
+        assert "control" in str(ctx.exception)
 
     def test_launch_experiment_flag_reduced_to_single_variant_raises(self):
         """Flag modified to have only 1 variant. Launch should fail."""
@@ -2511,7 +2927,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
 
@@ -2522,7 +2938,7 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
 
     def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
-        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # Exercises the real user_can_edit_flag check (no patching): a user with no access to
         # the flag is refused, so an inverted/broken access check would fail this test.
         experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
         outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
@@ -2590,8 +3006,8 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         with (
-            patch.object(service, "_user_can_edit_flag", return_value=True),
-            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+            patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=True),
+            patch("products.experiments.backend.experiment_service.flag_disable_requires_approval", return_value=True),
         ):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
@@ -2632,7 +3048,7 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.save()
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             service.archive_experiment(experiment)
 
         experiment.refresh_from_db()
@@ -2708,6 +3124,41 @@ class TestExperimentService(APIBaseTest):
         assert refreshed.feature_flag_auto_archived is False
         # The flag stays disabled — re-enabling is an explicit user decision
         assert flag.active is False
+
+    def test_unarchive_experiment_flag_unarchive_not_blocked_by_approval_policies(self):
+        # unarchive_experiment runs inside transaction.atomic, so its gated flag write must
+        # never trip an approval policy — an ApprovalRequired escaping the block would roll
+        # back the just-created change request. Archived-only payloads match no flag action
+        # today; this pins that invariant against detect() being broadened.
+        experiment = self._create_ended_experiment(name="Unarchive Policy", feature_flag_key="unarchive-policy-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        for action_key in ["feature_flag.enable", "feature_flag.disable", "feature_flag.update"]:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+
+        service = self._service()
+        service.archive_experiment(experiment)
+        service.unarchive_experiment(experiment)
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+        # Positive control: the gate is live in this harness — a payload a policy does
+        # match must trip it, or the zero-change-request assertion above proves nothing.
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(experiment.feature_flag, True, team=self.team, user=self.user)
 
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.
@@ -3205,14 +3656,7 @@ class TestExperimentService(APIBaseTest):
         flag.save()
 
     def _update_flag_filters(self, flag: FeatureFlag, filters: dict) -> None:
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": filters},
-            partial=True,
-            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
     @contextmanager
@@ -3224,7 +3668,9 @@ class TestExperimentService(APIBaseTest):
             # the personless guard doesn't reject these unrelated scenarios.
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
@@ -3263,6 +3709,50 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.is_exposure_frozen is expected
 
+    @parameterized.expand(
+        [
+            ("running", "running", None, True),
+            ("draft", "draft", None, False),
+            ("stopped", "stopped", None, False),
+            ("paused", "paused", None, False),
+            ("frozen", "frozen", None, False),
+            ("holdout_linked", "holdout_linked", None, False),
+            ("group_aggregated", "running", {"aggregation_group_type_index": 0}, False),
+            ("flag_super_groups", "running", {"super_groups": [{"properties": [], "rollout_percentage": 100}]}, False),
+            ("no_groups", "running", {"groups": []}, False),
+        ]
+    )
+    def test_can_freeze_exposure_property(self, _name: str, state: str, extra_filters: dict | None, expected: bool):
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="CF Draft", feature_flag_key=f"cf-{_name}")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="CF Stopped", feature_flag_key=f"cf-{_name}")
+        else:
+            experiment = self._create_running_experiment(name="CF Running", feature_flag_key=f"cf-{_name}")
+
+        if state == "paused":
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+        elif state == "frozen":
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
+        elif state == "holdout_linked":
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name="CF Holdout",
+                filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout"}],
+                created_by=self.user,
+            )
+            experiment.holdout = holdout
+            experiment.save()
+        if extra_filters:
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, **extra_filters}
+            flag.save()
+
+        experiment.refresh_from_db()
+        assert experiment.can_freeze_exposure is expected
+
     def test_freeze_exposure_success(self):
         experiment = self._create_running_experiment(name="Freeze Exposure", feature_flag_key="freeze-exposure-flag")
         original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
@@ -3297,6 +3787,12 @@ class TestExperimentService(APIBaseTest):
         assert frozen.end_date is None
         assert frozen.is_running is True
         assert frozen.is_exposure_frozen is True
+
+        # The freeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_frozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Freeze Exposure"
 
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
@@ -3513,7 +4009,10 @@ class TestExperimentService(APIBaseTest):
 
         # Any failure persisting the narrowed flag must not leave the snapshot cohort behind.
         with self._stub_freeze_population():
-            with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+            with patch(
+                "products.experiments.backend.experiment_service.update_flag",
+                side_effect=ValidationError("boom"),
+            ):
                 with self.assertRaises(ValidationError):
                     self._service().freeze_exposure(experiment, request=self._make_request())
 
@@ -3560,7 +4059,7 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, batch: [
+                new=lambda team_id, batch, **kwargs: [
                     (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
                 ],
             ),
@@ -3597,7 +4096,9 @@ class TestExperimentService(APIBaseTest):
             ),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort._insert_resolved_batch",
@@ -3711,7 +4212,9 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
@@ -3749,7 +4252,9 @@ class TestExperimentService(APIBaseTest):
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
             patch(
                 "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
-                new=lambda team_id, uuids: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
@@ -3806,6 +4311,12 @@ class TestExperimentService(APIBaseTest):
         # The snapshot cohort is soft-deleted, not left as clutter.
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The unfreeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_unfrozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Unfreeze Test"
 
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
@@ -3867,6 +4378,8 @@ class TestExperimentService(APIBaseTest):
         else:
             experiment = self._create_ended_experiment(name="Reset Ended", feature_flag_key=f"reset-{state}-flag")
             assert experiment.is_stopped
+        experiment.flag_cleanup_task_id = uuid4()
+        experiment.save()
 
         reset = self._service().reset_experiment(experiment)
 
@@ -3877,6 +4390,7 @@ class TestExperimentService(APIBaseTest):
         assert reset.archived is False
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
+        assert reset.flag_cleanup_task_id is None
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -3916,6 +4430,26 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+    def test_reset_experiment_clears_freeze_without_request(self):
+        experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # Non-HTTP callers (no request/user) still route the freeze-strip through the
+        # gated facade write, attributed as a system change in the activity log.
+        with self.captureOnCommitCallbacks(execute=True):
+            reset = self._service().reset_experiment(frozen)
+
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(reset.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert log.is_system is True
+        assert log.user is None
 
     @parameterized.expand(
         [
@@ -4100,7 +4634,10 @@ class TestExperimentService(APIBaseTest):
 
         # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
         # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
-        with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+        with patch(
+            "products.experiments.backend.experiment_service.ship_flag_variant",
+            side_effect=ValidationError("boom"),
+        ):
             with self.assertRaises(ValidationError):
                 self._service().ship_variant(frozen, variant_key="test", request=self._make_request())
 
@@ -4120,18 +4657,7 @@ class TestExperimentService(APIBaseTest):
             "rollout_percentage": 100,
         }
         updated_filters = {**flag.filters, "groups": [scoped_group]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4153,18 +4679,7 @@ class TestExperimentService(APIBaseTest):
         }
         existing_groups = flag.filters.get("groups", [])
         updated_filters = {**flag.filters, "groups": [override_group, *existing_groups]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4237,18 +4752,7 @@ class TestExperimentService(APIBaseTest):
             "aggregation_group_type_index": 1,
             "groups": [{**g, "aggregation_group_type_index": 1} for g in flag.filters.get("groups", [])],
         }
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        flag_serializer.is_valid(raise_exception=True)
-        flag_serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
         shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
@@ -4327,125 +4831,6 @@ class TestExperimentService(APIBaseTest):
         assert "experiment variant shipped" in event_names
         assert "experiment completed" not in event_names
         assert "experiment stopped" not in event_names
-
-    # ------------------------------------------------------------------
-    # Transform filters for winning variant
-    # ------------------------------------------------------------------
-
-    def test_transform_filters_default_preserves_groups(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Variant distribution flipped
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        # Groups preserved exactly — no catch-all prepended in default mode
-        assert result["groups"] == current_filters["groups"]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "test", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_default_does_not_mutate_input(self):
-        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
-        original_groups = [{"properties": [], "rollout_percentage": 50}]
-        current_filters = {
-            "groups": original_groups,
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
-            },
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Caller's list reference is untouched
-        assert current_filters["groups"] is original_groups
-        # Result's groups equals original by value but is a distinct list object
-        assert result["groups"] == original_groups
-        assert result["groups"] is not original_groups
-
-    def test_transform_filters_multiple_variants_with_payloads(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {
-                "test_1": "{key: 'test_1'}",
-                "test_2": "{key: 'test_2'}",
-                "test_3": "{key: 'test_3'}",
-                "control": "{key: 'control'}",
-            },
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "This is control", "rollout_percentage": 25},
-                    {"key": "test_1", "name": "This is test_1", "rollout_percentage": 25},
-                    {"key": "test_2", "name": "This is test_2", "rollout_percentage": 25},
-                    {"key": "test_3", "name": "This is test_3", "rollout_percentage": 25},
-                ]
-            },
-            "aggregation_group_type_index": 1,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "control", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "This is control", "rollout_percentage": 100},
-            {"key": "test_1", "name": "This is test_1", "rollout_percentage": 0},
-            {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
-            {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == current_filters["payloads"]
-        assert result["aggregation_group_type_index"] == 1
 
     # ------------------------------------------------------------------
     # Exposure cohort
@@ -4699,58 +5084,6 @@ class TestExperimentService(APIBaseTest):
         service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
-
-    # ------------------------------------------------------------------
-    # Eligible feature flags
-    # ------------------------------------------------------------------
-
-    def test_get_eligible_feature_flags_only_returns_control_first_multivariate_flags(self) -> None:
-        eligible_flag = self._create_flag(key="eligible-flag")
-        self._create_flag(
-            key="wrong-order-flag",
-            variants=[
-                {"key": "test", "name": "Test", "rollout_percentage": 50},
-                {"key": "control", "name": "Control", "rollout_percentage": 50},
-            ],
-        )
-        self._create_flag(
-            key="single-variant-flag",
-            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
-        )
-
-        result = self._service().get_eligible_feature_flags(order="key")
-
-        assert result["count"] == 1
-        assert [flag.key for flag in result["results"]] == [eligible_flag.key]
-
-    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
-        self._create_flag(key="search-alpha")
-        self._create_flag(key="search-beta")
-        self._create_flag(key="other-flag")
-
-        result = self._service().get_eligible_feature_flags(
-            search="search",
-            order="key",
-            limit=1,
-            offset=1,
-        )
-
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == ["search-beta"]
-
-    def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
-        flag_with_tags = self._create_flag(key="flag-with-tags")
-        self._create_flag(key="flag-without-tags")
-        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
-
-        service = self._service()
-
-        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_contexts="true", order="key")
-        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_contexts="false", order="key")
-
-        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
-        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -5715,12 +6048,6 @@ class TestExperimentService(APIBaseTest):
         qs = service.filter_experiments_queryset(self._base_queryset(), action="list", query_params={"order": order})
         assert qs is not None
 
-    def test_eligible_flags_order_by_invalid_field_raises(self):
-        """Ordering eligible flags by a non-allowlisted field should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.get_eligible_feature_flags(order="team__organization__name")
-
     def test_launch_with_deleted_flag_raises(self):
         """Launching an experiment whose flag is soft-deleted should fail."""
         experiment = self._create_launchable_experiment(
@@ -5856,6 +6183,52 @@ class TestExperimentService(APIBaseTest):
             ],
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_update_with_deleted_action_still_referenced_succeeds(self):
+        action = Action.objects.create(team=self.team, name="soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Stale Action Resend",
+            feature_flag_key="stale-action-resend-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+
+        updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
+
+        assert updated.metrics is not None and len(updated.metrics) == 1
+
+    def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
+        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Unknown Alongside Stale Action",
+            feature_flag_key="unknown-alongside-stale-action-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": 999999},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "999999" in str(ctx.exception.detail)
 
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an
@@ -6342,6 +6715,53 @@ class TestExperimentService(APIBaseTest):
     # Event/action validation on update_experiment
     # ------------------------------------------------------------------
 
+    def test_update_keeps_metric_whose_event_was_never_ingested(self):
+        service = self._service()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Move Stale Event",
+            feature_flag_key="move-stale-event-flag",
+            allow_unknown_events=True,
+            metrics=[metric],
+        )
+
+        # Moving the metric to the other section resends both arrays without the
+        # opt-in flag. The event is already on the experiment, so it must not be
+        # re-validated: a stale name would otherwise block every metric edit.
+        updated = service.update_experiment(experiment, {"metrics": [], "metrics_secondary": [metric]})
+
+        assert updated.metrics == []
+        assert updated.metrics_secondary is not None and len(updated.metrics_secondary) == 1
+        assert updated.metrics_secondary[0]["source"]["event"] == "not_yet_deployed"
+
+    def test_update_rejects_new_unknown_event_alongside_resent_stale_one(self):
+        service = self._service()
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Add Unknown Alongside Stale",
+            feature_flag_key="add-unknown-alongside-stale-flag",
+            allow_unknown_events=True,
+            metrics=[stale],
+        )
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "also_not_deployed"},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "also_not_deployed" in str(ctx.exception.detail)
+
     def test_update_experiment_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
         service = self._service()
@@ -6711,3 +7131,267 @@ class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_parameters_keys_in_request(request) == []
+
+
+class TestConcurrentMetricMerge(SimpleTestCase):
+    """Branch pins for the pure three-way merge helpers behind experiment optimistic concurrency.
+    The end-to-end behavior is covered in test_presentation_api.py::TestExperimentConcurrency;
+    these lock the merge decisions that are awkward to reach through the API (identical edits on
+    both sides, double deletes, fingerprint-only churn)."""
+
+    @staticmethod
+    def _metric(uuid: str, event: str, fingerprint: str | None = None) -> dict:
+        metric = {"uuid": uuid, "kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": event}}
+        if fingerprint is not None:
+            metric["fingerprint"] = fingerprint
+        return metric
+
+    @parameterized.expand(
+        [
+            (
+                "identical_edit_on_both_sides_is_not_a_conflict",
+                [("m1", "old", None)],
+                [("m1", "new", None)],
+                [("m1", "new", None)],
+                {"new"},
+                [],
+            ),
+            (
+                "both_delete_the_same_metric",
+                [("m1", "e1", None), ("m2", "e2", None)],
+                [("m2", "e2", None)],
+                [("m2", "e2", None)],
+                {"e2"},
+                [],
+            ),
+            (
+                "fingerprint_only_churn_is_not_a_concurrent_edit",
+                [("m1", "e1", "old-fp"), ("m2", "e2", "old-fp")],
+                [("m1", "e1", "new-fp"), ("m2", "e2", "new-fp")],
+                [("m2", "e2", "old-fp")],
+                {"e2"},
+                [],
+            ),
+            (
+                "edit_vs_delete_conflicts",
+                [("m1", "e1", None)],
+                [("m1", "edited", None)],
+                [],
+                {"edited"},
+                ["m1"],
+            ),
+        ]
+    )
+    def test_merge_metric_arrays(
+        self,
+        _name: str,
+        base: list,
+        theirs: list,
+        mine: list,
+        expected_events: set[str],
+        expected_conflicts: list[str],
+    ) -> None:
+        merged, conflicts = _merge_metric_arrays(
+            [self._metric(*m) for m in base],
+            [self._metric(*m) for m in theirs],
+            [self._metric(*m) for m in mine],
+        )
+
+        self.assertEqual(conflicts, expected_conflicts)
+        if not expected_conflicts:
+            self.assertEqual({m["source"]["event"] for m in merged}, expected_events)
+
+    def test_merge_saved_metric_links_identical_metadata_edit_is_not_a_conflict(self) -> None:
+        base = [{"id": 1, "metadata": {"type": "primary"}}]
+        both_edited = [{"id": 1, "metadata": {"type": "secondary"}}]
+
+        merged, conflicts = _merge_saved_metric_links(base, both_edited, both_edited)
+
+        self.assertEqual(conflicts, [])
+        self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])
+
+
+class TestScalarConcurrencyResolution(SimpleTestCase):
+    """Branch pins for the per-field scalar three-way merge behind experiment optimistic
+    concurrency, isolating the value canonicalization the API tests can't reach directly:
+    the client base echoes API JSON (ISO datetime strings, holdout ids) while the payload
+    and row carry validated Python objects (datetimes, model instances)."""
+
+    @parameterized.expand(
+        [
+            (
+                "noop_equal_value_passes_without_base",
+                {"description": "same"},
+                {},
+                {"description": "same"},
+                {"description": "same"},
+                [],
+            ),
+            (
+                "only_mine_changed_applies",
+                {"description": "mine"},
+                {"description": "base"},
+                {"description": "base"},
+                {"description": "mine"},
+                [],
+            ),
+            (
+                "echo_of_base_drops_so_theirs_survives",
+                {"description": "base", "name": "renamed by me"},
+                {"description": "base", "name": "base name"},
+                {"description": "theirs", "name": "base name"},
+                {"name": "renamed by me"},
+                [],
+            ),
+            (
+                "both_changed_same_field_conflicts",
+                {"description": "mine"},
+                {"description": "base"},
+                {"description": "theirs"},
+                {"description": "mine"},
+                ["description"],
+            ),
+            (
+                "missing_base_with_real_change_conflicts",
+                {"description": "mine"},
+                {},
+                {"description": "theirs"},
+                {"description": "mine"},
+                ["description"],
+            ),
+            (
+                "iso_string_base_matches_stored_datetime",
+                {"start_date": datetime(2026, 7, 27, 16, 10, tzinfo=UTC)},
+                {"start_date": "2026-07-02T23:10:00Z"},
+                {"start_date": datetime(2026, 7, 2, 23, 10, tzinfo=UTC)},
+                {"start_date": datetime(2026, 7, 27, 16, 10, tzinfo=UTC)},
+                [],
+            ),
+            (
+                "holdout_instance_compares_by_id_to_the_holdout_id_base",
+                {"holdout": SimpleNamespace(pk=7)},
+                {"holdout_id": 5},
+                {"holdout": 5},
+                {"holdout": SimpleNamespace(pk=7)},
+                [],
+            ),
+            (
+                "mergeable_metric_collections_are_left_alone",
+                {"metrics": [{"uuid": "m1"}], "description": "same"},
+                {},
+                {"description": "same"},
+                {"metrics": [{"uuid": "m1"}], "description": "same"},
+                [],
+            ),
+            (
+                # Reads project the linked flag's config into `parameters` (with split_percent),
+                # so the client base carries keys the stored column and validated payload never
+                # hold; compared in stored shape this is "only mine changed", not a conflict.
+                "parameters_flag_projection_in_base_is_not_a_conflict",
+                {"parameters": {"variant_notes": {"control": "note"}}},
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 50, "split_percent": 50},
+                            {"key": "test", "rollout_percentage": 50, "split_percent": 50},
+                        ],
+                        "rollout_percentage": 100,
+                        "ensure_experience_continuity": False,
+                    }
+                },
+                {"parameters": None},
+                {"parameters": {"variant_notes": {"control": "note"}}},
+                [],
+            ),
+            (
+                "parameters_double_edit_still_conflicts",
+                {"parameters": {"variant_notes": {"control": "mine"}}},
+                {"parameters": {"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]}},
+                {"parameters": {"variant_notes": {"control": "theirs"}}},
+                {"parameters": {"variant_notes": {"control": "mine"}}},
+                ["parameters"],
+            ),
+            (
+                # The calculator auto-save rewrites the recommended_* estimates on every results
+                # load, so a stale tab's echo of older estimates is machine churn, not a user edit.
+                "running_time_estimate_churn_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                [],
+            ),
+            (
+                "running_time_config_edit_survives_estimate_churn",
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                [],
+            ),
+            (
+                "running_time_config_double_edit_still_conflicts",
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": {"minimum_detectable_effect": 20, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                ["running_time_calculation"],
+            ),
+            (
+                "running_time_null_base_vs_machine_only_current_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": None},
+                {"running_time_calculation": {"recommended_running_time": 30, "recommended_sample_size": 100}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                [],
+            ),
+        ]
+    )
+    def test_resolve_scalar_updates(
+        self,
+        _name: str,
+        update_data: dict,
+        original: dict,
+        current_values: dict,
+        expected_update_data: dict,
+        expected_conflicts: list[str],
+    ) -> None:
+        conflicts = _resolve_scalar_updates(update_data, original, current_values)
+
+        self.assertEqual(conflicts, expected_conflicts)
+        self.assertEqual(update_data, expected_update_data)
+
+    def test_microsecond_datetime_base_roundtrips_like_drf(self) -> None:
+        # DRF renders aware UTC datetimes as `isoformat()` with `+00:00` folded to `Z`,
+        # microseconds included — the client echoes that string back as the base.
+        stored = datetime(2026, 8, 3, 18, 5, 3, 123456, tzinfo=UTC)
+        update_data = {"end_date": datetime(2026, 8, 10, tzinfo=UTC)}
+
+        conflicts = _resolve_scalar_updates(
+            update_data, {"end_date": "2026-08-03T18:05:03.123456Z"}, {"end_date": stored}
+        )
+
+        self.assertEqual(conflicts, [])
+        self.assertIn("end_date", update_data)
+
+    @parameterized.expand(
+        [
+            ("equal_deep_values_are_a_noop", "same", []),
+            ("differing_deep_values_conflict", "different", ["stats_config"]),
+        ]
+    )
+    def test_deeply_nested_payload_value_does_not_crash(self, _name: str, current_leaf: str, expected: list) -> None:
+        # stats_config/exposure_criteria/parameters are unrestricted JSONFields, so a stale
+        # write can nest a few thousand levels in a few KB of body; resolving it must not
+        # recurse past the interpreter stack.
+        def nested(depth: int, leaf: str) -> dict[str, Any]:
+            value: dict[str, Any] = {"a": leaf}
+            for _ in range(depth - 1):
+                value = {"a": value}
+            return value
+
+        update_data = {"stats_config": nested(5000, "same")}
+
+        conflicts = _resolve_scalar_updates(update_data, {}, {"stats_config": nested(5000, current_leaf)})
+
+        self.assertEqual(conflicts, expected)

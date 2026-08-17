@@ -2,16 +2,23 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     SnapshotNotFoundError,
     SnapshotNotReadyError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    workload_for_origin_product,
+)
 from products.tasks.backend.models import SandboxSnapshot, Task
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -87,6 +94,16 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                     )
                     or ""
                 )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {
+                        "github_integration_id": ctx.github_integration_id,
+                        "task_id": ctx.task_id,
+                        "team_id": ctx.team_id,
+                    },
+                    cause=e,
+                )
             except Exception as e:
                 raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {ctx.github_integration_id}",
@@ -114,12 +131,14 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             access_token=access_token,
             team_id=ctx.team_id,
             sandbox_environment=sandbox_env,
+            otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
+            workload=workload_for_origin_product(ctx.origin_product),
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
             metadata={"task_id": ctx.task_id},

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
+import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
     LemonSegmentedButton,
     LemonSkeleton,
@@ -21,12 +21,13 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
-import { AlertStateIndicator } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
+import { isFailedDelivery, summarizeDeliveries } from '../utils'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
     true_positive: {
@@ -123,7 +124,13 @@ export function AlertHistorySectionSkeleton(): JSX.Element {
 }
 
 /** Check history in the alert modal: status, empty state, chart/table toggle, and paginated table. */
-export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): JSX.Element | null {
+export function AlertHistorySection({
+    alertId,
+    showCurrentStatus = true,
+}: {
+    alertId: AlertType['id']
+    showCurrentStatus?: boolean
+}): JSX.Element | null {
     const logic = alertLogic({ alertId })
     const {
         alert,
@@ -205,7 +212,35 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
             title: 'Targets notified',
             key: 'targets_notified',
             align: 'right',
-            render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
+            render: (_value, check) => {
+                const summary = summarizeDeliveries(check.deliveries, check.targets_notified)
+                if (summary.kind === 'notified') {
+                    return 'Yes'
+                }
+                if (summary.kind === 'none') {
+                    if (isFailedDelivery(check)) {
+                        return (
+                            <Tooltip title="This alert fired but nothing was sent. Check who's subscribed and which destinations are set up.">
+                                <span>No</span>
+                            </Tooltip>
+                        )
+                    }
+                    return 'No'
+                }
+                return (
+                    <Tooltip
+                        title={
+                            <div className="flex flex-col gap-0.5">
+                                {summary.lines.map((line, i) => (
+                                    <span key={i}>{line}</span>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <span>{summary.label}</span>
+                    </Tooltip>
+                )
+            },
         })
         return columns
     }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])
@@ -217,14 +252,19 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     const checksTotal = alert.checks_total
 
     return (
-        <div className="mt-10 space-y-2">
-            <div className="flex flex-row gap-2 items-center">
-                <h3 className="m-0">Current status: </h3>
-                <AlertStateIndicator alert={alert} />
-                <h3 className="m-0">
-                    {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
-                </h3>
-            </div>
+        <div className="space-y-2">
+            {showCurrentStatus ? (
+                <div className="flex flex-row gap-2 items-center">
+                    <h3 className="m-0 flex items-center gap-1.5">
+                        <IconGraph className="size-4 text-muted" />
+                        Current status:{' '}
+                    </h3>
+                    <AlertStateIndicator alert={alert} />
+                    <h3 className="m-0">
+                        {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
+                    </h3>
+                </div>
+            ) : null}
             {!alertHistoryHasHistory ? (
                 <div
                     className="flex min-h-56 items-center justify-center bg-bg-surface-primary border border-primary rounded"

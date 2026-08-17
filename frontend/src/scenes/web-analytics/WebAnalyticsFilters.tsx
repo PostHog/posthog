@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -19,6 +19,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { SuppressTaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -27,14 +28,16 @@ import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
-import MaxTool from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene } from 'scenes/sceneTypes'
-import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { PropertyFilterType, PropertyMathType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-import { ProductTab, faviconUrl } from './common'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+
+import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -102,11 +105,15 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
+        return (
+            <SuppressTaxonomicMenuToggle>
+                <CondensedWebAnalyticsFilterBar tabs={tabs} />
+            </SuppressTaxonomicMenuToggle>
+        )
     }
 
     return (
-        <>
+        <SuppressTaxonomicMenuToggle>
             <IncompatibleFiltersWarning />
 
             <div data-attr="web-analytics-filters">
@@ -148,8 +155,19 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                 />
             </div>
-        </>
+        </SuppressTaxonomicMenuToggle>
     )
+}
+
+// Static instruction rendered into the trusted context block — never interpolate user or ingested data.
+const WEB_QUERY_TOOLS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        'The user has the web analytics page open. When you call query-web-overview or query-web-stats, the filters ' +
+        'from your query (date range, property filters, comparison, path cleaning, test-account filtering, conversion ' +
+        'goal) are also applied to the page, so the user sees the results both in this chat and on screen. Only ' +
+        'filters are updated on the page — breakdown and table options are not.',
 }
 
 const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Element => {
@@ -159,50 +177,106 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         isPathCleaningEnabled,
         compareFilter,
     } = useValues(webAnalyticsLogic)
-    const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
-        useActions(webAnalyticsLogic)
+    const {
+        setDates,
+        setWebAnalyticsFilters,
+        setIsPathCleaningEnabled,
+        setCompareFilter,
+        setShouldFilterTestAccounts,
+        setConversionGoal,
+    } = useActions(webAnalyticsLogic)
 
-    return (
-        <MaxTool
-            identifier="filter_web_analytics"
-            context={{
-                current_filters: {
-                    date_from: dateFrom,
-                    date_to: dateTo,
-                    properties: rawWebAnalyticsFilters,
-                    doPathCleaning: isPathCleaningEnabled,
-                    compareFilter: compareFilter,
-                },
-            }}
-            contextDescription={{
-                text: 'Current filters',
-                icon: <IconFilter />,
-            }}
-            callback={(toolOutput: Record<string, any>) => {
-                if (toolOutput.properties !== undefined) {
-                    const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
-                    setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
-                }
-                if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
-                    setDates(toolOutput.date_from, toolOutput.date_to)
-                }
-                if (toolOutput.doPathCleaning !== undefined) {
-                    setIsPathCleaningEnabled(toolOutput.doPathCleaning)
-                }
-                if (toolOutput.compareFilter !== undefined) {
-                    setCompareFilter(toolOutput.compareFilter)
-                }
-            }}
-            initialMaxPrompt="Filter web analytics data for "
-            suggestions={[
-                'Show mobile traffic from last 30 days for the US',
-                'Filter only sessions greater than 2 minutes coming from organic search',
-                "Don't include direct traffic and show data for the last 7 days",
-            ]}
-        >
-            {children}
-        </MaxTool>
-    )
+    useAttachedContext([
+        {
+            type: 'web_analytics_filters',
+            value: JSON.stringify({
+                date_from: dateFrom,
+                date_to: dateTo,
+                properties: rawWebAnalyticsFilters,
+                doPathCleaning: isPathCleaningEnabled,
+                compareFilter,
+            }),
+            label: 'Current filters',
+        },
+        WEB_QUERY_TOOLS_CONTEXT_ITEM,
+    ])
+
+    // Legacy MaxTool (langgraph) output: top-level date_from/date_to and possibly grouped properties.
+    const applyFilters = (toolOutput: Record<string, any>): void => {
+        if (toolOutput.properties !== undefined) {
+            const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
+            setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
+        }
+        if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
+            setDates(toolOutput.date_from, toolOutput.date_to)
+        }
+        if (toolOutput.doPathCleaning !== undefined) {
+            setIsPathCleaningEnabled(toolOutput.doPathCleaning)
+        }
+        if (toolOutput.compareFilter !== undefined) {
+            setCompareFilter(toolOutput.compareFilter)
+        }
+    }
+
+    // The headless query tools' call input mirrored onto the open page. The input is a complete query:
+    // every field is applied, with omitted fields set to the query schema's defaults so the page shows
+    // the same results the tool returned. The args are raw agent-sent JSON (never zod-validated), so
+    // fields are coerced and the property-filter type/operator defaults are stamped back on. Stats-only
+    // presentation fields (breakdownBy, includeBounceRate, limit, ...) are per-tile options with no
+    // page-level setter.
+    const applyWebQueryInput = (input: Record<string, any>): void => {
+        const props = (Array.isArray(input.properties) ? input.properties : []).map((f: Record<string, any>) => ({
+            ...f,
+            type: f.type || PropertyFilterType.Event,
+            ...(f.operator || f.type === PropertyFilterType.Cohort ? {} : { operator: PropertyOperator.Exact }),
+        })) as AnyPropertyFilter[]
+        setWebAnalyticsFilters(props.filter(isWebAnalyticsPropertyFilter))
+        setDates(input.dateRange?.date_from ?? INITIAL_DATE_FROM, input.dateRange?.date_to ?? INITIAL_DATE_TO)
+        setIsPathCleaningEnabled(!!input.doPathCleaning)
+        setCompareFilter(input.compareFilter ?? { compare: false })
+        setShouldFilterTestAccounts(!!input.filterTestAccounts)
+        setConversionGoal(input.conversionGoal ?? null)
+    }
+
+    useMcpToolApplyBack({
+        tools: ['query-web-overview', 'query-web-stats'],
+        targetKey: 'web-analytics-filters',
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            applyWebQueryInput(innerInput)
+        },
+    })
+
+    // Register the tool so PostHog AI can still drive web analytics filters, but render no button:
+    // the deprecated floating MaxTool "+" cluttered the filter bar. The scene's other tools
+    // (web_analytics_doctor, assess_heatmap, summarize_website_interactions) also register hook-only.
+    useMaxTool({
+        identifier: 'filter_web_analytics',
+        context: {
+            current_filters: {
+                date_from: dateFrom,
+                date_to: dateTo,
+                properties: rawWebAnalyticsFilters,
+                doPathCleaning: isPathCleaningEnabled,
+                compareFilter: compareFilter,
+            },
+        },
+        contextDescription: {
+            text: 'Current filters',
+            icon: <IconFilter />,
+        },
+        callback: applyFilters,
+        initialMaxPrompt: 'Filter web analytics data for ',
+        suggestions: [
+            'Show mobile traffic from last 30 days for the US',
+            'Filter only sessions greater than 2 minutes coming from organic search',
+            "Don't include direct traffic and show data for the last 7 days",
+        ],
+    })
+
+    return children
 }
 
 export const WebAnalyticsDomainSelector = (): JSX.Element => {
@@ -452,19 +526,28 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
-    const { compareFilter, productTab } = useValues(webAnalyticsLogic)
+    const { compareFilter, dateFilter, productTab } = useValues(webAnalyticsLogic)
     const { setCompareFilter } = useActions(webAnalyticsLogic)
 
     if (![ProductTab.ANALYTICS, ProductTab.PAGE_REPORTS].includes(productTab)) {
         return null
     }
 
-    return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+    return (
+        <CompareFilter
+            compareFilter={compareFilter}
+            updateCompareFilter={setCompareFilter}
+            disableReason={
+                dateFilter.dateFrom === 'all'
+                    ? "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
+                    : null
+            }
+        />
+    )
 }
 
 const ShareButton = (): JSX.Element => {
     const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
-    const { emphasizeShareButton } = useValues(shareNudgeLogic)
 
     const handleShare = (): void => {
         const url = new URL(window.location.href)
@@ -482,14 +565,12 @@ const ShareButton = (): JSX.Element => {
         <LemonButton
             type="secondary"
             size="small"
-            icon={emphasizeShareButton ? <IconShare /> : <IconLink />}
-            tooltip={emphasizeShareButton ? undefined : 'Share'}
+            icon={<IconLink />}
+            tooltip="Share"
             tooltipPlacement="top"
             onClick={handleShare}
             data-attr="web-analytics-share-button"
-        >
-            {emphasizeShareButton ? 'Share' : undefined}
-        </LemonButton>
+        />
     )
 }
 

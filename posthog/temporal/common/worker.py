@@ -63,6 +63,8 @@ from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
     ExperimentsRecalculationMetricsInterceptor,
 )
 from products.logs.backend.facade.temporal import (
@@ -70,6 +72,8 @@ from products.logs.backend.facade.temporal import (
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
     LogsAlertingMetricsInterceptor,
 )
 from products.tasks.backend.facade.temporal import (
@@ -84,6 +88,8 @@ logger = get_write_only_logger()
 
 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_execution_latency",
+    "batch_exports_activity_succeed_endtoend_latency",
+    "batch_exports_workflow_endtoend_latency",
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
@@ -308,6 +314,11 @@ async def create_worker(
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS)
+            )
+        )
         | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
@@ -319,6 +330,12 @@ async def create_worker(
             zip(
                 EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
                 itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS),
             )
         )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}

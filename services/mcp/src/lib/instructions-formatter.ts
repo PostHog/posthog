@@ -1,5 +1,7 @@
 import type { GroupType } from '@/api/client'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
+    buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
@@ -10,8 +12,10 @@ import {
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
+import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_RENDERING from '@/templates/sections/cli-rendering.md'
 import CLI_SCHEMA_DRILLDOWN from '@/templates/sections/cli-schema-drilldown.md'
@@ -20,11 +24,15 @@ import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discovery.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
+import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
+import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
 
 export interface InstructionsContext {
     guidelines: string
@@ -36,6 +44,10 @@ export interface InstructionsContext {
      *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
      *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
+    /** Whether the governed-metrics catalog (`system.information_schema.metrics`) exists
+     *  for this org. Gates the metric-discovery section so flag-off renders never steer
+     *  the model at a table it can't query — and stay byte-identical. */
+    dataCatalogEnabled?: boolean | undefined
 }
 
 /**
@@ -51,8 +63,10 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
+                ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -63,16 +77,125 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
-     *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+    /** Build the compact `instructions` payload for single-exec clients. Everything
+     *  but the tool-domain index — env context included — lives on the exec tool's
+     *  `command` parameter description (`buildExecCommandReference`), because this
+     *  payload is hard-capped at {@link MCP_INSTRUCTIONS_CHAR_BUDGET} by Claude Code
+     *  and the command description is not.
+     *
+     *  Rendered optimistically, then re-rendered against the measured overflow if it
+     *  doesn't fit — the index is the only part that can shrink. Measuring the overflow
+     *  rather than the surround keeps the arithmetic exact: both renders carry a
+     *  non-empty index, so they share a byte-identical surround, and shrinking the index
+     *  by N shrinks the payload by exactly N. (Sizing an index-less render instead
+     *  overshoots, because `formatPrompt` trims the trailing separator the real payload
+     *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const rendered = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
+        if (overflow <= 0) {
+            return rendered
+        }
+        const domains = buildToolDomainsCompact(ctx.tools ?? [])
+        return this.compose([COMPACT_INSTRUCTIONS], ctx, {
+            compact: true,
+            toolDomainsMaxChars: domains.length - overflow,
+        })
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
     buildExecToolDescription(): string {
         return EXEC_TOOL_BLURB.trim()
+    }
+
+    /**
+     * Build the optional guidance catalog used by Claude web/desktop. The
+     * existing prompt sections remain the source of truth; only their delivery
+     * moves from the advertised schema to `exec learn`.
+     */
+    buildClaudeExecHelpEntries(ctx: InstructionsContext): ExecHelpEntry[] {
+        const entries: ExecHelpEntry[] = [
+            {
+                id: 'analytics',
+                kind: 'guide',
+                title: 'Analytics',
+                description: ctx.dataCatalogEnabled
+                    ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
+                    : 'Query or analyze PostHog data, metrics, and events.',
+                content: this.compose(
+                    [
+                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                        RETRIEVING_DATA,
+                        SCHEMA_WORKFLOW,
+                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        EXAMPLES,
+                    ],
+                    ctx,
+                    { compact: false }
+                ),
+            },
+        ]
+
+        if (ctx.renderUiEnabled) {
+            entries.push({
+                id: 'visualizations',
+                kind: 'guide',
+                title: 'Visualizations',
+                description: 'Create or render a visualization.',
+                content: this.compose([CLI_RENDERING], ctx, { compact: false }),
+            })
+        }
+
+        entries.push({
+            id: 'feedback',
+            kind: 'guide',
+            title: 'Feedback',
+            description: 'Send feedback about PostHog.',
+            content: this.compose([AGENT_FEEDBACK], ctx, { compact: false }),
+        })
+
+        return entries
+    }
+
+    /**
+     * claude.ai's registry silently drops a tool whose serialized `inputSchema`
+     * crosses ~16,384 chars. This reference lands in
+     * `inputSchema.properties.command.description`, so keep routine tool-use
+     * guidance inline and move only task-specific sections behind `learn <topic...>`.
+     * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     */
+    buildClaudeExecCommandReference(ctx: InstructionsContext): string {
+        const helpEntries = this.buildClaudeExecHelpEntries(ctx)
+        const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
+        const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
+        const renderCtx: InstructionsContext = {
+            guidelines: ctx.guidelines,
+            metadata: ctx.metadata,
+            groupTypes: ctx.groupTypes,
+            tools: ctx.tools,
+        }
+
+        return this.compose(
+            [
+                CLI_SYNTAX,
+                helpSection,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
+                CLI_SCHEMA_DRILLDOWN,
+                CLI_DATA_DISCOVERY,
+                CLI_EXAMPLES_CLAUDE,
+                CLI_ERROR_HANDLING,
+                BASIC_FUNCTIONALITY,
+                TOOL_SEARCH,
+                ENV_CONTEXT,
+                URL_PATTERNS,
+            ],
+            renderCtx,
+            {
+                compact: false,
+                compactToolDomains: true,
+                extraCommands: LEARN_COMMAND_LINE,
+            }
+        )
     }
 
     /** Build the `command` parameter description for the exec tool. When
@@ -88,17 +211,15 @@ export class InstructionsFormatter {
      *  (project metadata, group types) here even though `stripEnvContext` is
      *  set, so it still reaches the agent.
      *
-     *  SIZE BUDGET: the serialized exec tool entry must stay under 32,600 chars —
-     *  clients (e.g. Claude web/desktop) silently drop tools past ~32,768, which
-     *  breaks the entire MCP for them. Enforced by the budget test in
-     *  `tests/unit/instructions-formatter-snapshot.test.ts`; when adding prose
-     *  here or to the section templates, shrink elsewhere to stay under. */
+     *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
+     *  its complete JSON schema has a smaller client-enforced size budget. */
     buildExecCommandReference(
         ctx: InstructionsContext,
         opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -108,6 +229,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
+            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,
@@ -127,18 +249,33 @@ export class InstructionsFormatter {
         return this.compose(sections, renderCtx, { compact: false })
     }
 
-    private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
-        const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
+    private compose(
+        sections: string[],
+        ctx: InstructionsContext,
+        opts: {
+            compact: boolean
+            compactToolDomains?: boolean
+            extraCommands?: string
+            /** Character budget for the domain index; it collapses sub-families to fit. */
+            toolDomainsMaxChars?: number
+        }
+    ): string {
+        const renderToolDomains =
+            opts.compact || opts.compactToolDomains
+                ? (tools: ToolInfo[]) => buildToolDomainsCompact(tools, opts.toolDomainsMaxChars)
+                : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            extra_commands: opts.extraCommands ?? '',
         }
         const body = sections
             .map((s) => s.trim())

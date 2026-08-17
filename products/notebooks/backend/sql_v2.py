@@ -1,14 +1,14 @@
 """Helpers for the revamped-notebooks SQLV2 run flow (Journey 1).
 
 The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
-POST (mirroring PostHog Code's agent-server). The kernel-server fetches the
+POST (mirroring PostHog Desktop's agent-server). The kernel-server fetches the
 node's capped result page from the data-plane endpoint (real ClickHouse data via
 HogQL) and POSTs the envelope back to the token-authed callback endpoint. The
 control plane (write_file / execute) is used only to deploy and launch the
 kernel-server package — never per run.
 
 The callback and data-plane tokens are stateless signed tokens for the slice;
-hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Code.
+hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Desktop.
 """
 
 import hmac
@@ -24,13 +24,33 @@ import posthoganalytics
 
 from posthog.models.user import User
 
-from products.notebooks.backend.kernel_package import SANDBOX_PACKAGE_NAME, kernel_package_bytes_and_hash
+from products.notebooks.backend.kernel_package import (
+    BAKED_PACKAGE_ROOT,
+    BAKED_VERSION_PATH,
+    SANDBOX_PACKAGE_NAME,
+    kernel_package_bytes_and_hash,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class_for_backend
 
 logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
+NOTEBOOKS_FRAME_STORE_FLAG = "notebooks-frame-store"
+NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG = "notebooks-frame-store-ch-writes"
+
+# How a run's result rows reached whoever consumes them. The data plane resolves this at
+# the moment it picks a transport and reports it in the 202 accept body; the sandbox echoes
+# it back in the envelope without interpreting it, and `sql_v2_metrics` turns it into a
+# metric label. Because the value crosses the sandbox boundary, where user code can forge
+# an envelope, `sql_v2_metrics.DELIVERY_LABEL_VALUES` is the allowlist that bounds label
+# cardinality; add any new mode to both places.
+DELIVERY_DIRECT = "direct"  # direct lane: ClickHouse to Redis to the UI, no sandbox involved
+DELIVERY_INLINE = "inline"  # sandbox fetch over the inline (Redis) transport, clamped at the async row ceiling
+DELIVERY_OBJECT_RELAY = "object_relay"  # a Temporal worker streams ClickHouse rows to object storage
+DELIVERY_OBJECT_CH_WRITES = "object_ch_writes"  # ClickHouse writes the object itself via INSERT INTO FUNCTION s3
+DELIVERY_NONE = "none"  # kernel run that read no ClickHouse result, so no transport was involved
+DELIVERY_MIXED = "mixed"  # one run materialized several inputs and they did not agree on a transport
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
@@ -59,6 +79,8 @@ _SERVER_READY_TIMEOUT_SECONDS = 15
 _RUN_POST_TIMEOUT_SECONDS = 10
 # A page fetch holds a web worker for the whole kernel -> data plane -> CH round trip.
 _PAGE_POST_TIMEOUT_SECONDS = 60
+# An interrupt only sets a cancel event and sends a SIGINT in the sandbox: near-instant.
+_INTERRUPT_POST_TIMEOUT_SECONDS = 5
 # Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
 # worker killed before its finally-release can't wedge the user's paging for long.
 PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
@@ -78,7 +100,7 @@ class SQLV2PageError(Exception):
     """A page fetch the kernel rejected or failed; message is user-facing."""
 
 
-def is_sql_v2_enabled(user: User | None) -> bool:
+def _flag_enabled_for(flag: str, user: User | None) -> bool:
     if user is None or not user.distinct_id:
         return False
     kwargs: dict = {"only_evaluate_locally": False, "send_feature_flag_events": False}
@@ -87,7 +109,35 @@ def is_sql_v2_enabled(user: User | None) -> bool:
         org_id = str(org.id)
         kwargs["groups"] = {"organization": org_id}
         kwargs["group_properties"] = {"organization": {"id": org_id}}
-    return bool(posthoganalytics.feature_enabled(REVAMPED_PY_NOTEBOOKS_FLAG, user.distinct_id, **kwargs))
+    return bool(posthoganalytics.feature_enabled(flag, user.distinct_id, **kwargs))
+
+
+def is_sql_v2_enabled(user: User | None) -> bool:
+    return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user)
+
+
+def is_frame_store_enabled(user: User | None) -> bool:
+    """Whether this user's whole-frame materializations may use the object-storage path.
+
+    Narrower than `is_sql_v2_enabled`: it gates only the transport, so a user without it
+    still runs SQLV2 nodes, just over the inline transport and its 50k row clamp. Both this
+    and the deployment's `frame_store.is_enabled()` must hold, so the flag can widen the
+    rollout no further than the environment is provisioned for.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_FLAG, user)
+
+
+def is_frame_store_ch_writes_enabled(user: User | None) -> bool:
+    """Whether this user's materializations take the ClickHouse-side write path.
+
+    One switch for the whole new flow: it moves the query onto the offline pool as the
+    dedicated `notebooks` user, and hands the object write to ClickHouse. Sits inside
+    `is_frame_store_enabled`, which has to be on before any of this is reached.
+
+    Resolved in the web process and carried on the job, because the Temporal activity that
+    acts on it has no request user to evaluate a flag against.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG, user)
 
 
 def mint_callback_token(run_id: str, team_id: int) -> str:
@@ -123,9 +173,16 @@ def mint_command_token(secret: str, run_id: str, ttl_seconds: int = _COMMAND_TOK
 
 
 def _backend_base_url() -> str:
-    # The sandbox reaches the host backend here. Docker maps localhost -> host.docker.internal,
-    # so default to that for local dev; SANDBOX_API_URL overrides (e.g. ngrok for Modal).
-    base = getattr(settings, "SANDBOX_API_URL", None) or "http://host.docker.internal:8000"
+    # The sandbox reaches the host backend here. SANDBOX_API_URL overrides (e.g. ngrok for Modal
+    # from local dev). In dev the kernel runs in local Docker, where the host is
+    # host.docker.internal (SITE_URL would be an unreachable localhost); in prod the kernel runs
+    # remotely and must use the public SITE_URL.
+    if settings.SANDBOX_API_URL:
+        base = settings.SANDBOX_API_URL
+    elif settings.DEBUG:
+        base = "http://host.docker.internal:8000"
+    else:
+        base = settings.SITE_URL
     return base.rstrip("/")
 
 
@@ -210,32 +267,73 @@ def _wait_for_server_ready(server_url: str, connect_token: str | None, expected_
     raise RuntimeError("SQLV2 kernel-server did not become ready")
 
 
+# Stop a previous server via its PID file — never pkill by our own name: the
+# pattern would match this very launch command's shell and kill it mid-deploy.
+# The pkill lines only clear pre-package servers (distinct names, safe to
+# match) from sandboxes that predate the PID file; drop them once those age out.
+_STOP_PREVIOUS_SERVER = (
+    f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
+    "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
+)
+# Echoed by the baked launch so the caller can tell it ran from a matching image
+# rather than exiting early on a stale stamp.
+_BAKED_LAUNCH_MARKER = "nb_kernel_baked_ok"
+
+
+def _launch_server(package_root: str, port: int, version: str) -> str:
+    """Shell that backgrounds the kernel-server out of `package_root` and records its PID.
+
+    `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
+    The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
+    no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
+    would record the wrapper's PID and the next redeploy would kill nothing.
+    Prefer the notebook venv python (has pyarrow).
+    """
+    return (
+        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
+        f'PYTHONPATH={package_root} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
+        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
+        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+    )
+
+
+def _launch_baked_kernel_server(sandbox: SandboxBase, port: int, version: str) -> bool:
+    """Launch the package the image baked in, unless its stamp predates `version`.
+
+    Returns False on a stale stamp, having stopped the old server but started no
+    new one, so the caller falls back to the tarball. The version is a hex digest,
+    so it needs no shell quoting beyond the comparison's own quotes.
+    """
+    command = (
+        _STOP_PREVIOUS_SERVER
+        + f'[ "$(cat {BAKED_VERSION_PATH} 2>/dev/null)" = "{version}" ] || exit 0; '
+        + _launch_server(BAKED_PACKAGE_ROOT, port, version)
+        + f"; echo {_BAKED_LAUNCH_MARKER}"
+    )
+    result = sandbox.execute(command, timeout_seconds=30)
+    return _BAKED_LAUNCH_MARKER in result.stdout
+
+
 def _deploy_kernel_server(sandbox: SandboxBase, runtime: KernelRuntime, package: bytes, version: str) -> None:
-    """Write the kernel package + secret into the sandbox and (re)launch the server.
+    """Write the secret into the sandbox and (re)launch the kernel-server.
 
     This is the only place the control plane (write_file/execute) is used, exactly
     as Code bootstraps its agent-server. Per-run dispatch is a plain authed POST.
+
+    The image bakes the package, so the usual path is one execute that launches it
+    in place. Uploading the tarball is the fallback for a kernel edit no image build
+    has picked up yet, which keeps a merged kernel fix from waiting on an image.
     """
     port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
     sandbox.write_file(_SECRET_PATH, kernel_server_secret(str(runtime.id)).encode())
+    if _launch_baked_kernel_server(sandbox, port, version):
+        return
+
     sandbox.write_file(_TARBALL_PATH, package)
-    # Stop a previous server via its PID file — never pkill by our own name: the
-    # pattern would match this very launch command's shell and kill it mid-deploy.
-    # The pkill lines only clear pre-package servers (distinct names, safe to
-    # match) from sandboxes that predate the PID file; drop them once those age out.
-    # `< /dev/null` detaches the server from the exec's pipes so `execute` returns.
-    # The backgrounded launch must stay a single simple command (PYTHONPATH= prefix,
-    # no `cd X && …`) — a compound list backgrounds a wrapper subshell, so `$!`
-    # would record the wrapper's PID and the next redeploy would kill nothing.
-    # Prefer the notebook venv python (has pyarrow).
     launch = (
-        f"kill $(cat {_SERVER_PID_PATH} 2>/dev/null) 2>/dev/null || true; "
-        "pkill -f '[n]b_sql_v2_kernel_server' 2>/dev/null; pkill -f '[n]b_data_v2_kernel_server' 2>/dev/null; "
-        f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
-        'PY=/opt/notebook-venv/bin/python3; [ -x "$PY" ] || PY=python3; '
-        f'PYTHONPATH={_PACKAGE_ROOT} nohup "$PY" -m {SANDBOX_PACKAGE_NAME}.server '
-        f"--port {port} --secret-file {_SECRET_PATH} --version {version} "
-        f"> {_SERVER_LOG_PATH} 2>&1 < /dev/null & echo $! > {_SERVER_PID_PATH}"
+        _STOP_PREVIOUS_SERVER
+        + f"rm -rf {_PACKAGE_ROOT} && mkdir -p {_PACKAGE_ROOT} && tar -xzf {_TARBALL_PATH} -C {_PACKAGE_ROOT} && "
+        + _launch_server(_PACKAGE_ROOT, port, version)
     )
     sandbox.execute(launch, timeout_seconds=30)
 
@@ -244,8 +342,9 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
     """Ensure the in-sandbox kernel-server is running the current package version.
 
     Idempotent — a healthy server at the expected version is reused as-is; a stale
-    or unreachable one is redeployed from the freshly built tarball (this is the
-    dev loop: edit `kernel/`, next run redeploys, no image rebuild).
+    or unreachable one is redeployed, from the image's baked package when that
+    matches and from the freshly built tarball when it does not (this is the dev
+    loop: edit `kernel/`, next run redeploys, no image rebuild).
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
@@ -265,7 +364,12 @@ def ensure_sql_v2_server(notebook: Notebook, user: User | None) -> KernelRuntime
 
     runtime.server_url = credentials.url
     runtime.server_connect_token = credentials.token
-    runtime.save(update_fields=["server_url", "server_connect_token"])
+    # A redeploy relaunches the kernel inside a live sandbox and keeps this row, so the frame
+    # snapshot would outlive the kernel that produced it — the one path where the row's
+    # lifetime stops tracking the kernel's. Its registrations are gone with the namespace, so
+    # drop the snapshot; the next run repopulates it from the new kernel's catalog.
+    runtime.frames = None
+    runtime.save(update_fields=["server_url", "server_connect_token", "frames"])
     return runtime
 
 
@@ -281,11 +385,16 @@ def dispatch_sql_v2_run(
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback. A
-    python node carries the `node`/`inputs` shape the executor consumes; a hogql node keeps
-    the flat `code` the capped-fetch path reads — the two paths stay additive.
+    kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
+    a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
+    # Record which kernel took the run: the sandbox can't name it (its secret is a one-way
+    # derivation of the runtime id, not the id), and letting it name one would let a sandbox
+    # write over another kernel's state. So the backend decides here and the callback follows.
+    run.kernel_runtime_id = runtime.id
+    run.save(update_fields=["kernel_runtime_id", "updated_at"])
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     payload: dict = {
@@ -297,8 +406,8 @@ def dispatch_sql_v2_run(
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
-    if node_type == "python":
-        payload["node"] = {"type": "python", "code": code, "output_name": output_name}
+    if node_type in ("python", "duckdb"):
+        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code
@@ -312,10 +421,13 @@ def dispatch_sql_v2_run(
 
 
 def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRun, offset: int, limit: int) -> dict:
-    """Fetch one result page through the kernel — a bounded synchronous re-query.
+    """Fetch one result page through the kernel — a bounded synchronous read.
 
-    Unlike a run this never bootstraps the server (no control plane from a web
-    worker); a missing or unreachable server means the user has to re-run.
+    A hogql run pages by re-querying its stored code through the data plane with
+    LIMIT/OFFSET; a kernel run (python/duckdb) pages by slicing its on-sandbox result
+    frame, keyed by `result_id` — its code is not a HogQL query, so no data-plane
+    fallback exists for it. Unlike a run this never bootstraps the server (no control
+    plane from a web worker); a missing or unreachable server means the user has to re-run.
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None or not runtime.server_url:
@@ -323,17 +435,21 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
 
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
+    payload: dict = {
+        "run_id": str(run.id),
+        "offset": offset,
+        "limit": limit,
+    }
+    if run.node_type == NotebookNodeRun.NodeType.HOGQL:
+        payload["code"] = run.code
+        payload["data_plane_url"] = build_data_plane_url()
+        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id)
+    else:
+        payload["result_id"] = str(run.result_id)
     try:
         response = requests.post(
             f"{runtime.server_url.rstrip('/')}/page",
-            json={
-                "run_id": str(run.id),
-                "code": run.code,
-                "offset": offset,
-                "limit": limit,
-                "data_plane_url": build_data_plane_url(),
-                "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
-            },
+            json=payload,
             headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
             timeout=_PAGE_POST_TIMEOUT_SECONDS,
         )
@@ -351,6 +467,38 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
         # Any other non-200 (e.g. a kernel 500) is an infrastructure problem, not a bad query.
         raise SQLV2KernelNotRunning()
     return response.json()
+
+
+def interrupt_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun) -> bool:
+    """Ask the kernel-server to interrupt a run; return whether the kernel knew the run.
+
+    False means the run never reached the kernel (dispatch still in flight) or already
+    finished there; the caller decides how to surface that. Raises SQLV2KernelNotRunning
+    when no reachable kernel exists at all, in which case the run's callback can never
+    arrive and the caller may mark the run terminal itself.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        raise SQLV2KernelNotRunning()
+
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
+    try:
+        response = requests.post(
+            f"{runtime.server_url.rstrip('/')}/interrupt",
+            json={"run_id": str(run.id)},
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
+            timeout=_INTERRUPT_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise SQLV2KernelNotRunning() from exc
+    if response.status_code != 200:
+        raise SQLV2KernelNotRunning()
+    try:
+        body = response.json()
+    except ValueError:
+        return True
+    # A pre-run-scoped kernel-server omits `known`; treat its interrupt as delivered.
+    return bool(body.get("known", True))
 
 
 def _kernel_error_detail(response: requests.Response) -> str:
