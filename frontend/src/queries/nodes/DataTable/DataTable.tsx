@@ -1064,6 +1064,7 @@ export function DataTable({
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
+                                            insightProps={insightProps}
                                         />
                                     )
                                 }
