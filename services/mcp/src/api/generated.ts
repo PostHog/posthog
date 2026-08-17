@@ -19265,7 +19265,7 @@ export namespace Schemas {
     } as const;
 
     export interface DashboardCustomization {
-      /** Named tile spacing preset.
+      /** Named tile density preset.
        *
        * * `tight` - tight
        * * `condensed` - condensed
@@ -19345,7 +19345,7 @@ export namespace Schemas {
       quick_filter_ids?: string[] | null;
       /** Dashboard display settings. */
       readonly customization: DashboardCustomization;
-      /** Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
        *
        * * `tight` - tight
        * * `condensed` - condensed
@@ -59057,7 +59057,7 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
-      /** Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
        *
        * * `tight` - tight
        * * `condensed` - condensed
