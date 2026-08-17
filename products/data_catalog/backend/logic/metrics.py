@@ -426,7 +426,13 @@ def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
     locked = (
         Metric.objects.for_team(team_id)
         .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
-        .select_for_update()
+        # Cache owner and created_by so serializing the approve response reads them off the row
+        # instead of one posthog_user lookup per metric. Both FKs are nullable, so select_related
+        # is a LEFT OUTER JOIN; Postgres rejects FOR UPDATE on the nullable side of an outer join,
+        # so scope the lock to the Metric row with of=("self",) (which also keeps the lock off
+        # posthog_user).
+        .select_for_update(of=("self",))
+        .select_related("owner", "created_by")
         .order_by("pk")
     )
     return {metric.id: metric for metric in locked}
