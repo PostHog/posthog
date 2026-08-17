@@ -36638,8 +36638,8 @@ export namespace Schemas {
          * @maxLength 400
          */
       title: string;
-      /** Required customer-facing request description in Markdown. */
-      description: string;
+      /** Optional customer-facing request description in Markdown. */
+      description?: string;
       /** ID of the affected Customer Analytics account. */
       account_id: string;
       /** One or more active product area IDs. Duplicate IDs are ignored. */
@@ -36775,7 +36775,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
@@ -57561,7 +57561,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
