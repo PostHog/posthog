@@ -79,13 +79,16 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
-    channel ("#me") per team, provisioned lazily on first channel list."""
+    channel ("#me") per team, provisioned lazily on first channel list. Every team also
+    gets a public "general" channel, Slack-style: it always exists, everyone starts as
+    a member, and it can't be renamed or deleted."""
 
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
 
     PERSONAL_CHANNEL_NAME = "me"
+    GENERAL_CHANNEL_NAME = "general"
 
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:

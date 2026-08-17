@@ -58,8 +58,9 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for task channels — the shared feeds tasks are kicked off in. Listing lazily
-    provisions the requester's personal "#me" channel; creation is resolve-or-create
-    by normalized name so clients can map channel-like surfaces onto backend channels.
+    provisions the requester's personal "#me" channel and the team's shared "#general"
+    channel (starred by default, like Slack); creation is resolve-or-create by
+    normalized name so clients can map channel-like surfaces onto backend channels.
     """
 
     authentication_classes = [
@@ -98,7 +99,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
-        description="All live public channels plus the requester's personal #me channel (created on first list).",
+        description=(
+            "All live public channels plus the requester's personal #me channel and the team's "
+            "#general channel, both provisioned and starred for the requester on first list."
+        ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
@@ -139,6 +143,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
+        if result == "general":
+            return Response({"detail": "The general space can't be renamed."}, status=status.HTTP_400_BAD_REQUEST)
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
@@ -164,6 +170,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Your private space cannot be deleted")
+        if result == "general":
+            return Response({"detail": "The general space can't be deleted."}, status=status.HTTP_400_BAD_REQUEST)
         if result == "not_empty":
             return Response(
                 {"detail": "Remove this space's tasks and canvases before deleting it."},
