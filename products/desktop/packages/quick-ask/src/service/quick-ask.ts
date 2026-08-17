@@ -1068,6 +1068,12 @@ export class QuickAskService {
             };
             return;
           }
+        } finally {
+          // Release this connection on every exit — terminal return, rotation,
+          // or retry — so the server is not left holding an idle SSE stream
+          // (and its Redis reader) until its 900s cap. cancel() closes the
+          // socket; an already-errored reader rejects, so swallow that.
+          await reader.cancel().catch(() => {});
         }
 
         if (rotated) continue;
@@ -1087,6 +1093,10 @@ export class QuickAskService {
         if (controller.signal.aborted) return;
       }
     } finally {
+      // The turn is over; abort so the fetch/socket is torn down even if a
+      // reader cancel did not fully propagate, and so this turn's controller
+      // cannot linger past it.
+      controller.abort();
       if (this.controller === controller) {
         this.controller = null;
       }

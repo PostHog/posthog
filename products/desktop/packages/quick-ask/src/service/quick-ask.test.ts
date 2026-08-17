@@ -276,6 +276,31 @@ describe("QuickAskService", () => {
     });
   });
 
+  it("cancels the stream reader when the turn ends", async () => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${USER_ECHO}\n\ndata: ${agentText("hi")}\n\ndata: ${TURN_COMPLETE}\n\n`,
+          ),
+        );
+        // Left open on purpose: only reader.cancel() should release it, so the
+        // spy fires exactly when the turn tears its connection down.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [new Response(body, { status: 200 })],
+    });
+    await collect(service);
+    expect(cancelled).toBe(true);
+  });
+
   it("creates the task with the question as description and warm-matching fields", async () => {
     const { service, fetchMock } = serviceWith({
       createTask: [taskResponse()],
