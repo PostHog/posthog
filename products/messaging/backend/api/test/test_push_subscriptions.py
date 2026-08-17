@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -488,6 +489,23 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status_code
         assert response.json()["code"] == code
         assert counter._value.get() == before + 1
+
+    @parameterized.expand(
+        [
+            ("empty_value", {"device_token": ""}, "device_token:empty"),
+            ("absent_key", {}, "device_token:absent"),
+        ]
+    )
+    def test_missing_fields_rejection_logs_field_detail(self, _name: str, extra: dict, expected_detail: str):
+        payload = {"distinct_id": "user-1", "platform": "android", "app_id": "my-firebase-project", **extra}
+
+        with capture_logs() as logs:
+            response = self._post(payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        rejected = [entry for entry in logs if entry["event"] == "push_subscription_rejected"]
+        assert len(rejected) == 1
+        assert rejected[0]["detail"] == expected_detail
 
     def test_unsupported_method_collapses_counter_label(self):
         counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="method_not_allowed", method="other")

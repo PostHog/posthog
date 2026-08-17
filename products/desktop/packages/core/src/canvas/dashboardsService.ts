@@ -16,7 +16,11 @@ import type {
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
-import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
+import {
+  type CanvasAgentRequestResult,
+  canvasAgentRequestResultSchema,
+  FREEFORM_TEMPLATE_ID,
+} from "./freeformSchemas";
 import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
@@ -484,5 +488,37 @@ export class DashboardsService {
     if (!res.ok && res.status !== 404) {
       throw new Error(`Failed to delete canvas (${res.status})`);
     }
+  }
+
+  async requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/request_agent/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input.prompt }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      request_outcome?: string;
+      task_id?: string;
+    };
+    // The backend answers quota, capability, and missing-task refusals with a
+    // structured `detail`; surface it so the viewer sees the reason, not a bare
+    // status code.
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to request canvas agent (${res.status})`,
+        res.status,
+      );
+    }
+    return canvasAgentRequestResultSchema.parse({
+      requestOutcome: body.request_outcome,
+      taskId: body.task_id,
+    });
   }
 }

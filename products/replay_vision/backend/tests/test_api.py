@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -1045,6 +1046,46 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
         if expected_events:
             self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
+
+    @parameterized.expand(
+        [
+            ("drafted", None, 200, True),
+            ("model_failed", DraftError(), 503, False),
+        ]
+    )
+    def test_draft_reports_outcome(
+        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+    ) -> None:
+        # A draft that reports nothing would read as user abandonment instead of a model failure.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        drafted = ScannerDraft(
+            name="stuck-in-onboarding",
+            description="Sessions where onboarding stalls",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user get stuck?"},
+            rationale="Onboarding drop-off is the stated goal",
+            query={"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+        )
+        goal = "find users who get stuck in onboarding"
+        with (
+            patch(
+                "products.replay_vision.backend.api.scanners.draft_scanner_from_goal",
+                side_effect=error,
+                return_value=drafted,
+            ),
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            resp = self.client.post(f"{self.scanners_url}draft/", data={"goal": goal}, format="json")
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        drafted_events = [call for call in report.call_args_list if call.args[1] == "replay_vision_scanner_drafted"]
+        self.assertEqual(len(drafted_events), 1)
+        properties = drafted_events[0].args[2]
+        self.assertEqual(properties["success"], expected_success)
+        self.assertEqual(properties["goal_length"], len(goal))
+        # The goal is customer text; only its length may ride along.
+        self.assertNotIn("goal", properties)
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):

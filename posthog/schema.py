@@ -3287,7 +3287,8 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column that splits a single Y series into multiple colored series — e.g."
             " breaking down a line chart by `country`. Set to `null` or omit to"
-            " disable."
+            " disable. A breakdown buckets rows by x value, so it is ignored when"
+            " `display` is `ScatterPlot`."
         ),
     )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")
@@ -3306,7 +3307,11 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
     xAxis: AssistantDataVisualizationAxis | None = Field(
         default=None,
-        description=("Column used as the X axis. Typically a time bucket or categorical column."),
+        description=(
+            "Column used as the X axis. Typically a time bucket or categorical column,"
+            " but `ScatterPlot` plots two measures against each other, so it needs a"
+            " numeric column here too."
+        ),
     )
     xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
     yAxis: list[AssistantDataVisualizationAxis] | None = Field(
@@ -8956,8 +8961,9 @@ class AssistantDataVisualizationNode(BaseModel):
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
             " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
             " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
-            " `ActionsTable`."
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
+            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"

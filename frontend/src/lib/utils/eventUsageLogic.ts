@@ -1507,6 +1507,15 @@ export interface eventUsageLogicActions {
     reportInsightCompareChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
+    reportInsightDateExclusionsChanged: (
+        queryKind: string | undefined,
+        excludeIncompletePeriods: boolean,
+        excludedDaysOfWeekCount: number
+    ) => {
+        excludedDaysOfWeekCount: number
+        excludeIncompletePeriods: boolean
+        queryKind: string | undefined
+    }
     reportInsightDatePickerOpened: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
@@ -2253,6 +2262,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDateExclusionsChanged: (
+            queryKind: string | undefined,
+            excludeIncompletePeriods: boolean,
+            excludedDaysOfWeekCount: number
+        ) => ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }),
         reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
@@ -3946,6 +3960,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
         },
+        reportInsightDateExclusionsChanged: ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }) => {
+            posthog.capture('insight date exclusions changed', {
+                query_kind: queryKind,
+                exclude_incomplete_periods: excludeIncompletePeriods,
+                excluded_days_of_week_count: excludedDaysOfWeekCount,
+            })
+        },
         reportInsightDatePickerOpened: ({ queryKind }) => {
             posthog.capture('insight date picker opened', { query_kind: queryKind })
         },
@@ -4159,6 +4180,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
 
             posthog.capture('survey created', {
+                // The web app is the only place this event is emitted from — there is no backend
+                // equivalent — so stamping the surface here is what puts surveys in a `source`
+                // breakdown at all, rather than showing up as unattributed.
+                source: 'web',
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
