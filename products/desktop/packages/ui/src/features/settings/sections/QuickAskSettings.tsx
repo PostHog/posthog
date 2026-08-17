@@ -1,20 +1,124 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
+import type { Adapter } from "@posthog/shared";
+import { isSupportedReasoningEffort } from "@posthog/shared";
 import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { LoopModelFields } from "@posthog/ui/features/loops/components/LoopModelFields";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
   type QuickAskSettingsPatch,
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
+import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
 import { QuickAskShortcutSetting } from "@posthog/ui/features/settings/sections/QuickAskShortcutSetting";
+import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
 import { Flex, Text } from "@radix-ui/themes";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+/** The new-task model pill, wired to the persisted quick-ask defaults. */
+function AgentDefaults({
+  state,
+  apply,
+  disabled,
+}: {
+  state: QuickAskState;
+  apply: (patch: QuickAskSettingsPatch) => void;
+  disabled: boolean;
+}) {
+  const adapter: Adapter =
+    state.defaultAdapter === "codex" ? "codex" : "claude";
+  const { modelOption, thoughtOption, isLoading, setConfigOption } =
+    usePreviewConfig(adapter);
+
+  // Reflect the persisted defaults into the fetched options once per load.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || isLoading) return;
+    seeded.current = true;
+    if (
+      state.defaultModel &&
+      modelOption &&
+      isValidConfigValue(modelOption, state.defaultModel)
+    ) {
+      setConfigOption(modelOption.id, state.defaultModel);
+    }
+    if (
+      state.defaultEffort &&
+      thoughtOption &&
+      isValidConfigValue(thoughtOption, state.defaultEffort)
+    ) {
+      setConfigOption(thoughtOption.id, state.defaultEffort);
+    }
+  }, [
+    isLoading,
+    modelOption,
+    thoughtOption,
+    setConfigOption,
+    state.defaultModel,
+    state.defaultEffort,
+  ]);
+
+  const handleModelChange = useCallback(
+    (value: string) => {
+      if (!modelOption) return;
+      setConfigOption(modelOption.id, value);
+      const effort =
+        state.defaultEffort &&
+        isSupportedReasoningEffort(adapter, value, state.defaultEffort)
+          ? state.defaultEffort
+          : "";
+      apply({ defaultModel: value, defaultEffort: effort });
+    },
+    [modelOption, setConfigOption, adapter, state.defaultEffort, apply],
+  );
+
+  const handleThoughtChange = useCallback(
+    (value: string) => {
+      if (!thoughtOption) return;
+      setConfigOption(thoughtOption.id, value);
+      apply({ defaultEffort: value });
+    },
+    [thoughtOption, setConfigOption, apply],
+  );
+
+  const handleConfigOptionChange = useCallback(
+    (configId: string, value: string) => {
+      if (modelOption && configId === modelOption.id) {
+        handleModelChange(value);
+        return;
+      }
+      if (thoughtOption && configId === thoughtOption.id) {
+        handleThoughtChange(value);
+      }
+    },
+    [modelOption, thoughtOption, handleModelChange, handleThoughtChange],
+  );
+
+  return (
+    <ReasoningLevelSelector
+      thoughtOption={thoughtOption}
+      modelOption={modelOption}
+      adapter={adapter}
+      onChange={handleThoughtChange}
+      onModelChange={handleModelChange}
+      onAdapterChange={(next) => {
+        seeded.current = true;
+        apply({
+          defaultAdapter: next === "claude" ? "" : next,
+          defaultModel: "",
+          defaultEffort: "",
+        });
+      }}
+      onConfigOptionChange={handleConfigOptionChange}
+      disabled={disabled}
+      isLoading={isLoading}
+    />
+  );
+}
 
 export function QuickAskSettings() {
   const client = useServiceOptional<QuickAskSettingsClient>(
@@ -59,8 +163,6 @@ export function QuickAskSettings() {
       ? (selectedSpace?.repositories ?? [])
       : [];
   const off = !state.active;
-  const adapter: LoopSchemas.LoopRuntimeAdapterEnum =
-    state.defaultAdapter === "codex" ? "codex" : "claude";
 
   return (
     <Flex direction="column">
@@ -120,28 +222,13 @@ export function QuickAskSettings() {
           />
         </SettingRow>
 
-        <Flex direction="column" gap="1" py="4">
-          <Text className="font-medium text-sm">Agent</Text>
-          <Text color="gray" className="mb-2 text-[13px]">
-            The harness, model, and effort quick-ask answers run with.
-          </Text>
-          <LoopModelFields
-            adapter={adapter}
-            model={state.defaultModel}
-            reasoningEffort={
-              (state.defaultEffort ||
-                null) as LoopSchemas.LoopReasoningEffortEnum | null
-            }
-            disabled={off}
-            onAdapterChange={(next) =>
-              apply({ defaultAdapter: next === "claude" ? "" : next })
-            }
-            onModelChange={(model) => apply({ defaultModel: model })}
-            onReasoningEffortChange={(effort) =>
-              apply({ defaultEffort: effort ?? "" })
-            }
-          />
-        </Flex>
+        <SettingRow
+          label="Agent"
+          description="The harness, model, and effort quick-ask answers run with."
+          noBorder
+        >
+          <AgentDefaults state={state} apply={apply} disabled={off} />
+        </SettingRow>
       </div>
     </Flex>
   );
