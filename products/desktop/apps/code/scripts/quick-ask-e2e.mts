@@ -552,6 +552,30 @@ if (await page.locator(".qa-mini").count()) {
 }
 pass("empty idle panel folds into mini mode, drafts keep it open");
 
+// The panel follows the app theme; the system scheme flips the palette live.
+await page.emulateMedia({ colorScheme: "dark" });
+await page.waitForFunction(
+  'document.documentElement.classList.contains("dark")',
+  undefined,
+  { timeout: 2_000 },
+);
+const darkPill = (await page.evaluate(
+  'getComputedStyle(document.querySelector(".qa-pill")).backgroundColor',
+)) as string;
+await page.emulateMedia({ colorScheme: "light" });
+await page.waitForFunction(
+  '!document.documentElement.classList.contains("dark")',
+  undefined,
+  { timeout: 2_000 },
+);
+const lightPill = (await page.evaluate(
+  'getComputedStyle(document.querySelector(".qa-pill")).backgroundColor',
+)) as string;
+if (!darkPill || darkPill === lightPill) {
+  fail(`theme change did not restyle the pill (${darkPill} vs ${lightPill})`);
+}
+pass("panel palette follows the theme");
+
 if (pageErrors.length > 0) {
   fail(`page errors: ${pageErrors.join(" | ")}`);
 }

@@ -8,6 +8,7 @@ import { HostTRPCProvider } from "@posthog/host-router/react";
 import type { HostRouter } from "@posthog/host-router/router";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
 import { ThemeWrapper } from "@posthog/ui/primitives/ThemeWrapper";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createTRPCClient } from "@trpc/client";
 import { Container } from "inversify";
@@ -40,6 +41,14 @@ void hostTrpcClient.auth.getState
     // Signed-out rendering is fine; chips fall back to static cards.
   });
 
+// Theme changes made in the main window land in shared localStorage;
+// re-reading them keeps this window on the app's theme.
+window.addEventListener("storage", (event) => {
+  if (event.key === "theme-storage") {
+    void useThemeStore.persist.rehydrate();
+  }
+});
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, refetchOnWindowFocus: false },
@@ -52,8 +61,7 @@ if (root) {
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
         <HostTRPCProvider trpcClient={hostTrpcClient} queryClient={queryClient}>
-          {/* The panel's palette is hard-coded dark; pin the theme to match. */}
-          <ThemeWrapper appearance="dark">
+          <ThemeWrapper>
             <QuickAsk />
           </ThemeWrapper>
         </HostTRPCProvider>
