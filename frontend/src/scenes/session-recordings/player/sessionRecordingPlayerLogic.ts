@@ -730,6 +730,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
     } // snapshotDataLogic
@@ -843,6 +846,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: any
     }
     restartIframePlayback: () => {
+        value: true
+    }
+    retryLoadingSnapshots: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1165,6 +1171,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1195,6 +1202,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
@@ -2567,6 +2575,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
             actions.setPlayerError('snapshotProcessingFailed')
+        },
+        retryLoadingSnapshots: () => {
+            actions.clearPlayerError()
+            actions.retrySnapshotLoading()
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {

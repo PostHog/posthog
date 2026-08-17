@@ -21,6 +21,7 @@ from posthog.tasks.email import send_error_tracking_weekly_digest_for_org
 from posthog.tasks.email_utils import compute_week_over_week_change
 
 from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.error_tracking.backend.facade.contracts import ExceptionSummary
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -153,12 +154,13 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_crash_free_sessions(self.team)
 
-        assert result["total_sessions"] == 3
-        assert result["crash_free_rate"] == 66.67
+        assert result is not None
+        assert result.total_sessions == 3
+        assert result.crash_free_rate == 66.67
 
     def test_get_crash_free_sessions_empty_when_no_sessions(self):
         result = get_crash_free_sessions(self.team)
-        assert result == {}
+        assert result is None
 
     def test_get_crash_free_sessions_includes_previous_week_comparison(self):
         s1, s2, s3 = str(uuid7()), str(uuid7()), str(uuid7())
@@ -172,9 +174,10 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_crash_free_sessions(self.team)
 
-        assert result["total_sessions"] == 2
-        assert result["crash_free_rate"] == 50.0
-        assert result["total_sessions_change"] is not None
+        assert result is not None
+        assert result.total_sessions == 2
+        assert result.crash_free_rate == 50.0
+        assert result.total_sessions_change is not None
 
     def test_get_daily_exception_counts_returns_7_days(self):
         issue = self._create_issue()
@@ -296,8 +299,9 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_exception_summary_for_team(self.team)
 
-        assert result["exception_count"] == 1
-        assert result["prev_exception_count"] == 101
+        assert result is not None
+        assert result.exception_count == 1
+        assert result.prev_exception_count == 101
 
     def test_top_issues_follow_issue_merges(self):
         issue_a = self._create_issue(name="OriginalIssue")
@@ -340,9 +344,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_exception_summary_for_team(self.team)
 
-        assert result["exception_count"] == 4
-        assert result["ingestion_failure_count"] == 1
-        assert result["prev_exception_count"] == 0
+        assert result == ExceptionSummary(exception_count=4, ingestion_failure_count=1, prev_exception_count=0)
 
     def test_get_exception_summary_for_team_includes_previous_week(self):
         issue = self._create_issue()
@@ -354,8 +356,9 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_exception_summary_for_team(self.team)
 
-        assert result["exception_count"] == 3
-        assert result["prev_exception_count"] == 5
+        assert result is not None
+        assert result.exception_count == 3
+        assert result.prev_exception_count == 5
 
     def test_get_exception_summary_for_team_excludes_other_teams(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -367,7 +370,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_exception_summary_for_team(other_team)
 
-        assert result == {} or result["exception_count"] == 0
+        assert result is None or result.exception_count == 0
 
     @parameterized.expand(["engineering", "data", "founder", "Engineering", "DATA", "Founder"])
     def test_auto_select_project_enrolls_eligible_roles(self, role):
@@ -375,7 +378,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self.user.save()
 
         team_exception_counts = {
-            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            self.team.pk: ExceptionSummary(exception_count=10, ingestion_failure_count=0, prev_exception_count=0),
         }
 
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
@@ -391,7 +394,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self.user.save()
 
         team_exception_counts = {
-            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            self.team.pk: ExceptionSummary(exception_count=10, ingestion_failure_count=0, prev_exception_count=0),
         }
 
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
@@ -409,7 +412,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         self.user.save()
 
         team_exception_counts = {
-            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            self.team.pk: ExceptionSummary(exception_count=5, ingestion_failure_count=0, prev_exception_count=0),
         }
 
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
@@ -436,7 +439,8 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_exception_summary_for_team(self.team)
 
-        assert result["exception_count"] == 2
+        assert result is not None
+        assert result.exception_count == 2
 
     def test_get_daily_exception_counts_filters_internal_users(self):
         self._set_internal_user_filter()
@@ -493,8 +497,9 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         result = get_crash_free_sessions(self.team)
 
-        assert result["total_sessions"] == 1
-        assert result["crash_free_rate"] == 100.0
+        assert result is not None
+        assert result.total_sessions == 1
+        assert result.crash_free_rate == 100.0
 
 
 class TestComputeWeekOverWeekChange:
