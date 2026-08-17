@@ -3728,7 +3728,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
                     actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    lemonToast.error("Couldn't update tile spacing. Try again.")
+                    lemonToast.error("Couldn't update tile density. Try again.")
                 }
             } finally {
                 cache.dashboardTileSpacingSaveInFlight = false

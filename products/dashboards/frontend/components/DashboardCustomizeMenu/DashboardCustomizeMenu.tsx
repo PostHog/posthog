@@ -36,14 +36,14 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
 
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2">
-            <span className="text-xs text-muted whitespace-nowrap">Tile spacing</span>
+            <span className="text-xs text-muted whitespace-nowrap">Tile density</span>
             <LemonRadio<DashboardTileSpacing>
                 value={tileSpacing}
                 onChange={setTileSpacing}
                 options={TILE_SPACING_OPTIONS}
                 orientation="horizontal"
                 className="flex-1 flex-wrap gap-x-3 gap-y-1"
-                aria-label="Tile spacing"
+                aria-label="Tile density"
             />
         </div>
     )
