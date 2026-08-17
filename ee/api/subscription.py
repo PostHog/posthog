@@ -39,7 +39,6 @@ from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
-from posthog.scopes import APIScopeObject
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -962,9 +961,8 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
-    targets: tuple[APIScopeObject, ...] = ("insight", "dashboard")
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
-    if not any(scope.get(resource) for scope in rules for resource in targets):
+    if not any(scope.get("insight") or scope.get("dashboard") for scope in rules):
         return Q()
 
     blocked_insights = _blocked_target_ids(user_access_control, Insight.objects.filter(team_id=team_id))
