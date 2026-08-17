@@ -7,12 +7,13 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsE
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import RevenueSource
 
 
-@dataclass
+@frozen
 class SourceHandle:
     type: Literal["events", "stripe"]
     team: Team
