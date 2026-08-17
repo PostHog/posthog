@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
@@ -44,7 +46,7 @@ def _handle_help(
     if command_prefix == "@PostHog":
         lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
 
-    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="\n".join(lines))
+    post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text="\n".join(lines))
 
 
 def _handle_rules_list(
@@ -59,7 +61,8 @@ def _handle_rules_list(
 
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     if not rules:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=(
@@ -70,7 +73,8 @@ def _handle_rules_list(
         return
 
     lines = [f"{i + 1}. {r.rule_text} → `{r.repository}`" for i, r in enumerate(rules)]
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text="*Routing rules:*\n" + "\n".join(lines),
@@ -92,7 +96,8 @@ def _handle_rules_add(
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="No connected GitHub repositories found for your account.",
@@ -101,7 +106,8 @@ def _handle_rules_add(
 
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=f"Repository `{repository}` is not connected to this project.",
@@ -122,7 +128,8 @@ def _handle_rules_add(
         priority=max_priority,
         created_by_id=user_id,
     )
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
@@ -141,7 +148,8 @@ def _handle_rules_remove(
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     if not rule_numbers or any(n < 1 for n in rule_numbers):
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=f"Please provide valid rule number(s). Use `{command_prefix} rules list` to see current rules.",
@@ -151,7 +159,8 @@ def _handle_rules_remove(
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     invalid = [n for n in rule_numbers if n > len(rules)]
     if invalid:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `{command_prefix} rules list` to see them.",
@@ -166,7 +175,8 @@ def _handle_rules_remove(
         rule.delete()
 
     removed.reverse()
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
@@ -469,7 +479,8 @@ def dispatch_rules_command(
         _handle_rules_list(slack, integration, channel, thread_ts, command_prefix=command_prefix)
     elif command.action == "add":
         if not command.repository:
-            slack.client.chat_postMessage(
+            post_slack_thread_reply(
+                slack.client,
                 channel=channel,
                 thread_ts=thread_ts,
                 text=f'Please specify the repo inline: `{command_prefix} rules add "description" org/repo`.',
