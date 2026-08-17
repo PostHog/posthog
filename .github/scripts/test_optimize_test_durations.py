@@ -17,6 +17,7 @@ from optimize_test_durations import (
     calculate_product_durations,
     outlier_merge_durations,
     run_average_files,
+    scope_product_durations_to_junit,
 )
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
@@ -284,6 +285,27 @@ class TestStatisticalCorrection:
 
 
 class TestProductDurations:
+    def test_excludes_stale_nodeids_absent_from_product_junit(self) -> None:
+        durations = {
+            "products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 10.0,
+            "products/tasks/backend/tests/test_deleted.py::TestDeleted::test_one": 90.0,
+        }
+        junit_shards = [
+            JUnitShard(
+                name="products-1",
+                call_times={"products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 1.0},
+            )
+        ]
+
+        scoped = scope_product_durations_to_junit(durations, junit_shards)
+
+        assert calculate_product_durations(scoped) == {"tasks": 10.0}
+
+    def test_keeps_raw_product_timings_without_junit_artifacts(self) -> None:
+        durations = {"products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 10.0}
+
+        assert scope_product_durations_to_junit(durations, None) == durations
+
     def test_uses_raw_durations_instead_of_corrected_call_times(self) -> None:
         raw = {
             "products/tasks/backend/tests/test_one.py::test_one": 12.0,

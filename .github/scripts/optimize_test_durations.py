@@ -483,6 +483,16 @@ def calculate_product_durations(
     return totals
 
 
+def scope_product_durations_to_junit(
+    durations: dict[str, float], junit_shards: list[JUnitShard] | None
+) -> dict[str, float]:
+    """Scope product timings to the tests observed in Product JUnit artifacts."""
+    if not junit_shards:
+        return durations
+    ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
+    return {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+
+
 def collect_existing_tests(segment: str | None = None) -> set[str]:
     """Collect test names that actually exist in the codebase.
 
@@ -732,7 +742,8 @@ def main():
             )
 
     if args.product_durations_output:
-        product_durations = calculate_product_durations(raw_durations, carrier_test_ids)
+        scoped_product_durations = scope_product_durations_to_junit(raw_durations, junit_shards)
+        product_durations = calculate_product_durations(scoped_product_durations, carrier_test_ids)
         with open(args.product_durations_output, "w") as f:
             json.dump(product_durations, f, indent=4, sort_keys=True)
             f.write("\n")
