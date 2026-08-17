@@ -523,7 +523,9 @@ export function Annotate(): React.JSX.Element {
         finish();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "z") {
+      // Shift makes the browser report the key as "Z"; lowercase it so the
+      // redo half (Cmd/Ctrl+Shift+Z) reaches this branch at all.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
