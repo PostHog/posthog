@@ -3,6 +3,7 @@ import {
   builderHog,
   explorerHog,
   happyHog,
+  hogzillaHog,
   loopHog,
 } from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
@@ -13,6 +14,11 @@ type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
 
 /** Double-clicking the hedgehog cycles through the crew. */
 const HEDGEHOGS = [happyHog, builderHog, explorerHog, loopHog];
+
+/** Sustained shaking summons (and later banishes) hogzilla. */
+const HOGZILLA_SHAKES = 5;
+/** Longest pause between shakes that still counts as one long shake. */
+const HOGZILLA_GAP_MS = 1_500;
 
 /** An empty, untouched panel folds into mini mode after this long. */
 const IDLE_COLLAPSE_MS = Number(
@@ -63,6 +69,8 @@ export function QuickAsk(): React.JSX.Element {
   const [flip, setFlip] = useState(false);
   const [hedgehog, setHedgehog] = useState(0);
   const [mini, setMini] = useState(false);
+  const [hogzilla, setHogzilla] = useState(false);
+  const shakeStreak = useRef({ count: 0, last: 0 });
   const [attachment, setAttachment] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [canOpenSettings, setCanOpenSettings] = useState(false);
@@ -320,11 +328,27 @@ export function QuickAsk(): React.JSX.Element {
     setHedgehog((current) => (current + 1) % HEDGEHOGS.length);
   }, []);
 
-  // Shaking the panel while dragging it cycles the hedgehog.
+  // Shaking the panel while dragging it cycles the hedgehog. Keeping the
+  // shake going summons hogzilla; another long shake calms it back down.
+  const onShake = useCallback((): void => {
+    const now = Date.now();
+    const streak = shakeStreak.current;
+    streak.count = now - streak.last < HOGZILLA_GAP_MS ? streak.count + 1 : 1;
+    streak.last = now;
+    if (streak.count >= HOGZILLA_SHAKES) {
+      streak.count = 0;
+      setHogzilla((current) => !current);
+      return;
+    }
+    if (!hogzilla) {
+      nextHedgehog();
+    }
+  }, [hogzilla, nextHedgehog]);
+
   useEffect(() => {
-    const unsubscribe = window.quickAsk?.onShake(nextHedgehog);
+    const unsubscribe = window.quickAsk?.onShake(onShake);
     return () => unsubscribe?.();
-  }, [nextHedgehog]);
+  }, [onShake]);
 
   const toggleMini = useCallback((): void => {
     setMini((current) => !current);
@@ -332,7 +356,7 @@ export function QuickAsk(): React.JSX.Element {
 
   // Left open, empty, and untouched, the panel folds itself into mini mode.
   useEffect(() => {
-    if (mini || phase !== "idle") return;
+    if (mini || hogzilla || phase !== "idle") return;
     let timer: number;
     const schedule = (): void => {
       window.clearTimeout(timer);
@@ -354,7 +378,7 @@ export function QuickAsk(): React.JSX.Element {
       window.removeEventListener("mousedown", schedule);
       window.removeEventListener("mousemove", schedule);
     };
-  }, [mini, phase]);
+  }, [mini, hogzilla, phase]);
 
   // Leaving mini mode: put the caret back in the pill.
   useEffect(() => {
@@ -374,17 +398,27 @@ export function QuickAsk(): React.JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`qa-root${flip ? " qa-flip" : ""}${mini ? " qa-mini" : ""}`}
+      className={`qa-root${flip ? " qa-flip" : ""}${mini ? " qa-mini" : ""}${hogzilla ? " qa-zilla" : ""}`}
     >
       <div className="qa-pill-row">
         <button
           type="button"
-          aria-label={mini ? "Expand the panel" : "Drag to move the panel"}
+          aria-label={
+            hogzilla
+              ? "Hogzilla — shake to calm it down"
+              : mini
+                ? "Expand the panel"
+                : "Drag to move the panel"
+          }
           onMouseDown={startDrag}
-          onDoubleClick={toggleMini}
+          onDoubleClick={hogzilla ? undefined : toggleMini}
           className={phase === "thinking" ? "qa-hog qa-hog-thinking" : "qa-hog"}
         >
-          <img src={HEDGEHOGS[hedgehog]} alt="" draggable={false} />
+          <img
+            src={hogzilla ? hogzillaHog : HEDGEHOGS[hedgehog]}
+            alt=""
+            draggable={false}
+          />
           <span
             className={`qa-status qa-status-${status}`}
             aria-hidden="true"

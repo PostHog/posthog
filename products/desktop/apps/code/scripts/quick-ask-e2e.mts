@@ -372,6 +372,35 @@ if (!restored) {
 }
 pass("double-click toggles mini mode with a status dot");
 
+// A long shake summons hogzilla and takes the panel hostage; another long
+// shake calms it back down.
+await page.waitForTimeout(1_600); // separate from the single-shake streak
+for (let i = 0; i < 5; i++) {
+  await page.evaluate("window.__qaShake?.()");
+}
+await page.waitForSelector(".qa-zilla", { timeout: 2_000 });
+const zilla = (await page.evaluate(`(() => {
+  const pill = document.querySelector(".qa-pill");
+  const img = document.querySelector(".qa-hog img");
+  return {
+    pillHidden: !pill || getComputedStyle(pill).display === "none",
+    src: img?.getAttribute("src") ?? "",
+  };
+})()`)) as { pillHidden: boolean; src: string };
+if (!zilla.pillHidden) {
+  fail("hogzilla left the pill usable");
+}
+if (!zilla.src.includes("hogzilla")) {
+  fail(`hogzilla shows the wrong avatar (${zilla.src})`);
+}
+await page.waitForTimeout(1_600);
+for (let i = 0; i < 5; i++) {
+  await page.evaluate("window.__qaShake?.()");
+}
+await page.waitForSelector(".qa-zilla", { state: "detached", timeout: 2_000 });
+await page.waitForSelector(".qa-pill input", { timeout: 2_000 });
+pass("long shake summons hogzilla, another long shake calms it");
+
 if (process.env.QUICK_ASK_E2E_METRICS) {
   const metrics = await page.evaluate(`(() => {
     const rect = (selector) => {

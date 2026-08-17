@@ -181,6 +181,19 @@ html body {
   display: none;
 }
 
+/* Hogzilla: a long shake grows the hedgehog and takes the panel hostage;
+   only another long shake shrinks it back. */
+.qa-zilla > :not(.qa-pill-row),
+.qa-zilla .qa-pill-row > :not(.qa-hog) {
+  display: none;
+}
+
+.qa-zilla .qa-hog {
+  width: 156px;
+  height: 156px;
+  animation: qa-zilla-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
 .qa-mini .qa-mini-label {
   display: inline-block;
 }
@@ -233,6 +246,21 @@ html body {
 
 .qa-status-error {
   background: var(--qa-down);
+}
+
+@keyframes qa-zilla-in {
+  0% {
+    transform: scale(0.3);
+  }
+  60% {
+    transform: scale(1.12) rotate(-3deg);
+  }
+  80% {
+    transform: scale(0.96) rotate(2deg);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes qa-status-pulse {
@@ -1067,6 +1095,7 @@ html body {
   .qa-thinking-label,
   .qa-streaming > :last-child::after,
   .qa-status-busy,
+  .qa-zilla .qa-hog,
   .qa-seg-in,
   .qa-mini-label,
   .qa-attach,
