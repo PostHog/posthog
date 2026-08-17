@@ -23,6 +23,7 @@ const capabilities: CanvasCapabilities = {
   posthog: {
     insights: ["allowed-insight"],
     inlineQueries: false,
+    agentRequests: false,
     captureEvents: ["allowed-event"],
     state: ["user"],
     actions: ["tasks.create"],
@@ -37,6 +38,7 @@ describe("assertCanvasCapability", () => {
     ["capture", { event: "other-event" }],
     ["stateSet", { scope: "shared", key: "k", value: 1 }],
     ["actionInvoke", { verb: "annotations.create", payload: {} }],
+    ["agentRequest", { prompt: "Change it" }],
   ])("rejects undeclared %s access", (method, payload) => {
     expect(() => assertCanvasCapability(capabilities, method, payload)).toThrow(
       "not allowed",
@@ -51,6 +53,19 @@ describe("assertCanvasCapability", () => {
   ])("allows declared %s access", (method, payload) => {
     expect(() =>
       assertCanvasCapability(capabilities, method, payload),
+    ).not.toThrow();
+  });
+
+  it("allows agent requests only when the manifest declares them", () => {
+    expect(() =>
+      assertCanvasCapability(
+        {
+          ...capabilities,
+          posthog: { ...capabilities.posthog, agentRequests: true },
+        },
+        "agentRequest",
+        { prompt: "Change it" },
+      ),
     ).not.toThrow();
   });
 

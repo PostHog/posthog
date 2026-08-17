@@ -195,3 +195,21 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         entry = next(d for d in validate_source_project(candidate) if d["code"] == "import_not_allowed")
         self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
         self.assertEqual(entry["line"], 3)
+
+    def test_agent_request_requires_declared_capability(self):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + 'ph.agent.request("Make it blue");'},
+            capabilities={
+                "posthog": {
+                    "insights": [],
+                    "inlineQueries": False,
+                    "captureEvents": [],
+                    "agentRequests": False,
+                },
+                "network": {"origins": []},
+            },
+        )
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])

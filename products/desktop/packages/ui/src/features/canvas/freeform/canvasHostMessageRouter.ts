@@ -71,13 +71,20 @@ export function createCanvasHostMessageRouter(
       case "data-request":
         // Canvas code is untrusted, so the host is what stops a canvas from
         // firing writes just by being loaded or rendered.
-        if (message.method === "actionInvoke" && !options.hasUserActivation()) {
+        if (
+          (message.method === "actionInvoke" ||
+            message.method === "agentRequest") &&
+          !options.hasUserActivation()
+        ) {
           options.post({
             channel: "posthog-canvas",
             type: "data-response",
             id: message.id,
             ok: false,
-            error: "Canvas actions require a user action",
+            error:
+              message.method === "agentRequest"
+                ? "Agent requests require a user action"
+                : "Canvas actions require a user action",
           });
           break;
         }
@@ -96,22 +103,32 @@ export function createCanvasHostMessageRouter(
         }
         activeDataRequests += 1;
         try {
+          const call = options
+            .callbacks()
+            .onDataRequest(message.method, message.payload);
+          // agentRequest settles only when a viewer approves or cancels the
+          // request in a dialog, which can take arbitrarily long. Racing it
+          // against the generic timeout would tell the canvas the request
+          // failed while the dialog is still open and a later approval could
+          // still start the run, so it opts out of the timeout.
+          const result =
+            message.method === "agentRequest"
+              ? await call
+              : await Promise.race([
+                  call,
+                  new Promise<never>((_, reject) =>
+                    setTimeout(
+                      () => reject(new Error("Canvas data request timed out")),
+                      DATA_REQUEST_TIMEOUT_MS,
+                    ),
+                  ),
+                ]);
           options.post({
             channel: "posthog-canvas",
             type: "data-response",
             id: message.id,
             ok: true,
-            result: await Promise.race([
-              options
-                .callbacks()
-                .onDataRequest(message.method, message.payload),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("Canvas data request timed out")),
-                  DATA_REQUEST_TIMEOUT_MS,
-                ),
-              ),
-            ]),
+            result,
           });
         } catch (error) {
           options.post({
