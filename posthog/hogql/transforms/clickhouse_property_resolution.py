@@ -840,7 +840,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
-            if field_type is not None:
+            # Decline when the blob's table is no longer in the current FROM — a transform (lazy-table wrapping,
+            # predicate pushdown) moved the read behind a subquery that projects the blob but not the bare column.
+            if field_type is not None and self._property_table_in_scope(field_type):
                 return field_type, str(node.keys[0])
 
         # The operand can also carry the property on its resolved type rather than as a bare `PropertyAccess`: a
@@ -878,9 +880,16 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- value substitution ---
 
     def visit_property_access(self, node: ast.PropertyAccess) -> ast.Expr:
-        substituted = _substitute_value_read(node, self.context)
-        if substituted is not None:
-            return substituted
+        # Decline the backing-column read when the blob's table is no longer in the current FROM: a transform
+        # (lazy-table wrapping, predicate pushdown) replaced the table with a subquery that projects the raw blob but
+        # not the precomputed column, so the rewritten `alias.mat_col` would reference a column the subquery never
+        # selects. Falling through prints the JSON extract over the projected blob, which is valid and returns the
+        # same value.
+        field_type = _blob_field_type_of(node)
+        if field_type is None or self._property_table_in_scope(field_type):
+            substituted = _substitute_value_read(node, self.context)
+            if substituted is not None:
+                return substituted
         return super().visit_property_access(node)
 
     # --- comparison / call rewrites ---

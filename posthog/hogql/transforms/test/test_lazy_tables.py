@@ -1,16 +1,19 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -262,3 +265,67 @@ class TestLazyJoins(BaseTest):
             "AND session.$session_duration > 0"
         )
         self._assert_matches_snapshot(printed)
+
+
+class TestLazyTableWrapPropertyResolution(ClickhouseTestMixin, BaseTest):
+    """When a self-join on person_id wraps an events table into a subquery, that subquery projects only the raw
+    `properties` blob. Property resolution must then read the outer property from that blob, not from a precomputed
+    column (materialized column or property-group map) the subquery never selects — otherwise ClickHouse rejects the
+    reference (`Identifier '...properties_group_custom' cannot be resolved from subquery`)."""
+
+    def _print(self, select: str) -> str:
+        query, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+            ),
+            "clickhouse",
+        )
+        return query
+
+    @parameterized.expand(
+        [
+            # A backing column read on the wrapped table (e2), via the select list and via a WHERE comparison.
+            (
+                "value_read",
+                "SELECT e2.properties.foo, e1.event FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id",
+            ),
+            (
+                "aliased_value_read",
+                "SELECT e2.properties.foo AS b FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id",
+            ),
+            (
+                "where_comparison",
+                "SELECT e1.event FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id WHERE e2.properties.foo = 'bar'",
+            ),
+        ]
+    )
+    def test_wrapped_table_property_reads_the_projected_blob(self, _name: str, select: str) -> None:
+        printed = self._print(select)
+        # The wrapped e2 subquery exposes `e2.properties`; the outer read must extract from it, not from an
+        # unprojected precomputed column.
+        assert "properties_group_custom" not in printed, printed
+        assert "JSONExtract" in printed, printed
+
+    def test_unwrapped_table_property_still_uses_precomputed_column(self) -> None:
+        # e1 is not wrapped, so its property read must keep the property-group optimization.
+        printed = self._print(
+            "SELECT e1.properties.foo, e2.event FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id"
+        )
+        assert "e1.properties_group_custom" in printed, printed
+
+    def test_wrapped_table_property_executes_and_matches_unwrapped_value(self) -> None:
+        _create_person(distinct_ids=["d1"], team=self.team)
+        _create_event(event="pv", distinct_id="d1", team=self.team, properties={"foo": "bar"})
+        flush_persons_and_events()
+        modifiers = HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED)
+
+        wrapped = execute_hogql_query(
+            "SELECT DISTINCT e2.properties.foo FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id",
+            team=self.team,
+            modifiers=modifiers,
+        )
+        plain = execute_hogql_query("SELECT properties.foo FROM events", team=self.team, modifiers=modifiers)
+        assert [r[0] for r in wrapped.results] == [r[0] for r in plain.results] == ["bar"]
