@@ -693,6 +693,47 @@ await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
 });
 pass("counter badges place; select tool moves, recolors, and deletes");
 
+// Arrow endpoints re-aim the line, and boxes resize by their handles;
+// drawing hands over the select tool.
+await annotate.mouse.click(170, 161); // on the arrow's shaft
+await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
+  timeout: 5_000,
+});
+await annotate.mouse.move(320, 240); // the arrow's tip handle
+await annotate.mouse.down();
+await annotate.mouse.move(400, 300, { steps: 5 });
+await annotate.mouse.up();
+const inkAt = async (x: number, y: number): Promise<number> =>
+  (await annotate.evaluate(`(() => {
+    const ctx = document.querySelector(".an-overlay").getContext("2d");
+    return ctx.getImageData(${x}, ${y}, 1, 1).data[3];
+  })()`)) as number;
+if ((await inkAt(380, 288)) < 128) {
+  fail("dragging the arrow tip did not extend the line");
+}
+await annotate.keyboard.press("r"); // shortcut into the box tool
+if ((await inkAt(230, 220)) > 128) {
+  fail("box resize probe already inked");
+}
+await annotate.mouse.move(120, 120);
+await annotate.mouse.down();
+await annotate.mouse.move(200, 170, { steps: 5 });
+await annotate.mouse.up();
+const selectAfterDraw = await annotate
+  .locator('[aria-label="Select (V)"]')
+  .getAttribute("class");
+if (!selectAfterDraw?.includes("an-active")) {
+  fail("drawing a box did not hand over the select tool");
+}
+await annotate.mouse.move(200, 170); // the box's south-east handle
+await annotate.mouse.down();
+await annotate.mouse.move(260, 220, { steps: 5 });
+await annotate.mouse.up();
+if ((await inkAt(230, 220)) < 128) {
+  fail("dragging the box handle did not resize it");
+}
+pass("arrow tips re-aim, boxes resize, drawing hands over select");
+
 // Text sizing and wrapping: a second label, resized via the options row,
 // then narrowed by its side handle until it breaks into two lines.
 await annotate.click('[aria-label="Text (T)"]');

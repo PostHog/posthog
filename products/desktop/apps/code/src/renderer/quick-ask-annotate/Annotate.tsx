@@ -145,9 +145,9 @@ type Drag =
       moved: boolean;
     }
   | {
-      mode: "resize-text";
+      mode: "resize-shape";
       index: number;
-      edge: "e" | "w";
+      handle: string;
       orig: Shape[];
       moved: boolean;
     };
@@ -167,15 +167,79 @@ function textWrapCap(x: number, crop: Rect, bg: boolean): number {
   return Math.max(TEXT_MIN_WIDTH, Math.min(room, readable));
 }
 
-/** Side-handle midpoints on a selected text shape's frame. */
-function textEdgePoints(shape: Shape): { e: Point; w: Point } | null {
-  if (shape.kind !== "text") return null;
-  const box = shapeBBox(shape);
-  const cy = box.y + box.h / 2;
-  return {
-    w: { x: box.x - 5, y: cy },
-    e: { x: box.x + box.w + 5, y: cy },
-  };
+interface ShapeHandle {
+  id: string;
+  at: Point;
+  cursor: string;
+}
+
+/** Resize handles: corners and edges for boxes, endpoints for arrows,
+ * wrap-width side handles for text. */
+function shapeHandles(shape: Shape): ShapeHandle[] {
+  switch (shape.kind) {
+    case "rect":
+    case "ellipse":
+    case "pixelate":
+      return HANDLES.map((handle) => ({
+        id: handle,
+        at: handlePoint(shape.rect, handle),
+        cursor: HANDLE_CURSORS[handle],
+      }));
+    case "arrow":
+      return [
+        { id: "from", at: shape.from, cursor: "move" },
+        { id: "to", at: shape.to, cursor: "move" },
+      ];
+    case "text": {
+      const box = shapeBBox(shape);
+      const cy = box.y + box.h / 2;
+      return [
+        { id: "w", at: { x: box.x - 5, y: cy }, cursor: "ew-resize" },
+        { id: "e", at: { x: box.x + box.w + 5, y: cy }, cursor: "ew-resize" },
+      ];
+    }
+    default:
+      return [];
+  }
+}
+
+function hitShapeHandle(shape: Shape, point: Point): ShapeHandle | null {
+  for (const handle of shapeHandles(shape)) {
+    if (
+      Math.abs(point.x - handle.at.x) <= HANDLE_HIT_PX &&
+      Math.abs(point.y - handle.at.y) <= HANDLE_HIT_PX
+    ) {
+      return handle;
+    }
+  }
+  return null;
+}
+
+/** A resize-handle drag applied to the shape that grabbed it. */
+function resizeShape(shape: Shape, handle: string, to: Point): Shape {
+  switch (shape.kind) {
+    case "rect":
+    case "ellipse":
+    case "pixelate":
+      return { ...shape, rect: resizeCrop(shape.rect, handle as Handle, to) };
+    case "arrow":
+      // Endpoint drags re-aim just that end of the line.
+      return handle === "from" ? { ...shape, from: to } : { ...shape, to };
+    case "text": {
+      const pad = shape.bg ? TEXT_BG_PAD_X : 0;
+      const box = shapeBBox(shape);
+      const contentW = box.w - pad * 2;
+      if (handle === "e") {
+        const width = Math.max(to.x - 5 - pad - shape.at.x, TEXT_MIN_WIDTH);
+        return { ...shape, width };
+      }
+      const right = shape.at.x + contentW;
+      const x = Math.min(to.x + 5 + pad, right - TEXT_MIN_WIDTH);
+      return { ...shape, at: { ...shape.at, x }, width: right - x };
+    }
+    default:
+      return shape;
+  }
 }
 
 export function Annotate(): React.JSX.Element {
@@ -541,18 +605,14 @@ export function Annotate(): React.JSX.Element {
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(box.x - 5, box.y - 5, box.w + 10, box.h + 10);
       ctx.setLineDash([]);
-      const edges = textEdgePoints(active);
-      if (edges) {
-        // Side handles set the wrap width.
-        for (const at of [edges.w, edges.e]) {
-          ctx.beginPath();
-          ctx.arc(at.x, at.y, 4.5, 0, Math.PI * 2);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
+      for (const handle of shapeHandles(active)) {
+        ctx.beginPath();
+        ctx.arc(handle.at.x, handle.at.y, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
     }
     if (hole) {
@@ -612,24 +672,16 @@ export function Annotate(): React.JSX.Element {
       }
       if (tool === "select") {
         const active = selected !== null ? shapes[selected] : null;
-        const edges = active ? textEdgePoints(active) : null;
-        if (edges && selected !== null) {
-          for (const edge of ["w", "e"] as const) {
-            const at = edges[edge];
-            if (
-              Math.abs(from.x - at.x) <= HANDLE_HIT_PX &&
-              Math.abs(from.y - at.y) <= HANDLE_HIT_PX
-            ) {
-              drag.current = {
-                mode: "resize-text",
-                index: selected,
-                edge,
-                orig: shapes,
-                moved: false,
-              };
-              return;
-            }
-          }
+        const handleHit = active ? hitShapeHandle(active, from) : null;
+        if (handleHit && selected !== null) {
+          drag.current = {
+            mode: "resize-shape",
+            index: selected,
+            handle: handleHit.id,
+            orig: shapes,
+            moved: false,
+          };
+          return;
         }
         const index = topShapeAt(from);
         setSelected(index);
@@ -695,20 +747,15 @@ export function Annotate(): React.JSX.Element {
         if (crop) {
           const handle = hitHandle(crop, to);
           const activeShape = selected !== null ? shapes[selected] : null;
-          const edges = activeShape ? textEdgePoints(activeShape) : null;
-          const onTextEdge =
-            tool === "select" &&
-            edges &&
-            [edges.w, edges.e].some(
-              (at) =>
-                Math.abs(to.x - at.x) <= HANDLE_HIT_PX &&
-                Math.abs(to.y - at.y) <= HANDLE_HIT_PX,
-            );
+          const shapeHandleHit =
+            tool === "select" && activeShape
+              ? hitShapeHandle(activeShape, to)
+              : null;
           setCursor(
             handle
               ? HANDLE_CURSORS[handle]
-              : onTextEdge
-                ? "ew-resize"
+              : shapeHandleHit
+                ? shapeHandleHit.cursor
                 : spaceHeld && inside(crop, to)
                   ? "grab"
                   : tool === "select"
@@ -750,26 +797,15 @@ export function Annotate(): React.JSX.Element {
         }));
         return;
       }
-      if (active.mode === "resize-text") {
+      if (active.mode === "resize-shape") {
         active.moved = true;
         setDoc((current) => ({
           ...current,
-          shapes: active.orig.map((shape, index) => {
-            if (index !== active.index || shape.kind !== "text") return shape;
-            const pad = shape.bg ? TEXT_BG_PAD_X : 0;
-            const box = shapeBBox(shape);
-            const contentW = box.w - pad * 2;
-            if (active.edge === "e") {
-              const width = Math.max(
-                to.x - 5 - pad - shape.at.x,
-                TEXT_MIN_WIDTH,
-              );
-              return { ...shape, width };
-            }
-            const right = shape.at.x + contentW;
-            const x = Math.min(to.x + 5 + pad, right - TEXT_MIN_WIDTH);
-            return { ...shape, at: { ...shape.at, x }, width: right - x };
-          }),
+          shapes: active.orig.map((shape, index) =>
+            index === active.index
+              ? resizeShape(shape, active.handle, to)
+              : shape,
+          ),
         }));
         return;
       }
@@ -795,7 +831,7 @@ export function Annotate(): React.JSX.Element {
     drag.current = null;
     if (!active) return;
     if (active.mode === "resize" || active.mode === "move") return;
-    if (active.mode === "move-shape" || active.mode === "resize-text") {
+    if (active.mode === "move-shape" || active.mode === "resize-shape") {
       // One history entry per completed move.
       if (active.moved) {
         setDoc((current) => ({
@@ -829,6 +865,8 @@ export function Annotate(): React.JSX.Element {
         ) < MIN_DRAG_PX;
       if (!tiny && !short) {
         pushShape(current);
+        // The usual next step is adjusting the fresh shape.
+        setTool("select");
       }
       return null;
     });
