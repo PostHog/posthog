@@ -8,11 +8,12 @@ list of every PR with its title as the summary, so a flaky model never loses a d
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import get_llm_client
 
 from ..facade.enums import AudienceReason
@@ -27,7 +28,7 @@ _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 
 
-@dataclass
+@frozen
 class DigestPRSummary:
     pr_number: int
     title: str
@@ -39,7 +40,7 @@ class DigestPRSummary:
     repository: str
 
 
-@dataclass
+@frozen
 class DigestSummary:
     intro: str
     prs: list[DigestPRSummary] = field(default_factory=list)
