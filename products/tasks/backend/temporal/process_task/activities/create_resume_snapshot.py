@@ -20,6 +20,7 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import increment_snapshot_create, record_snapshot_create_latency_ms
+from products.tasks.backend.temporal.observability import emit_agent_log
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +44,8 @@ class CreateResumeSnapshotInput:
     run_id: str
     use_directory_snapshot: bool = False
     snapshot_mount_path: str = DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+    reason: str = "teardown"
+    allow_pruning: bool = True
 
 
 @dataclass
@@ -51,6 +54,7 @@ class CreateResumeSnapshotOutput:
     snapshot_kind: SnapshotKind | None = None
     snapshot_mount_path: str | None = None
     error: str | None = None
+    duration_ms: int | None = None
 
 
 @activity.defn
@@ -65,26 +69,59 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     snapshot_kind: SnapshotKind = SNAPSHOT_KIND_DIRECTORY if input.use_directory_snapshot else SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path = input.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
 
-    logger.info("create_resume_snapshot_started", sandbox_id=input.sandbox_id, run_id=input.run_id)
+    logger.info(
+        "create_resume_snapshot_started",
+        sandbox_id=input.sandbox_id,
+        run_id=input.run_id,
+        reason=input.reason,
+        snapshot_kind=snapshot_kind,
+    )
 
     started_at = time.perf_counter()
     try:
         sandbox = SandboxClass.get_by_id(input.sandbox_id)
     except Exception as e:
-        logger.warning("create_resume_snapshot_sandbox_not_found", sandbox_id=input.sandbox_id, error=str(e))
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning(
+            "create_resume_snapshot_sandbox_not_found",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
+            error=str(e),
+        )
         outcome = "sandbox_not_found"
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not found")
         return CreateResumeSnapshotOutput(
-            external_id=None, snapshot_kind=snapshot_kind, error=f"Sandbox not found: {e}"
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error=f"Sandbox not found: {e}",
+            duration_ms=duration_ms,
         )
 
     if not sandbox.is_running():
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         outcome = "sandbox_not_running"
-        logger.warning("create_resume_snapshot_sandbox_not_running", sandbox_id=input.sandbox_id, run_id=input.run_id)
+        logger.warning(
+            "create_resume_snapshot_sandbox_not_running",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
+        )
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-        return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error="Sandbox not running")
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not running")
+        return CreateResumeSnapshotOutput(
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error="Sandbox not running",
+            duration_ms=duration_ms,
+        )
 
     outcome = "created"
     try:
@@ -96,12 +133,27 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         # Modal caps snapshots at 1M files and a directory snapshot of the workspace can exceed it
         # once install trees and caches pile up. Only the directory snapshot has a mount path to
         # shrink; a full filesystem snapshot does not, so it degrades to a fresh start.
-        if snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+        if snapshot_kind != SNAPSHOT_KIND_DIRECTORY or not input.allow_pruning:
             outcome = "file_limit_exceeded"
-            logger.warning("create_resume_snapshot_file_limit_exceeded", sandbox_id=input.sandbox_id, error=str(e))
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.warning(
+                "create_resume_snapshot_file_limit_exceeded",
+                sandbox_id=input.sandbox_id,
+                run_id=input.run_id,
+                reason=input.reason,
+                snapshot_kind=snapshot_kind,
+                duration_ms=duration_ms,
+                error=str(e),
+            )
             increment_snapshot_create(snapshot_kind, outcome)
-            record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-            return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
+            record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+            emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): file limit exceeded")
+            return CreateResumeSnapshotOutput(
+                external_id=None,
+                snapshot_kind=snapshot_kind,
+                error=str(e),
+                duration_ms=duration_ms,
+            )
 
         # Prune the reproducible trees (node_modules, virtualenvs, caches) in the live sandbox,
         # then let Temporal retry the whole activity: the next attempt snapshots the now-smaller
@@ -111,14 +163,19 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         # the cap, retries exhaust and both callers treat the failed snapshot as non-fatal (the run
         # starts fresh). The resume sandbox reinstalls the pruned trees, so this costs a reinstall.
         outcome = "file_limit_exceeded_pruned"
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning(
             "create_resume_snapshot_file_limit_exceeded_pruning",
             sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
             error=str(e),
         )
         sandbox.prune_snapshot_heavy_dirs(snapshot_mount_path)
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
         # capture=False: the original SnapshotFileLimitExceededError already carried the signal;
         # this transient wrapper only drives the Temporal retry.
         raise SnapshotTimeoutError(
@@ -129,31 +186,61 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         )
     except SnapshotTimeoutError as e:
         outcome = "transient_error"
-        logger.warning("create_resume_snapshot_transient_error", sandbox_id=input.sandbox_id, error=str(e))
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning(
+            "create_resume_snapshot_transient_error",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
+            error=str(e),
+        )
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
         raise
     except SandboxNotRunningError as e:
         outcome = "sandbox_not_running"
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning(
             "create_resume_snapshot_sandbox_not_running",
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
             error=str(e),
         )
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-        return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): sandbox not running")
+        return CreateResumeSnapshotOutput(
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error=str(e),
+            duration_ms=duration_ms,
+        )
     except Exception as e:
         outcome = "failed"
-        logger.warning("create_resume_snapshot_snapshot_failed", sandbox_id=input.sandbox_id, error=str(e))
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning(
+            "create_resume_snapshot_snapshot_failed",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            duration_ms=duration_ms,
+            error=str(e),
+        )
         increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-        return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
-    else:
-        increment_snapshot_create(snapshot_kind, outcome)
-        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
-
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): {e}")
+        return CreateResumeSnapshotOutput(
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error=str(e),
+            duration_ms=duration_ms,
+        )
     # Persist snapshot external ID on TaskRun state
     try:
         updates = {
@@ -167,11 +254,46 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             remove_keys.append("snapshot_mount_path")
         TaskRun.update_state_atomic(input.run_id, updates=updates, remove_keys=remove_keys)
     except Exception as e:
-        logger.warning("create_resume_snapshot_persist_failed", run_id=input.run_id, error=str(e))
+        outcome = "persist_failed"
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning(
+            "create_resume_snapshot_persist_failed",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            reason=input.reason,
+            snapshot_kind=snapshot_kind,
+            snapshot_external_id=external_id,
+            duration_ms=duration_ms,
+            error=str(e),
+        )
+        increment_snapshot_create(snapshot_kind, outcome)
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): state could not be saved")
+        return CreateResumeSnapshotOutput(
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error=f"Snapshot state could not be saved: {e}",
+            duration_ms=duration_ms,
+        )
 
-    activity.logger.info(f"Created resume snapshot {external_id} for sandbox {input.sandbox_id}")
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    increment_snapshot_create(snapshot_kind, outcome)
+    record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
+
+    logger.info(
+        "create_resume_snapshot_created",
+        sandbox_id=input.sandbox_id,
+        run_id=input.run_id,
+        reason=input.reason,
+        snapshot_kind=snapshot_kind,
+        snapshot_external_id=external_id,
+        snapshot_mount_path=snapshot_mount_path if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+        duration_ms=duration_ms,
+    )
+    emit_agent_log(input.run_id, "debug", f"Resume snapshot created ({input.reason}): {external_id}")
     return CreateResumeSnapshotOutput(
         external_id=external_id,
         snapshot_kind=snapshot_kind,
         snapshot_mount_path=snapshot_mount_path if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+        duration_ms=duration_ms,
     )

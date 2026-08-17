@@ -1322,11 +1322,23 @@ class ExternalDataSourceType(models.TextChoices):
     SNOVIO = "Snovio", "Snovio"
     GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
     RAISELY = "Raisely", "Raisely"
+    RAKUTENADVERTISING = "RakutenAdvertising", "RakutenAdvertising"
+    ZITADEL = "Zitadel", "Zitadel"
+    DEELFLOWS = "DeelFlows", "DeelFlows"
     WINDSORAI = "WindsorAi", "WindsorAi"
     WIX = "Wix", "Wix"
     SEVALLA = "Sevalla", "Sevalla"
     MOTION = "Motion", "Motion"
     IMPACTPARTNER = "ImpactPartner", "ImpactPartner"
+    CLOUDINARY = "Cloudinary", "Cloudinary"
+    UPLOADCARE = "Uploadcare", "Uploadcare"
+    WHMCS = "WHMCS", "WHMCS"
+    MSG91 = "MSG91", "MSG91"
+    DEPOT = "Depot", "Depot"
+    SCHEMATIC = "Schematic", "Schematic"
+    DOKPLOY = "Dokploy", "Dokploy"
+    HOOTSUITE = "Hootsuite", "Hootsuite"
+    WISPRFLOW = "WisprFlow", "WisprFlow"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1339,6 +1351,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.REDSHIFT: "redshift",
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
+    ExternalDataSourceType.MOTHERDUCK: "motherduck",
 }
 
 

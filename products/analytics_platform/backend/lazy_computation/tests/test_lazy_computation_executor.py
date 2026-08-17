@@ -36,9 +36,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     PREAGGREGATION_INSERT_QUORUM,
     PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
     LazyComputationExecutor,
+    LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
-    QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
@@ -106,8 +106,8 @@ class TestComputeQueryHash(BaseTest):
         s2 = parse_select(q2)
         assert isinstance(s1, ast.SelectQuery)
         assert isinstance(s2, ast.SelectQuery)
-        query_info1 = QueryInfo(query=s1, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
-        query_info2 = QueryInfo(query=s2, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
+        query_info1 = LazyComputationQuery(query=s1, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t1)
+        query_info2 = LazyComputationQuery(query=s2, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone=t2)
 
         hash1 = compute_query_hash(query_info1)
         hash2 = compute_query_hash(query_info2)
@@ -486,7 +486,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         result = LazyComputationExecutor().execute(
             team=self.team,
@@ -518,7 +520,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         # First: run for Jan 1-2
         first_result = LazyComputationExecutor().execute(
@@ -563,7 +567,9 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         self._create_pageview_events()
 
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         # First: Create job for Jan 2 only
         jan2_result = LazyComputationExecutor().execute(
@@ -1432,7 +1438,9 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         executor = LazyComputationExecutor(wait_timeout_seconds=2.0, poll_interval_seconds=0.05)
@@ -1495,7 +1503,9 @@ class TestRaceConditionHandling(BaseTest):
         rather than a correctness bug.
         """
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         range_a_start = datetime(2024, 1, 1, tzinfo=UTC)
@@ -1568,7 +1578,9 @@ class TestRaceConditionHandling(BaseTest):
 
     def test_unique_constraint_prevents_duplicate_pending_jobs(self):
         query = self._make_computation_query()
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
         query_hash = compute_query_hash(query_info)
 
         # Create a PENDING job directly
@@ -1594,7 +1606,7 @@ class TestRaceConditionHandling(BaseTest):
 
 
 class TestComputationExecutorExecute(BaseTest):
-    def _make_query_info(self) -> tuple[QueryInfo, str]:
+    def _make_query_info(self) -> tuple[LazyComputationQuery, str]:
         s = parse_select(
             """
             SELECT
@@ -1607,7 +1619,7 @@ class TestComputationExecutorExecute(BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        qi = QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        qi = LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
 
     # --- Happy path ---
@@ -2672,7 +2684,9 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = LazyComputationQuery(
+                query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+            )
 
             executor = LazyComputationExecutor()
             result = executor.execute(
@@ -2694,7 +2708,9 @@ class TestPubsubAndStaleDetection(BaseTest):
                 "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
             )
             assert isinstance(query, ast.SelectQuery)
-            query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            query_info = LazyComputationQuery(
+                query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+            )
 
             executor = LazyComputationExecutor(max_retries=0)
             result = executor.execute(
@@ -2735,12 +2751,12 @@ class TestJobLifecycleCounters(BaseTest):
 
     TABLE = LazyComputationTable.PREAGGREGATION_RESULTS
 
-    def _query_info(self) -> QueryInfo:
+    def _query_info(self) -> LazyComputationQuery:
         query = parse_select(
             "SELECT toStartOfDay(timestamp) as a, [] as b, uniqExactState(person_id) as c FROM events GROUP BY a"
         )
         assert isinstance(query, ast.SelectQuery)
-        return QueryInfo(query=query, table=self.TABLE, timezone="UTC")
+        return LazyComputationQuery(query=query, table=self.TABLE, timezone="UTC")
 
     @staticmethod
     def _delta(metric, labels: dict[str, str], before: float) -> float:
@@ -3092,7 +3108,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+        query_info = LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
 
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
@@ -3123,7 +3139,7 @@ class TestInsertsReportRowsWritten(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-    def _query_info(self) -> QueryInfo:
+    def _query_info(self) -> LazyComputationQuery:
         query = parse_select(
             self.INSERT_QUERY,
             placeholders={
@@ -3132,7 +3148,7 @@ class TestInsertsReportRowsWritten(BaseTest):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        return QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+        return LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
 
     @parameterized.expand([("productive", 42, 42), ("empty_passthrough", [], 0), ("empty_none", None, 0)])
     def test_ast_insert_returns_rows_written(self, _name, sync_execute_result, expected):
@@ -3194,7 +3210,7 @@ class TestMaxWindowDaysCap(BaseTest):
 
 
 class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
-    def _query_info(self) -> QueryInfo:
+    def _query_info(self) -> LazyComputationQuery:
         s = parse_select(
             """
             SELECT toStartOfDay(timestamp) as time_window_start, [] as breakdown_value,
@@ -3203,7 +3219,7 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
             """
         )
         assert isinstance(s, ast.SelectQuery)
-        return QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        return LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
 
     def test_surfaces_memory_exceeded_on_oom(self):
         def oom_insert(_t, _j) -> None:
@@ -3280,7 +3296,9 @@ class TestCheckOnlyMode(BaseTest):
     def _execute(self, start: datetime, end: datetime) -> LazyComputationResult:
         query = parse_select("SELECT 1")
         assert isinstance(query, ast.SelectQuery)
-        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
 
         def forbidden_insert(team, job):
             raise AssertionError("check-only mode must never run inserts")
@@ -3299,7 +3317,7 @@ class TestCheckOnlyMode(BaseTest):
         return PreaggregationJob.objects.create(
             team=self.team,
             query_hash=compute_query_hash(
-                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+                LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
             ),
             time_range_start=start,
             time_range_end=end,

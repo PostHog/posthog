@@ -18,7 +18,7 @@ import {
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
 import { IdentityProviderConfigApi } from '~/generated/core/api.schemas'
-import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs } from '~/types'
+import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, UserType } from '~/types'
 
 /**
  * Resolve the `IdentityProviderConfig` id that backs a domain, creating and linking an empty
@@ -138,6 +138,7 @@ export interface verifiedDomainsLogicValues {
     isSamlConfigSubmitting: boolean
     isSamlConfigValid: boolean
     isXAAAuthenticationAvailable: boolean
+    ownVerifiedDomain: OrganizationDomainType | null
     samlConfig: Partial<
         Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> & {
             id: string
@@ -602,6 +603,10 @@ export interface verifiedDomainsLogicMeta {
             verifiedDomains: OrganizationDomainType[],
             verifyModal: string | null
         ) => OrganizationDomainType | null
+        ownVerifiedDomain: (
+            verifiedDomains: OrganizationDomainType[],
+            user: UserType | null
+        ) => OrganizationDomainType | null
         isSSOEnforcementAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
@@ -937,6 +942,18 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             (s) => [s.verifiedDomains, s.verifyModal],
             (verifiedDomains: OrganizationDomainType[], verifyingId: string | null): OrganizationDomainType | null =>
                 (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
+        ],
+        ownVerifiedDomain: [
+            (s) => [s.verifiedDomains, userLogic.selectors.user],
+            (verifiedDomains: OrganizationDomainType[], user: UserType | null): OrganizationDomainType | null => {
+                // Domains are unique across organizations, so at most one can admit the user's email.
+                const emailDomain = user?.email.split('@')[1]?.toLowerCase()
+                return (
+                    verifiedDomains.find(
+                        (domain) => domain.is_verified && domain.domain.toLowerCase() === emailDomain
+                    ) ?? null
+                )
+            },
         ],
         isSSOEnforcementAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],

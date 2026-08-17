@@ -427,9 +427,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             filters.append(self.runner._group_actor_filter())
         filters.extend(self._cohort_breakdown_filters())
 
+        if self.is_first_ever_occurrence and self._return_names_within_start_names():
+            # The return branch's rows are a subset of the start branch's, so OR-ing the
+            # window-bounded return branch in admits nothing new. The start branch alone is the
+            # whole filter, which is exactly the flat name filter the legacy shape scans with.
+            filters.append(start_branch)
+            return filters
+
         return_branch = self._first_time_role_branch(self.return_event, "return") or self.events_timestamp_filter()
         filters.append(ast.Or(exprs=[start_branch, return_branch]))
         return filters
+
+    def _return_names_within_start_names(self) -> bool:
+        start_names = self.runner.get_events_for_entity(self.start_event)
+        return_names = self.runner.get_events_for_entity(self.return_event)
+        if None in start_names or None in return_names:
+            return False
+        return set(return_names) <= set(start_names)
 
     def _first_time_role_branch(
         self, entity: RetentionEntity, query_kind: Literal["start", "return"]
@@ -441,9 +455,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         event_name_filter = self.runner.event_name_filter([entity])
         if event_name_filter is not None:
             exprs.append(event_name_filter)
-        predicate = self._arm_scan_predicate(entity, query_kind)
-        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
-            exprs.append(predicate)
+        # First-ever branches filter by event name only. Every aggregate condition re-checks the
+        # full entity matcher anyway, and ClickHouse does not share expression results between the
+        # WHERE stage and the aggregation stage, so a property or action-step matcher here is
+        # evaluated per row a second time. That costs far more CPU than the rows it removes save,
+        # while the names and the window bound already carry all the granule pruning the branch
+        # provides. The legacy first-ever shape scans with just the name filter for the same
+        # reason. First-time-matching keeps the full matcher because the legacy shape filters on
+        # it per row too, so it is cost parity there.
+        if not self.is_first_ever_occurrence:
+            predicate = self._arm_scan_predicate(entity, query_kind)
+            if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+                exprs.append(predicate)
         if not exprs:
             return None
         if query_kind == "return":

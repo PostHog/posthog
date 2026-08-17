@@ -24,7 +24,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
-    const isLoading = loading || dashboardLoading
+    const isLoading = !dashboard && (loading || dashboardLoading)
 
     if (!dashboard && !isLoading) {
         return null
