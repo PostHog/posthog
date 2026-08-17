@@ -556,7 +556,7 @@ fn build_kafka_event(
 
     // Create metadata
     let metadata = ProcessedEventMetadata {
-        data_type: DataType::AnalyticsMain,
+        data_type: DataType::AiEvents,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,

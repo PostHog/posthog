@@ -45,17 +45,19 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (`$ai_*` events diverted by `CaptureMode::routes_ai_events`), so its
-    /// restriction service must serve restrictions for all three pipelines.
-    /// `Import` is an events deployment restricted to backfills, so it serves
-    /// the same three. Other deployments serve their single pipeline.
+    /// (`$ai_*` events), so its restriction service must serve restrictions
+    /// for all three pipelines. `Import` is an events deployment restricted to
+    /// backfills, so it serves the same three, and so does `Ai`: its batch
+    /// route accepts any event name, so an event that isn't `$ai_*` lands on
+    /// the analytics or errortracking lane there just as it would anywhere
+    /// else. Serving fewer would leave those lookups matching an unloaded
+    /// slice, which returns an empty `RestrictionSet` — silently unrestricted.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events | CaptureMode::Import => {
+            CaptureMode::Events | CaptureMode::Import | CaptureMode::Ai => {
                 vec![Self::Analytics, Self::ErrorTracking, Self::Ai]
             }
             CaptureMode::Recordings => vec![Self::SessionRecordings],
-            CaptureMode::Ai => vec![Self::Ai],
         }
     }
 }
@@ -398,9 +400,12 @@ mod tests {
             Pipeline::for_capture_mode(CaptureMode::Recordings),
             vec![Pipeline::SessionRecordings]
         );
+        // Ai serves the same set: its batch route accepts any event name, so a
+        // non-$ai_* event lands on the analytics lane there and must be
+        // governed rather than matching an unloaded, always-empty slice.
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Ai),
-            vec![Pipeline::Ai]
+            Pipeline::for_capture_mode(CaptureMode::Events)
         );
     }
 
