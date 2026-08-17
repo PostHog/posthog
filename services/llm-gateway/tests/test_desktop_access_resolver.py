@@ -21,7 +21,6 @@ def _make_response(status_code: int, payload: dict[str, object] | None = None) -
         status_code,
         content=content,
         headers={"content-type": "application/json"},
-        # raise_for_status() needs the originating request attached, as a real one has.
         request=httpx.Request("GET", "https://us.posthog.com/api/code/invites/check-access/"),
     )
 
@@ -53,7 +52,6 @@ class _FakeRedis:
 
 
 def _make_resolver(redis: _FakeRedis | None, http_client: MagicMock) -> DesktopAccessResolver:
-    # _FakeRedis is a structural stand-in for the real client the constructor asks for.
     return DesktopAccessResolver(cast("Redis[bytes] | None", redis), http_client)
 
 
@@ -84,7 +82,6 @@ class TestDesktopAccessResolver:
 
     @pytest.mark.asyncio
     async def test_transport_error_is_unknown_not_denied(self) -> None:
-        # An outage must not read as "unentitled" — the caller fails open on None.
         resolver = _make_resolver(_FakeRedis(), _make_http_client(httpx.ConnectError("boom")))
         assert await resolver.has_access(7, "Bearer tok") is None
 
@@ -96,22 +93,17 @@ class TestDesktopAccessResolver:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status_code", [400, 401, 403, 429])
     async def test_caller_attributable_rejection_is_denied(self, status_code: int) -> None:
-        # Failing open on a 4xx is a bypass: an unentitled caller can draw a 401 with a
-        # malformed credential, or a 429 by exhausting their own throttle on this endpoint.
         resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(status_code)))
         assert await resolver.has_access(7, "Bearer tok") is False
 
     @pytest.mark.asyncio
     async def test_missing_route_is_unknown_not_denied(self) -> None:
-        # Deploy skew would otherwise lock out every entitled user at once.
         resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(404)))
         assert await resolver.has_access(7, "Bearer tok") is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("header", ["bearer tok", "BEARER  tok ", "Bearer tok"])
     async def test_bearer_scheme_is_canonicalized(self, header: str) -> None:
-        # The gateway matches the scheme case-insensitively but Django does not, so
-        # forwarding verbatim would let `bearer tok` draw a 401 and fail open.
         http = _make_http_client(_make_response(200, {"has_access": True}))
         resolver = _make_resolver(None, http)
 
@@ -146,7 +138,6 @@ class TestDesktopAccessResolver:
 
         assert redis.ttls[_redis_key(7)] == settings.desktop_access_cache_ttl
         assert redis.ttls[_redis_key(8)] == settings.desktop_access_denied_cache_ttl
-        # A newly invited user shouldn't sit behind a long denial.
         assert settings.desktop_access_denied_cache_ttl < settings.desktop_access_cache_ttl
 
     @pytest.mark.asyncio

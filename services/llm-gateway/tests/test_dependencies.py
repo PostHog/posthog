@@ -538,9 +538,6 @@ class TestServerCredentialRequirementWiring:
 
 
 class TestDesktopAccessGate:
-    """posthog_code is reachable with any consented PostHog Desktop OAuth token, so the
-    beta entitlement has to be checked here rather than inferred from the application id."""
-
     def _oauth_user(self, scopes: list[str] | None = None) -> AuthenticatedUser:
         return AuthenticatedUser(
             user_id=7,
@@ -580,7 +577,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_unknown_entitlement_fails_open(self) -> None:
-        # A Django outage must not take PostHog Desktop down for every entitled user.
         get_settings.cache_clear()
         try:
             user = self._oauth_user()
@@ -590,8 +586,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_server_minted_token_exempt(self) -> None:
-        # Sandbox runs already passed Django's own code_access_required_response gate,
-        # including the deliberate Inbox exemptions that work without the flag.
         get_settings.cache_clear()
         try:
             request = self._request(False)
@@ -603,8 +597,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_alias_path_is_gated(self) -> None:
-        # /array/ and /twig/ resolve to posthog_code; gating only the literal name
-        # would leave the aliases wide open.
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:

@@ -263,13 +263,13 @@ Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `sl
 
 `posthog_code` additionally requires a PostHog Desktop entitlement. The OAuth application
 allowlist only proves the token was issued to the Desktop app, which any user can obtain via the
-consent flow — so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
+consent flow, so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
 `has_tasks_access`: the `tasks` flag or a redeemed invite) and rejects with
 `403 code_access_required`. Server-minted sandbox tokens (carrying `internal_run:read`) are
 exempt, since their run already passed Django's own gate.
 
-The check fails open only on states a caller cannot induce — a 5xx, a transport error, or a
-missing route — so a Django outage or a rollout doesn't lock out entitled users. A 4xx is a
+The check fails open only on states a caller cannot induce (a 5xx, a transport error, or a
+missing route), so a Django outage or a rollout doesn't lock out entitled users. A 4xx is a
 denial, because a caller can otherwise manufacture one (a malformed credential draws a 401, and
 this endpoint's per-user throttle can be exhausted for a 429) and fail open through it.
 `DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.

@@ -165,17 +165,6 @@ async def enforce_product_access(
 
 
 async def enforce_desktop_access(request: Request, user: AuthenticatedUser, product: str) -> None:
-    """Deny posthog_code to OAuth callers who aren't entitled to PostHog Desktop.
-
-    ``check_product_access`` only proves the token was issued to the PostHog Desktop OAuth
-    application, which any signed-up user can obtain by completing the consent flow — it
-    says nothing about beta membership. The entitlement itself (the `tasks` flag or a
-    redeemed invite) lives in Django, so ask Django rather than reimplementing it here.
-
-    Server-minted sandbox tokens are exempt: the run that minted one already passed
-    Django's own ``code_access_required_response`` gate, including the deliberate Inbox
-    exemptions (``task_exempt_from_code_access``) that must keep working without the flag.
-    """
     settings = get_settings()
     if not settings.desktop_access_gate_enabled or settings.debug:
         return
@@ -183,6 +172,7 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
         return
     if user.auth_method != "oauth_access_token":
         return
+    # Sandbox tokens already passed Django's code_access_required gate.
     if INTERNAL_RUN_SCOPE in (user.scopes or []):
         return
 
@@ -190,7 +180,6 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
     allowed = await resolver.has_access(user.user_id, upstream_auth_header(request)) if resolver else None
 
     if allowed is None:
-        # Unknown, not denied — see DesktopAccessResolver.has_access.
         logger.warning("desktop_access_check_unavailable", user_id=user.user_id, team_id=user.team_id)
         return
     if allowed:

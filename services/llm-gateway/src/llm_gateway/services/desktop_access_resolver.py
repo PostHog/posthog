@@ -1,14 +1,3 @@
-"""Resolves whether a user is entitled to PostHog Desktop.
-
-Calls ``GET /api/code/invites/check-access/`` on the PostHog API, forwarding the
-user's auth token. Django answers from ``has_tasks_access`` — the `tasks` feature
-flag or a redeemed invite — so the gateway never has to reimplement (or drift
-from) that rule, and never needs a read grant on the redemption table.
-
-Mirrors :mod:`llm_gateway.services.plan_resolver`: same auth forwarding, same
-Redis caching shape.
-"""
-
 from __future__ import annotations
 
 import json
@@ -33,12 +22,7 @@ def _redis_key(user_id: int) -> str:
 
 
 def _canonical_bearer(auth_header: str) -> str:
-    """Re-emit the caller's token as a literal ``Bearer <token>``.
-
-    The gateway matches the scheme case-insensitively; Django does not. Forwarding the
-    header verbatim lets a caller send ``bearer <token>``, draw a 401 from Django, and
-    turn a denial into an "unknown" that fails open.
-    """
+    # Django matches the Bearer scheme case-sensitively; the gateway does not.
     match = BEARER_PATTERN.match(auth_header.strip())
     if not match:
         return auth_header
@@ -64,17 +48,6 @@ class DesktopAccessResolver:
             logger.debug("desktop_access_cache_invalidate_failed", user_id=user_id)
 
     async def has_access(self, user_id: int, auth_header: str) -> bool | None:
-        """True/False when Django answered, None when the answer is unavailable.
-
-        None is distinct from False on purpose: the caller fails open on it, so a
-        Django or network outage degrades to today's behaviour rather than taking
-        PostHog Desktop down for every entitled user.
-
-        Because failing open is a bypass whenever the caller can force it, "unavailable"
-        is limited to states a caller cannot induce: a 5xx, a transport error, or a
-        missing route. Anything the caller is responsible for — a rejected credential,
-        an exhausted per-user throttle — is a denial. See :meth:`_fetch_access`.
-        """
         if not auth_header:
             return None
 
@@ -112,8 +85,6 @@ class DesktopAccessResolver:
         if not self._redis:
             return
         settings = get_settings()
-        # A revoked entitlement should stop spend quickly, while a granted one is
-        # cheap to hold; a freshly invited user is unblocked by the shorter miss TTL.
         ttl = settings.desktop_access_cache_ttl if has_access else settings.desktop_access_denied_cache_ttl
         try:
             await self._redis.set(_redis_key(user_id), json.dumps({"has_access": has_access}), ex=ttl)
@@ -121,12 +92,6 @@ class DesktopAccessResolver:
             logger.debug("desktop_access_cache_write_failed", user_id=user_id)
 
     async def _fetch_access(self, auth_header: str) -> bool | None:
-        """Ask Django whether this user may use PostHog Desktop.
-
-        Raises on transient HTTP failures so the caller can skip caching. Returns
-        None when the check cannot be made at all (no API URL configured), which
-        the caller treats as "unknown" rather than "denied".
-        """
         settings = get_settings()
         if not settings.posthog_api_base_url:
             return None
@@ -139,14 +104,11 @@ class DesktopAccessResolver:
         )
 
         if resp.status_code == 404:
-            # A missing route is deploy skew, not a verdict on this user. Denying here would
-            # lock every Desktop user out mid-rollout, and a caller can't induce it.
+            # Deploy skew, not a verdict on the user.
             logger.warning("desktop_access_check_route_missing")
             return None
         if 400 <= resp.status_code < 500:
-            # The caller is the reason for a 4xx, so treat it as a denial. Failing open here
-            # would be bypassable: an unentitled caller can draw a 401 with a malformed
-            # credential, or a 429 by exhausting their own per-user throttle on this endpoint.
+            # A caller can induce a 4xx (bad credential, own throttle), so failing open here would be a bypass.
             logger.warning("desktop_access_check_rejected", status_code=resp.status_code)
             return False
         resp.raise_for_status()
