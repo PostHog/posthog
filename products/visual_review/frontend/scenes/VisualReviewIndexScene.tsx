@@ -1,10 +1,8 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useActions, useValues } from 'kea'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -18,27 +16,22 @@ export const scene: SceneExport = {
     productKey: ProductKey.VISUAL_REVIEW,
 }
 
-// /visual_review is a pure forwarder: with a repo connected it goes to that repo's
-// Runs page (the in-header repo switcher covers multi-repo), and with none it goes
-// to Settings, where connecting a repo is the only meaningful action.
+// /visual_review is a pure forwarder, so this renders only while the repo list is in flight,
+// or when it failed and there is nothing to forward to. The forward itself lives in the logic.
 export function VisualReviewIndexScene(): JSX.Element {
-    const { repos, reposLoading } = useValues(visualReviewIndexSceneLogic)
-
-    useEffect(() => {
-        if (reposLoading) {
-            return
-        }
-        if (repos.length >= 1) {
-            router.actions.replace(urls.visualReviewRepoRuns(repos[0].id))
-        } else {
-            router.actions.replace(urls.visualReviewSettings())
-        }
-    }, [reposLoading, repos])
+    const { reposLoadFailed } = useValues(visualReviewIndexSceneLogic)
+    const { loadRepos } = useActions(visualReviewIndexSceneLogic)
 
     return (
         <SceneContent>
             <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-            <LemonSkeleton className="h-32 w-full max-w-2xl" />
+            {reposLoadFailed ? (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadRepos }} className="max-w-2xl">
+                    Couldn't load your connected repos.
+                </LemonBanner>
+            ) : (
+                <LemonSkeleton className="h-32 w-full max-w-2xl" />
+            )}
         </SceneContent>
     )
 }

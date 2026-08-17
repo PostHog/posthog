@@ -31,7 +31,8 @@ export const productToursEmptyState: SceneProductEmptyState = {
         },
         primaryAction: {
             label: 'Create your first tour',
-            onClick: () => productToursSetupLogic.findMounted()?.actions.createFirstTour(),
+            onClick: () => productToursSetupLogic.findMounted()?.actions.createTour('My first tour'),
+            dataAttr: 'new-product-tour',
         },
         skippable: false,
         docsUrl: 'https://posthog.com/docs/product-tours',

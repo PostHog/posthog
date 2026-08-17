@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/le
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { cn } from 'lib/utils/css-classes'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -84,6 +85,7 @@ function SearchResults({
 
 export function UserInterviews(): JSX.Element {
     const { topics, topicsLoading, searchQuery, searchResults, searchResultsLoading } = useValues(userInterviewsLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
     const { setSearchQuery } = useActions(userInterviewsLogic)
     const hasSearch = searchQuery.trim().length > 0
 
@@ -92,6 +94,9 @@ export function UserInterviews(): JSX.Element {
         context: {},
         initialMaxPrompt: NEW_TOPIC_PROMPT,
         suggestions: NEW_TOPIC_SUGGESTIONS,
+        // `openMax` is null only when the tool is inactive, so the button's disabledReason
+        // needs this to fire on an instance without PostHog AI.
+        active: isMaxAvailable,
     })
 
     return (
