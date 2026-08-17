@@ -536,6 +536,26 @@ class TestOauthIntegrationModel(BaseTest):
                 )
 
     @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_oauth_without_advertiser_accounts_raises_validation_error(self, mock_post):
+        # TikTok completes OAuth even when the user granted no advertiser account, leaving
+        # `advertiser_ids` empty. That must surface as a ValidationError (→ 400 with an actionable
+        # message) rather than the bare Exception (→ 500) the missing-id guard would otherwise raise.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "code": 0,
+                "data": {"access_token": "FAKE_ACCESS_TOKEN", "advertiser_ids": []},
+            }
+
+            with pytest.raises(ValidationError, match="ad accounts"):
+                OauthIntegration.integration_from_oauth_response(
+                    "tiktok-ads",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+    @patch("posthog.models.integration.requests.post")
     @patch("posthog.models.integration.requests.get")
     def test_integration_fetches_info_from_token_info_url(self, mock_get, mock_post):
         with self.settings(**self.mock_settings):

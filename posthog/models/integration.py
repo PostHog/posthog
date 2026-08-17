@@ -1713,6 +1713,15 @@ class OauthIntegration:
             # token to cover these scopes before it will wield the connection's grant.
             config["granted_scopes"] = sorted({s for s in (config.get("scope") or "").split() if ":" in s})
 
+        # TikTok can complete OAuth without the user granting any advertiser account, leaving
+        # `advertiser_ids` empty. Surface an actionable reconnect message rather than the generic
+        # "failed to extract integration ID" 500 the guard below would otherwise raise.
+        if kind == "tiktok-ads" and isinstance(integration_id, list) and len(integration_id) == 0:
+            raise ValidationError(
+                "No TikTok ad accounts were authorized. In TikTok, grant access to at least one "
+                "advertiser account, then reconnect."
+            )
+
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
         elif isinstance(integration_id, list) and len(integration_id) > 0:
