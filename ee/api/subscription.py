@@ -105,6 +105,12 @@ def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight 
         raise ValidationError({field: [f"Viewer access to this {field} is required."]})
 
 
+def _viewable_queryset(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
+    # include_all_if_admin mirrors check_access_level_for_object, which org admins bypass outright —
+    # without it an admin could save a subscription the read side then hides from them.
+    return user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+
+
 def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
@@ -943,29 +949,36 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
-    """Match only subscriptions whose insight/dashboard target the caller can view.
+    """Match only subscriptions whose rendered target the caller can view.
 
     `subscription` isn't an access-control resource, so without this a restricted insight or dashboard
     leaks its name and rendered results through the subscription routes. Applied to the viewset
     queryset it covers list, retrieve, update, and delete, since get_object() resolves detail routes
-    from it. AI prompt subscriptions have no insight or dashboard; they're gated on query access.
+    from it. A dashboard subscription also requires every selected export insight to be viewable —
+    each one is rendered and delivered on its own, and can be restricted after the subscription was
+    saved. AI prompt subscriptions have no insight or dashboard; they're gated on query access.
     """
     if not user_access_control.access_controls_supported:
         # No entitlement means no rules to enforce, and the filter below would resolve to a no-op
-        # anyway — return early so every list request doesn't carry two pointless subqueries.
+        # anyway — return early so every list request doesn't carry pointless subqueries.
         return Q()
 
-    # include_all_if_admin mirrors check_access_level_for_object, which org admins bypass outright —
-    # without it an admin could save a subscription the read side then hides from them.
-    viewable_insights = user_access_control.filter_queryset_by_access_level(
-        Insight.objects.filter(team_id=team_id), include_all_if_admin=True
+    # The soft-delete-excluding default managers would silently widen the deny set to every
+    # subscription on a soft-deleted target, hiding it from its owner and admins alike; access
+    # control rows are keyed on resource_id and don't care about the deleted flag.
+    team_insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
+    viewable_insights = _viewable_queryset(user_access_control, team_insights)
+    viewable_dashboards = _viewable_queryset(
+        user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
     )
-    viewable_dashboards = user_access_control.filter_queryset_by_access_level(
-        Dashboard.objects.filter(team_id=team_id), include_all_if_admin=True
-    )
+    blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id"))
     return (
         Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
-        | Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
+        | (
+            Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
+            # Negated M2M: matches subscriptions with no export insight in the blocked set.
+            & ~Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights.values("id")})
+        )
         | Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
     )
 

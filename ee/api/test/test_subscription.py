@@ -3270,6 +3270,62 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
+    def test_export_insight_restricted_after_creation_hides_the_subscription(self, mock_sync):
+        # The selection is validated at save time, but an insight can be restricted afterwards, and a
+        # viewable dashboard doesn't cover it — its rendered results would keep leaking through the
+        # subscription and its deliveries.
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        DashboardTile.objects.create(dashboard=dashboard, insight=exported)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.set([exported])
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-export",
+            idempotency_key="export-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": exported.id, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+        )
+        # Visible while the export insight is open — restricting it is what must hide the row below.
+        before = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in before.json()["results"]] == [subscription.id]
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(exported.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["results"] == []
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert deliveries.json()["results"] == []
+
+    def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync):
+        # Soft-deleting an insight must not hide its subscription: the owner still needs to see the
+        # row and turn it off. The access gate is about restriction, not deletion.
+        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(insight=insight)
+        insight.deleted = True
+        insight.save(update_fields=["deleted"])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id in [row["id"] for row in listed.json()["results"]]
+
+        deleted = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
+        assert deleted.status_code == status.HTTP_200_OK, deleted.json()
+
     def test_org_admin_still_sees_subscription_on_a_private_insight(self, mock_sync):
         # Org admins bypass object-level access control when a subscription is saved, so the read side
         # has to let them through too — otherwise a save succeeds and the follow-up GET 404s.
