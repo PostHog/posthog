@@ -323,9 +323,6 @@ def apply_baa_signed_side_effects(document: LegalDocument) -> None:
         if organization.is_ai_data_processing_approved is not False:
             organization.is_ai_data_processing_approved = False
             updated_fields.append("is_ai_data_processing_approved")
-        # The replay ML mirror gates only on is_ai_training_opted_in, which defaults to True
-        # outside the EU and which is_hipaa does not affect, so a signed BAA otherwise leaves
-        # the organization's recordings eligible for training.
         if organization.is_ai_training_opted_in is not False:
             organization.is_ai_training_opted_in = False
             updated_fields.append("is_ai_training_opted_in")
