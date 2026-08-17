@@ -9,6 +9,12 @@ from pydantic import BaseModel, model_validator
 RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
 RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 
+# Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
+# activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
+# as the age at which it reports an export stuck, so the two can't drift and start calling a render
+# that is still legitimately working a failure.
+RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
+
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):
     """Input to the RasterizeRecordingWorkflow."""

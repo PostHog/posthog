@@ -54,8 +54,7 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
         logger.warning("rasterize.malformed_session_recording_id", asset_id=exported_asset_id)
         raise ValueError(f"ExportedAsset {exported_asset_id} has a malformed session_recording_id")
 
-    format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
-    output_format = format_map.get(asset.export_format, "mp4")
+    output_format = ExportedAsset.RASTERIZED_FORMATS.get(asset.export_format, "mp4")
 
     s3_key_prefix = f"{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/{output_format}/team-{asset.team_id}/task-{asset.id}"
 
