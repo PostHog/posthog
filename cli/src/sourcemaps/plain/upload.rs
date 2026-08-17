@@ -84,6 +84,12 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
 }
 
 pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
+    if args.conflict.skip_on_conflict_ignored(args.release_mode) {
+        warn!(
+            "--skip-on-conflict is ignored with --release-mode=event. Every chunk's content changes with each release, so skipping conflicts would leave the previous release id in place. Overwriting instead."
+        );
+    }
+
     let selection = FileSelection::try_from(args.file_selection.clone())?;
 
     let mut pairs = read_pairs(
@@ -165,13 +171,15 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ],
     );
 
+    let conflict = args.conflict.resolve(args.release_mode);
+
     let started_at = Instant::now();
     let (summary, upload_result) = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
-        args.conflict.force,
-        args.conflict.skip_on_conflict,
+        conflict.force,
+        conflict.skip_on_conflict,
         args.upload_concurrency.concurrency,
     );
     let duration_ms = started_at.elapsed().as_millis();
