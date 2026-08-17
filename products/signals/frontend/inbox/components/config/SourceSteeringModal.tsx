@@ -2,11 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { SourceSteeringModalLogicProps, sourceSteeringModalLogic } from '../../logics/sourceSteeringModalLogic'
+import {
+    SourceSteeringModalLogicProps,
+    sourceHasLegacyPosture,
+    sourceSteeringModalLogic,
+} from '../../logics/sourceSteeringModalLogic'
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig } from '../../types'
 
 export interface SourceSteeringModalProps {
@@ -74,6 +78,12 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                 enableFormOnSubmit
             >
                 <div className="flex flex-col gap-3">
+                    {sourceHasLegacyPosture(sourceConfig) && (
+                        <LemonBanner type="info">
+                            This source only reports records that clearly qualify. Saving here replaces that with what
+                            you write below.
+                        </LemonBanner>
+                    )}
                     <LemonField
                         name="steering"
                         help="Applies from the next sync. Nothing already in your inbox changes."

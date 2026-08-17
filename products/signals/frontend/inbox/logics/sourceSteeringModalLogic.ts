@@ -47,7 +47,18 @@ export interface SourceSteeringModalLogicProps {
 /** Whether the team has any steering set on a source, for the roster's add-vs-edit affordance. */
 export function sourceSteeringIsSet(config: SignalSourceConfig): boolean {
     const steering = config.config[SOURCE_STEERING_KEY]
-    return typeof steering === 'string' && steering.trim().length > 0
+    return (
+        (typeof steering === 'string' && steering.trim().length > 0) ||
+        config.config[SOURCE_DEFAULT_NOT_ACTIONABLE_KEY] === true
+    )
+}
+
+/**
+ * Whether a source still carries the retired posture flag. The gate keeps honoring it, so the
+ * modal says so rather than showing an empty field that implies nothing is filtering.
+ */
+export function sourceHasLegacyPosture(config: SignalSourceConfig): boolean {
+    return config.config[SOURCE_DEFAULT_NOT_ACTIONABLE_KEY] === true
 }
 
 // Type-checked reads: the config blob is an open object, so a non-string steering value

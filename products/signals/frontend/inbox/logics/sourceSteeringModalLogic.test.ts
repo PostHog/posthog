@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
-import { sourceSteeringModalLogic } from './sourceSteeringModalLogic'
+import { sourceHasLegacyPosture, sourceSteeringIsSet, sourceSteeringModalLogic } from './sourceSteeringModalLogic'
 
 const sourceConfig: SignalSourceConfig = {
     id: 'config-1',
@@ -115,6 +115,16 @@ describe('sourceSteeringModalLogic', () => {
         logic.mount()
 
         expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules' })
+    })
+
+    it('still counts the retired posture flag as steering, so a filtering source is never shown as unset', () => {
+        // The gate keeps honoring the flag, so a source carrying it alone must not read as
+        // "no guidance" — that would leave it filtering with nothing to see or clear.
+        const postureOnly = { ...sourceConfig, config: { default_not_actionable: true } }
+
+        expect(sourceSteeringIsSet(postureOnly)).toBe(true)
+        expect(sourceHasLegacyPosture(postureOnly)).toBe(true)
+        expect(sourceHasLegacyPosture({ ...sourceConfig, config: { steering: 'text only' } })).toBe(false)
     })
 
     it('appends an example on its own line, and marks it unfittable rather than crossing the cap', () => {

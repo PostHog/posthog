@@ -51,3 +51,8 @@ export const RulesSet: Story = {
         },
     },
 }
+
+/** A source still carrying the retired posture flag, which the gate keeps honoring. */
+export const LegacyPosture: Story = {
+    args: { config: { default_not_actionable: true } },
+}
