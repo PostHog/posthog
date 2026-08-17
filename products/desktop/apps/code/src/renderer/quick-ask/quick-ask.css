@@ -175,11 +175,11 @@ html body {
   cursor: default;
 }
 
+/* Pill-height circles so the controls read as part of the input row. */
 .qa-close,
 .qa-new {
-  width: 22px;
-  height: 22px;
-  margin-bottom: 12px;
+  width: 42px;
+  height: 42px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -197,7 +197,7 @@ html body {
 .qa-close:hover,
 .qa-new:hover {
   color: var(--qa-fg);
-  background: var(--qa-hover);
+  background: #2a2b33;
 }
 
 .qa-measure {

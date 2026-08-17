@@ -560,6 +560,18 @@ describe("QuickAskService", () => {
     expect(commandIndex).toBeLessThan(createIndex);
   });
 
+  it("exposes the thread's task id for open-in-app, cleared on reset", async () => {
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    expect(service.currentTaskId).toBeNull();
+    await collect(service);
+    expect(service.currentTaskId).toBe("task-1");
+    service.reset();
+    expect(service.currentTaskId).toBeNull();
+  });
+
   it("reset drops the session so the next ask creates a new task", async () => {
     const { service, fetchMock } = serviceWith({
       createTask: [taskResponse(), taskResponse("task-2", "run-2")],

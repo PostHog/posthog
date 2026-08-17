@@ -263,6 +263,11 @@ export class QuickAskService {
     this.controller = null;
   }
 
+  /** Task backing the current thread, for opening it in the app. */
+  get currentTaskId(): string | null {
+    return this.session?.taskId ?? null;
+  }
+
   private async context(): Promise<{
     apiHost: string;
     projectId: number;

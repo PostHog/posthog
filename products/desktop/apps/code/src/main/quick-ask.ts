@@ -1,5 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { TASK_LINK_SERVICE } from "@posthog/core/links/identifiers";
+import type { TaskLinkService } from "@posthog/core/links/task-link";
 import {
   QUICK_ASK_SERVICE,
   type QuickAskService,
@@ -438,6 +440,11 @@ export function setupQuickAsk(): void {
   });
   ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {
     hideQuickAsk();
+    // The thread is a task; land the main window on it.
+    const taskId = getQuickAskService().currentTaskId;
+    if (taskId) {
+      container.get<TaskLinkService>(TASK_LINK_SERVICE).openTask({ taskId });
+    }
     focusMainWindow("quick-ask-open-in-app");
     app.focus({ steal: true });
   });

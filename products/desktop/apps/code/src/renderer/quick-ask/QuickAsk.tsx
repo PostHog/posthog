@@ -331,8 +331,8 @@ export function QuickAsk(): React.JSX.Element {
             onClick={reset}
           >
             <svg
-              width="10"
-              height="10"
+              width="13"
+              height="13"
               viewBox="0 0 10 10"
               fill="none"
               stroke="currentColor"
@@ -352,8 +352,8 @@ export function QuickAsk(): React.JSX.Element {
           onClick={() => window.quickAsk?.hide()}
         >
           <svg
-            width="10"
-            height="10"
+            width="13"
+            height="13"
             viewBox="0 0 10 10"
             fill="none"
             stroke="currentColor"
