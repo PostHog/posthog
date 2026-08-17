@@ -175,7 +175,12 @@ def _stall_evidence(facts: RunFacts) -> str:
         return ""
 
     if facts.chunks_total == 0:
-        return "chunks planned but none exist"
+        # A run whose conditions plan no days legitimately stamps `chunks_planned_at` with zero
+        # chunks and waits for the completion sweep, so this only reads as stalled once that sweep
+        # has had time to run.
+        if facts.chunks_planned_at < cutoff:
+            return "chunks planned but none exist"
+        return ""
     if facts.chunks_unconfirmed and (facts.chunk_last_progress_at is None or facts.chunk_last_progress_at < cutoff):
         return f"{facts.chunks_unconfirmed} unconfirmed chunk(s) with no progress since the cutoff"
     return ""

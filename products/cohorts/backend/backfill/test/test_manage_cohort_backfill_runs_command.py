@@ -148,3 +148,14 @@ class TestManageCohortBackfillRuns(BaseTest):
         for run in runs:
             run.refresh_from_db()
             self.assertEqual(run.status, CohortBackfillRunStatus.SEEDING)
+
+    def test_terminalize_applies_classification_guards_to_run_id_targets(self) -> None:
+        run = self._run("waiting", status=CohortBackfillRunStatus.RECONCILING)
+
+        # Guarding only the --classification values would let a run id name a run the seeder still
+        # owns and skip every rule, cancelling it out from under a live worker.
+        with self.assertRaisesMessage(CommandError, "still owned by the seeder"):
+            self._call("terminalize", "--run-id", str(run.id), "--live-run", "--yes")
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)

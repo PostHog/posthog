@@ -89,6 +89,19 @@ class TestClassifyRun(SimpleTestCase):
         # An old run seeding a long history is healthy, not a cancel target.
         self.assertEqual(classify_run(facts), "seeding-healthy")
 
+    @parameterized.expand([("just_planned", 1, "seeding-healthy"), ("long_planned", 48, "seeding-stalled")])
+    def test_zero_chunk_run_is_healthy_until_the_completion_sweep_has_had_time(
+        self, _name: str, planned_hours_ago: int, expected: str
+    ) -> None:
+        now = timezone.now()
+
+        facts = _facts(now=now, chunks_planned_at=now - timedelta(hours=planned_hours_ago), chunks_total=0)
+
+        # A run whose conditions plan no days legitimately stamps `chunks_planned_at` with zero
+        # chunks. Without the grace period it reads as stalled the instant it is planned, and the
+        # default terminalize sweep cancels a backfill the seeder was about to complete.
+        self.assertEqual(classify_run(facts), expected)
+
     @parameterized.expand(
         [
             ("cohort_hard_deleted", {"scope": CohortBackfillScope.COHORT, "cohort_id": None}),

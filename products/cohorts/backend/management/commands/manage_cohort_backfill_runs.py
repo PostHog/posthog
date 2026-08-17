@@ -132,7 +132,7 @@ class Command(BaseCommand):
             )
             return
 
-        limit = options["limit"] or PRINT_LIMIT
+        limit = PRINT_LIMIT if options["limit"] is None else options["limit"]
         self.stdout.write(self.style.MIGRATE_HEADING("Finalizer settings"))
         for name, value in self._settings_snapshot().items():
             self.stdout.write(f"  {name}={value}")
@@ -150,7 +150,9 @@ class Command(BaseCommand):
                 f"\nFinalizable now ({len(stampable)}). These get stamped as soon as the finalizer is enabled."
             )
         )
-        self._print_rows(stampable, limit)
+        # Never truncated, unlike every other section. These are the runs the allowlist line below
+        # carries, and a stamp cannot be undone, so the operator has to see each one to check it.
+        self._print_rows(stampable, len(stampable))
 
         gated = [row for row in rows if row.classification == "finalizable" and row.finalizer_gated]
         if gated:
@@ -191,7 +193,11 @@ class Command(BaseCommand):
                 f"starting point is {' '.join(f'--classification {name}' for name in DEFAULT_TERMINALIZE_CLASSIFICATIONS)}"
             )
 
-        for classification in classifications or ():
+        rows = self._collect(options)
+        # Guard on what each targeted run actually is, not on what was asked for. Checking the
+        # `--classification` values alone would let `--run-id` name a run in a protected
+        # classification and skip every rule below.
+        for classification in sorted({row.classification for row in rows}):
             if classification in UNTERMINALIZABLE_CLASSIFICATIONS:
                 raise CommandError(
                     f"{classification} runs are still owned by the seeder, so canceling one races a live "
@@ -205,9 +211,6 @@ class Command(BaseCommand):
                     "Pass --include-finalizable to throw that work away deliberately."
                 )
 
-        rows = self._collect(options)
-        if not options["include_finalizable"]:
-            rows = [row for row in rows if row.classification != "finalizable"]
         if not rows:
             self.stdout.write("No runs matched. Run `inventory` to see what is active.")
             return
@@ -231,7 +234,7 @@ class Command(BaseCommand):
 
         classification_by_run = {row.run_id: row.classification for row in rows}
         outcome = cancel_runs(
-            [row.run_id for row in rows],
+            [(row.run_id, row.team_id) for row in rows],
             reason=options["reason"],
             allow_finalizable=options["include_finalizable"],
         )

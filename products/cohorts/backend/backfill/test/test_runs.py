@@ -760,7 +760,7 @@ class TestCancelRuns(BaseTest):
         )
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
 
-        outcome = cancel_runs([run.id], reason="wedged in seeding")
+        outcome = cancel_runs([(run.id, self.team.id)], reason="wedged in seeding")
 
         run.refresh_from_db()
         self.assertEqual(outcome.cancelled_run_ids, (run.id,))
@@ -779,7 +779,7 @@ class TestCancelRuns(BaseTest):
             stamped_at=datetime.now(UTC)
         )
 
-        outcome = cancel_runs([run.id], reason="sweep")
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep")
 
         run.refresh_from_db()
         # A stamp is one way and the flags service already reads it, so a cancel behind one would
@@ -796,7 +796,7 @@ class TestCancelRuns(BaseTest):
             status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
         )
 
-        outcome = cancel_runs([run.id], reason="sweep", allow_finalizable=allow)
+        outcome = cancel_runs([(run.id, self.team.id)], reason="sweep", allow_finalizable=allow)
 
         run.refresh_from_db()
         # The seeder may have observed the run since the operator listed it, and this one is a
@@ -818,9 +818,28 @@ class TestCancelRuns(BaseTest):
         )
         participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run_id=run.id)
 
-        cancel_runs([run.id], reason="operator sweep")
+        cancel_runs([(run.id, self.team.id)], reason="operator sweep")
 
         participation.refresh_from_db()
         # The edit-time supersession is why this backfill stopped mattering; operator text must not
         # overwrite that provenance.
         self.assertEqual(participation.error, "Cohort definition changed during backfill")
+
+    def test_cancel_drains_an_observed_run_whose_participations_are_all_resolved(self) -> None:
+        cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run_id=run.id).update(
+            superseded_at=datetime.now(UTC)
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING, reconcile_observed_at=datetime.now(UTC)
+        )
+
+        outcome = cancel_runs([(run.id, self.team.id)], reason="orphaned sweep")
+
+        run.refresh_from_db()
+        # The inventory classifies this `orphaned`, not `finalizable`, because the finalizer would
+        # only terminalize it. Refusing it here would leave nothing able to release its slot.
+        self.assertEqual(outcome.cancelled_run_ids, (run.id,))
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)
