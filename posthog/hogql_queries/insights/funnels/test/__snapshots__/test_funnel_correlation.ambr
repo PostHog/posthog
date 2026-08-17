@@ -18,7 +18,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
        2 AS target_step,
@@ -103,7 +103,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
@@ -201,7 +201,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS id
@@ -213,7 +213,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -309,7 +309,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS id
@@ -321,7 +321,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -417,7 +417,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS id
@@ -429,7 +429,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -525,7 +525,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS id
@@ -537,7 +537,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -611,7 +611,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        filtered_events AS
     (SELECT events.event AS event,
             events.properties AS properties,
@@ -691,7 +691,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
        2 AS target_step,
@@ -765,7 +765,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -781,7 +781,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -834,7 +834,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -850,7 +850,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -903,7 +903,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -919,7 +919,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -972,7 +972,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -988,7 +988,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1021,7 +1021,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
        assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
        2 AS target_step,
@@ -1095,7 +1095,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -1111,7 +1111,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1164,7 +1164,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')) AS date_from,
           assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')) AS date_to,
           2 AS target_step,
@@ -1180,7 +1180,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1230,7 +1230,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
@@ -1316,7 +1316,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1328,7 +1328,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1389,7 +1389,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1401,7 +1401,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1462,7 +1462,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1474,7 +1474,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1535,7 +1535,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1547,7 +1547,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1597,7 +1597,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
@@ -1672,7 +1672,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
@@ -1758,7 +1758,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1770,7 +1770,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1831,7 +1831,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1843,7 +1843,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1904,7 +1904,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1916,7 +1916,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1977,7 +1977,7 @@
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 0)
-        ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+        ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
           2 AS target_step SELECT funnel_actors.actor_id AS actor_id,
                                   any(funnel_actors.matching_events) AS matching_events,
                                   actor_id AS key
@@ -1989,7 +1989,7 @@
   ORDER BY source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2039,7 +2039,7 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE bitTest(steps_bitfield, 0)
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash'),
        2 AS target_step
   SELECT if(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)

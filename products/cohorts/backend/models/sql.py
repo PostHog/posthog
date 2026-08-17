@@ -44,7 +44,7 @@ SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_
 FROM (
     {cohort_filter}
 ) as person
-SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
+SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'direct,parallel_hash,hash,grace_hash'
 """
 
 # NOTE: Group by version id to ensure that signs are summed between corresponding rows.

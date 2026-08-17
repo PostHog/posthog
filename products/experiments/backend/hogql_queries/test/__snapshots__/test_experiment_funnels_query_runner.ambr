@@ -61,7 +61,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -138,7 +138,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -215,7 +215,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -302,7 +302,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -389,7 +389,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -476,7 +476,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -546,7 +546,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -616,7 +616,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -686,7 +686,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

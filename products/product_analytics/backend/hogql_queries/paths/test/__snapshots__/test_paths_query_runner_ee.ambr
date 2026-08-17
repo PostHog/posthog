@@ -1163,7 +1163,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1284,7 +1284,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1405,7 +1405,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1526,7 +1526,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1647,7 +1647,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1768,7 +1768,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1889,7 +1889,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2010,7 +2010,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2131,7 +2131,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2385,7 +2385,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2567,7 +2567,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2725,7 +2725,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -2907,7 +2907,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -3476,7 +3476,7 @@
   ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -3809,7 +3809,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -4031,7 +4031,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -4414,7 +4414,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -4535,7 +4535,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -4743,7 +4743,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -4951,7 +4951,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -5072,7 +5072,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -5193,7 +5193,7 @@
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

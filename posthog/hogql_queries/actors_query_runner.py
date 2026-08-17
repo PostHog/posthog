@@ -455,7 +455,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
                 order_by=order_by,
-                settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
+                settings=HogQLQuerySettings(
+                    join_algorithm="direct,parallel_hash,hash,grace_hash", optimize_aggregation_in_order=True
+                ),
             )
             if not self.query.source:
                 select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))

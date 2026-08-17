@@ -32,7 +32,10 @@ from posthog.types import FunnelEntityNode
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
-JOIN_ALGOS = "auto"
+# ClickHouse rejects `auto` when a join ON clause mixes equality and non-equality
+# conditions. It accepts only hash-family algorithms there. So we list them explicitly.
+# grace_hash keeps the spill-to-disk protection against out-of-memory errors.
+JOIN_ALGOS = "direct,parallel_hash,hash,grace_hash"
 
 
 class FunnelBase(ABC):

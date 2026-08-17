@@ -52,7 +52,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -120,7 +120,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -188,7 +188,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -256,7 +256,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -324,7 +324,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -392,7 +392,7 @@
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -471,7 +471,7 @@
   ORDER BY step_3 DESC,
            step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -550,7 +550,7 @@
   ORDER BY step_3 DESC,
            step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -632,7 +632,7 @@
   ORDER BY step_3 DESC,
            step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -717,7 +717,7 @@
   ORDER BY step_3 DESC,
            step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -782,11 +782,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -851,11 +851,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -920,11 +920,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -989,11 +989,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1058,11 +1058,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1127,11 +1127,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1196,11 +1196,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1265,11 +1265,11 @@
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))))
-     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash') AS source
   ORDER BY source.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
-                    join_algorithm='auto',
+                    join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -1355,7 +1355,7 @@
   ORDER BY step_3 DESC,
            step_2 DESC,
            step_1 DESC
-  LIMIT 26 SETTINGS join_algorithm='auto',
+  LIMIT 26 SETTINGS join_algorithm='direct,parallel_hash,hash,grace_hash',
                     readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

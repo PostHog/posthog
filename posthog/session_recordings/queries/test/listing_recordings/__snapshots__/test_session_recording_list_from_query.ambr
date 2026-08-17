@@ -9026,7 +9026,7 @@
                                                               HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
-                                                                                            join_algorithm='auto')))
+                                                                                            join_algorithm='direct,parallel_hash,hash,grace_hash')))
                LIMIT 1000000000)))
   '''
 # ---
@@ -9188,7 +9188,7 @@
                                                               HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
-                                                                                            join_algorithm='auto')))
+                                                                                            join_algorithm='direct,parallel_hash,hash,grace_hash')))
                LIMIT 1000000000)))
   '''
 # ---
@@ -18733,7 +18733,7 @@
                                                               HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
-                                                                                            join_algorithm='auto')))
+                                                                                            join_algorithm='direct,parallel_hash,hash,grace_hash')))
                LIMIT 1000000000)))
   '''
 # ---
@@ -18895,7 +18895,7 @@
                                                               HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
-                                                                                            join_algorithm='auto')))
+                                                                                            join_algorithm='direct,parallel_hash,hash,grace_hash')))
                LIMIT 1000000000)))
   '''
 # ---
