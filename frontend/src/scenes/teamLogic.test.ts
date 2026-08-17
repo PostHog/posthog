@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -7,6 +7,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
 
@@ -157,6 +158,53 @@ describe('teamLogic', () => {
                 product_type: ProductKey.ERROR_TRACKING,
                 intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
             })
+        })
+    })
+
+    describe('createTeam', () => {
+        const newTeam = {
+            ...MOCK_DEFAULT_TEAM,
+            id: MOCK_TEAM_ID + 1,
+            name: 'Brand new environment',
+        }
+
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/projects/:id/environments/': () => [200, newTeam],
+                },
+                get: {
+                    '/api/organizations/@current': () => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_ORGANIZATION,
+                            teams: [...MOCK_DEFAULT_ORGANIZATION.teams!, newTeam],
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = teamLogic()
+            logic.mount()
+            organizationLogic.mount()
+        })
+
+        it('refreshes currentOrganization so the new team appears without a page reload', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            expect(organizationLogic.values.currentOrganization?.teams?.map((t) => t.id)).toEqual([MOCK_TEAM_ID])
+
+            await expectLogic(logic, () => {
+                logic.actions.createTeam({ name: 'Brand new environment', is_demo: false })
+            }).toDispatchActions([
+                'createTeamSuccess',
+                organizationLogic.actionTypes.loadCurrentOrganization,
+                organizationLogic.actionTypes.loadCurrentOrganizationSuccess,
+            ])
+
+            expect(organizationLogic.values.currentOrganization?.teams?.map((t) => t.id)).toEqual([
+                MOCK_TEAM_ID,
+                newTeam.id,
+            ])
         })
     })
 

@@ -637,6 +637,9 @@ export const teamLogic = kea<teamLogicType>([
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
+                // Refresh currentOrganization (which lists its teams) so the project switcher
+                // shows the new environment even if it's reopened before switchTeam's page navigation lands.
+                actions.loadCurrentOrganization()
                 actions.switchTeam(currentTeam.id)
             }
         },
