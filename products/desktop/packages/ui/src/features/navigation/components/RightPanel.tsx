@@ -31,7 +31,7 @@ import {
 } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
@@ -155,16 +155,8 @@ const PANEL_FADE_OUT_MS = 120;
 function useFadingSide(
   active: RightPanelSide | null,
   held: boolean,
-): {
-  contentReady: boolean;
-  contentVisible: boolean;
-  drawn: RightPanelSide | null;
-} {
+): RightPanelSide | null {
   const [drawn, setDrawn] = useState(active);
-  const [contentReady, setContentReady] = useState(active != null);
-  const [contentVisible, setContentVisible] = useState(active != null);
-  const open = active != null;
-  const wasOpen = useRef(open);
 
   useEffect(() => {
     if (active != null) {
@@ -172,32 +164,11 @@ function useFadingSide(
       return;
     }
     if (held) return;
-    const timer = setTimeout(() => {
-      setDrawn(null);
-      setContentReady(false);
-      setContentVisible(false);
-    }, PANEL_FADE_OUT_MS);
+    const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
 
-  useEffect(() => {
-    const opening = open && !wasOpen.current;
-    wasOpen.current = open;
-    if (!opening) return;
-    setContentReady(false);
-    setContentVisible(false);
-    let frame: number | undefined;
-    const timer = setTimeout(() => {
-      setContentReady(true);
-      frame = requestAnimationFrame(() => setContentVisible(true));
-    }, SLIDE_MS);
-    return () => {
-      clearTimeout(timer);
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
-  }, [open]);
-
-  return { contentReady, contentVisible, drawn };
+  return drawn;
 }
 
 /**
@@ -229,10 +200,7 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
 
   const open = active != null;
-  const { contentReady, contentVisible, drawn } = useFadingSide(
-    active,
-    isResizing,
-  );
+  const drawn = useFadingSide(active, isResizing);
 
   useEffect(() => preloadReviewPages(), []);
 
@@ -281,31 +249,12 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
                 </span>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {contentReady && task ? (
-                  <div
-                    className="flex min-h-0 flex-1 flex-col overflow-hidden transition-opacity duration-100 ease-out motion-reduce:transition-none"
-                    style={{ opacity: contentVisible ? 1 : 0 }}
-                  >
-                    {drawn === "changes" ? (
-                      <ChangesPanelContent task={task} />
-                    ) : (
-                      <ActivityPanelBody
-                        task={task}
-                        tab={drawn}
-                        canOpenInPlace
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div
-                    aria-hidden
-                    className="flex flex-col gap-3 p-3 opacity-60"
-                  >
-                    <div className="h-3 w-2/5 rounded-sm bg-fill-secondary" />
-                    <div className="h-3 w-4/5 rounded-sm bg-fill-secondary" />
-                    <div className="h-3 w-3/5 rounded-sm bg-fill-secondary" />
-                  </div>
-                )}
+                {task &&
+                  (drawn === "changes" ? (
+                    <ChangesPanelContent task={task} />
+                  ) : (
+                    <ActivityPanelBody task={task} tab={drawn} canOpenInPlace />
+                  ))}
               </div>
             </>
           )}
