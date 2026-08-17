@@ -269,6 +269,8 @@ def classify_message_is_agent_directed(
         "  - A request only a person could carry out — joining a call, meeting a customer, "
         "updating an account in a system the agent has no access to — even when it says "
         "'you', and even when it directly follows something the agent said.\n"
+        "  - Someone taking the work on themselves ('let me fix that', 'I'm on it', 'I'll "
+        "take a look'). That stands the agent down; it is not a handoff to it.\n"
         "  - Acknowledgements, praise, and reactions ('thanks', 'lgtm', 'nice', '+1').\n"
         "  - Context dropped into the thread with no instruction attached — a link, a "
         "stack trace, a screenshot — unless the message asks the agent to act on it.\n"

@@ -140,6 +140,27 @@ CHATTER_CASES = [
         prompt="if you could join the call with their eng team tomorrow that would be great too",
         expected=_routes(False),
     ),
+    # Someone picking the work up themselves. The agent read this as its own go-ahead and
+    # answered to say it was standing aside, which is itself the interruption.
+    BaseEvalCase(
+        name="colleague_claims_the_work",
+        prompt="ah I see what's going on, let me fix that",
+        expected=_routes(False),
+    ),
+    # A proposal put to colleagues mid-debate. Argued and task-relevant, so it reads far
+    # more like an instruction than the offhand opinions above do.
+    BaseEvalCase(
+        name="proposal_in_a_debate",
+        prompt="hmm, I'd be more inclined to drop the wrapper entirely and handle it at the call site",
+        expected=_routes(False),
+    ),
+    # A thread kept as a running list. The item carries an implicit work item, which is a
+    # sharper lure than a bare link.
+    BaseEvalCase(
+        name="bookkeeping_entry",
+        prompt="https://posthog.slack.com/archives/C123/p456 checkout-button@example.com",
+        expected=_routes(False),
+    ),
 ]
 
 
