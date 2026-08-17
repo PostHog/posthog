@@ -155,10 +155,12 @@ describe('stepDelayLogic', () => {
         expect(parseDelayOffset(undefined).direction).toBe('on')
     })
 
-    // The API rejects a config carrying both modes, so a merge here would 400 every save.
-    it('drops the duration when switching to a date, and the date when switching back', async () => {
-        const delayAction = await setupInitialDelayAction(getDelayDescription({ delay_duration: '10m' }), {
-            delay_duration: '10m',
+    // The API rejects a config carrying both modes, so a merge here would 400 every save. The value the
+    // author set has to come back on a switch across and back all the same, which is why '5h' is not the
+    // default: a default-valued fixture cannot tell a restored duration from a fresh one.
+    it('drops the duration when switching to a date, and restores it when switching back', async () => {
+        const delayAction = await setupInitialDelayAction(getDelayDescription({ delay_duration: '5h' }), {
+            delay_duration: '5h',
             max_delay_duration: '7d',
         })
 
@@ -175,7 +177,28 @@ describe('stepDelayLogic', () => {
             sdLogic.actions.setDelayMode(delayAction.id, 'duration')
         }).toFinishListeners()
 
-        expect(configOf(delayAction.id)).toEqual({ delay_duration: '10m' })
+        expect(configOf(delayAction.id)).toEqual({ delay_duration: '5h' })
+    })
+
+    // A misclick on the mode select must not throw away the date, its offset and its timezone.
+    it('restores a configured date when switching to a duration and back', async () => {
+        const configured = {
+            delay_until: {
+                expression: 'person.properties.expires_at',
+                offset: '-2d',
+                timezone: 'Europe/Berlin',
+            },
+        }
+        const delayAction = await setupInitialDelayAction(getDelayDescription(configured), configured)
+
+        await expectLogic(sdLogic, () => {
+            sdLogic.actions.setDelayMode(delayAction.id, 'duration')
+        }).toFinishListeners()
+        await expectLogic(sdLogic, () => {
+            sdLogic.actions.setDelayMode(delayAction.id, 'until')
+        }).toFinishListeners()
+
+        expect(configOf(delayAction.id)).toEqual(configured)
     })
 
     it('composes the expression and offset onto delay_until', async () => {

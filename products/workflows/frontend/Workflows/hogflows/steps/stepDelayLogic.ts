@@ -133,8 +133,10 @@ export function getDelayDescription(config: DelayActionConfig): string {
     return durationText ? `Wait for ${durationText}.` : LEGACY_DEFAULT_DESCRIPTION
 }
 
-export function shouldAutoUpdateDescription(description: string, config?: DelayActionConfig): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined, config?: DelayActionConfig): boolean {
     return (
+        // Agent-created actions can arrive with no description at all, so treat an absent one like an empty one.
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION ||
@@ -792,7 +794,7 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
         setDelayOffset: (actionId: string, offset: DelayOffset) => ({ actionId, offset }),
         setDelayTimezone: (actionId: string, timezone: DelayTimezone) => ({ actionId, timezone }),
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setDelayWorkflowActionConfig: ({ actionId, config }) => {
             // Read before the write: whether the description was auto-written is a question about the
             // config it was generated from, which the dispatch below replaces.
@@ -811,24 +813,31 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
 
         setDelayMode: ({ actionId, mode }) => {
             const action = findDelayAction(values.workflow, actionId)
-            if (!action || getDelayMode(action.config) === mode) {
+            const leaving = action ? getDelayMode(action.config) : undefined
+            if (!action || leaving === mode) {
                 return
             }
             // The config is replaced rather than merged, because the backend accepts exactly one of the
-            // two modes and rejects a config carrying both.
-            actions.setDelayWorkflowActionConfig(
-                actionId,
-                mode === 'until'
-                    ? {
-                          delay_until: { expression: '' },
-                          // Only meaningful alongside delay_until, so it is carried across but never
-                          // left behind on a duration delay.
-                          ...(action.config.max_delay_duration
-                              ? { max_delay_duration: action.config.max_delay_duration }
-                              : {}),
-                      }
-                    : { delay_duration: action.config.delay_duration ?? DEFAULT_DELAY_DURATION }
-            )
+            // two modes and rejects a config carrying both. So the mode being left is remembered here for
+            // as long as the editor is open: switching across and back otherwise resets a configured
+            // duration to the default, and drops the chosen date, its offset and its timezone.
+            const remembered: Record<string, DelayActionConfig> = (cache.configByMode ??= {})
+            const restored = remembered[`${actionId}:${mode}`]
+            remembered[`${actionId}:${leaving}`] = action.config
+
+            if (mode === 'duration') {
+                actions.setDelayWorkflowActionConfig(actionId, {
+                    delay_duration: restored?.delay_duration ?? DEFAULT_DELAY_DURATION,
+                })
+                return
+            }
+            // max_delay_duration is only meaningful alongside delay_until, so it comes across from
+            // whichever side of the switch still carries it, and never stays on a duration delay.
+            const maxDelayDuration = action.config.max_delay_duration ?? restored?.max_delay_duration
+            actions.setDelayWorkflowActionConfig(actionId, {
+                delay_until: restored?.delay_until ?? { expression: '' },
+                ...(maxDelayDuration ? { max_delay_duration: maxDelayDuration } : {}),
+            })
         },
 
         setDelayProperty: ({ actionId, property }) => {
