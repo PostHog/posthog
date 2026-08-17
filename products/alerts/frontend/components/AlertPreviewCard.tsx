@@ -201,7 +201,9 @@ export function AlertPreviewCard({
                             </LemonTag>
                         </Tooltip>
                     ) : null}
-                    {lastValue != null ? (
+                    {/* The trends series still runs to today, so its last point is a partial day. That
+                        reads as a real drop next to a forecast, which carries its own summary anyway. */}
+                    {lastValue != null && !forecast ? (
                         <LemonTag type="default" className="m-0">
                             {checkPreview?.relative || trendsPreview?.relative ? 'Latest change:' : 'Latest:'}
                             <strong className="ml-1">{humanFriendlyNumber(lastValue)}</strong>
