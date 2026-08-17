@@ -1468,7 +1468,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('Nothing to cancel. The runs may have finished or are already being canceled.')
                 }
-                actions.clearSelected()
                 // Canceled rows flip once the worker terminates them, so poll briefly and the
                 // status change surfaces without a manual refresh.
                 cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
