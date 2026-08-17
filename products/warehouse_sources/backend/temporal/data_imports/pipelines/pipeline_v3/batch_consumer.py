@@ -837,8 +837,6 @@ class BatchConsumer:
         Binds structlog contextvars so every downstream log line (including loader calls)
         routes to log_entries under the right schema/workflow before any logger fires.
         """
-        team_id = str(batch.team_id)
-        schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
 
         workflow_id = batch.metadata.get("workflow_id") or ""
@@ -880,7 +878,7 @@ class BatchConsumer:
             # cumulative TTL and get abandoned mid-group. The pre-commit check in
             # _process_single_inner stays a fail-closed verify.
             await self._renew_ownership(lock_conn, batch)
-            return await self._process_single_inner(batch, attempt, team_id, schema_id, lock_conn)
+            return await self._process_single_inner(batch, attempt, lock_conn)
         finally:
             self._inflight_started.pop(batch.id, None)
             structlog.contextvars.unbind_contextvars(*bound_keys)
@@ -889,8 +887,6 @@ class BatchConsumer:
         self,
         batch: PendingBatch,
         attempt: int,
-        team_id: str,
-        schema_id: str,
         lock_conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> bool:
         if attempt > self._config.max_attempts:
@@ -931,9 +927,7 @@ class BatchConsumer:
                     batch_id=batch.id,
                     run_uuid=batch.run_uuid,
                 )
-                self._metrics.batches_processed_total.labels(
-                    team_id=team_id, schema_id=schema_id, status="skipped"
-                ).inc()
+                self._metrics.batches_processed_total.labels(status="skipped").inc()
                 return False
 
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
@@ -965,9 +959,7 @@ class BatchConsumer:
                 await self._adapter.after_batch_processed(status_conn, batch=batch)
 
             duration = time.monotonic() - start
-            self._metrics.batch_processing_duration_seconds.labels(team_id=team_id, schema_id=schema_id).observe(
-                duration
-            )
+            self._metrics.batch_processing_duration_seconds.observe(duration)
 
             await self._verify_ownership(lock_conn, batch)
             await self._adapter.update_status(
@@ -977,7 +969,7 @@ class BatchConsumer:
                 attempt=attempt,
                 batch_created_at=batch.created_at,
             )
-            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            self._metrics.batches_processed_total.labels(status="success").inc()
             logger.info(
                 self._event("batch_processed_ok"),
                 batch_id=batch.id,
@@ -990,7 +982,7 @@ class BatchConsumer:
         except OwnershipLostError:
             raise
         except Exception as err:
-            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
+            self._metrics.batches_processed_total.labels(status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
