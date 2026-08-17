@@ -309,6 +309,40 @@ describe('DelayHandler with delay_until', () => {
         expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-07T15:00:00.000Z').toUTC().toISO())
     })
 
+    // Someone who travels, or whose GeoIP zone is corrected, must not be woken on their old local day. The
+    // wait is read again when it ends, so the zone the person has then is the one that decides.
+    it("follows the person's timezone when it changes while the run is parked", async () => {
+        const { invocation, action } = buildDelay(delayUntil({ use_person_timezone: true, fallback_timezone: 'UTC' }), {
+            trial_expiration_at: '2025-01-08',
+            $geoip_time_zone: 'Asia/Tokyo',
+        })
+
+        const parked = await new DelayHandler().execute({ invocation, action, result: {} as any })
+        expect(parked.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-07T15:00:00.000Z').toUTC().toISO())
+
+        invocation.person!.properties.$geoip_time_zone = 'America/New_York'
+        const onWake = await new DelayHandler().execute({ invocation, action, result: {} as any })
+
+        expect(onWake.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-08T05:00:00.000Z').toUTC().toISO())
+    })
+
+    // Clocks go back in Berlin on 26 October 2025, so 02:30 that morning happens twice and the stored value
+    // names two instants. Luxon takes the first. Locking that down stops a library change from moving such a
+    // send by an hour unnoticed. The step's own clock moves to the day before, or the 30-day cap would
+    // swallow a date ten months out.
+    it('reads a local time inside a repeated hour as the first of the two', async () => {
+        const dayBefore = '2025-10-25T00:00:00.000Z'
+        jest.setSystemTime(new Date(dayBefore))
+        const { invocation, action } = buildDelay(delayUntil({ timezone: 'Europe/Berlin' }), {
+            trial_expiration_at: '2025-10-26T02:30:00',
+        })
+        invocation.state.currentAction!.startedAtTimestamp = DateTime.fromISO(dayBefore).toMillis()
+
+        const result = await new DelayHandler().execute({ invocation, action, result: {} as any })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-10-26T00:30:00.000Z').toUTC().toISO())
+    })
+
     it('falls back when the person has no timezone', async () => {
         const result = await runDelay(delayUntil({ use_person_timezone: true, fallback_timezone: 'Europe/Berlin' }), {
             trial_expiration_at: '2025-01-08',
