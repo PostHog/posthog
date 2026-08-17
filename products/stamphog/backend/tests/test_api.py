@@ -10,11 +10,12 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, uuid7
 
+from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import ReviewRunStatus
 from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.presentation.serializers import StamphogRepoConfigSerializer
+from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
@@ -181,29 +182,47 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/quiet").exists()
 
 
+def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoConfigDTO:
+    return contracts.RepoConfigDTO(
+        id=uuid7(),
+        team_id=1,
+        provider="github",
+        repository="PostHog/posthog",
+        enabled=enabled,
+        installation_id="1",
+        digest_enabled=digest_enabled,
+    )
+
+
 class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),
             (
                 "enable_digest_on_review_off_repo",
-                StamphogRepoConfig(enabled=False, digest_enabled=False),
+                _repo_config_dto(enabled=False, digest_enabled=False),
                 {"digest_enabled": True},
             ),
         ]
     )
     def test_asking_for_digest_without_reviews_is_rejected(
-        self, _name: str, instance: StamphogRepoConfig | None, data: dict
+        self, _name: str, current: contracts.RepoConfigDTO | None, data: dict
     ) -> None:
-        serializer = StamphogRepoConfigSerializer(instance=instance, data=data, partial=instance is not None)
+        serializer = StamphogRepoConfigWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
         assert not serializer.is_valid()
         assert "digest_enabled" in serializer.errors
 
     def test_disabling_reviews_clears_the_digest(self) -> None:
         # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
         # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
-        instance = StamphogRepoConfig(enabled=True, digest_enabled=True)
-        serializer = StamphogRepoConfigSerializer(instance=instance, data={"enabled": False}, partial=True)
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"enabled": False},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=True),
+        )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
 

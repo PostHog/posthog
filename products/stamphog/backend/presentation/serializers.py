@@ -81,28 +81,6 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         ),
     )
 
-    def validate_trigger_label(self, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Trigger label cannot be blank.")
-        return value
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # The digest reports what stamphog approved, so it has nothing to report without the review
-        # path running. PATCH sends only changed fields, so fall back to the stored values.
-        attrs = super().validate(attrs)
-        enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
-        if enabled:
-            return attrs
-        if attrs.get("digest_enabled"):
-            raise serializers.ValidationError(
-                {"digest_enabled": "Digests report what stamphog approved, so they need 'enabled' set to true."}
-            )
-        # Turning reviews off takes the digest with it rather than failing the write — the same
-        # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
-        attrs["digest_enabled"] = False
-        return attrs
-
     class Meta:
         dataclass = contracts.RepoConfigDTO
         fields = [
@@ -271,6 +249,11 @@ class PullRequestSerializer(DataclassSerializer):
     merged = serializers.SerializerMethodField(
         help_text="Whether this pull request has merged (merged_at is set).",
     )
+    merged_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the pull request merged, null if it hasn't.",
+    )
 
     class Meta:
         dataclass = contracts.PullRequestDTO
@@ -303,7 +286,6 @@ class PullRequestSerializer(DataclassSerializer):
             "author_login",
             "pr_url",
             "head_branch",
-            "merged_at",
             "merge_commit_sha",
             "additions",
             "deletions",
@@ -318,7 +300,6 @@ class PullRequestSerializer(DataclassSerializer):
             "author_login": {"help_text": "GitHub login of the pull request author."},
             "pr_url": {"help_text": "Full URL to the pull request on GitHub."},
             "head_branch": {"help_text": "Branch name of the PR head."},
-            "merged_at": {"help_text": "When the pull request merged, null if it hasn't."},
             "merge_commit_sha": {"help_text": "Merge commit SHA, blank until the pull request merges."},
             "additions": {"help_text": "Lines added, recorded when the pull request merges."},
             "deletions": {"help_text": "Lines deleted, recorded when the pull request merges."},
@@ -367,6 +348,16 @@ class ReviewRunSerializer(DataclassSerializer):
         choices=[(v.value, v.name) for v in ReviewVerdict],
         read_only=True,
         help_text="Final verdict reached by the reviewer, if any.",
+    )
+    delivery_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="GitHub webhook delivery ID that triggered this run, used for deduplication.",
+    )
+    completed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the review run reached a terminal state, if it has.",
     )
     gate_result = serializers.SerializerMethodField(
         help_text=(
@@ -429,14 +420,12 @@ class ReviewRunSerializer(DataclassSerializer):
         ]
         # Only the fields NOT declared above: DataclassSerializer rejects a field that is both
         # explicitly declared and named here.
-        read_only_fields = ["id", "head_sha", "delivery_id", "error", "created_at", "updated_at", "completed_at"]
+        read_only_fields = ["id", "head_sha", "error", "created_at", "updated_at"]
         extra_kwargs = {
             "head_sha": {"help_text": "Commit SHA of the PR head at the time this run started."},
-            "delivery_id": {"help_text": "GitHub webhook delivery ID that triggered this run, used for deduplication."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
             "created_at": {"help_text": "When the review run was created."},
             "updated_at": {"help_text": "When the review run was last updated."},
-            "completed_at": {"help_text": "When the review run reached a terminal state, if it has."},
         }
 
 
@@ -453,6 +442,11 @@ class DigestChannelSerializer(DataclassSerializer):
             fields["audience_key"].read_only = True
         return fields
 
+    last_digest_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When a digest was last posted to this channel.",
+    )
     resolution_source = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ChannelResolutionSource],
         read_only=True,
@@ -479,7 +473,7 @@ class DigestChannelSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "last_digest_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
             "audience_key": {
                 "help_text": (
@@ -522,6 +516,11 @@ class DigestRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="ID of the digest channel this run belongs to.",
     )
+    posted_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the digest was posted to Slack, if it was.",
+    )
     # The rendered summary is deliberately NOT exposed here: it's generated from each PR's body_excerpt,
     # so it reproduces repository content a project member without GitHub repo access must not read. It
     # lives only in the Slack post (whose audience already has channel access).
@@ -539,13 +538,12 @@ class DigestRunSerializer(DataclassSerializer):
             "posted_at",
         ]
         # Only the fields NOT declared above (see ReviewRunSerializer).
-        read_only_fields = ["id", "pr_count", "slack_message_ts", "error", "created_at", "posted_at"]
+        read_only_fields = ["id", "pr_count", "slack_message_ts", "error", "created_at"]
         extra_kwargs = {
             "pr_count": {"help_text": "Number of merged PRs included in the posted digest."},
             "slack_message_ts": {"help_text": "Slack message timestamp of the posted digest, if posted."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
             "created_at": {"help_text": "When the digest run was created."},
-            "posted_at": {"help_text": "When the digest was posted to Slack, if it was."},
         }
 
 
@@ -585,8 +583,17 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         help_text=("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
     )
 
-    def __init__(self, *args, partial_update: bool = False, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        partial_update: bool = False,
+        current: contracts.RepoConfigDTO | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
+        # A PATCH sends only the changed fields, so the digest rule below needs the stored row to
+        # judge a write that leaves `enabled` untouched.
+        self.current = current
         if partial_update:
             # provider + repository are the config's identity: they resolve inbound webhooks and anchor
             # every PullRequest/ReviewRun FK. Editing them on an existing row would reroute that history
@@ -600,6 +607,22 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Trigger label cannot be blank.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The digest reports what stamphog approved, so it has nothing to report without the review
+        # path running.
+        attrs = super().validate(attrs)
+        enabled = attrs.get("enabled", self.current.enabled if self.current else True)
+        if enabled:
+            return attrs
+        if attrs.get("digest_enabled"):
+            raise serializers.ValidationError(
+                {"digest_enabled": "Digests report what stamphog approved, so they need 'enabled' set to true."}
+            )
+        # Turning reviews off takes the digest with it rather than failing the write — the same
+        # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
+        attrs["digest_enabled"] = False
+        return attrs
 
 
 class DigestChannelWriteSerializer(serializers.Serializer):
