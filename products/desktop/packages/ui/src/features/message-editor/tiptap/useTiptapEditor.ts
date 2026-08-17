@@ -24,12 +24,10 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { sessionStoreSetters } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore as useFeatureSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { type ToastOptions, toast } from "@posthog/ui/primitives/toast";
 import { isSendMessageSubmitKey } from "@posthog/ui/utils/sendMessageKey";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -229,7 +227,7 @@ function showHintOnce(
 
 function showMessageNavHint(): void {
   showHintOnce(
-    PROMPT_RECALL_HINT_KEY,
+    TIP_KEYS.recallMessageNav,
     "Recalled a sent prompt",
     `Use ${formatHotkey(SHORTCUTS.MESSAGE_PREV)} and ${formatHotkey(SHORTCUTS.MESSAGE_NEXT)} to jump between your messages in the conversation.`,
   );
@@ -237,7 +235,9 @@ function showMessageNavHint(): void {
 
 function showPasteHint(message: string, description: string): void {
   const key =
-    message === "Pasted as file attachment" ? "paste-as-file" : "paste-inline";
+    message === "Pasted as file attachment"
+      ? TIP_KEYS.pasteAsFile
+      : TIP_KEYS.pasteInline;
   showHintOnce(key, message, {
     description,
     action: {
@@ -383,7 +383,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
                 if (!text?.trim()) return;
                 useFeatureSettingsStore
                   .getState()
-                  .markHintLearned("paste-inline");
+                  .markHintLearned(TIP_KEYS.pasteInline);
                 await pasteTextAsFile(view, text, pasteCountRef);
               } catch (_error) {
                 toast.error("Failed to paste as file attachment");
@@ -568,7 +568,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
               if (lastConverted.kind === "file") {
                 useFeatureSettingsStore
                   .getState()
-                  .markHintLearned("paste-as-file");
+                  .markHintLearned(TIP_KEYS.pasteAsFile);
               }
               return true;
             }
@@ -577,7 +577,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
               lastConverted.status = "canceled";
               useFeatureSettingsStore
                 .getState()
-                .markHintLearned("paste-as-file");
+                .markHintLearned(TIP_KEYS.pasteAsFile);
               view.dispatch(view.state.tr.insertText(lastConverted.insertText));
               return true;
             }

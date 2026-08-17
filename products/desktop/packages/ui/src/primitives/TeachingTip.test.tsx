@@ -1,4 +1,4 @@
-import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Theme } from "@radix-ui/themes";
 import {
   act,
@@ -7,111 +7,112 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { beforeAll, describe, expect, it } from "vitest";
-import {
-  resetTeachingTips,
-  retireTeachingTip,
-  setTeachingTipsEnabled,
-  TeachingTip,
-} from "./TeachingTip";
+import { beforeEach, describe, expect, it } from "vitest";
+import { TeachingTip } from "./TeachingTip";
 
-// The store waits for a persistence backend before it shows anything; the host
-// registers one at boot, and nothing does here.
-beforeAll(() => {
-  const values = new Map<string, string>();
-  registerRendererStateStorage({
-    getItem: (name) => values.get(name) ?? null,
-    setItem: (name, value) => {
-      values.set(name, value);
-    },
-    removeItem: (name) => {
-      values.delete(name);
-    },
+const settings = () => useSettingsStore.getState();
+
+beforeEach(() => {
+  // The persisted answers are shared with the toast hints and with every other
+  // test in the run, and nothing is taught until they have landed.
+  useSettingsStore.setState({
+    hints: {},
+    tipsEnabled: true,
+    _hasHydrated: true,
   });
 });
 
-function renderTip(id: string, open: boolean) {
-  return render(
+function tip(id: string, open: boolean, moment?: number) {
+  return (
     <Theme>
-      <TeachingTip id={id} open={open} message="Artifacts placed here">
+      <TeachingTip
+        id={id}
+        open={open}
+        moment={moment}
+        message="New artifacts show up here"
+      >
         <button type="button">Artifacts</button>
       </TeachingTip>
-    </Theme>,
+    </Theme>
   );
 }
 
+const findTip = () => screen.findByText("New artifacts show up here");
+const expectNoTip = () =>
+  waitFor(() =>
+    expect(screen.queryByText("New artifacts show up here")).toBeNull(),
+  );
+
 describe("TeachingTip", () => {
-  // Dismissing used to hold for the life of the view, so the second time a run
-  // produced artifacts there was nothing to see and no way to get it back.
-  it("comes back for the next moment after being dismissed", async () => {
-    const { rerender } = renderTip("tip-dismissed", true);
-    await screen.findByText("Artifacts placed here");
+  // The caller's `open` can hold across several occasions (the artifacts mark
+  // stays up until the panel is opened), so closing the tip without answering
+  // it used to end the lesson for good with no way back.
+  it("comes back for the next occasion after being closed unanswered", async () => {
+    const { rerender } = render(tip("tip-closed", true, 1));
+    await findTip();
 
-    fireEvent.click(screen.getByText("Dismiss"));
-    await waitFor(() =>
-      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
-    );
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await expectNoTip();
 
-    const nextMoment = (open: boolean) =>
-      rerender(
-        <Theme>
-          <TeachingTip
-            id="tip-dismissed"
-            open={open}
-            message="Artifacts placed here"
-          >
-            <button type="button">Artifacts</button>
-          </TeachingTip>
-        </Theme>,
-      );
-    nextMoment(false);
-    nextMoment(true);
+    rerender(tip("tip-closed", true, 2));
 
-    await screen.findByText("Artifacts placed here");
+    await findTip();
   });
 
-  it("stays away once retired, including from outside the tip", async () => {
-    retireTeachingTip("tip-retired");
-    renderTip("tip-retired", true);
+  it("stays away for the next occasion once hidden", async () => {
+    const { rerender } = render(tip("tip-hidden", true, 1));
+    await findTip();
 
-    await waitFor(() =>
-      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
-    );
+    fireEvent.click(screen.getByText("Hide"));
+    await expectNoTip();
+
+    rerender(tip("tip-hidden", true, 2));
+
+    await expectNoTip();
+  });
+
+  // "Hide" writes the same `hints` entry the toast hints answer, so a lesson
+  // learned from either surface ends for both.
+  it("stays away once learned from outside the tip", async () => {
+    act(() => settings().markHintLearned("tip-learned"));
+    render(tip("tip-learned", true));
+
+    await expectNoTip();
+  });
+
+  // Otherwise every restart flashes the tips someone has already hidden,
+  // between the first render and the persisted answers landing.
+  it("teaches nothing before the persisted answers have landed", async () => {
+    act(() => useSettingsStore.setState({ _hasHydrated: false }));
+    render(tip("tip-unhydrated", true));
+
+    await expectNoTip();
   });
 
   // The switch is one answer over every lesson, and turning it back on must
   // leave the per-lesson answers alone.
   it("teaches nothing while tips are switched off", async () => {
-    const { rerender } = renderTip("tip-switched-off", true);
-    await screen.findByText("Artifacts placed here");
+    const { rerender } = render(tip("tip-switched-off", true));
+    await findTip();
 
-    act(() => setTeachingTipsEnabled(false));
-    await waitFor(() =>
-      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
-    );
+    act(() => settings().setTipsEnabled(false));
+    await expectNoTip();
 
-    act(() => setTeachingTipsEnabled(true));
-    rerender(
-      <Theme>
-        <TeachingTip id="tip-switched-off" open message="Artifacts placed here">
-          <button type="button">Artifacts</button>
-        </TeachingTip>
-      </Theme>,
-    );
-    await screen.findByText("Artifacts placed here");
+    act(() => settings().setTipsEnabled(true));
+    rerender(tip("tip-switched-off", true));
+
+    await findTip();
   });
 
-  // "Got it" is otherwise a one-way door, which is what settings offers a way
+  // Hiding is otherwise a one-way door, which is what settings offers a way
   // back from.
-  it("offers a retired tip again after a reset", async () => {
-    retireTeachingTip("tip-reset");
-    renderTip("tip-reset", true);
-    await waitFor(() =>
-      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
-    );
+  it("offers a hidden tip again after a reset", async () => {
+    act(() => settings().markHintLearned("tip-reset"));
+    render(tip("tip-reset", true));
+    await expectNoTip();
 
-    act(() => resetTeachingTips());
+    act(() => settings().resetHints());
 
-    await screen.findByText("Artifacts placed here");
+    await findTip();
   });
 });

@@ -5,25 +5,24 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import {
-  resetTeachingTips,
-  setTeachingTipsEnabled,
-  useRetiredTipCount,
-  useTipsEnabled,
-} from "@posthog/ui/primitives/TeachingTip";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 
 /**
- * The switch over every tip, and a way back from the ones already answered.
+ * The switch over every tip, and a way back from the ones already hidden.
  *
  * It sits with notifications rather than with appearance: both are the app
  * interrupting someone, and notifications is the page a person opens to stop
  * that.
  */
 export function TipsSection() {
-  const enabled = useTipsEnabled();
-  const retiredCount = useRetiredTipCount();
+  const enabled = useSettingsStore((state) => state.tipsEnabled);
+  const setTipsEnabled = useSettingsStore((state) => state.setTipsEnabled);
+  const resetHints = useSettingsStore((state) => state.resetHints);
+  const hiddenCount = useSettingsStore(
+    (state) => Object.values(state.hints).filter((hint) => hint.learned).length,
+  );
 
   return (
     <SettingsSection label="Tips">
@@ -41,7 +40,7 @@ export function TipsSection() {
                 new_value: checked,
                 old_value: enabled,
               });
-              setTeachingTipsEnabled(checked);
+              setTipsEnabled(checked);
             }}
           />
         </SettingsCardRow>
@@ -49,20 +48,20 @@ export function TipsSection() {
         <SettingsCardRow
           label="Reset tips"
           description={
-            retiredCount === 0
-              ? "You haven't dismissed any for good"
-              : retiredCount === 1
-                ? "Show the one you've dismissed for good"
-                : `Show the ${retiredCount} you've dismissed for good`
+            hiddenCount === 0
+              ? "You haven't hidden any tips"
+              : hiddenCount === 1
+                ? "Show the one tip you've hidden"
+                : `Show the ${hiddenCount} tips you've hidden`
           }
         >
           <Button
             size="sm"
             variant="outline"
-            disabled={retiredCount === 0}
+            disabled={hiddenCount === 0}
             onClick={() => {
-              resetTeachingTips();
-              toast.success("Tips are back on");
+              resetHints();
+              toast.success("Tips are back");
             }}
           >
             Reset

@@ -1,5 +1,6 @@
 import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
-import { retireTeachingTip } from "@posthog/ui/primitives/TeachingTip";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta<typeof TipsSection> = {
@@ -17,7 +18,9 @@ export const Default: Story = {};
 export const SomethingDismissedForGood: Story = {
   decorators: [
     (Story) => {
-      retireTeachingTip("right-panel-artifacts");
+      useSettingsStore
+        .getState()
+        .markHintLearned(TIP_KEYS.sessionArtifactsLocation);
       return <Story />;
     },
   ],
