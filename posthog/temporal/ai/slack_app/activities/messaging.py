@@ -364,6 +364,9 @@ def request_untagged_followup_confirmation_activity(
     now waiting on its author's answer, or the creator switched the thread off
     while this run was in flight. ``False`` lets the workflow carry on.
 
+    Every untagged reply is asked about, the creator's own included — nobody
+    tagged the app, which is the ambiguity the mode exists to settle.
+
     Running here rather than in the webhook handler is the point of the mode:
     the classifier has already judged the reply worth the agent's attention, so
     the prompt only interrupts someone over a message that would otherwise have
@@ -396,12 +399,9 @@ def request_untagged_followup_confirmation_activity(
             integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
         )
         return True
-
-    # The creator asked to be consulted about other people's replies, not their own.
-    if slack_user_id == mapping.mentioning_slack_user_id:
-        return False
 
     _post_untagged_followup_prompt(
         SlackIntegration(integration),

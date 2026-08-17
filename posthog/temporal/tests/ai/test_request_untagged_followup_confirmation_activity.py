@@ -22,6 +22,7 @@ class TestRequestUntaggedFollowupConfirmationActivity(TestCase):
 
     Returning True holds the reply back — either waiting on the author's answer
     or because the creator switched follow-ups off while the run was in flight.
+    The prompt covers every author, the thread creator included.
     """
 
     def setUp(self):
@@ -72,8 +73,8 @@ class TestRequestUntaggedFollowupConfirmationActivity(TestCase):
     @parameterized.expand(
         [
             ("ask_other_person", UntaggedFollowupMode.ASK, "U_BOB", True, True),
-            # The creator already said what they want by starting the thread.
-            ("ask_creator", UntaggedFollowupMode.ASK, "U_ALICE", False, False),
+            # Nobody tagged the app, the creator included — so they get asked too.
+            ("ask_creator", UntaggedFollowupMode.ASK, "U_ALICE", True, True),
             ("auto", UntaggedFollowupMode.AUTO, "U_BOB", False, False),
             # Switched off mid-run: hold the reply back, but there is nothing to ask.
             ("never", UntaggedFollowupMode.NEVER, "U_BOB", True, False),

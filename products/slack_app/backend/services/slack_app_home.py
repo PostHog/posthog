@@ -846,7 +846,8 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
     """Picker for how untagged replies land in the threads you started.
 
     Off until picked, so the card doubles as the only way to turn the behaviour
-    on for your own threads.
+    on for your own threads. The choice covers every reply in those threads,
+    including the ones you write yourself.
     """
     options = [
         {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
@@ -866,9 +867,7 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         {"type": "actions", "elements": [select]},
         {
             "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": "With *Ask them first*, your own replies go through without asking."}
-            ],
+            "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
         },
     ]
 
