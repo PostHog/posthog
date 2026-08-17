@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { GuidedWizardPanel, GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardLayout'
+import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { GuidedWizardStep, GuidedWizardStepper } from './GuidedWizardStepper'
 
-type TestStep = 'first' | 'second' | 'third'
+type TestStep = 'intro' | 'first' | 'second' | 'third' | 'done'
 
 const STEPS: GuidedWizardStep<TestStep>[] = [
     { step: 'first', label: 'First' },
@@ -28,7 +28,35 @@ describe('GuidedWizardStepper', () => {
         expect(screen.getByText('3')).toBeInTheDocument()
         expect(screen.getByText('Second').closest('button')).toHaveAttribute('aria-current', 'step')
         expect(screen.getByText('First').closest('button')).not.toHaveAttribute('aria-current')
+
+        // Without an onStepClick handler the steps aren't navigable
+        expect(screen.getByText('Third').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
+
+    it.each([
+        ['before the steps (e.g. a template picker)', 'intro', 'start', ['1', '2', '3']],
+        ['after the steps (e.g. a success screen)', 'done', 'end', []],
+    ] as [string, TestStep, 'start' | 'end', string[]][])(
+        'sorts an unlisted current step %s',
+        (_description, currentStep, unlistedStepPosition, visibleNumbers) => {
+            render(
+                <GuidedWizardStepper
+                    steps={STEPS}
+                    currentStep={currentStep}
+                    unlistedStepPosition={unlistedStepPosition}
+                />
+            )
+
+            // A step number is shown while upcoming and replaced by a checkmark once completed
+            for (const number of ['1', '2', '3']) {
+                if (visibleNumbers.includes(number)) {
+                    expect(screen.getByText(number)).toBeInTheDocument()
+                } else {
+                    expect(screen.queryByText(number)).not.toBeInTheDocument()
+                }
+            }
+        }
+    )
 
     it('calls onStepClick with the clicked step', () => {
         const onStepClick = jest.fn()
@@ -49,8 +77,9 @@ describe('GuidedWizardStepper', () => {
             />
         )
 
+        // Blocked steps use aria-disabled, so the click reaches the handler and exercises its guard
         const forwardButton = screen.getByText('Third').closest('button')
-        expect(forwardButton).toBeDisabled()
+        expect(forwardButton).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(forwardButton!)
         expect(onStepClick).not.toHaveBeenCalled()
 

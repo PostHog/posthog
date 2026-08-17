@@ -3,11 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSnack } from '@posthog/lemon-ui'
 
-import {
-    GuidedWizardPanel,
-    GuidedWizardSection,
-    GuidedWizardStepLayout,
-} from 'lib/components/GuidedWizard/GuidedWizardLayout'
+import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
+import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardStepLayout'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'

@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { GuidedWizardPanel, GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardLayout'
+import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 
 import { BaseLanguagePicker } from '../../BaseLanguagePicker'
 import { COMMON_LANGUAGES, getSurveyLanguageLabel, getSurveyLanguageName } from '../../language'

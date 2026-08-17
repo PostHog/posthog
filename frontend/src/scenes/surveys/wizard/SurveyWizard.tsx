@@ -399,6 +399,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                 <GuidedWizardStepper
                     steps={SURVEY_WIZARD_STEPS}
                     currentStep={currentStep}
+                    // 'template' sorts before the first step, 'success' marks every step completed
+                    unlistedStepPosition={currentStep === 'success' ? 'end' : 'start'}
                     onStepClick={setStep}
                     stepErrors={stepValidationErrors}
                     aria-label="Survey wizard progress"

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardLayout'
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
