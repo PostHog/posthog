@@ -375,6 +375,27 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     assert diagnostics[0].human_readable_error == "bad query"
 
 
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_rejects_chained_window_predicate_before_execution(
+    mock_executor_cls: MagicMock, _mock_fix: AsyncMock
+) -> None:
+    # `timestamp >= {{date_range}}` renders a chained comparison ClickHouse accepts and reads as a
+    # 0-row filter. The executor would return that empty result as a success, so the report would
+    # state a confident 0. Validation must reject it before it runs and mark the step failed.
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(return_value=("0", None))
+    spec = _spec(steps=1)
+    spec.plan.steps[0].hogql = "SELECT count() FROM events WHERE timestamp >= {{date_range}}"
+
+    rendered, failed, diagnostics = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None)
+
+    assert failed == 1
+    assert diagnostics[0].ok is False
+    assert QUERY_FAILED_PREFIX in rendered[0]
+    # The malformed query never reached ClickHouse — the empty result was never fetched as a success.
+    mock_executor_cls.return_value.arun_and_format_query.assert_not_awaited()
+
+
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: MagicMock) -> None:
     # The planner can emit many steps; they must not all hit ClickHouse at once. With more steps than

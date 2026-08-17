@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
+    validate_window_placeholders,
 )
 from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
 
@@ -402,6 +403,9 @@ async def _run_steps(
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
             executable_hogql = window.render_window_filter(current_hogql)
             try:
+                # Reject a chained window predicate before it runs: ClickHouse would accept it and
+                # return zero rows, so the report states a confident 0 for a metric that has data.
+                validate_window_placeholders(current_hogql)
                 query = AssistantHogQLQuery(query=executable_hogql)
                 formatted, _ = await asyncio.wait_for(
                     executor.arun_and_format_query(query),

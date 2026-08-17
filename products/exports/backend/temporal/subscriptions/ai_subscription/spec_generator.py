@@ -11,6 +11,8 @@ from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
@@ -85,6 +87,16 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
+# These two expand to a COMPLETE predicate (`timestamp >= … AND timestamp < …`), so they belong where
+# a whole condition goes. `{{window_start}}` / `{{window_end}}` expand to a bare `toDateTime('…')` and
+# are the single-bound tokens that follow a comparison operator.
+FULL_PREDICATE_PLACEHOLDERS = (DATE_RANGE_PLACEHOLDER, COMPARE_DATE_RANGE_PLACEHOLDER)
+# A comparison operator right before a full-predicate placeholder means the planner wrote
+# `timestamp >= {{date_range}}`, which renders the chained `timestamp >= timestamp >= toDateTime(…)`
+# comparison ClickHouse silently evaluates to a 0-row filter — a real metric then reads as empty data.
+_CHAINED_PREDICATE_RE = re.compile(
+    r"[<>=!]\s*(?:" + "|".join(re.escape(token) for token in FULL_PREDICATE_PLACEHOLDERS) + r")"
+)
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 4
@@ -158,6 +170,24 @@ class ReportWindow:
         )
 
 
+def validate_window_placeholders(hogql: str) -> None:
+    """Reject a window predicate that isn't a single clean comparison.
+
+    Raises `QueryError` (an exposed, retryable HogQL error) when a full-predicate placeholder sits
+    after a comparison operator. The step's fix loop then repairs it, and an unrepairable step is
+    reported as failed rather than as empty data — otherwise ClickHouse accepts the chained
+    comparison, returns zero rows, and the report states a confident 0 for a metric that has data.
+    """
+    if _CHAINED_PREDICATE_RE.search(hogql):
+        raise QueryError(
+            f"A window placeholder is used incorrectly. {DATE_RANGE_PLACEHOLDER} and "
+            f"{COMPARE_DATE_RANGE_PLACEHOLDER} already expand to a full timestamp predicate, so write "
+            f"them where a whole condition goes (e.g. `WHERE {DATE_RANGE_PLACEHOLDER}`), never after a "
+            f"comparison operator like `timestamp >= {DATE_RANGE_PLACEHOLDER}`. For a single bound use "
+            f"{WINDOW_START_PLACEHOLDER} or {WINDOW_END_PLACEHOLDER}."
+        )
+
+
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
     """Normalise to `tz`. Naive inputs are assumed UTC (Django stores tz-aware UTC datetimes, but
     management commands / tests may hand us a naive value)."""
@@ -204,9 +234,16 @@ def compute_report_window(
         )
 
     end = run_now
-    start = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
-    if start is None or start >= end:
-        start = end - timedelta(days=window_days)
+    cadence_start = end - timedelta(days=window_days)
+    anchored = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
+    if anchored is None or anchored >= end:
+        start = cadence_start
+    else:
+        # Anchor to the previous report's coverage end for gap-free "since last report", but floor the
+        # window at one cadence: overlapping re-fires (ScheduleOverlapPolicy.ALLOW_ALL plus the due
+        # buffer) can complete minutes apart, and a minutes-long window reads as a near-zero report for
+        # metrics that have data. Taking the earlier bound keeps coverage both gap-free and full-length.
+        start = min(anchored, cadence_start)
 
     return ReportWindow(start=start, end=end)
 

@@ -9,6 +9,8 @@ from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
@@ -40,6 +42,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     compute_report_window,
     generate_query_plan,
     sanitize_prompt,
+    validate_window_placeholders,
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -641,6 +644,57 @@ class TestComputeReportWindow:
 
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+    def test_recent_refire_is_floored_to_one_cadence(self) -> None:
+        # Overlapping re-fires can complete minutes apart, anchoring start just before now. Without a
+        # floor that yields a minutes-long window, which reads as a near-zero report for metrics with
+        # data. The window must widen back to a full cadence instead.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 29, 15, 45, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=1,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.start == now - timedelta(days=1)
+        assert window.end == now
+
+
+class TestValidateWindowPlaceholders:
+    """A comparison operator before `{{date_range}}`/`{{compare_date_range}}` renders a chained
+    `timestamp >= timestamp >= toDateTime(…)` predicate ClickHouse silently reads as a 0-row filter,
+    so the report states a confident 0 for a metric that has data. Validation must turn that into a
+    real error while leaving the correct placeholder usages untouched."""
+
+    @parameterized.expand(
+        [
+            ("date_range_after_ge", "SELECT count() FROM events WHERE timestamp >= {{date_range}}"),
+            ("date_range_after_gt", "SELECT count() FROM events WHERE timestamp > {{date_range}}"),
+            ("date_range_no_space", "SELECT count() FROM events WHERE timestamp>={{date_range}}"),
+            ("compare_range_after_ge", "SELECT count() FROM events WHERE timestamp >= {{compare_date_range}}"),
+        ]
+    )
+    def test_rejects_chained_window_predicate(self, _name: str, hogql: str) -> None:
+        with pytest.raises(QueryError):
+            validate_window_placeholders(hogql)
+
+    @parameterized.expand(
+        [
+            ("bare_date_range", "SELECT count() FROM events WHERE {{date_range}}"),
+            ("date_range_with_event", "SELECT count() FROM events WHERE event = '$pageview' AND {{date_range}}"),
+            (
+                "window_start_after_ge",
+                "SELECT countIf(timestamp >= {{window_start}}) FROM events WHERE {{compare_date_range}}",
+            ),
+            ("window_end_after_lt", "SELECT count() FROM events WHERE first_seen < {{window_end}}"),
+        ]
+    )
+    def test_accepts_valid_placeholder_usage(self, _name: str, hogql: str) -> None:
+        validate_window_placeholders(hogql)
 
 
 class TestContextBlob(APIBaseTest):
