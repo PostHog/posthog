@@ -2,6 +2,8 @@ import { Editor } from 'react-email-editor'
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
 // Native email senders: integrationIds enables stable per-run rotation, while the optional
 // templated overrides vary the visible sender. The runtime rejects an override address that
 // is not on the selected integration's verified domain.

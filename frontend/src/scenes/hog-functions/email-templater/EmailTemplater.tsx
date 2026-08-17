@@ -35,7 +35,7 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
-import { EmailFieldErrors, EmailTemplateFrom } from './types'
+import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -274,6 +274,9 @@ export function NativeEmailIntegrationChoice({
     }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
+        if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
+            return
+        }
         onChange({
             ...value,
             integrationId: integrationIds[0],
@@ -330,11 +333,10 @@ export function NativeEmailIntegrationChoice({
                                 onClick: () => window.open(urls.workflows('channels'), '_blank'),
                             }}
                         />
-                        {selectedIntegrationIds.length > 1 && (
-                            <span className="px-2 pb-1 text-xs text-muted">
-                                Each workflow run uses one sender from this list.
-                            </span>
-                        )}
+                        <span className="px-2 pb-1 text-xs text-muted">
+                            Choose up to {MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from
+                            this list.
+                        </span>
                     </div>
                 ) : (
                     <LemonSelect

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
 import { NativeEmailIntegrationChoice } from './EmailTemplater'
@@ -23,6 +23,8 @@ jest.mock('@posthog/lemon-ui', () => ({
 }))
 
 describe('NativeEmailIntegrationChoice', () => {
+    afterEach(cleanup)
+
     beforeEach(() => {
         jest.mocked(useValues).mockReturnValue({
             integrationsLoading: false,
