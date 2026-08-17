@@ -963,12 +963,14 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     AI prompt subscriptions have no insight or dashboard; their report content is gated on query
     access separately, by _should_hide_ai_report.
 
-    Known limitations, shared with the alerts sibling: the write gate and this filter resolve
-    object-level access control rows only — a project that denies a whole resource at the resource
-    level (an AccessControl row with resource_id=None) is not consulted by either, and closing that
-    belongs in posthog/rbac/user_access_control.py for both features at once. The delivery pipeline
-    also doesn't re-check access at render time, so a hidden subscription keeps delivering until an
-    org admin turns it off.
+    Known limitations, shared with the alerts sibling: this filter resolves object-level access
+    control rows only, while the write gate also consults resource-level rows (get_user_access_level
+    falls through to access_level_for_resource; filter_queryset_by_access_level never does). So a
+    member denied a whole resource (an AccessControl row with resource_id=None) can't save a
+    subscription on it but can still list existing ones — closing that belongs in
+    posthog/rbac/user_access_control.py, for both features at once. The delivery pipeline also
+    doesn't re-check access at render time, so a hidden subscription keeps delivering until an org
+    admin turns it off.
 
     Every multi-valued (M2M or reverse-FK) condition below must stay negated: Django compiles a
     negated multi-valued lookup to a correlated NOT EXISTS subquery, while a positive one joins the
@@ -988,12 +990,12 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     viewable_dashboards = _viewable_queryset(
         user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
     )
-    blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id"))
+    # The renderer never draws a soft-deleted insight, so one can't leak and doesn't block.
+    blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id")).exclude(deleted=True)
     # DashboardTile.objects skips soft-deleted tiles and dashboards (a relation-spanning lookup
-    # would not), and the renderer skips soft-deleted insights, so only tiles a delivery would
-    # actually render count as blocking.
+    # would not), so only tiles a delivery would actually render count as blocking.
     blocked_tile_dashboard_ids = DashboardTile.objects.filter(
-        dashboard__team_id=team_id, insight__in=blocked_insights.exclude(deleted=True)
+        dashboard__team_id=team_id, insight__in=blocked_insights
     ).values("dashboard_id")
 
     views_the_insight = Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})

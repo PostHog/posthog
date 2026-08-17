@@ -3355,13 +3355,33 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
         assert len(deliveries.json()["results"]) == 1
 
-    def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync):
-        # Soft-deleting an insight must not hide its subscription: the owner still needs to see the
+    def test_selection_without_the_restricted_tile_keeps_the_subscription_visible(self, mock_sync):
+        # A restricted tile the subscription doesn't export can't leak through it, so an explicit
+        # selection of open insights must keep the row visible.
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.set([self.open_insight])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+
+    @parameterized.expand([("insight",), ("dashboard",)])
+    def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync, target_field):
+        # Soft-deleting a target must not hide its subscription: the owner still needs to see the
         # row and turn it off. The access gate is about restriction, not deletion.
-        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        subscription = self._subscription_for(insight=insight)
-        insight.deleted = True
-        insight.save(update_fields=["deleted"])
+        if target_field == "insight":
+            target: Insight | Dashboard = Insight.objects.create(
+                team=self.team, filters={"events": [{"id": "$pageview"}]}
+            )
+        else:
+            target = Dashboard.objects.create(team=self.team, name="Old dashboard")
+        subscription = self._subscription_for(**{target_field: target})
+        target.deleted = True
+        target.save(update_fields=["deleted"])
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert subscription.id in [row["id"] for row in listed.json()["results"]]
