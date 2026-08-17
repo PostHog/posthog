@@ -4,6 +4,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { Chart } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
@@ -30,18 +31,6 @@ const FIT_QUALITY_COPY: Record<
 
 function formatPercent(value: number | null): string | null {
     return value == null ? null : `${Math.round(value * 100)}%`
-}
-
-/** Band-deviation mode has no threshold to cross, so the nearest forecast band stands in for
- * "the expected range right now". */
-function isLatestValueOutsideNearBand(result: ForecastSimulateResponseApi): boolean | null {
-    const latest = result.data[result.data.length - 1]
-    const lower = result.forecast_lower[0]
-    const upper = result.forecast_upper[0]
-    if (latest == null || lower == null || upper == null) {
-        return null
-    }
-    return latest < lower || latest > upper
 }
 
 function FitQualityBadge({
@@ -88,8 +77,17 @@ function ForecastChart({
     ]
 
     const forecastData = nullPad(result.forecast_yhat)
-    const upperData = nullPad(result.forecast_upper)
-    const lowerData = nullPad(result.forecast_lower)
+
+    // The in-sample band comes from the same fit as the forecast band, so the two join into one
+    // continuous interval. Engines that produce no in-sample band fall back to the forecast span.
+    const { history_lower: historyLower, history_upper: historyUpper } = result
+    const hasHistoryBand =
+        historyLower != null &&
+        historyUpper != null &&
+        historyLower.length === historyLength &&
+        historyUpper.length === historyLength
+    const upperData = hasHistoryBand ? [...historyUpper, ...result.forecast_upper] : nullPad(result.forecast_upper)
+    const lowerData = hasHistoryBand ? [...historyLower, ...result.forecast_lower] : nullPad(result.forecast_lower)
 
     const crossingDataIndex = crossingIndex != null ? historyLength + crossingIndex : null
     const pointRadius = forecastData.map((_, i) => (i === crossingDataIndex ? 4 : 0))
@@ -207,7 +205,7 @@ export function ForecastPreview({
 }): JSX.Element {
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
     const crossingIndex = hasBounds ? findFirstCrossing(result.forecast_yhat, thresholdBounds) : null
-    const outsideNearBand = !hasBounds ? isLatestValueOutsideNearBand(result) : null
+    const deviation = result.latest_deviation
 
     return (
         <div className="space-y-2">
@@ -226,10 +224,14 @@ export function ForecastPreview({
                     ) : (
                         <span>No breach predicted within the forecast window</span>
                     )
-                ) : outsideNearBand == null ? (
+                ) : deviation == null ? (
                     <span>Not enough data to assess the expected range</span>
                 ) : (
-                    <span>Latest value is {outsideNearBand ? 'outside' : 'near'} its forecasted range</span>
+                    <span>
+                        Latest value {humanFriendlyNumber(deviation.value)} is{' '}
+                        {deviation.outside ? 'outside' : 'inside'} its expected range of{' '}
+                        {humanFriendlyNumber(deviation.lower)} to {humanFriendlyNumber(deviation.upper)}
+                    </span>
                 )}
             </div>
         </div>
