@@ -50,13 +50,11 @@
 1 posthog/personhog_client/fake_client.py
 1 posthog/persons_seed.py
 1 posthog/session/backfill.py
-1 posthog/slo/context.py
 1 posthog/storage/auth_token_cache_verifier.py
 1 posthog/storage/hypercache_manager.py
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
-1 posthog/tasks/alerts/utils.py
 1 posthog/taxonomy/property_definition_api.py
 1 posthog/temporal/ai/anomaly_investigation/notebook.py
 1 posthog/temporal/ai/anomaly_investigation/runner.py
@@ -90,7 +88,6 @@
 1 products/apm/backend/logic/anomaly_detection/types.py
 1 products/apm/backend/logic/anomaly_detection/validation/simulation.py
 1 products/approvals/backend/decorators.py
-1 products/approvals/backend/policies.py
 1 products/batch_exports/backend/api/batch_export.py
 1 products/batch_exports/backend/api/destination_tests/base.py
 1 products/batch_exports/backend/debug/debugger.py
@@ -131,7 +128,6 @@
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
-1 products/experiments/backend/temporal/canary_logic.py
 1 products/experiments/stats/bayesian/method.py
 1 products/experiments/stats/bayesian/priors.py
 1 products/experiments/stats/bayesian/tests.py
@@ -158,7 +154,6 @@
 1 products/mcp_analytics/backend/management/commands/classify_mcp_failures.py
 1 products/mcp_store/backend/catalog_sync.py
 1 products/mcp_store/backend/probe.py
-1 products/notebooks/backend/python_analysis.py
 1 products/notebooks/backend/sql_v2_state.py
 1 products/notebooks/backend/temporal/frame_materialize.py
 1 products/notebooks/backend/temporal/sql_v2.py
@@ -195,7 +190,6 @@
 1 products/streamlit_apps/backend/logic/zip_validator.py
 1 products/surveys/backend/summarization/llm/gemini.py
 1 products/tasks/backend/logic/services/agent_command.py
-1 products/tasks/backend/logic/services/custom_prompt_multi_turn_runner.py
 1 products/tasks/backend/logic/services/modal_provision_diagnostics.py
 1 products/tasks/backend/logic/services/sandbox.py
 1 products/tasks/backend/logic/services/warm.py
@@ -1368,12 +1362,11 @@
 10 posthog/temporal/ai_observability/trace_summarization/models.py
 10 posthog/temporal/data_modeling/run_workflow.py
 10 posthog/temporal/sync_person_distinct_ids/activities.py
-10 products/experiments/backend/temporal/models.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 104 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
-12 products/signals/backend/temporal/grouping.py
+10 products/signals/backend/temporal/grouping.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 16 posthog/temporal/ai_observability/eval_reports/types.py
 17 products/exports/backend/temporal/subscriptions/types.py
@@ -1428,7 +1421,6 @@
 2 posthog/temporal/tests/test_slo_interceptor.py
 2 posthog/temporal/tests/utils/workflow.py
 2 posthog/temporal/utils.py
-2 products/batch_exports/backend/temporal/batch_exports.py
 2 products/batch_exports/backend/temporal/destinations/s3_batch_export.py
 2 products/batch_exports/backend/temporal/pipeline/types.py
 2 products/batch_exports/backend/tests/temporal/pipeline/test_entrypoint.py
@@ -1515,7 +1507,7 @@
 2 products/web_analytics/backend/hogql_queries/web_stats_lazy_precompute.py
 2 products/web_analytics/backend/path_cleaning_suggestions/service.py
 22 products/batch_exports/backend/service.py
-27 products/review_hog/backend/temporal/activities.py
+26 products/review_hog/backend/temporal/activities.py
 3 ee/api/vercel/types.py
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py
@@ -1634,4 +1626,5 @@
 8 products/signals/backend/temporal/signal_queries.py
 9 posthog/clickhouse/cluster.py
 9 posthog/temporal/backfill_materialized_property/activities.py
+9 products/experiments/backend/temporal/models.py
 9 products/signals/backend/temporal/reingestion.py

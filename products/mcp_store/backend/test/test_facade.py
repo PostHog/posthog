@@ -12,7 +12,7 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
@@ -42,7 +42,7 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results == [
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
@@ -359,7 +359,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve(credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+        def resolve(credential_owner_id: int | None) -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -392,7 +392,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve() -> list[ActiveInstallationInfo]:
+        def resolve() -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -437,7 +437,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             scope=scope,
         )
 
-    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallation]:
         return get_installations_for_sandbox(
             self.team.id,
             task_origin="support_reply",
