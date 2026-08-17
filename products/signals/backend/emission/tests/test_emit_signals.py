@@ -309,6 +309,26 @@ class TestCheckActionability:
         assert "<record_metadata>" not in prompt
 
     @pytest.mark.asyncio
+    async def test_declared_context_survives_the_steered_metadata_cap(self):
+        # A steered gate serializes all of `extra` and truncates it, so declared keys have to lead
+        # the block. Ordered behind a record's labels they fall off the end and the gate goes blind.
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        output = _make_output(extra={"labels": ["x" * 100] * 40, "author_login": "octocat"})
+
+        await _check_actionability(
+            mock_client,
+            1,
+            output,
+            "prompt {description}",
+            include_record_metadata=True,
+            context_fields=("author_login",),
+        )
+
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert '"author_login": "octocat"' in prompt
+
+    @pytest.mark.asyncio
     async def test_assumes_actionable_after_retries_exhausted(self):
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))

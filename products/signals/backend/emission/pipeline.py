@@ -292,7 +292,10 @@ async def _check_actionability(
     # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
     # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
     # the keys its source declared, keeping every other source's prompt byte-identical.
-    metadata_fields = output.extra if include_record_metadata else _declared_context(output.extra, context_fields)
+    declared = _declared_context(output.extra, context_fields)
+    # Declared keys lead the block so the length cap below trims the rest of `extra` first — a source
+    # that asked for a key shouldn't lose it to a record that happens to carry heavy labels.
+    metadata_fields = {**declared, **output.extra} if include_record_metadata else declared
     if metadata_fields:
         # Bounded, and substituted through the `{description}` placeholder so it is never
         # format-processed.
