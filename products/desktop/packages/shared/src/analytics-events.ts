@@ -943,7 +943,6 @@ export type ChannelsSurface =
   | "task_input"
   | "channel_home"
   | "channel_history"
-  | "channel_artifacts"
   | "pinned"
   | "dashboards_grid"
   | "canvas"
@@ -973,8 +972,6 @@ export type ChannelActionType =
   | "new_task_suggestion"
   | "view_context"
   | "view_history"
-  | "view_artifacts"
-  | "open_artifact"
   | "file_task"
   | "unfile_task"
   | "archive_task"
@@ -985,11 +982,7 @@ export type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "canvas_mode_toggle"
-  /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
-  | "canvas_generate"
-  | "activity_tab_change"
-  | "artifacts_view_change";
+  | "activity_tab_change";
 
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
@@ -1006,12 +999,8 @@ export interface ChannelActionProperties {
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For canvas_mode_toggle: whether canvas mode is being armed. */
-  armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
-  /** For artifacts_view_change: the selected layout. */
-  view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }
@@ -1038,8 +1027,6 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
-  /** The canvas render kind. */
-  kind?: "json-render" | "freeform";
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */

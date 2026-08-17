@@ -50,6 +50,7 @@ def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
             description="Something failed",
             status="active",
             created_at="2026-07-21T12:00:00Z",
+            severity="high",
         ),
         fingerprint=fingerprint,
         event_uuid=event_uuid,

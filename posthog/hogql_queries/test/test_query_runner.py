@@ -1605,6 +1605,76 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
         assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
 
+    def test_object_grants_under_a_denied_resource_partition_cache(self):
+        # Both users are denied notebooks at the resource level and see only what they were granted,
+        # so neither has a deny set to partition on - without the allowlist in the fingerprint they
+        # would share one entry and be served each other's notebook.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        mine = Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        theirs = Notebook.objects.create(team=self.team, created_by=other_user, title="Theirs")
+
+        self._ac(resource="notebook", access_level="none")
+        self._ac(
+            resource="notebook",
+            resource_id=str(mine.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._ac(
+            resource="notebook",
+            resource_id=str(theirs.id),
+            access_level="viewer",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        my_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        their_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert my_runner.get_cache_payload()["allowlisted_objects"] == {"notebook": [str(mine.id)]}
+        assert their_runner.get_cache_payload()["allowlisted_objects"] == {"notebook": [str(theirs.id)]}
+        assert my_runner.get_cache_key() != their_runner.get_cache_key()
+
+    def test_creator_exemption_partitions_cache_between_identically_denied_users(self):
+        # The same notebook is denied to both users, so their deny sets match - but the guard keeps it
+        # visible to whoever created it, so they must not share a cache entry.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        self._ac(resource="notebook", access_level="editor")
+        self._ac(resource="notebook", resource_id=str(notebook.id), access_level="none")
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        creator_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        other_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert creator_runner.get_cache_payload()["restricted_objects"] == {"notebook": [str(notebook.id)]}
+        assert other_runner.get_cache_payload()["restricted_objects"] == {"notebook": [str(notebook.id)]}
+        assert creator_runner.get_cache_key() != other_runner.get_cache_key()
+
+    def test_creator_exemption_partitions_cache_without_object_level_rules(self):
+        # A resource deny still leaves a creator's own objects visible. With no object rules, both users
+        # otherwise have the same fingerprint and could be served each other's cached result.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        self._ac(resource="notebook", access_level="none")
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        creator_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        other_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert "restricted_objects" not in creator_runner.get_cache_payload()
+        assert "restricted_objects" not in other_runner.get_cache_payload()
+        assert creator_runner.get_cache_payload()["restricted_resources"] == ["notebook"]
+        assert other_runner.get_cache_payload()["restricted_resources"] == ["notebook"]
+        assert creator_runner.get_cache_key() != other_runner.get_cache_key()
+
     def test_run_recomputes_fingerprint_when_user_changes(self):
         # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.
         other_user = self._create_user("other@posthog.com")

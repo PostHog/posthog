@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-12 20:13:03 UTC
+// Generated at: 2026-08-14 10:21:15 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,6 +15,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
+    | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'ambient'
@@ -106,6 +107,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modal-mxfp4'
+    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
@@ -133,7 +135,7 @@ export type CanonicalProvider =
     | 'nvidia-bf16'
     | 'nvidia-nvfp4'
     | 'open-inference-bf16'
-    | 'open-inference-fp8'
+    | 'open-inference-fp4'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'
@@ -148,6 +150,7 @@ export type CanonicalProvider =
     | 'perceptron'
     | 'perplexity'
     | 'phala'
+    | 'phala-fp8'
     | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'

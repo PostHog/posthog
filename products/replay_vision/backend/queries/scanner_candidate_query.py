@@ -104,14 +104,14 @@ def eligibility_predicates() -> list[ast.Expr]:
     ]
 
 
-def _execute_candidate_query(
-    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
+def execute_candidate_query(
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int, scanner_id: str | None
 ) -> list[list]:
     """One home for the candidate queries' ClickHouse execution policy.
 
     The dedicated user keeps sweep and backfill admission out of the contended shared `default` pool.
     """
-    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=scanner_id):
         response = execute_hogql_query(
             query=query,
             team=team,
@@ -143,6 +143,11 @@ class ScannerCandidateQuery:
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         events_lookback: dt.timedelta | None = None,
+        # The sweep drops negative-filter matches after fetching, so it turns the in-query blocklists
+        # off and asks about its own candidates instead.
+        skip_negative_blocklists: bool = False,
+        # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
+        scanner_id: str | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -160,6 +165,7 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
         # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
         self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
 
@@ -190,15 +196,21 @@ class ScannerCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
+        return self._inner.excluded_sessions_queries(session_ids)
+
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
             query_type="ReplayVisionScannerCandidateQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
@@ -310,8 +322,12 @@ class BackfillCandidateQuery:
         # the caller rather than from the `$recording_observed` event, so it can carry observations in
         # any state and cannot be influenced by ingested events.
         exclude_session_ids: list[str] | None = None,
+        # Only for callers that drop negative-filter matches from the rows they fetched. The quote
+        # path counts rather than dispatching, so it keeps the in-query blocklist and stays exact.
+        skip_negative_blocklists: bool = False,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        scanner_id: str | None = None,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):
             if not isinstance(value, dt.datetime):
@@ -332,6 +348,7 @@ class BackfillCandidateQuery:
         self._exclude_session_ids = exclude_session_ids
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
 
         # The backfill owns the time window; the frozen scanner query only contributes filters.
         inner_query = query.model_copy(deep=True)
@@ -353,15 +370,21 @@ class BackfillCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
+
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
+        return self._inner.excluded_sessions_queries(session_ids)
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
             query_type="ReplayVisionBackfillCandidateQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
@@ -371,11 +394,12 @@ class BackfillCandidateQuery:
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
         )
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             counted,
             team=self._team,
             query_type="ReplayVisionBackfillCountQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return int(rows[0][0]) if rows else 0
 

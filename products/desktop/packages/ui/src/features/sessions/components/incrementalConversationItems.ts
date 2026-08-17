@@ -98,6 +98,7 @@ export function createIncrementalConversationBuilder() {
           items: builder.items,
           lastTurnInfo: readLastTurnInfo(builder),
           isCompacting: builder.isCompacting,
+          isClearing: builder.isClearing,
           completedToolCallCount: builder.completedToolCallCount,
         };
         // A finalized builder can't be safely continued; the next streaming
@@ -178,6 +179,7 @@ export function createIncrementalConversationBuilder() {
       items: assembleItems(builder, activeStart),
       lastTurnInfo: readLastTurnInfoForOutput(builder),
       isCompacting: builder.isCompacting,
+      isClearing: builder.isClearing,
       completedToolCallCount: builder.completedToolCallCount,
     };
   }
