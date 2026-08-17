@@ -51,11 +51,7 @@ def cascade_posthog_code_repository_activity(
         )
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
-    from products.slack_app.backend.api import (
-        _extract_explicit_repo,
-        _extract_explicit_repo_from_thread,
-        _get_full_repo_names,
-    )
+    from products.slack_app.backend.api import _get_full_repo_names
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -74,13 +70,29 @@ def cascade_posthog_code_repository_activity(
     if len(all_repos) == 1:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
 
+    outcome = _resolve_from_text(event_text, thread_messages or [], all_repos)
+    # The reason carries which scope answered, and whether anything did. Without it the share of
+    # mentions the fast path saves from the discovery agent is only measurable by rerunning the
+    # resolution order over Slack text, which is not something to reconstruct in a query.
+    logger.info(
+        "posthog_code_cascade_outcome",
+        reason=outcome.reason,
+        integration_id=inputs.integration_id,
+    )
+    return outcome
+
+
+def _resolve_from_text(
+    event_text: str, thread_messages: list[dict[str, str]], all_repos: list[str]
+) -> PostHogCodeRepoCascadeOutcome:
+    """Repo named by the mention, then by the thread, each reported under its own reason."""
+    from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
+
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=explicit_repo, reason="explicit_mention")
 
-    # Separate reason from `explicit_mention` so the share of asks the thread scope saves from
-    # the discovery agent is readable without reproducing the resolution order in a query.
-    thread_repo = _extract_explicit_repo_from_thread(thread_messages or [], all_repos)
+    thread_repo = _extract_explicit_repo_from_thread(thread_messages, all_repos)
     if thread_repo:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=thread_repo, reason="explicit_thread_mention")
 
