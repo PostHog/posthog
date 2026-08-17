@@ -19,13 +19,15 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
     args_schema = ReadTaxonomyToolArgs
 
     async def execute(self, args: ReadTaxonomyToolArgs) -> str:
-        toolkit = TaxonomyAgentToolkit(self._team, self._user)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user, event_source=self._event_source)
 
         try:
 
             @database_sync_to_async(thread_sensitive=False)
             def _execute_query():
-                return execute_taxonomy_query(args.query, toolkit, self._team, self._user)
+                return execute_taxonomy_query(
+                    args.query, toolkit, self._team, self._user, event_source=self._event_source
+                )
 
             return await _execute_query()
         except ValueError as e:
