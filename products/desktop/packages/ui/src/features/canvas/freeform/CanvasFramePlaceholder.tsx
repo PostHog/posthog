@@ -20,6 +20,7 @@ export function CanvasFramePlaceholder({
   onError,
   onRendered,
   onNavigate,
+  onReportAction,
   onTextSelection,
   onCommentActivate,
   commentHighlights,
@@ -32,6 +33,7 @@ export function CanvasFramePlaceholder({
   onError?: (message: string, stack?: string) => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onReportAction?: (action: "create-pull-request") => Promise<void>;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
@@ -52,6 +54,7 @@ export function CanvasFramePlaceholder({
       onError,
       onRendered,
       onNavigate,
+      onReportAction,
       onTextSelection,
       onCommentActivate,
       commentHighlights,
@@ -64,6 +67,7 @@ export function CanvasFramePlaceholder({
       onError,
       onRendered,
       onNavigate,
+      onReportAction,
       onTextSelection,
       onCommentActivate,
       commentHighlights,

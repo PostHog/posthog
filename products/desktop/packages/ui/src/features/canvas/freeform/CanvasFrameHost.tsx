@@ -57,6 +57,7 @@ export function CanvasFrameHost() {
                 onError={slot.inputs.onError}
                 onRendered={slot.inputs.onRendered}
                 onNavigate={slot.inputs.onNavigate}
+                onReportAction={slot.inputs.onReportAction}
                 onTextSelection={slot.inputs.onTextSelection}
                 onCommentActivate={slot.inputs.onCommentActivate}
                 commentHighlights={slot.inputs.commentHighlights}

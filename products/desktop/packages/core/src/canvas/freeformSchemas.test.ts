@@ -96,6 +96,29 @@ describe("canvasToHostMessageSchema", () => {
     ).toBe(true);
   });
 
+  it("only accepts the host-defined report action", () => {
+    const action = {
+      channel: "posthog-canvas",
+      type: "report-action",
+      id: "action-1",
+      action: "create-pull-request",
+    };
+
+    expect(canvasToHostMessageSchema.safeParse(action).success).toBe(true);
+    expect(
+      canvasToHostMessageSchema.safeParse({
+        ...action,
+        action: "delete-report",
+      }).success,
+    ).toBe(false);
+    expect(
+      canvasToHostMessageSchema.parse({
+        ...action,
+        reportId: "another-report",
+      }),
+    ).not.toHaveProperty("reportId");
+  });
+
   it("accepts bounded comment highlights", () => {
     expect(
       hostToCanvasMessageSchema.safeParse({

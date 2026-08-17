@@ -133,7 +133,9 @@ export function useCreatePrReport({
   const createPrReport = useCallback(
     async (feedback?: string) => {
       feedbackRef.current = feedback?.trim() || undefined;
-      await run();
+      if (!(await run())) {
+        throw new Error("Could not start pull request");
+      }
     },
     [run],
   );

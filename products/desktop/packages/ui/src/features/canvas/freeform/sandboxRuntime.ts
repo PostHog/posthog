@@ -221,6 +221,12 @@ export function buildSandboxDocument(
         pending.set(id, { resolve, reject });
         post({ type: "data-request", id, method, payload });
       });
+    const callReportAction = (action) =>
+      new Promise((resolve, reject) => {
+        const id = String(++reqSeq);
+        pending.set(id, { resolve, reject });
+        post({ type: "report-action", id, action });
+      });
     // posthog-js runs IN here (the only way replay records the app's DOM). It is
     // booted by init when analytics config is present; until then capture falls
     // back to the host-mediated path.
@@ -300,6 +306,9 @@ export function buildSandboxDocument(
         toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
+      },
+      report: {
+        createPullRequest: () => callReportAction("create-pull-request"),
       },
     };
 
@@ -632,7 +641,7 @@ export function buildSandboxDocument(
         renderCommentHighlights(d.highlights);
       } else if (d.type === "clear-text-selection") {
         clearNativeTextSelection();
-      } else if (d.type === "data-response") {
+      } else if (d.type === "data-response" || d.type === "report-action-response") {
         const p = pending.get(d.id);
         if (!p) return;
         pending.delete(d.id);

@@ -29,6 +29,7 @@ export interface CanvasHostCallbacks {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onReportAction?: (action: "create-pull-request") => Promise<void>;
   onTextSelection?: (selection: CanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
 }
@@ -158,6 +159,46 @@ export function createCanvasHostMessageRouter(
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
         break;
+      case "report-action": {
+        const onReportAction = options.callbacks().onReportAction;
+        let error: string | undefined;
+        if (!options.hasUserActivation()) {
+          error = "Use this action from a button or link in the canvas";
+        } else if (!onReportAction) {
+          error = "This action is not available for this canvas";
+        }
+        if (error) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "report-action-response",
+            id: message.id,
+            ok: false,
+            error,
+          });
+          break;
+        }
+        try {
+          await onReportAction?.(message.action);
+          options.post({
+            channel: "posthog-canvas",
+            type: "report-action-response",
+            id: message.id,
+            ok: true,
+          });
+        } catch (actionError) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "report-action-response",
+            id: message.id,
+            ok: false,
+            error:
+              actionError instanceof Error
+                ? actionError.message
+                : String(actionError),
+          });
+        }
+        break;
+      }
       case "text-selection":
         options.callbacks().onTextSelection?.(message.selection);
         break;

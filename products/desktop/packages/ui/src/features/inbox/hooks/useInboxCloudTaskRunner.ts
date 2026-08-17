@@ -103,7 +103,7 @@ export interface UseInboxCloudTaskRunnerOptions {
 
 export interface UseInboxCloudTaskRunnerReturn {
   /** Kick off the cloud-task flow. Resolves after the task is created (or failed). */
-  run: () => Promise<void>;
+  run: () => Promise<boolean>;
   /** True while a task is being created. */
   isRunning: boolean;
 }
@@ -136,17 +136,17 @@ export function useInboxCloudTaskRunner({
   const { isOnline } = useConnectivity();
 
   const run = useCallback(async () => {
-    if (isRunning) return;
+    if (isRunning) return false;
     const log = logger.scope(loggerScope);
 
     if (!isOnline) {
       showOfflineToast();
-      return;
+      return false;
     }
 
     if (!cloudRepository && !allowMissingRepository) {
       toast.error(copy.errorTitle, { description: copy.missingRepository });
-      return;
+      return false;
     }
 
     // A repo-less run has no GitHub identity; only resolve/require the user
@@ -156,12 +156,12 @@ export function useInboxCloudTaskRunner({
       : null;
     if (cloudRepository && !githubUserIntegrationId) {
       toast.error(copy.errorTitle, { description: copy.missingIntegration });
-      return;
+      return false;
     }
 
     if (!cloudRegion) {
       toast.error(copy.errorTitle, { description: copy.signedOut });
-      return;
+      return false;
     }
 
     setIsRunning(true);
@@ -191,7 +191,7 @@ export function useInboxCloudTaskRunner({
       toast.dismiss(toastId);
       toast.error(copy.errorTitle, { description: copy.missingModel });
       setIsRunning(false);
-      return;
+      return false;
     }
 
     // The persisted effort belongs to `lastUsedModel`; if the resolver swapped in
@@ -266,6 +266,7 @@ export function useInboxCloudTaskRunner({
           adapter,
           ...analyticsExtras,
         });
+        return true;
       } else {
         toast.dismiss(toastId);
         // Usage-limit blocks already show the upgrade modal; don't double-toast.
@@ -278,6 +279,7 @@ export function useInboxCloudTaskRunner({
             reportTitle,
           });
         }
+        return false;
       }
     } catch (error) {
       toast.dismiss(toastId);
@@ -286,6 +288,7 @@ export function useInboxCloudTaskRunner({
         error,
         reportId,
       });
+      return false;
     } finally {
       setIsRunning(false);
     }

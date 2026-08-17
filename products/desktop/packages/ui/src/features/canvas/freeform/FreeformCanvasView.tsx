@@ -27,6 +27,7 @@ import {
 } from "@posthog/core/canvas/freeformSchemas";
 import { textToContent } from "@posthog/core/message-editor/content";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
+import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   Badge,
@@ -71,11 +72,13 @@ import {
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import {
   useInboxReportArtefacts,
   useInboxReportById,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
+  findContinuableImplementationTask,
   findUserDiscussionTask,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
@@ -246,6 +249,12 @@ export function FreeformCanvasView({
     useState<Task | null>(null);
   const reportDiscussionTask =
     startedReportDiscussionTask ?? persistedReportDiscussionTask;
+  const { createPrReport, isCreatingPr } = useCreatePrReport({
+    reportId: reportId ?? "",
+    reportTitle: report?.title ?? null,
+    cloudRepository: reportRepository,
+  });
+  const reportActionRunningRef = useRef(false);
 
   useEffect(() => {
     if (genTaskId) setStartedTaskId(null);
@@ -763,6 +772,37 @@ export function FreeformCanvasView({
 
   // Routes the canvas's allowlisted nav intents within this channel.
   const onNavigate = useCanvasNavigation(channelId);
+  const onReportAction = useCallback(
+    async (action: "create-pull-request") => {
+      if (
+        action !== "create-pull-request" ||
+        !reportId ||
+        !report ||
+        !reportRepository ||
+        !canCreateImplementationPr(report) ||
+        report.implementation_pr_url ||
+        findContinuableImplementationTask(reportTasks) ||
+        isCreatingPr ||
+        reportActionRunningRef.current
+      ) {
+        throw new Error("A pull request cannot be created from this report");
+      }
+      reportActionRunningRef.current = true;
+      try {
+        await createPrReport();
+      } finally {
+        reportActionRunningRef.current = false;
+      }
+    },
+    [
+      createPrReport,
+      isCreatingPr,
+      report,
+      reportId,
+      reportRepository,
+      reportTasks,
+    ],
+  );
 
   // The edit composer's editor handle, so self-repair can prefill it.
   const editorRef = useRef<EditorHandle>(null);
@@ -1187,6 +1227,7 @@ export function FreeformCanvasView({
                 onReady={onArtifactReady}
                 onRendered={onRendered}
                 onNavigate={onNavigate}
+                onReportAction={reportId ? onReportAction : undefined}
                 onTextSelection={setTextSelection}
                 onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}
@@ -1207,6 +1248,7 @@ export function FreeformCanvasView({
                 onError={onError}
                 onRendered={onRendered}
                 onNavigate={onNavigate}
+                onReportAction={reportId ? onReportAction : undefined}
                 onTextSelection={setTextSelection}
                 onCommentActivate={activateComment}
                 commentHighlights={commentHighlights}

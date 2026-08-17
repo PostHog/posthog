@@ -252,6 +252,13 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     result: z.unknown().optional(),
     error: z.string().optional(),
   }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("report-action-response"),
+    id: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+  }),
 ]);
 export type HostToCanvasMessage = z.infer<typeof hostToCanvasMessageSchema>;
 
@@ -316,6 +323,12 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("navigate"),
     nav: canvasNavIntentSchema,
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("report-action"),
+    id: z.string().min(1).max(128),
+    action: z.literal("create-pull-request"),
   }),
   // Open a URL outside the sandbox. The PostHog-only https allowlist is part
   // of the schema, so no consumer can forward an unvalidated URL.
