@@ -263,7 +263,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         max_length=_MAX_TAGS,
         help_text=(
-            "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. "
+            "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. "
             "Tags cannot contain commas."
         ),
     )
@@ -1184,7 +1184,7 @@ class SuggestTagsRequestSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=200,
-        help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
+        help_text="The categories already configured, so suggestions never duplicate one the user has.",
     )
     multi_label = serializers.BooleanField(
         required=False,
@@ -1254,6 +1254,11 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     rationale = serializers.CharField(
         allow_blank=True,
         help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
+    )
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter "
+        "picked from the team's real events; null when no event clearly matched the goal.",
     )
 
 
@@ -1890,7 +1895,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
         # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting classifier tags requires session_recording read access.")
+            raise PermissionDenied("Suggesting categories requires session_recording read access.")
 
         body = SuggestTagsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1964,21 +1969,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = DraftScannerRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
+        goal = body.validated_data["goal"]
+        # The goal is customer text, so only its length goes into telemetry.
+        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+
         try:
             drafted = draft_scanner_from_goal(
                 team=self.team,
                 user=cast(User, request.user),
-                goal=body.validated_data["goal"],
+                goal=goal,
                 user_access_control=self.user_access_control,
                 # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
                 # receive its content through the draft either.
                 include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
+            # Report failures too, so model errors don't read as user abandonment.
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_scanner_drafted",
+                {**draft_properties, "success": False},
+                team=self.team,
+                request=request,
+            )
             return Response(
                 {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_drafted",
+            {
+                **draft_properties,
+                "success": True,
+                "scanner_type": drafted.scanner_type,
+                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                "has_query": bool(drafted.query),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             DraftScannerResponseSerializer(
@@ -1988,6 +2019,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_type": drafted.scanner_type,
                     "scanner_config": drafted.scanner_config,
                     "rationale": drafted.rationale,
+                    "query": drafted.query,
                 }
             ).data
         )

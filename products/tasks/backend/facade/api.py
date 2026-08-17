@@ -78,6 +78,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -172,6 +176,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
@@ -256,6 +261,7 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_channel_id",
+    "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
@@ -398,6 +404,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_artifact_delivery",
+        "slack_chart_delivery",
         "slack_thread_url",
     }
 )
@@ -766,6 +774,48 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task's cloud runs are entitled outside PostHog Desktop.
+
+    The run/command endpoints gate on Desktop access (``code_access_required_response``) but
+    also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
+    server-verifiable Inbox shapes qualify:
+
+    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
+      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
+      caller can't forge one. Acting on a report is entitled through self-driving
+      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
+      scout-chat endpoint; the write serializer rejects it from API callers. Only while
+      repo-less: chat tasks are minted without repositories, and attaching one via update
+      would turn the exemption into ungated cloud code work.
+
+    A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
+    ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
+    bypass. The report's own team is re-checked here even though the write serializer
+    already enforces it, so a future write path can't silently widen the exemption.
+    """
+    return Task.objects.filter(
+        Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        ),
+        id=task_id,
+        team_id=team_id,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -1254,13 +1304,17 @@ def create_task_without_run(
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    channel: Channel | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+    if channel is None:
+        channel = (
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+        )
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1272,6 +1326,26 @@ def create_task_without_run(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    return create_task_without_run(
+        team=Team.objects.get(id=team_id),
+        user_id=user_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        title=title,
+        description=description,
+        channel=channel,
+    )
 
 
 def create_run(
@@ -1439,7 +1513,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1539,6 +1613,12 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -1586,12 +1666,13 @@ def create_sandbox_environment(
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
+    normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
         name=name,
         network_access_level=network_access_level,
-        allowed_domains=allowed_domains,
+        allowed_domains=normalized_allowed_domains,
         include_default_domains=include_default_domains,
         repositories=repositories,
         environment_variables=environment_variables,
@@ -1612,6 +1693,8 @@ def update_sandbox_environment(
         _validate_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
+    if "allowed_domains" in fields:
+        fields["allowed_domains"] = normalize_sandbox_allowed_domains(fields["allowed_domains"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -4693,7 +4776,14 @@ def create_task(
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
     channel = validated_data.get("channel")
-    if channel is not None and "repositories" not in validated_data and "repository" not in validated_data:
+    if (
+        channel is not None
+        and "repositories" not in validated_data
+        and "repository" not in validated_data
+        # A signal_report task's repo must come from the report (resolved below), never a
+        # channel-carried one, or the code-access exemption runs against an attacker-picked repo.
+        and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
+    ):
         validated_data["repositories"] = channel.repositories
         validated_data["github_integration"] = channel.github_integration
     if "repositories" in validated_data:
@@ -4799,11 +4889,6 @@ def create_task(
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
-    if not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
-        if default_integration:
-            validated_data["github_integration"] = default_integration
-
     # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
     # creating a report-linked task that can never open a PR.
     signal_report = validated_data.get("signal_report")
@@ -4836,6 +4921,11 @@ def create_task(
         )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+
+    if validated_data.get("repository") and not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
 
     if (
         validated_data.get("repository")
@@ -4913,6 +5003,12 @@ def update_task(
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+    if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        validated_data.pop("repository", None)
+        validated_data.pop("repositories", None)
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
@@ -5394,7 +5490,6 @@ def warm_task_sandbox(
     extra_state: dict = {
         "branch": branch,
         "initial_permission_mode": initial_permission_mode,
-        "use_modal_network_allowlist": False,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -7222,15 +7317,22 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
 
 
 def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
-    """Manifest entries carry no version, so an announcement counts same-named entries:
-    re-uploading a file reads as a revision of it, the way the artifacts list groups
-    versions. The artifact_id dedup absorbs a retried upload."""
-    new_ids = {entry.get("id") for entry in new_entries}
+    """Announce files the agent delivered as task outputs.
+
+    The manifest also holds internal state such as git handoff checkpoints and skill
+    bundles. Those files support the run but are not deliverables for the timeline.
+    Manifest entries carry no version, so same-named output entries determine whether
+    an upload created or revised a file. The artifact id deduplicates retried uploads.
+    """
+    output_entries = [entry for entry in new_entries if entry.get("type") == "output"]
+    new_output_ids = {entry.get("id") for entry in output_entries}
     announced_in_batch: dict[str, int] = {}
-    for entry in new_entries:
+    for entry in output_entries:
         name = entry.get("name")
         prior_versions = sum(
-            1 for other in manifest if other.get("name") == name and other.get("id") not in new_ids
+            1
+            for other in manifest
+            if other.get("type") == "output" and other.get("name") == name and other.get("id") not in new_output_ids
         ) + announced_in_batch.get(name or "", 0)
         announced_in_batch[name or ""] = announced_in_batch.get(name or "", 0) + 1
         post_artifact_thread_update(
@@ -7454,6 +7556,41 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             )
         )
     return "new_run"
+
+
+def request_canvas_change(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    prompt: str,
+    viewer_prompt: str,
+    acting_user_id: int | None,
+) -> str:
+    """Dispatch a creator's canvas request, or file a teammate's request for review."""
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id).first()
+        if task is None:
+            return "not_found"
+        if acting_user_id is None:
+            return "not_found"
+        is_creator = task.created_by_id == acting_user_id
+    if not is_creator:
+        # A teammate can reach this through a canvas they can see while the authoring
+        # task is deleted or filed in a space they can't — the thread message is then
+        # dropped, so surface the miss instead of reporting a delivery that didn't happen.
+        filed = create_thread_message(
+            task_id,
+            team_id,
+            acting_user_id,
+            content=f"Requested from the canvas:\n\n{viewer_prompt}",
+        )
+        return "reported" if filed is not None else "not_found"
+    outcome = request_canvas_fix(task_id, team_id, prompt=prompt, acting_user_id=acting_user_id)
+    # already_queued is a deduplicated repeat: the request that queued the run
+    # already wrote this entry, so writing another would double the record.
+    if outcome in {"signaled", "new_run"}:
+        create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
+    return outcome
 
 
 def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:

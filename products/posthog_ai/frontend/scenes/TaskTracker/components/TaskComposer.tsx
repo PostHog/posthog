@@ -11,8 +11,13 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
-import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    cycleMode,
+    getModesForRuntimeAdapter,
+    resolveModeForRuntimeAdapter,
+} from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
@@ -27,6 +32,9 @@ export function TaskComposer(): JSX.Element {
         useActions(taskTrackerSceneLogic)
     const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
+    const { catalogue } = useValues(modelCatalogueLogic)
+    // Permission modes belong to the harness, so they follow the picked model.
+    const composerAdapter = getRuntimeAdapterForModel(catalogue, newTaskData.model)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -60,7 +68,11 @@ export function TaskComposer(): JSX.Element {
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
                         <ComposerModeShortcut
-                            onCycle={() => setNewTaskData({ permissionMode: cycleMode(newTaskData.permissionMode) })}
+                            onCycle={() =>
+                                setNewTaskData({
+                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
+                                })
+                            }
                         />
                         <Composer.Root
                             value={draft.value}
@@ -79,18 +91,28 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
+                                        modes={getModesForRuntimeAdapter(composerAdapter)}
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
                                     <ComposerModelEffortPickers
+                                        models={catalogue}
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
                                         onModelChange={(model) =>
                                             setNewTaskData({
                                                 model,
                                                 reasoningEffort: resolveEffortForModel(
+                                                    catalogue,
                                                     newTaskData.reasoningEffort,
                                                     model
+                                                ),
+                                                // Clamp the mode too, not just the effort: leaving a
+                                                // Claude-only mode selected against a Codex model would
+                                                // show one permission ceiling and send a broader one.
+                                                permissionMode: resolveModeForRuntimeAdapter(
+                                                    getRuntimeAdapterForModel(catalogue, model),
+                                                    newTaskData.permissionMode
                                                 ),
                                             })
                                         }

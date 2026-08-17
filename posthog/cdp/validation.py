@@ -470,6 +470,21 @@ class InputsItemSerializer(serializers.Serializer):
                 label = "value" if len(missing) == 1 else "values"
                 raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
 
+            # Templated sender overrides on the `from` object. Non-string values would only
+            # surface as a send-time failure in the runtime's schema parse, so reject them here.
+            from_value = value.get("from")
+            if isinstance(from_value, dict):
+                wrong_types = [
+                    f"'from.{key_}'"
+                    for key_ in ("email", "name")
+                    if from_value.get(key_) is not None and not isinstance(from_value[key_], str)
+                ]
+                if wrong_types:
+                    label = "value" if len(wrong_types) == 1 else "values"
+                    raise serializers.ValidationError(
+                        {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
+                    )
+
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.

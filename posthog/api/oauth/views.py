@@ -52,6 +52,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
+    ResolvedClientAssertion,
     expected_assertion_audiences,
     resolve_client_assertion,
     verify_client_assertion,
@@ -477,12 +478,15 @@ class OAuthValidator(OAuth2Validator):
         return None
 
     def authenticate_client(self, request, *args, **kwargs):
-        """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
+        """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
 
-        CIMD clients register as confidential with a ``jwks_uri`` and never receive a secret,
-        so the library's secret-based paths cannot authenticate them. A client presenting a
-        signed assertion is verified here against the keys it publishes; every other client
-        falls through to the library's HTTP Basic and request-body secret checks.
+        CIMD clients that hold a jwks_uri never receive a secret, so the library's
+        secret-based paths cannot authenticate them — confidential partners, whose signature
+        is required, and public CIMD clients that publish keys and sign opportunistically,
+        whose signature is only ever a bonus (see ``_authenticate_client_assertion``). A
+        client presenting a signed assertion is verified here against the keys it publishes;
+        every other client falls through to the library's HTTP Basic and request-body secret
+        checks.
         """
         if self._authenticate_client_assertion(request):
             return True
@@ -505,7 +509,7 @@ class OAuthValidator(OAuth2Validator):
             )
 
     @staticmethod
-    def _resolve_request_assertion(request) -> tuple[str, str] | None:
+    def _resolve_request_assertion(request) -> ResolvedClientAssertion | None:
         return resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
             getattr(request, "client_assertion_type", None) or "",
@@ -517,22 +521,24 @@ class OAuthValidator(OAuth2Validator):
         if assertion is None:
             return False
 
-        assertion_value, client_id = assertion
-        app = self._load_application(client_id, request)
-        if app is None or not app.uses_private_key_jwt_auth:
+        app = self._load_application(assertion.client_id, request)
+        # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
+        # and start signing before any partner registration. What's REQUIRED is a separate
+        # question, decided by client_type via client_authentication_required.
+        if app is None or not app.jwks_uri:
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
-            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, client_id)
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, assertion.client_id)
 
         try:
             verify_client_assertion(
                 app,
-                assertion_value,
+                assertion.client_assertion,
                 audiences=expected_assertion_audiences(*STANDARD_TOKEN_ENDPOINT_PATHS),
             )
         except ClientAssertionError as e:
-            logger.warning("oauth_client_assertion_rejected", client_id=client_id, error=str(e))
+            logger.warning("oauth_client_assertion_rejected", client_id=assertion.client_id, error=str(e))
             return False
 
         request.client = app
@@ -1981,7 +1987,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credentials = client_credentials_from_basic_auth(request)
         if credentials is not None:
-            return credentials[0]
+            return credentials.client_id
         return request.POST.get("client_id") or None
 
     def get_token_response(self, request, token_value=None):

@@ -302,13 +302,13 @@ def fetch_client_json_document(
     # the first lookup with a public address and the second with an internal one. Pinning
     # the connection to the addresses we actually validated closes that rebinding window;
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
-    if not allowed:
-        raise CIMDValidationError(f"URL blocked: {reason}")
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise CIMDValidationError(f"URL blocked: {verdict.reason}")
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
-    chosen_ip = select_pinned_ip(pinned_ips)
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
     if chosen_ip is not None:
         adapter.pin(hostname, chosen_ip)
 
@@ -593,26 +593,46 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
-def _resolve_client_authentication(metadata: CIMDMetadataDocument) -> tuple[str, str | None]:
+def _resolve_client_authentication(
+    metadata: CIMDMetadataDocument, *, allow_confidential: bool
+) -> tuple[str, str | None]:
     """Map a validated CIMD document's declared auth method onto ``(client_type, jwks_uri)``.
 
     A client advertising private_key_jwt is confidential in the RFC 6749 sense even though it
     holds no secret, because it can authenticate; everything else is public and relies on PKCE.
     Those two stored fields are what OAuthApplication.token_endpoint_auth_method reads back.
 
-    This is what lets a client upgrade in place: it edits its own metadata document, and the
-    next refresh promotes it without the client_id changing or an operator being involved.
+    ``allow_confidential`` gates the promotion to a registered provisioning partner: the
+    document alone is not proof of anything, since the client that publishes it also controls
+    it, so an unregistered CIMD client declaring private_key_jwt stays public and keeps relying
+    on PKCE as its enforced baseline, rather than being upgraded into an auth method it may
+    never actually send. A partner, once registered, keeps upgrading and downgrading in place
+    as it edits its document, with no client_id change or operator involved.
+
+    A self-controlled declaration can only ever lower what we require, never raise it — that
+    takes partner registration. But the jwks_uri is stored either way, so a client that starts
+    signing later (a runtime change PostHog does not control) can still be verified and
+    accepted; see ``verify_client_assertion``. The declaration is a menu, not a mandate.
     """
     auth_method = metadata.get("token_endpoint_auth_method", TokenEndpointAuthMethod.NONE.value)
-    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
+    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value and allow_confidential:
         return AbstractApplication.CLIENT_CONFIDENTIAL, metadata.get("jwks_uri")
-    return AbstractApplication.CLIENT_PUBLIC, None
+    return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
 def _create_cimd_application(
-    url: str, metadata: CIMDMetadataDocument, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+    url: str,
+    metadata: CIMDMetadataDocument,
+    *,
+    allow_confidential: bool = False,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
 ) -> OAuthApplication:
-    """Create a new OAuthApplication from CIMD metadata."""
+    """Create a new OAuthApplication from CIMD metadata.
+
+    A brand new row has no ``is_provisioning_partner`` state of its own yet, so
+    ``allow_confidential`` is the caller's only say in whether a declared private_key_jwt is
+    honored on creation; see ``_resolve_client_authentication``.
+    """
     client_name = metadata.get("client_name", "CIMD Client")
     try:
         validate_client_name(client_name)
@@ -627,7 +647,7 @@ def _create_cimd_application(
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
-    client_type, jwks_uri = _resolve_client_authentication(metadata)
+    client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
     app = OAuthApplication(
         name=client_name,
@@ -703,6 +723,7 @@ def _update_cimd_application(
     app: OAuthApplication,
     metadata: CIMDMetadataDocument,
     *,
+    allow_confidential: bool = False,
     capture_ph_event: CapturePhEvent = posthoganalytics.capture,
 ) -> OAuthApplication:
     """
@@ -723,10 +744,14 @@ def _update_cimd_application(
     app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
-    # Re-derived on every refresh, in both directions: a client that starts publishing a
-    # jwks_uri is promoted to confidential here, and one that stops is demoted back to public
-    # rather than being left as a confidential client whose key source has gone away.
-    app.client_type, app.jwks_uri = _resolve_client_authentication(metadata)
+    # Re-derived on every refresh, in both directions: a registered partner that starts
+    # publishing a jwks_uri is promoted to confidential here, and one that stops is demoted
+    # back to public rather than being left as a confidential client whose key source has gone
+    # away. A non-partner's document never promotes client_type this way, but its jwks_uri is
+    # still stored — see _resolve_client_authentication.
+    app.client_type, app.jwks_uri = _resolve_client_authentication(
+        metadata, allow_confidential=allow_confidential or app.is_provisioning_partner
+    )
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
@@ -794,7 +819,10 @@ def _update_cimd_application(
 
 
 def fetch_and_upsert_cimd_application(
-    url: str, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+    url: str,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+    *,
+    allow_confidential: bool = False,
 ) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
@@ -804,6 +832,13 @@ def fetch_and_upsert_cimd_application(
     (meaning another caller is already handling it).
 
     Used by both synchronous (new client) and asynchronous (stale refresh) paths.
+
+    ``allow_confidential=True`` is for the explicit provisioning client-registration endpoint
+    only: a client hitting that endpoint is opting in to being a provisioning partner in the
+    same request, so its declared private_key_jwt is honored immediately rather than waiting
+    for the next hourly refresh to notice ``is_provisioning_partner`` has since flipped. Every
+    other caller leaves this False; an already-registered partner still promotes on refresh via
+    its persisted ``is_provisioning_partner``, independent of this flag.
     """
     if is_cimd_url_blocked(url):
         logger.warning("cimd_blocked_url_fetch_attempt", url=url)
@@ -819,7 +854,9 @@ def fetch_and_upsert_cimd_application(
 
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
-            updated = _update_cimd_application(app, metadata, capture_ph_event=capture_ph_event)
+            updated = _update_cimd_application(
+                app, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+            )
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
             capture_ph_event(
                 distinct_id=url,
@@ -836,7 +873,9 @@ def fetch_and_upsert_cimd_application(
             return updated
 
         try:
-            new_app = _create_cimd_application(url, metadata, capture_ph_event=capture_ph_event)
+            new_app = _create_cimd_application(
+                url, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+            )
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
             capture_ph_event(
                 distinct_id=url,
@@ -999,6 +1038,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     document, so the caller's copy of the app can be seconds or minutes old, and layering the
     defaults over that copy would write back a capability - or a cleared kill switch - that an
     admin revoked while the fetch was in flight.
+
+    Promotion to confidential happens in the same write. A partner that publishes a key set has
+    to present an assertion, and the bare-client_id path stays open to a public app, so an app
+    that is a partner but still public would accept an unauthenticated caller acting as that
+    partner. The locked row supplies the key set, since a stale in-memory copy could promote an
+    app whose document no longer publishes one.
     """
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
@@ -1008,7 +1053,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
         became_partner = not current.is_provisioning_partner
         app.is_provisioning_partner = True
         app.provisioning = _cimd_provisioning_defaults_for(app)
-        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
+        updated_fields = ["is_provisioning_partner", "_provisioning_config"]
+        if current.jwks_uri:
+            app.jwks_uri = current.jwks_uri
+            app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
+            updated_fields.append("client_type")
+        app.save(update_fields=updated_fields)
 
     # A partner appearing without an admin creating it is the event worth watching for abuse,
     # so it fires on the transition only - re-running the defaults over an existing partner is

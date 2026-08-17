@@ -1,3 +1,4 @@
+import type { AgentSession } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,8 +43,9 @@ vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
   useTaskViewed: () => taskViewed,
 }));
 
+const messagingMode = vi.hoisted(() => ({ value: "queue" }));
 vi.mock("@posthog/ui/features/sessions/hooks/useMessagingMode", () => ({
-  useMessagingMode: () => "queue",
+  useMessagingMode: () => messagingMode.value,
 }));
 
 // No code command / skill rewrite; the raw text is used as the prompt.
@@ -56,6 +58,11 @@ vi.mock("@posthog/ui/features/message-editor/commands", () => ({
 const sessionState = vi.hoisted(() => ({
   editingQueuedId: "q-1" as string | undefined,
   messageQueue: [] as Array<{ id: string; content: string; queuedAt: number }>,
+  isPromptPending: true,
+  isCompacting: false,
+  adapter: "claude" as const,
+  isCloud: false,
+  steering: "native",
 }));
 const dequeueMessages = vi.hoisted(() =>
   vi.fn(() => [] as Array<{ id: string; content: string; queuedAt: number }>),
@@ -71,9 +78,12 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
   getAppViewSnapshot: () => null,
 }));
 
-const toastError = vi.hoisted(() => vi.fn());
+const { toastError, toastInfo } = vi.hoisted(() => ({
+  toastError: vi.fn(),
+  toastInfo: vi.fn(),
+}));
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { error: toastError },
+  toast: { error: toastError, info: toastInfo },
 }));
 
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
@@ -82,12 +92,12 @@ import { useSessionCallbacks } from "./useSessionCallbacks";
 const TASK = "task-1";
 const task = { id: TASK, latest_run: null } as unknown as Task;
 
-function renderCallbacks() {
+function renderCallbacks(session?: AgentSession) {
   return renderHook(() =>
     useSessionCallbacks({
       taskId: TASK,
       task,
-      session: undefined,
+      session,
       repoPath: "/repo",
     }),
   );
@@ -166,8 +176,11 @@ describe("useSessionCallbacks.handleSendPrompt while editing a queued message", 
 describe("useSessionCallbacks.handleSendPrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    messagingMode.value = "queue";
     sessionState.editingQueuedId = undefined;
     sessionState.messageQueue = [];
+    sessionState.isPromptPending = true;
+    sessionState.isCompacting = false;
   });
 
   it("reports a failed send so the composer keeps its content", async () => {
@@ -178,6 +191,18 @@ describe("useSessionCallbacks.handleSendPrompt", () => {
 
     expect(sent).toBe(false);
     expect(toastError).toHaveBeenCalledWith("fetch failed");
+  });
+
+  it("uses the post-send compaction state for the steering notice", async () => {
+    messagingMode.value = "steer";
+    sessionService.sendPrompt.mockImplementation(async () => {
+      sessionState.isCompacting = true;
+    });
+
+    const { result } = renderCallbacks(sessionState as unknown as AgentSession);
+    await result.current.handleSendPrompt("change direction");
+
+    expect(toastInfo).not.toHaveBeenCalled();
   });
 });
 

@@ -1567,6 +1567,12 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    /**
+     * Server-resolved population narrowing (sessions of persons exposed to the experiment).
+     * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
+     * it rides through conversions so saved filters and scanners keep the narrowing.
+     */
+    experiment_exposure?: RecordingsQuery['experiment_exposure']
 }
 
 export interface UniversalFiltersGroup {
@@ -2082,7 +2088,6 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
-    has_summary?: boolean
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -3024,6 +3029,7 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    ScatterPlot = 'ScatterPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -6219,6 +6225,36 @@ export interface DataWarehouseSavedQuery {
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel
+    incremental?: DataWarehouseSavedQueryIncremental | null
+    incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+}
+
+export interface DataWarehouseSavedQueryIncremental {
+    enabled: boolean
+    /** Output column whose advancing value marks rows as new */
+    incremental_key: string
+    /** Output columns that identify a row. Must cover every GROUP BY column, and never be null */
+    unique_key: string[]
+    /** How far back before the last high point to re-read, for late-arriving data */
+    lookback_seconds?: number
+}
+
+export interface DataWarehouseSavedQueryIncrementalState {
+    watermark?: string | null
+    definition_fingerprint?: string | null
+    last_full_refresh_at?: string | null
+    last_run_mode?: 'incremental' | 'full_refresh' | null
+}
+
+export interface DataWarehouseSavedQueryIncrementalCheck {
+    eligible: boolean
+    key_candidates: string[]
+    /** Superset of key_candidates: identity only needs equality, so strings qualify here */
+    unique_key_candidates?: string[]
+    /** Coarse type per candidate (datetime, date, integer, ...). No entry: type unknown */
+    key_candidate_types?: Record<string, string>
+    blockers: string[]
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -6380,6 +6416,8 @@ export interface DataModelingJob {
     id: string
     saved_query_id: string
     status: DataModelingJobStatus
+    /** full_refresh: rows_materialized is the whole table. incremental: only the rows synced. Null: unknown (old run) */
+    run_mode?: 'full_refresh' | 'incremental' | null
     rows_materialized: number
     rows_expected: number | null
     error: string | null
