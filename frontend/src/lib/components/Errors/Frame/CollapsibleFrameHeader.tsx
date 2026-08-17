@@ -2,7 +2,7 @@ import './CollapsibleFrameHeader.scss'
 
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'
@@ -18,6 +18,7 @@ import { formatFunctionName, getInstructionAddress } from '../utils'
 import { FrameDropDownMenu } from './FrameDropDownMenu'
 
 const UNKNOWN_FRAME_LABEL = 'Unknown frame'
+const SYMBOL_SETS_DOC_LINK = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
 export function CollapsibleFrameHeader({
     frame,
@@ -112,6 +113,35 @@ export function CollapsibleFrameHeader({
     )
 }
 
+function FrameWarningIcon({
+    title,
+    severity,
+    docLink,
+    resolveFailure,
+    children,
+}: {
+    title: string
+    severity: 'error' | 'muted'
+    docLink?: string
+    resolveFailure?: string | null
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <h5>{title}</h5>
+                    {children}
+                    {resolveFailure && <p className="text-xs text-muted-foreground">{resolveFailure}</p>}
+                </>
+            }
+            docLink={docLink}
+        >
+            <IconWarning className={severity === 'error' ? 'text-red-500' : 'text-muted-foreground'} fontSize={15} />
+        </Tooltip>
+    )
+}
+
 function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.Element {
     useEffect(() => {
         posthog.capture('error_tracking_frame_missing_content', {
@@ -121,16 +151,9 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
     }, [raw_id, lang])
 
     return (
-        <Tooltip
-            title={
-                <>
-                    <h5>Missing Context</h5>
-                    <p>Frame is resolved but source code is not available.</p>
-                </>
-            }
-        >
-            <IconWarning className="text-red-500" fontSize={15} />
-        </Tooltip>
+        <FrameWarningIcon title="Missing Context" severity="error">
+            <p>Frame is resolved but source code is not available.</p>
+        </FrameWarningIcon>
     )
 }
 
@@ -144,27 +167,25 @@ function UnsymbolicatedIcon({
     instructionAddress: string | null
 }): JSX.Element {
     return (
-        <Tooltip
-            title={
-                <>
-                    <h5>{UNKNOWN_FRAME_LABEL}</h5>
-                    {instructionAddress ? (
-                        <>
-                            <p>The SDK sent only a memory address for this frame.</p>
-                            <p>PostHog couldn't resolve that address to a function or file name.</p>
-                        </>
-                    ) : (
-                        <p>
-                            The SDK sent no function name, file name or memory address for this frame, so there is
-                            nothing to identify it with.
-                        </p>
-                    )}
-                    {resolve_failure && <p className="text-xs text-muted-foreground">{resolve_failure}</p>}
-                </>
-            }
+        <FrameWarningIcon
+            title={UNKNOWN_FRAME_LABEL}
+            severity={in_app ? 'error' : 'muted'}
+            // Symbol sets are only actionable when we have an address to match them against
+            docLink={instructionAddress ? SYMBOL_SETS_DOC_LINK : undefined}
+            resolveFailure={resolve_failure}
         >
-            <IconWarning className={in_app ? 'text-red-500' : 'text-muted-foreground'} fontSize={15} />
-        </Tooltip>
+            {instructionAddress ? (
+                <>
+                    <p>The SDK sent only a memory address for this frame.</p>
+                    <p>PostHog couldn't resolve that address to a function or file name.</p>
+                </>
+            ) : (
+                <p>
+                    The SDK sent no function name, file name or memory address for this frame, so there is nothing to
+                    identify it with.
+                </p>
+            )}
+        </FrameWarningIcon>
     )
 }
 
@@ -186,21 +207,17 @@ function VendorIcon(): JSX.Element {
 
 function UnresolvedIcon({ resolve_failure }: { resolve_failure: string | null }): JSX.Element {
     return (
-        <Tooltip
-            title={
-                <>
-                    <h5>Unresolved frame</h5>
-                    <p>
-                        Upload your symbol sets to improve issue grouping, see unminified source code and get release
-                        information.
-                    </p>
-                    <p className="text-xs text-muted-foreground">{resolve_failure}</p>
-                </>
-            }
-            docLink="https://posthog.com/docs/error-tracking/upload-source-maps"
+        <FrameWarningIcon
+            title="Unresolved frame"
+            severity="muted"
+            docLink={SYMBOL_SETS_DOC_LINK}
+            resolveFailure={resolve_failure}
         >
-            <IconWarning className="text-muted-foreground" fontSize={15} />
-        </Tooltip>
+            <p>
+                Upload your symbol sets to improve issue grouping, see unminified source code and get release
+                information.
+            </p>
+        </FrameWarningIcon>
     )
 }
 
