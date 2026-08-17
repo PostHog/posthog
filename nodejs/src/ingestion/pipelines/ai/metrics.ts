@@ -71,7 +71,7 @@ export const aiCacheExclusiveFallbackCounter = new Counter({
 
 export const aiOtelUnknownPartTypeCounter = new Counter({
     name: 'aio_ai_otel_unknown_part_type_total',
-    help: 'OTel GenAI message parts whose type no renderer handles, so new semconv part types surface here instead of as blank output',
+    help: 'OTel GenAI message parts whose type no renderer handles, bucketed into a fixed label set, so new semconv part types surface here instead of as blank output',
     labelNames: ['part_type'],
 })
 

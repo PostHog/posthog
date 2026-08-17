@@ -77,7 +77,7 @@ describe('mapOtelAttributes', () => {
             return data.values.find((v) => v.labels.part_type === partType)?.value ?? 0
         }
 
-        it('counts parts no renderer handles, sanitizing producer-controlled labels', async () => {
+        it('counts parts no renderer handles, bucketing producer-controlled labels into a fixed set', async () => {
             const event = createEvent('$ai_generation', {
                 'gen_ai.input.messages': JSON.stringify([
                     {
@@ -85,7 +85,8 @@ describe('mapOtelAttributes', () => {
                         parts: [
                             { type: 'text', content: 'hi' },
                             { type: 'tool_approval_response', approved: true },
-                            { type: 'Weird Type!', x: 1 },
+                            { type: 'made-up-type-1', x: 1 },
+                            { type: 'made-up-type-2', x: 2 },
                             { content: 'no type at all' },
                         ],
                     },
@@ -97,8 +98,9 @@ describe('mapOtelAttributes', () => {
             mapOtelAttributes(event)
 
             expect(await partCount('tool_approval_response')).toBe(1)
-            expect(await partCount('weird_type_')).toBe(1)
+            expect(await partCount('other')).toBe(2)
             expect(await partCount('invalid')).toBe(1)
+            expect(await partCount('made-up-type-1')).toBe(0)
             expect(await partCount('text')).toBe(0)
             expect(await partCount('reasoning')).toBe(0)
         })

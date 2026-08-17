@@ -140,19 +140,18 @@ const KNOWN_MESSAGE_PART_TYPES = new Set([
     'compaction',
 ])
 
-// Producer-controlled strings become Prometheus label values here, so squash
-// them to a short identifier to keep a hostile payload from minting unbounded
-// label cardinality.
-function sanitizePartTypeLabel(type: unknown): string {
+// Part types real producers emit today that no renderer handles yet (the Vercel
+// AI SDK emits both). They get their own label so a volume spike is attributable.
+const EXPECTED_UNKNOWN_PART_TYPES = new Set(['tool_approval_response', 'custom'])
+
+// The part type is producer-controlled and becomes a Prometheus label value, so
+// it must map into a fixed set of buckets: a label per distinct string would let
+// one sender mint unbounded series and grow ingestion memory without limit.
+function partTypeLabel(type: unknown): string {
     if (typeof type !== 'string' || type.length === 0) {
         return 'invalid'
     }
-    return (
-        type
-            .toLowerCase()
-            .replace(/[^a-z0-9_]/g, '_')
-            .slice(0, 32) || 'invalid'
-    )
+    return EXPECTED_UNKNOWN_PART_TYPES.has(type) ? type : 'other'
 }
 
 function countUnknownMessageParts(event: PluginEvent): void {
@@ -174,7 +173,7 @@ function countUnknownMessageParts(event: PluginEvent): void {
                 if (typeof type === 'string' && KNOWN_MESSAGE_PART_TYPES.has(type)) {
                     continue
                 }
-                aiOtelUnknownPartTypeCounter.labels({ part_type: sanitizePartTypeLabel(type) }).inc()
+                aiOtelUnknownPartTypeCounter.labels({ part_type: partTypeLabel(type) }).inc()
             }
         }
     }
