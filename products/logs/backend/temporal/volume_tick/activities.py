@@ -156,16 +156,17 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     started = time.monotonic()
     try:
         counts = await _count_teams_with_logs_async(ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard)
-        # Discovery's own duration, measured before the rollup runs. The two
-        # queries differ by an order of magnitude, so one timer covering both
-        # reports neither.
+        # Discovery's own duration, measured and recorded before the rollup runs.
+        # The two queries differ by an order of magnitude, so one timer covering
+        # both reports neither, and recording here keeps discovery latency
+        # observable on the ticks whose rollup then fails.
         duration_ms = int((time.monotonic() - started) * 1000)
+        record_clickhouse_duration(duration_ms)
         timed = await _preview_due_bucket(due, minute_shard)
     except Exception:
         increment_tick_runs("error")
         raise
 
-    record_clickhouse_duration(duration_ms)
     record_teams_with_logs(counts.total)
     if timed is not None:
         record_rollup_duration(timed.duration_ms)

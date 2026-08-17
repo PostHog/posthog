@@ -144,24 +144,23 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
         assert after.due_in_shard == before.due_in_shard + 1
 
 
-@pytest.mark.parametrize(
-    "team_ids,minute_shard,expected",
-    [
-        ([2], 2, [2]),
-        ([2], 0, []),
-        ([1, 2, 3], 2, [2]),
-        ([2, 7, 12], 2, [2, 7, 12]),
-        ([], 2, []),
-    ],
-    ids=["team_in_shard", "team_in_another_shard", "one_of_three", "same_residue_all_run", "empty_allowlist"],
-)
-def test_only_teams_whose_residue_matches_the_minute_run(
-    team_ids: list[int], minute_shard: int, expected: list[int]
-) -> None:
-    # A bucket stays due for every minute of the next one. Without this filter the
-    # tick would rerun the same scan once per minute, and the writer would file a
-    # duplicate generation each time.
-    assert teams_due_in_shard(team_ids, minute_shard) == expected
+class TestTeamsDueInShard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("team_in_shard", [2], 2, [2]),
+            ("team_in_another_shard", [2], 0, []),
+            ("one_of_three", [1, 2, 3], 2, [2]),
+            ("same_residue_all_run", [2, 7, 12], 2, [2, 7, 12]),
+            ("empty_allowlist", [], 2, []),
+        ]
+    )
+    def test_only_teams_whose_residue_matches_the_minute_run(
+        self, _name: str, team_ids: list[int], minute_shard: int, expected: list[int]
+    ) -> None:
+        # A bucket stays due for every minute of the next one. Without this filter
+        # the tick would rerun the same scan once per minute, and the writer would
+        # file a duplicate generation each time.
+        assert teams_due_in_shard(team_ids, minute_shard) == expected
 
 
 @pytest.mark.asyncio
