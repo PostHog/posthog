@@ -673,14 +673,25 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
     # A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
     # diff with the head SHA unchanged, so the head guard alone can't see it. The retarget delivery
-    # retracts approvals and queues a fresh run, but that delivery can trail this activity.
-    reviewed_base_ref = ((output.get("pr") or {}).get("base") or {}).get("ref") or ""
-    current_base_ref = ((current_pr.get("base") or {}).get("ref") or "").strip()
+    # retracts approvals and queues a fresh run, but that delivery can trail this activity. The SHA
+    # is compared too: GitHub pins base.sha at the last PR event rather than tracking the trunk tip,
+    # so it only moves when the PR itself was touched — the diff the sandbox reviewed is stale then.
+    reviewed_base = (output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    reviewed_base_ref = reviewed_base.get("ref") or ""
+    reviewed_base_sha = reviewed_base.get("sha") or ""
+    current_base_ref = (current_base.get("ref") or "").strip()
+    current_base_sha = (current_base.get("sha") or "").strip()
+    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
+    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
     drift: tuple[str, str] | None = None
     if current_head and current_head != run.head_sha:
         drift = ("head_moved", f"head moved {run.head_sha} -> {current_head}")
-    elif reviewed_base_ref and current_base_ref and current_base_ref != reviewed_base_ref:
-        drift = ("base_retargeted", f"base retargeted {reviewed_base_ref} -> {current_base_ref}")
+    elif base_ref_moved or base_sha_moved:
+        drift = (
+            "base_retargeted",
+            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
+        )
     if drift is not None:
         kind, detail = drift
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest

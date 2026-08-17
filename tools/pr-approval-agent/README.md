@@ -168,7 +168,7 @@ Two parts make stamphog correct on these:
   When a stack's parent merges, the child PR is retargeted from the parent branch onto master, changing its effective diff **without a push** — so no `synchronize` fires and the normal push-dismiss path is skipped.
   Under the master ruleset (`dismiss_stale_reviews_on_push=false`), a prior bot approval would silently carry onto the new base.
   The Action listens for the `edited` event and, when the base changed, dismisses the bot approval and re-reviews against the new base (if the label is still present); the approval step also rechecks the live base and head SHAs right before posting.
-  The hosted runtime does the same from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run) and `post_verdict` rechecks the live base ref against the reviewed one.
+  The hosted runtime does the same from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run) and `post_verdict` rechecks the live base ref and SHA against the reviewed ones.
 
 The base commit of a stacked PR is its parent branch tip, which the Action's master checkout doesn't fetch by default — `github.ensure_commits` and the `decide-delta` job both fetch the base branch so `git diff base_sha...head_sha` and the dismiss-time merge classification resolve it.
 The hosted sandbox fetches the base SHA explicitly during the clone.
