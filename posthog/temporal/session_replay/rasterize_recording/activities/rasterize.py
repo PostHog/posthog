@@ -127,7 +127,9 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     cached = _try_synthesize_cached_output(asset, ctx, fingerprint)
     if cached is not None:
         # A cache hit returns straight to the workflow without reaching finalize_rasterization, so
-        # this is the only place it can report an outcome.
+        # this is the only place it can report an outcome. Both events fire so started/succeeded
+        # counts stay comparable.
+        report_export_event(asset, "export started", cached=True)
         report_export_event(asset, "export succeeded", cached=True)
         return BuildRasterizationResult(cached_output=cached, render_fingerprint=fingerprint)
 

@@ -59,13 +59,25 @@ def fail_stuck_video_exports() -> int:
     exist.
     """
     cutoff = now() - RASTERIZE_WORKFLOW_TIMEOUT - _STUCK_EXPORT_GRACE
-    stuck = ExportedAsset.objects.filter(
-        export_format__in=list(ExportedAsset.RASTERIZED_FORMATS),
-        content__isnull=True,
-        content_location__isnull=True,
-        exception__isnull=True,
-        created_at__lt=cutoff,
-    ).select_related("team__organization", "created_by")[:_SWEEP_BATCH_SIZE]
+    # Cross-team by design: a beat task with no request context, sweeping every team's exports.
+    stuck = (
+        ExportedAsset.objects.filter(
+            export_format__in=list(ExportedAsset.RASTERIZED_FORMATS),
+            content__isnull=True,
+            content_location__isnull=True,
+            exception__isnull=True,
+            created_at__lt=cutoff,
+        )
+        # System assets (replay_vision scanners) reuse one contentless row per session across scans,
+        # so an old created_at doesn't prove nothing is rendering it — the sweep would fail a row
+        # mid-render and its first-writer check would then suppress the renderer's real outcome.
+        # Those rows have their own expiry; a scanner re-render also retries them naturally.
+        .exclude(is_system=True)
+        .select_related("team__organization", "created_by")
+        # Oldest first, so a backlog larger than one batch drains in bounded order instead of
+        # re-sampling arbitrary rows each run.
+        .order_by("created_at")[:_SWEEP_BATCH_SIZE]
+    )
 
     failed = 0
     with ph_scoped_capture() as capture:
@@ -73,7 +85,7 @@ def fail_stuck_video_exports() -> int:
             asset.exception = STUCK_EXPORT_MESSAGE
             # Distinct from the renderer's own TIMEOUT: this one never reported anything at all, which
             # points at the workflow or the worker rather than at the render.
-            asset.exception_type = "WorkflowTimeout"
+            asset.exception_type = "WORKFLOW_TIMEOUT"
             asset.failure_type = FAILURE_TYPE_TIMEOUT_GENERATION
             asset.save(update_fields=["exception", "exception_type", "failure_type"])
 

@@ -69,6 +69,16 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
     "INIT_FAILED": FAILURE_TYPE_SYSTEM,
     "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
+    # The render activity died without producing a code at all: heartbeat or start-to-close timeout
+    # from a lost or wedged worker. Not the renderer's own TIMEOUT, but still a render that ran out
+    # of time. Resolved in the workflow's _record_failure, not a rasterizer code.
+    "ACTIVITY_TIMEOUT": FAILURE_TYPE_TIMEOUT_GENERATION,
+    # The renderer's own catch-all codes: UNKNOWN wraps a non-RasterizationError, OTHER clamps an
+    # unrecognized browser code. Mapped explicitly because they carry no more classification to
+    # extract — "unknown" is their honest bucket, unlike a code missing from this map, which still
+    # means someone needs to add it.
+    "UNKNOWN": FAILURE_TYPE_UNKNOWN,
+    "OTHER": FAILURE_TYPE_UNKNOWN,
 }
 
 # Shown to whoever asked for the export, so each one says what happened and what to do next. A
@@ -83,6 +93,7 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
     "INIT_FAILED": "The video renderer could not start. Try the export again.",
     "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
+    "ACTIVITY_TIMEOUT": "This recording took too long to render. Try exporting a shorter part of it.",
 }
 
 _RASTERIZATION_FALLBACK_MESSAGE = "The video export failed. Try again, and contact support if it keeps failing."

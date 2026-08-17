@@ -394,7 +394,7 @@ class TestBuildRasterizationCache:
         assert result.cached_output.truncated is False
         assert result.cached_output.inactivity_periods == []
 
-    def test_cache_hit_reports_success(self, reported_events):
+    def test_cache_hit_reports_started_and_success(self, reported_events):
         """A cache hit returns to the workflow without reaching finalize, so if it doesn't report
         here it never reports at all, and the export looks like it never finished."""
         asset = _make_asset(pk=50, export_context={"session_recording_id": "s1"})
@@ -412,7 +412,8 @@ class TestBuildRasterizationCache:
             build_rasterization_input(50)
 
         assert [(call.args[1], call.kwargs.get("cached")) for call in reported_events.call_args_list] == [
-            ("export succeeded", True)
+            ("export started", True),
+            ("export succeeded", True),
         ]
 
     def test_render_reports_started(self, reported_events):

@@ -3,6 +3,10 @@ from typing import Any
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.exceptions import (
+    FailureError,
+    TimeoutError as TemporalTimeoutError,
+)
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -52,6 +56,21 @@ from .types import (
 # Gates the failure-recording activity added to the except branch. In-flight executions recorded
 # their history without it, so replaying them against an unconditional call fails as non-determinism.
 _RECORD_FAILURE_PATCH = "rasterize-record-failure-2026-08"
+
+
+def _resolve_error_code(exc: BaseException) -> str:
+    """The code recorded onto the asset when the renderer produced none of its own.
+
+    A render activity killed by a heartbeat or start-to-close timeout (lost or wedged worker) has no
+    ApplicationError in its cause chain, only Temporal's TimeoutError — without this check it would
+    classify as an opaque `ActivityError` and land in the unknown bucket.
+    """
+    current: BaseException | None = exc
+    while isinstance(current, FailureError):
+        if isinstance(current, TemporalTimeoutError):
+            return "ACTIVITY_TIMEOUT"
+        current = current.cause
+    return resolve_exception_class(exc)
 
 
 def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
@@ -107,7 +126,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
                 record_rasterization_failure,
                 RecordRasterizationFailureInput(
                     exported_asset_id=inputs.exported_asset_id,
-                    error_code=resolve_exception_class(exc),
+                    error_code=_resolve_error_code(exc),
                     error_message=truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),

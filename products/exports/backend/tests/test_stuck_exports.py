@@ -41,6 +41,7 @@ class TestFailStuckVideoExports(APIBaseTest):
 
         asset.refresh_from_db()
         self.assertIsNotNone(asset.exception)
+        self.assertEqual(asset.exception_type, "WORKFLOW_TIMEOUT")
         self.assertEqual(asset.failure_type, FAILURE_TYPE_TIMEOUT_GENERATION)
 
     @parameterized.expand(
@@ -53,6 +54,9 @@ class TestFailStuckVideoExports(APIBaseTest):
             ("has_inline_content", {"content": b"video bytes"}),
             # Rendered by a different pipeline, which answers to a different deadline.
             ("not_a_video_export", {"export_format": ExportedAsset.ExportFormat.PNG}),
+            # replay_vision reuses one contentless system row per session across scans, so an old
+            # created_at doesn't prove nothing is rendering it right now.
+            ("system_render", {"is_system": True}),
         ]
     )
     def test_leaves_other_exports_alone(self, _name, overrides: dict) -> None:
