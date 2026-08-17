@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import stat
 import time
@@ -58,6 +59,25 @@ def _port_from(uri: str) -> int:
     return int(uri.rsplit(":", 1)[1].split("/")[0])
 
 
+class _Stdin(io.StringIO):
+    """Stands in for the terminal a login offers to read a pasted redirect from.
+
+    Pinned per test rather than left to pytest, because `-s` hands the tests the real terminal and
+    a login reads from it only when it is a tty.
+    """
+
+    def __init__(self, text: str = "", *, tty: bool = True) -> None:
+        super().__init__(text)
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+def _terminal(text: str = "", *, tty: bool = True) -> Any:
+    return patch.object(posthog_auth.sys, "stdin", _Stdin(text, tty=tty))
+
+
 # Stands in for `requests.post`, recording every call and replaying a canned response per endpoint,
 # so a test can assert both on what was sent and on which endpoints were reached at all.
 class _Poster:
@@ -93,7 +113,7 @@ class _Response:
 
 def _fake_browser(query: dict[str, list[str]] | None = None) -> Any:
     # Stands in for the browser, answering the pending authorization with a matching redirect.
-    def collect(self: Any, url: str, *, state: str, open_browser: bool) -> str:
+    def collect(self: Any, url: str, *, state: str) -> str:
         return posthog_auth._code_from(query or {"code": ["auth-code"], "state": [state]}, state=state)
 
     return patch.object(posthog_auth._CallbackServer, "collect", collect)
@@ -422,15 +442,16 @@ def test_a_redirect_that_does_not_answer_our_request_is_rejected(query: dict[str
 def test_the_callback_listener_ignores_paths_that_are_not_the_redirect() -> None:
     # A browser also fetches /favicon.ico, so treating any request as the callback would end the wait
     # on the wrong one.
-    with posthog_auth._CallbackServer() as server:
-        threading.Thread(
-            target=lambda: (
-                requests.get(f"http://127.0.0.1:{_port_from(server.redirect_uri)}/favicon.ico", timeout=5),
-                requests.get(f"{server.redirect_uri}?code=real&state=s", timeout=5),
-            ),
-            daemon=True,
-        ).start()
-        assert server.collect("http://example.invalid", state="s", open_browser=False) == "real"
+    with posthog_auth._CallbackServer() as server, _terminal(tty=False):
+        with patch.object(posthog_auth.webbrowser, "open", lambda url: True):
+            threading.Thread(
+                target=lambda: (
+                    requests.get(f"http://127.0.0.1:{_port_from(server.redirect_uri)}/favicon.ico", timeout=5),
+                    requests.get(f"{server.redirect_uri}?code=real&state=s", timeout=5),
+                ),
+                daemon=True,
+            ).start()
+            assert server.collect("http://example.invalid", state="s") == "real"
 
 
 def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -> None:
@@ -438,7 +459,7 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
     # doesn't detach. Opened in the foreground it would wait on the redirect only this listener can
     # serve, so the login would hang until its timeout.
     released = threading.Event()
-    with posthog_auth._CallbackServer() as server:
+    with posthog_auth._CallbackServer() as server, _terminal(tty=False):
 
         def blocking_open(url: str) -> bool:
             # What a real blocking browser does: fetch the redirect, then stay open.
@@ -449,8 +470,19 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
             return True
 
         with patch.object(posthog_auth.webbrowser, "open", blocking_open):
-            assert server.collect("http://example.invalid", state="s", open_browser=True) == "blocked"
+            assert server.collect("http://example.invalid", state="s") == "blocked"
     released.set()
+
+
+def test_a_login_prints_the_url_and_takes_the_redirect_back_by_hand(capsys: pytest.CaptureFixture[str]) -> None:
+    # A browser on another machine never reaches this listener, and nothing here can tell that
+    # machine apart from a laptop, so the URL goes out on every login and the redirect it lands on
+    # is accepted typed back in. Without both, a devbox login waits out its timeout.
+    with posthog_auth._CallbackServer() as server:
+        pasted = f"{server.redirect_uri}?code=pasted&state=s"
+        with patch.object(posthog_auth.webbrowser, "open", lambda url: False), _terminal(f"{pasted}\n"):
+            assert server.collect("https://us.posthog.com/oauth/authorize/?client_id=abc", state="s") == "pasted"
+    assert "https://us.posthog.com/oauth/authorize/?client_id=abc" in capsys.readouterr().err
 
 
 # --- the CLI surface ----------------------------------------------------------------------------

@@ -60,18 +60,9 @@ def _lifetime(expires_at: float | None) -> str:
     multiple=True,
     help=f"API scope to request; repeatable. Defaults to {' '.join(_DEFAULT_SCOPES)}.",
 )
-@click.option(
-    "--no-browser",
-    is_flag=True,
-    help="Print the URL instead of opening it, for a machine with no browser (a devbox over ssh).",
-)
-def posthog_login(host: str, scopes: tuple[str, ...], no_browser: bool) -> None:
+def posthog_login(host: str, scopes: tuple[str, ...]) -> None:
     try:
-        credential = posthog_auth.login(
-            scopes=scopes or _DEFAULT_SCOPES,
-            host=host,
-            open_browser=not no_browser,
-        )
+        credential = posthog_auth.login(scopes=scopes or _DEFAULT_SCOPES, host=host)
     except posthog_auth.AuthError as exc:
         _fail(exc)
     click.secho(f"Signed in to {credential.host}.", fg="green")

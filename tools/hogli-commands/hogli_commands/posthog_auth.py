@@ -14,8 +14,9 @@ Three sources, in order:
 
 The browser path is the RFC 8252 native-app flow: the client self-registers via Dynamic Client
 Registration (RFC 7591), and the code comes back to an ephemeral port on 127.0.0.1 with PKCE.
-RFC 8628 device flow is not used because PostHog does not advertise that grant; for a machine with
-no browser, `login(open_browser=False)` prints the URL so the code arrives out of band.
+RFC 8628 device flow is not used because PostHog does not advertise that grant. A login always
+prints the URL as well as opening it, and accepts the redirect typed back in, so it also finishes
+on a machine whose browser lives somewhere else.
 
 Credentials are cached per host at ``~/.config/posthog/oauth/<host>.json`` with mode 0600,
 alongside the registered client, so one login serves every hogli command on that host.
@@ -31,6 +32,7 @@ import os
 import sys
 import json
 import time
+import queue
 import base64
 import hashlib
 import secrets
@@ -275,12 +277,7 @@ def token(
     return login(scopes=scopes, host=host).access_token
 
 
-def login(
-    *,
-    scopes: Sequence[str],
-    host: str = DEFAULT_HOST,
-    open_browser: bool = True,
-) -> Credential:
+def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
     """Run the browser authorization flow and cache the result.
 
     Reuses the cached client registration when its ceiling already covers ``scopes``; a caller
@@ -331,7 +328,7 @@ def login(
                 "code_challenge_method": "S256",
             }
         )
-        code = server.collect(url, state=state, open_browser=open_browser)
+        code = server.collect(url, state=state)
 
     credential = _exchange(
         host,
@@ -559,28 +556,59 @@ class _CallbackServer:
     def __exit__(self, *exc: object) -> None:
         self._server.server_close()
 
-    def collect(self, url: str, *, state: str, open_browser: bool) -> str:
+    def collect(self, url: str, *, state: str) -> str:
         """Serve until the redirect arrives, then return its authorization code."""
-        # The URL is printed either way: it is the fallback when the browser doesn't open, and on a
-        # remote box the listener is unreachable, so the address bar is where the code arrives.
-        if open_browser:
-            click.echo(f"Opening your browser to approve hogli. If nothing happens, open:\n  {url}", err=True)
-            # On a thread because `webbrowser.open` blocks until the browser exits for a
-            # terminal-mode browser, or anything $BROWSER points at that doesn't detach. In the
-            # foreground it would deadlock on the redirect only this listener can serve.
-            threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
-        else:
-            click.echo(f"Open this URL to approve hogli:\n  {url}", err=True)
+        # Printed as well as opened, always. A devbox over ssh is indistinguishable from a laptop
+        # from in here, and there the open does nothing while the printed URL is the whole flow.
+        click.echo(f"Approve hogli in your browser:\n  {url}", err=True)
+        # On a thread because `webbrowser.open` blocks until the browser exits for a terminal-mode
+        # browser, or anything $BROWSER points at that doesn't detach. In the foreground it would
+        # deadlock on the redirect only this listener can serve.
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
         return self._await_code(state=state)
 
     def _await_code(self, *, state: str) -> str:
         deadline = time.monotonic() + _LOGIN_TIMEOUT_SECONDS
         self._server.timeout = 1.0
+        pasted = _pasted_redirects()
         while self._server.query is None:
+            if pasted is not None and not pasted.empty():
+                return _code_from(pasted.get(), state=state)
             if time.monotonic() > deadline:
                 raise AuthError("Timed out waiting for the browser to come back.", exit_code=1)
             self._server.handle_request()
         return _code_from(self._server.query, state=state)
+
+
+def _pasted_redirects() -> queue.Queue[dict[str, list[str]]] | None:
+    """Redirects typed back in, or None when there is no terminal to type at.
+
+    A browser on another machine cannot reach this listener, so the redirect fails there and the
+    code only ever exists in the address bar of a page that did not load. Reading it back is the
+    only way such a login finishes. It runs alongside the listener rather than instead of it,
+    because which of the two the redirect reaches is exactly what cannot be detected from here.
+    """
+    if not sys.stdin.isatty():
+        return None
+    click.echo("If your browser is on another machine, paste the address it lands on:", err=True)
+    queued: queue.Queue[dict[str, list[str]]] = queue.Queue()
+    # A daemon thread, so a login the listener wins does not leave the command waiting on a read.
+    threading.Thread(target=_read_redirect, args=(queued,), daemon=True).start()
+    return queued
+
+
+def _read_redirect(queued: queue.Queue[dict[str, list[str]]]) -> None:
+    """Read lines until one carries an authorization redirect, queueing its query."""
+    while line := sys.stdin.readline():
+        pasted = line.strip()
+        # The address may arrive whole or as the query alone, depending on what the failed page
+        # let the user select.
+        query = parse_qs(urlparse(pasted).query or pasted)
+        if query.get("code") or query.get("error"):
+            queued.put(query)
+            return
+        if pasted:
+            click.echo("That address carried no authorization code. Paste the whole thing, including ?code=.", err=True)
 
 
 def _code_from(query: dict[str, list[str]], *, state: str) -> str:
