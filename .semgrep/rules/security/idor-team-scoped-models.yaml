@@ -299,6 +299,7 @@ rules:
                               |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportCanvas
+                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -659,6 +660,7 @@ rules:
                         |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportCanvas
+                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
