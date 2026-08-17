@@ -268,6 +268,12 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    pipeline-notification-subscriptions-bulk-update-create:
+        operation: pipeline_notification_subscriptions_bulk_update_create
+        enabled: false
+    pipeline-notification-subscriptions-list:
+        operation: pipeline_notification_subscriptions_list
+        enabled: false
     product-enablement-create:
         operation: product_enablement_create
         enabled: false
