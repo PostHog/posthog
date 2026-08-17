@@ -4,7 +4,7 @@ from typing import Any
 from structlog import get_logger
 
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
-from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig, redacted_record
 
 logger = get_logger(__name__)
 
@@ -62,13 +62,15 @@ PASSTHROUGH_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at"
 # that triage has no use for.
 AUTHOR_FIELDS = ("author_association", "user")
 
+# `user` never belongs in a log line: the emitter keeps the handle and drops the numeric id and the
+# avatar and API URLs, and the shared pipeline logs whole records when an emitter raises.
+UNLOGGABLE_FIELDS = ("user",)
+
 EXTRA_FIELDS = (*PASSTHROUGH_FIELDS, "author_login", "author_association")
 
 
 def _loggable(record: dict[str, Any]) -> dict[str, Any]:
-    """The record minus the nested user object, whose numeric id and URLs identify a person well
-    beyond the handle triage needs."""
-    return {k: v for k, v in record.items() if k != "user"}
+    return redacted_record(record, UNLOGGABLE_FIELDS)
 
 
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -165,6 +167,7 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,
     actionability_context_fields=("author_login", "author_association"),
+    unloggable_fields=UNLOGGABLE_FIELDS,
     summarization_prompt=GITHUB_SUMMARIZATION_PROMPT,
     description_summarization_threshold_chars=2000,
 )

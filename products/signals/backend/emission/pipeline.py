@@ -16,7 +16,12 @@ from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.emission.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.emission.registry import (
+    SignalEmitter,
+    SignalEmitterOutput,
+    SignalSourceTableConfig,
+    redacted_record,
+)
 from products.signals.backend.emission.steering import apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.temporal import metrics
@@ -129,6 +134,7 @@ def build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
     emitter: SignalEmitter,
+    unloggable_fields: tuple[str, ...] = (),
 ) -> tuple[list[SignalEmitterOutput], int]:
     outputs = []
     error_count = 0
@@ -139,7 +145,7 @@ def build_emitter_outputs(
             logger.exception(
                 "Emitter failed for record, skipping",
                 team_id=team_id,
-                record=record,
+                record=redacted_record(record, unloggable_fields),
                 signals_type="data-import-signals",
             )
             error_count += 1
@@ -512,6 +518,7 @@ async def run_signal_pipeline(
         team_id=team.id,
         records=records,
         emitter=config.emitter,
+        unloggable_fields=config.unloggable_fields,
     )
     # Only fail if every record raised — emitters may return None as a benign skip,
     # so a mix of skips and errors should fall through to the no_actionable_records path.

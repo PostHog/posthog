@@ -72,6 +72,8 @@ Users enable sources via the Inbox Sources modal.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
    The deliberate exception is the author of a record: `github_issues.py` carries `author_login` and `author_association`, because who filed a report is what separates a maintainer's bug report from a drive-by one on a public repo, and triage can't weigh the two without it.
    Reach for the same pair on other issue-tracker sources, and keep it to the handle and the relationship — not emails, real names, or the rest of the nested user object.
+   A source that SELECTs a column carrying more identity than it keeps declares that column in `unloggable_fields`, which strips it from the record this pipeline logs when an emitter raises.
+   Identity keys are also excluded from lifecycle telemetry by `_TELEMETRY_EXCLUDED_EXTRA_KEYS` in `facade/api.py`, which otherwise copies every top-level scalar on `extra` into the emission events.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
    For external sources, use the `ExternalDataSourceType` value as the source type.
    For internal sources, use a descriptive string identifier.

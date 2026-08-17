@@ -2,8 +2,12 @@ import pytest
 from unittest.mock import patch
 
 from products.signals.backend.contracts import GithubIssueSignalExtra
-from products.signals.backend.emission import github_issues as github_issues_module
+from products.signals.backend.emission import (
+    github_issues as github_issues_module,
+    pipeline,
+)
 from products.signals.backend.emission.github_issues import EXTRA_FIELDS, GITHUB_ISSUES_CONFIG, github_issue_emitter
+from products.signals.backend.emission.pipeline import build_emitter_outputs
 
 
 class TestGithubIssueEmitter:
@@ -91,8 +95,8 @@ class TestGithubIssueEmitter:
         ],
     )
     def test_author_degrades_to_none_without_raising(self, github_issue_record, record_overrides):
-        # Both keys are required by the contract, so an author the emitter can't read has to become
-        # None rather than drop the issue or fail validation downstream.
+        # An author the emitter can't read has to become None rather than drop the issue, so a shape
+        # change upstream costs triage the context and nothing else.
         github_issue_record.pop("user")
         github_issue_record.pop("author_association")
         github_issue_record.update(record_overrides)
@@ -112,6 +116,22 @@ class TestGithubIssueEmitter:
             github_issue_emitter(team_id=1, record=github_issue_record)
 
         assert "user" not in log_info.call_args.kwargs["record"]
+
+    def test_a_failed_record_reaches_the_pipeline_log_without_the_user_object(self, github_issue_record):
+        # The emitter raises on malformed labels, and the shared pipeline logs the record it handed
+        # over — the whole warehouse row, unless the source declares `user` unloggable.
+        github_issue_record["labels"] = "not-json"
+
+        with patch.object(pipeline.logger, "exception") as log_exception:
+            _, error_count = build_emitter_outputs(
+                team_id=1,
+                records=[github_issue_record],
+                emitter=GITHUB_ISSUES_CONFIG.emitter,
+                unloggable_fields=GITHUB_ISSUES_CONFIG.unloggable_fields,
+            )
+
+        assert error_count == 1
+        assert "user" not in log_exception.call_args.kwargs["record"]
 
     def test_labels_parsed_from_json_string(self, github_issue_record):
         result = github_issue_emitter(team_id=1, record=github_issue_record)
