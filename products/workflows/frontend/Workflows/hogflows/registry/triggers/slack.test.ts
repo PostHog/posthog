@@ -1,7 +1,6 @@
-import './slack'
-
 import { PropertyOperator } from '~/types'
 
+import { channelId } from './slack'
 import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 describe('slack message trigger', () => {
@@ -54,6 +53,15 @@ describe('slack message trigger', () => {
         const config = triggerType.buildConfig()
         expect(config.type).toBe('slack-message')
         expect(triggerType.matchConfig!(config)).toBe(true)
+    })
+
+    it.each([
+        ['C0ALERTS|#alerts', 'C0ALERTS'],
+        ['C0ALERTS', 'C0ALERTS'],
+    ])('reduces picker value %s to channel id %s', (pickerValue, expected) => {
+        // The picker round-trips `C123|#name`. A Slack message event carries `channel: 'C123'`, so
+        // storing the composite compiles a filter that matches nothing.
+        expect(channelId(pickerValue)).toBe(expected)
     })
 
     it('excludes bot posts by default so a workflow cannot retrigger on its own message', () => {

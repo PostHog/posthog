@@ -57,7 +57,15 @@ const SLACK_PROPERTY_DEFINITIONS: PropertyDefinition[] = SLACK_MESSAGE_PROPERTIE
 function getChannel(config: SlackMessageTriggerConfig): string | null {
     const entry = (config.filters?.properties ?? []).find((property: any) => property?.key === CHANNEL_PROPERTY)
     const value = Array.isArray(entry?.value) ? entry.value[0] : entry?.value
-    return typeof value === 'string' && value ? value : null
+    return typeof value === 'string' && value ? channelId(value) : null
+}
+
+/**
+ * The picker round-trips channels as `C123|#name`, but a Slack message event carries the bare id.
+ * Storing the picker's value verbatim compiles a filter that can never match.
+ */
+export function channelId(value: string): string {
+    return value.split('|')[0]
 }
 
 /** Everything except the channel, which has its own picker above the filter list. */
@@ -68,7 +76,7 @@ function getOtherProperties(config: SlackMessageTriggerConfig): any[] {
 function channelProperty(channel: string): Record<string, any> {
     return {
         key: CHANNEL_PROPERTY,
-        value: [channel],
+        value: [channelId(channel)],
         operator: PropertyOperator.Exact,
         type: PropertyFilterType.Event,
     }

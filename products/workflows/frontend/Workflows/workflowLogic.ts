@@ -735,6 +735,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -982,6 +988,12 @@ export interface workflowLogicActions {
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1529,6 +1541,12 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -1781,6 +1799,12 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
@@ -1943,6 +1967,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2289,6 +2319,12 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -2648,6 +2684,12 @@ export interface workflowLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                type: 'slack-message'
                             }
                           | {
                                 filters: {
