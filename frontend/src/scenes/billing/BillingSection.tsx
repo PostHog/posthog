@@ -38,7 +38,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { canAccessBilling, canOnlyViewBillingUsage } = useValues(billingLogic)
+    const { canAccessBilling, canOnlyViewUsageAndSpend } = useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
@@ -60,12 +60,12 @@ export function BillingSection(): JSX.Element {
     }, [alertsRequested, billingAlertsEnabled, receivedFeatureFlags])
 
     // View-only members have no access to the Overview tab, so send them to Usage instead.
-    // canOnlyViewBillingUsage is only true once org membership and flags are loaded, so admins never bounce.
+    // canOnlyViewUsageAndSpend is only true once org membership and flags are loaded, so admins never bounce.
     useEffect(() => {
-        if (section === 'overview' && canOnlyViewBillingUsage) {
+        if (section === 'overview' && canOnlyViewUsageAndSpend) {
             router.actions.replace(urls.organizationBillingSection('usage'))
         }
-    }, [section, canOnlyViewBillingUsage])
+    }, [section, canOnlyViewUsageAndSpend])
 
     // Overview and Alerts are admin surfaces; only Usage and Spend are readable by view-only members.
     const visibleTabs = tabs.filter((tab) => (tab.key === 'usage' || tab.key === 'spend' ? true : canAccessBilling))

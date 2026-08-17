@@ -335,6 +335,19 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+def _member_accessible_team_ids(user: User, organization: Organization) -> list[int]:
+    """
+    Ids of this org's teams the user can access, mirroring
+    OrganizationSerializer._fetch_visible_teams. Scoped to the queried org explicitly:
+    User.teams gates private-project filtering on the features of the user's *first*
+    org, which for multi-org users can differ from the org being billed.
+    """
+    access_control = UserAccessControl(user=user, organization_id=str(organization.id))
+    visible_teams = access_control.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+    visible_team_ids = UserPermissions(user=user).team_ids_visible_for_user
+    return list(visible_teams.filter(id__in=visible_team_ids).values_list("id", flat=True))
+
+
 def _parse_team_ids(raw_team_ids: str) -> list[int]:
     try:
         parsed = json.loads(raw_team_ids)

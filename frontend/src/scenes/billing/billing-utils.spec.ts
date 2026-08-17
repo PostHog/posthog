@@ -10,7 +10,7 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling,
-    canViewBillingUsage,
+    canViewUsageAndSpend,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
@@ -18,7 +18,7 @@ import {
     formatProductNames,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
-    getMinimumBillingUsageAccessLevel,
+    getMinimumUsageSpendReadAccessLevel,
     getProration,
     getUsageLimitConsequence,
     projectUsage,
@@ -682,22 +682,22 @@ describe('canAccessBilling', () => {
     })
 })
 
-describe('getMinimumBillingUsageAccessLevel', () => {
+describe('getMinimumUsageSpendReadAccessLevel', () => {
     it.each([
         { memberAccess: false, ownerOnly: false, expected: OrganizationMembershipLevel.Admin },
         { memberAccess: true, ownerOnly: false, expected: OrganizationMembershipLevel.Member },
         { memberAccess: false, ownerOnly: true, expected: OrganizationMembershipLevel.Owner },
-        // owner-only-billing wins over member-billing-usage-access
+        // owner-only-billing wins over member-billing-usage-spend-read-access
         { memberAccess: true, ownerOnly: true, expected: OrganizationMembershipLevel.Owner },
     ])(
         'returns $expected for memberAccess=$memberAccess, ownerOnly=$ownerOnly',
         ({ memberAccess, ownerOnly, expected }) => {
-            expect(getMinimumBillingUsageAccessLevel(memberAccess, ownerOnly)).toBe(expected)
+            expect(getMinimumUsageSpendReadAccessLevel(memberAccess, ownerOnly)).toBe(expected)
         }
     )
 })
 
-describe('canViewBillingUsage', () => {
+describe('canViewUsageAndSpend', () => {
     it.each([
         { level: OrganizationMembershipLevel.Member, memberAccess: true, ownerOnly: false, expected: true },
         { level: OrganizationMembershipLevel.Member, memberAccess: true, ownerOnly: true, expected: false },
@@ -709,7 +709,7 @@ describe('canViewBillingUsage', () => {
     ])(
         'returns $expected for level=$level, memberAccess=$memberAccess, ownerOnly=$ownerOnly',
         ({ level, memberAccess, ownerOnly, expected }) => {
-            expect(canViewBillingUsage(level, memberAccess, ownerOnly)).toBe(expected)
+            expect(canViewUsageAndSpend(level, memberAccess, ownerOnly)).toBe(expected)
         }
     )
 })
