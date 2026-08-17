@@ -1318,14 +1318,14 @@ def _get_merge_settings(
     return MergeSettings(primary_key, version_key)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
     dataset_id: str
     table_id: str
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = dataclasses.field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None

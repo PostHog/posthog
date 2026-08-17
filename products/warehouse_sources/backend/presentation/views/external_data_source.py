@@ -45,6 +45,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -288,10 +289,16 @@ def _add_name_variants(target: set[str], name: str) -> None:
         target.add(normalised)
 
 
-def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+@frozen
+class FieldSensitivitySplit:
+    nonsensitive: set[str]
+    sensitive: set[str]
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> FieldSensitivitySplit:
     """Classify source config field names as nonsensitive or sensitive.
 
-    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    Returns the field-name sets flattened across all nesting levels.
     """
     nonsensitive: set[str] = set()
     sensitive: set[str] = set()
@@ -308,14 +315,14 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             for option in field.options:
                 if option.fields:
-                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
-                    nonsensitive.update(ns)
-                    sensitive.update(s)
+                    nested = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(nested.nonsensitive)
+                    sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             _add_name_variants(nonsensitive, field.name)
-            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
-            nonsensitive.update(ns)
-            sensitive.update(s)
+            nested = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(nested.nonsensitive)
+            sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
             # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
             # GSC site_url), not a secret — keep it so the form can prefill on edit.
@@ -327,7 +334,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
-    return nonsensitive, sensitive
+    return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)
 
 
 # Config metadata keys that are always safe to include in nested dicts
@@ -919,9 +926,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
-            nonsensitive = nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
+            nonsensitive = split.nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
         except (ValueError, KeyError):
             representation["job_inputs"] = {}
             return representation
@@ -941,7 +948,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
@@ -1720,7 +1727,7 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
-    payload: dict
+    payload: dict = dataclasses.field(repr=False)
     credential: PendingSourceCredential | None
     error_response: Response | None
 
