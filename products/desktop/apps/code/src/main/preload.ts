@@ -14,6 +14,7 @@ import {
   QUICK_ASK_HIDE_CHANNEL,
   QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
+  QUICK_ASK_RESET_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
@@ -109,6 +110,7 @@ function setupQuickAskPreload(): void {
     ask: (question: string, conversationId?: string) =>
       ipcRenderer.send(QUICK_ASK_ASK_CHANNEL, question, conversationId),
     cancel: () => ipcRenderer.send(QUICK_ASK_CANCEL_CHANNEL),
+    reset: () => ipcRenderer.send(QUICK_ASK_RESET_CHANNEL),
     onEvent: (callback: (event: unknown) => void): (() => void) => {
       const listener = (_e: unknown, event: unknown): void => callback(event);
       ipcRenderer.on(QUICK_ASK_EVENT_CHANNEL, listener);
@@ -130,6 +132,12 @@ function setupQuickAskPreload(): void {
 export function setupPreload(argv: string[]): void {
   if (argv.includes(QUICK_ASK_WINDOW_ARG)) {
     setupQuickAskPreload();
+    // The panel renders agent answers through the shared evidence pipeline
+    // (live chips and chart cards), which talks to the main process over the
+    // host tRPC bridge for auth tokens and external links.
+    process.once("loaded", () => {
+      exposeElectronTRPC();
+    });
   } else if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
   } else {

@@ -15,8 +15,11 @@ vi.mock("electron", () => ({
   webUtils: { getPathForFile: vi.fn() },
 }));
 vi.mock("electron-log/preload", () => ({}));
-vi.mock("@posthog/electron-trpc/main", () => ({
+const { exposeElectronTRPC } = vi.hoisted(() => ({
   exposeElectronTRPC: vi.fn(),
+}));
+vi.mock("@posthog/electron-trpc/main", () => ({
+  exposeElectronTRPC,
 }));
 
 import { setupPreload } from "./preload";
@@ -24,6 +27,10 @@ import { setupPreload } from "./preload";
 describe("preload mode selection", () => {
   beforeEach(() => {
     contextBridge.exposeInMainWorld.mockClear();
+    exposeElectronTRPC.mockClear();
+    // Each setupPreload registers a once-listener; drop leftovers so the
+    // emit below only reaches the branch under test.
+    process.removeAllListeners("loaded");
   });
 
   it("defaults an untagged process to the restricted artifact preload", () => {
@@ -41,13 +48,17 @@ describe("preload mode selection", () => {
     );
   });
 
-  it("exposes only the quickAsk bridge to a quick-ask window", () => {
+  it("exposes the quickAsk bridge and the tRPC bridge to a quick-ask window", () => {
     setupPreload([QUICK_ASK_WINDOW_ARG]);
 
+    // The bridge for the panel protocol, plus host tRPC for the shared
+    // evidence pipeline (auth tokens, external links) - nothing else.
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       "quickAsk",
       expect.any(Object),
     );
+    (process as unknown as { emit(event: string): boolean }).emit("loaded");
+    expect(exposeElectronTRPC).toHaveBeenCalledTimes(1);
   });
 });

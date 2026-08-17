@@ -18,6 +18,7 @@ import {
   QUICK_ASK_HIDE_CHANNEL,
   QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
+  QUICK_ASK_RESET_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
@@ -36,7 +37,7 @@ import {
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
-import { focusMainWindow } from "./window";
+import { attachWindowToTrpc, focusMainWindow } from "./window";
 
 const log = logger.scope("quick-ask");
 
@@ -161,6 +162,10 @@ function createQuickAskWindow(): BrowserWindow {
     },
   });
 
+  // The panel renders answers through the shared evidence pipeline, whose
+  // components fetch live data via the host tRPC bridge.
+  attachWindowToTrpc(window);
+
   window.setAlwaysOnTop(true, "screen-saver");
   // macOS: a `panel` window already floats over full-screen apps on every
   // Space. Do NOT call setVisibleOnAllWorkspaces with visibleOnFullScreen:
@@ -283,6 +288,9 @@ function showQuickAsk(): void {
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
+  // Boot a sandbox while the user types, so the answer starts at model speed
+  // instead of waiting out a cold boot. Best-effort and idempotent.
+  void getQuickAskService().warm();
 }
 
 function hideQuickAsk(): void {
@@ -323,9 +331,6 @@ async function streamAnswer(
       }
       if (event.type === "trace") {
         log.info("Quick ask stream trace", { detail: event.detail });
-      }
-      if (event.type === "viz" && "reason" in event && event.reason) {
-        log.warn("Quick ask chart render skipped", { reason: event.reason });
       }
       send(event);
     }
@@ -458,6 +463,13 @@ export function setupQuickAsk(): void {
   );
   ipcMain.on(QUICK_ASK_CANCEL_CHANNEL, () => {
     getQuickAskService().cancel();
+  });
+  ipcMain.on(QUICK_ASK_RESET_CHANNEL, () => {
+    const service = getQuickAskService();
+    service.reset();
+    // The dropped thread's sandbox idles out server-side; warm a fresh one
+    // for the next question.
+    void service.warm();
   });
 
   const stored = quickAskStore.get("shortcut");

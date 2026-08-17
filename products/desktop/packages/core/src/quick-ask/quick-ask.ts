@@ -1,3 +1,4 @@
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, optional } from "inversify";
 import type { AuthService, FetchLike } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
@@ -10,27 +11,16 @@ export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
  */
 export const QUICK_ASK_FETCH = Symbol.for("posthog.core.quickAsk.fetch");
 
-/** A compact chart the panel can draw: series over shared x-axis labels. */
-export interface QuickAskChart {
-  kind: "line" | "bar";
-  title: string;
-  labels: string[];
-  series: { name: string; points: number[] }[];
-}
-
 /**
- * Events the quick-ask panel renders, distilled from the PostHog AI
- * conversations SSE stream (the same protocol the web app's Max parses in
- * `maxThreadLogic`). Message events arrive as growing snapshots keyed by id;
- * the service forwards them as-is and the renderer replaces by id.
+ * Events the quick-ask panel renders, distilled from a PostHog AI sandbox
+ * run's SSE stream (the same task-run stream the web app's PostHog AI and the
+ * desktop's cloud sessions consume). Text arrives as growing snapshots keyed
+ * by a per-turn id; the renderer replaces by id.
  */
 export type QuickAskEvent =
   | { type: "conversation"; conversationId: string }
   | { type: "reasoning"; content: string }
   | { type: "text"; id: string; content: string; complete: boolean }
-  | { type: "chart"; chart: QuickAskChart }
-  /** The answer has a visualization the panel could not render. */
-  | { type: "viz"; reason?: string }
   | { type: "error"; message: string; detail?: string }
   | { type: "done" }
   | { type: "trace"; detail: string };
@@ -41,241 +31,195 @@ export interface QuickAskInput {
   conversationId?: string;
 }
 
-interface AssistantSseMessage {
-  type?: string;
-  id?: string;
-  content?: unknown;
-  status?: string;
-  answer?: unknown;
-  visualizations?: { answer?: unknown }[];
-}
-
-interface AssistantArtifactContent {
-  content_type?: unknown;
-  query?: unknown;
-  name?: unknown;
-}
-
-interface AssistantQuery {
-  kind?: string;
-  trendsFilter?: { display?: string };
-  series?: { custom_name?: string; name?: string; event?: string }[];
-}
-
-interface QueryResponseSeries {
-  label?: string;
-  data?: number[];
-  labels?: string[];
-  days?: string[];
-  action?: { name?: string };
-}
-
-/** Query kinds whose results share the trends series shape the panel can draw. */
-const CHARTABLE_QUERY_KINDS = new Set([
-  "TrendsQuery",
-  "LifecycleQuery",
-  "StickinessQuery",
-]);
-const MAX_CHART_SERIES = 3;
-const MAX_CHARTS = 2;
-
 /**
- * Appended to every question. PostHog AI defaults to markdown tables for
- * numeric answers, which read poorly in a cursor-sized card; a created
- * visualization streams back as a query the panel draws as a real chart.
+ * Steering for the sandbox agent, sent after the user's first question (so
+ * the task title stays the question). `<posthog_trusted_context>` is the
+ * sanctioned channel for app-injected guidance: the PostHog AI system prompt
+ * instructs the agent to follow it like system instructions. The tag
+ * vocabulary is the shared block the renderer's object-tag pipeline parses.
  */
-const PANEL_STEERING =
-  "\n\n(Asked from a compact quick-ask panel. For numeric or time-series " +
-  "answers, create a visualization instead of a markdown table so it " +
-  "renders as a chart. Keep the text answer short.)";
+const PANEL_STEERING = `<posthog_trusted_context>
+This question was asked from PostHog Desktop's compact quick-ask panel, not a full chat. For this whole conversation:
+- Answer from PostHog data using the PostHog MCP tools. Do not clone repositories or modify code.
+- Keep the text answer short - a few sentences at most.
+- Never ask a blocking question; make reasonable assumptions and state them briefly.
+- Rich output: ${RICH_OUTPUT_TAGS_PROMPT}
+</posthog_trusted_context>`;
 
-/** Minimal SSE parser: collects `event:`/`data:` lines per blank-line-delimited block. */
-export function* parseSseChunk(
-  buffer: string,
-): Generator<{ event: string; data: string }> {
+/** One parsed SSE event: name, optional resume id, joined data lines. */
+export interface SseFrame {
+  event: string;
+  id?: string;
+  data: string;
+}
+
+/** Minimal SSE parser: collects `event:`/`id:`/`data:` lines per blank-line-delimited block. */
+export function* parseSseChunk(buffer: string): Generator<SseFrame> {
   for (const block of buffer.split("\n\n")) {
     let event = "message";
+    let id: string | undefined;
     const dataLines: string[] = [];
     for (const line of block.split("\n")) {
       if (line.startsWith("event:")) {
         event = line.slice(6).trim();
+      } else if (line.startsWith("id:")) {
+        id = line.slice(3).trim();
       } else if (line.startsWith("data:")) {
         dataLines.push(line.slice(5).trimStart());
       }
     }
     if (dataLines.length > 0) {
-      yield { event, data: dataLines.join("\n") };
+      yield { event, id, data: dataLines.join("\n") };
     }
   }
 }
 
-interface StreamCollector {
-  /** Query ASTs from viz messages, run after the stream to render charts. */
-  vizQueries: { query: unknown; title?: string }[];
+interface SessionUpdate {
+  sessionUpdate?: string;
+  content?: { type?: string; text?: string };
+  title?: string;
+  _meta?: { claudeCode?: { toolName?: string } };
 }
 
-function toEvents(
-  event: string,
-  data: string,
-  collector: StreamCollector,
-): QuickAskEvent[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    return [];
-  }
-  if (event === "conversation") {
-    const conversation = parsed as { id?: string };
-    return conversation.id
-      ? [{ type: "conversation", conversationId: conversation.id }]
-      : [];
-  }
-  if (event !== "message") {
-    return [];
-  }
-  const message = parsed as AssistantSseMessage;
-  switch (message.type) {
-    case "ai": {
-      if (typeof message.content !== "string") {
-        return [];
-      }
-      // In-progress snapshots stream with a `temp-` id (or none); the final
-      // message arrives once with a real id (mirrors maxThreadLogic).
-      const complete = message.id != null && !message.id.startsWith("temp-");
-      return [
-        {
-          type: "text",
-          id: message.id ?? "pending",
-          content: message.content,
-          complete,
-        },
-      ];
+interface NotificationFrame {
+  type?: string;
+  notification?: {
+    method?: string;
+    params?: {
+      update?: SessionUpdate;
+      message?: unknown;
+      status?: string;
+    };
+  };
+  status?: string;
+  error_message?: string | null;
+}
+
+interface OpenResponse {
+  task_id?: string;
+  run_id?: string;
+  run_status?: string;
+}
+
+/** Terminal run statuses on `task_run_state` frames. */
+const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * Per-conversation state. The conversation id is minted client-side and keyed
+ * to a products/tasks `(task, run)` by the sandbox `open` endpoint; `cursor`
+ * is the Redis stream id of the last ingested event, carried across turns and
+ * stream rotations so no frame is ever re-rendered or missed.
+ */
+interface QuickAskSession {
+  conversationId: string;
+  taskId: string | null;
+  runId: string | null;
+  cursor: string | null;
+  /** The task has been filed into the user's personal channel. */
+  filed: boolean;
+  /** Number of questions sent (the first carries the steering block). */
+  turns: number;
+}
+
+/**
+ * What one stream frame means for the current turn. Split from the service so
+ * the wire-format translation is testable without a live stream.
+ */
+export type TurnSignal =
+  | { kind: "user-echo" }
+  | { kind: "agent-text"; text: string }
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool"; label: string }
+  | { kind: "turn-complete" }
+  | { kind: "run-terminal"; status: string; errorMessage?: string }
+  | { kind: "ignore"; detail?: string };
+
+export function translateFrame(parsed: unknown): TurnSignal {
+  const frame = parsed as NotificationFrame;
+  if (frame.type === "task_run_state") {
+    const status = frame.status ?? "";
+    if (TERMINAL_RUN_STATUSES.has(status)) {
+      return {
+        kind: "run-terminal",
+        status,
+        errorMessage: frame.error_message ?? undefined,
+      };
     }
-    case "ai/reasoning":
-      return typeof message.content === "string"
-        ? [{ type: "reasoning", content: message.content }]
-        : [];
-    case "ai/viz":
-      if (message.answer != null) {
-        collector.vizQueries.push({ query: message.answer });
-        return [{ type: "trace", detail: "viz query collected (ai/viz)" }];
-      }
-      return [{ type: "viz" }];
-    case "ai/multi_viz": {
-      const answers = (message.visualizations ?? [])
-        .map((item) => item.answer)
-        .filter((answer) => answer != null);
-      if (answers.length > 0) {
-        collector.vizQueries.push(...answers.map((query) => ({ query })));
-        return [
-          { type: "trace", detail: "viz query collected (ai/multi_viz)" },
-        ];
-      }
-      return [{ type: "viz" }];
+    return { kind: "ignore", detail: `run state ${status}` };
+  }
+  if (frame.type !== "notification" || !frame.notification) {
+    return { kind: "ignore" };
+  }
+  const method = frame.notification.method ?? "";
+  if (method === "_posthog/turn_complete") {
+    return { kind: "turn-complete" };
+  }
+  if (method === "_posthog/error") {
+    const message = frame.notification.params?.message;
+    return {
+      kind: "run-terminal",
+      status: "failed",
+      errorMessage: typeof message === "string" ? message : undefined,
+    };
+  }
+  if (method !== "session/update") {
+    return { kind: "ignore", detail: method || undefined };
+  }
+  const update = frame.notification.params?.update;
+  switch (update?.sessionUpdate) {
+    case "user_message_chunk":
+      return { kind: "user-echo" };
+    case "agent_message_chunk":
+    case "agent_message":
+      return update.content?.type === "text" && update.content.text
+        ? { kind: "agent-text", text: update.content.text }
+        : { kind: "ignore" };
+    case "agent_thought_chunk":
+      return update.content?.type === "text" && update.content.text
+        ? { kind: "reasoning", text: update.content.text }
+        : { kind: "ignore" };
+    case "tool_call": {
+      const label =
+        update.title || update._meta?.claudeCode?.toolName || "a tool";
+      return { kind: "tool", label };
     }
-    // Agent mode emits visualizations as artifacts; the query AST is inline.
-    case "ai/artifact": {
-      const content = message.content as AssistantArtifactContent | undefined;
-      if (content?.content_type === "visualization" && content.query != null) {
-        collector.vizQueries.push({
-          query: content.query,
-          title: typeof content.name === "string" ? content.name : undefined,
-        });
-        return [{ type: "trace", detail: "viz query collected (ai/artifact)" }];
-      }
-      return [
-        {
-          type: "trace",
-          detail: `artifact ignored (${String(content?.content_type)})`,
-        },
-      ];
-    }
-    case "ai/failure":
-      return [
-        {
-          type: "error",
-          message:
-            typeof message.content === "string" && message.content
-              ? message.content
-              : "Something went wrong. Try again.",
-        },
-      ];
     default:
-      return message.type
-        ? [
-            {
-              type: "trace",
-              detail: `stream message ignored (${message.type})`,
-            },
-          ]
-        : [];
+      return { kind: "ignore", detail: update?.sessionUpdate };
   }
+}
+
+/** Last non-empty line of the accumulated thought text - the live status label. */
+export function reasoningLabel(thoughtBuffer: string): string {
+  const lines = thoughtBuffer
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] ?? "";
 }
 
 /** Surfaces `error.cause` too: undici hides the real network error there. */
 function describeError(error: unknown): string {
   if (!(error instanceof Error)) {
-    return "chart query failed";
+    return String(error);
   }
   const cause = error.cause instanceof Error ? ` (${error.cause.message})` : "";
   return `${error.message}${cause}`;
 }
 
-function seriesName(result: QueryResponseSeries, index: number): string {
-  return result.label ?? result.action?.name ?? `Series ${index + 1}`;
-}
-
-/** Shortens ISO dates ("2026-08-14") to "8/14" for the x-axis. */
-function shortLabel(label: string): string {
-  const isoMatch = label.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    return `${Number(isoMatch[2])}/${Number(isoMatch[3])}`;
-  }
-  return label;
-}
-
-export function toChart(
-  query: unknown,
-  results: unknown,
-  title?: string,
-): QuickAskChart | null {
-  const assistantQuery = query as AssistantQuery;
-  if (!CHARTABLE_QUERY_KINDS.has(assistantQuery.kind ?? "")) {
-    return null;
-  }
-  if (!Array.isArray(results) || results.length === 0) {
-    return null;
-  }
-  const seriesResults = (results as QueryResponseSeries[])
-    .filter((result) => Array.isArray(result.data))
-    .slice(0, MAX_CHART_SERIES);
-  if (seriesResults.length === 0) {
-    return null;
-  }
-  const first = seriesResults[0];
-  const labels = (first.days ?? first.labels ?? []).map(shortLabel);
-  const display = assistantQuery.trendsFilter?.display ?? "";
-  return {
-    kind: display.includes("Bar") ? "bar" : "line",
-    title: title ?? seriesResults.map(seriesName).join(" · "),
-    labels,
-    series: seriesResults.map((result, index) => ({
-      name: seriesName(result, index),
-      points: result.data ?? [],
-    })),
-  };
-}
+const OPEN_UNAVAILABLE_MESSAGE =
+  "PostHog AI tasks are unavailable right now. Try again.";
 
 /**
- * Streams one PostHog AI turn for the quick-ask panel. Business logic only:
- * auth, project resolution, the SSE request, translation into
- * `QuickAskEvent`s, and running viz queries into drawable charts. The host
- * forwards events over IPC.
+ * Streams PostHog AI answers for the quick-ask panel through the sandbox task
+ * runtime: `open` warms/provisions a prewarmed sandbox run, each question is a
+ * turn on that run, and the answer streams from the task-run SSE endpoint.
+ * Business logic only - the host forwards events over IPC.
  */
 @injectable()
 export class QuickAskService {
   private controller: AbortController | null = null;
+  private warmPromise: Promise<void> | null = null;
+  private session: QuickAskSession | null = null;
   private readonly fetchImpl: FetchLike;
 
   constructor(
@@ -291,59 +235,136 @@ export class QuickAskService {
     this.controller = null;
   }
 
-  /**
-   * One retry on network-level failures ("fetch failed" has no HTTP status):
-   * the chart query runs right after a long SSE read, where a flaky
-   * connection is the common failure mode.
-   */
-  private async runQueryToChartWithRetry(
-    apiHost: string,
-    projectId: number,
-    entry: { query: unknown; title?: string },
-    signal: AbortSignal,
-  ): Promise<QuickAskChart | null> {
-    try {
-      return await this.runQueryToChart(apiHost, projectId, entry, signal);
-    } catch (error) {
-      if (signal.aborted || !(error instanceof TypeError)) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      if (signal.aborted) throw error;
-      return await this.runQueryToChart(apiHost, projectId, entry, signal);
-    }
+  private async context(): Promise<{
+    apiHost: string;
+    projectId: number;
+  } | null> {
+    const { apiHost } = await this.authService.getValidAccessToken();
+    const projectId = this.authService.getState().currentProjectId;
+    return projectId == null ? null : { apiHost, projectId };
   }
 
-  private async runQueryToChart(
+  private ensureSession(conversationId?: string): QuickAskSession {
+    if (
+      this.session &&
+      (!conversationId || this.session.conversationId === conversationId)
+    ) {
+      return this.session;
+    }
+    this.session = {
+      conversationId: conversationId ?? globalThis.crypto.randomUUID(),
+      taskId: null,
+      runId: null,
+      cursor: null,
+      filed: false,
+      turns: 0,
+    };
+    return this.session;
+  }
+
+  /** Drops the current thread so the next question starts a fresh task. */
+  reset(): void {
+    this.cancel();
+    this.session = null;
+  }
+
+  private async postOpen(
     apiHost: string,
     projectId: number,
-    entry: { query: unknown; title?: string },
-    signal: AbortSignal,
-  ): Promise<QuickAskChart | null> {
-    const assistantQuery = entry.query as AssistantQuery;
-    const kind = assistantQuery.kind ?? "unknown";
-    if (!CHARTABLE_QUERY_KINDS.has(kind)) {
-      throw new Error(`query kind ${kind} is not drawable`);
-    }
-    const response = await this.authService.authenticatedFetch(
+    conversationId: string,
+    content: string | null,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return this.authService.authenticatedFetch(
       this.fetchImpl,
-      `${apiHost}/api/environments/${projectId}/query/`,
+      `${apiHost}/api/environments/${projectId}/conversations/${conversationId}/open/`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: entry.query, refresh: "blocking" }),
+        body: JSON.stringify(
+          content == null
+            ? {}
+            : { content, trace_id: globalThis.crypto.randomUUID() },
+        ),
         signal,
       },
     );
-    if (!response.ok) {
-      const detail = await response
-        .text()
-        .then((text) => text.slice(0, 200))
-        .catch(() => "");
-      throw new Error(`query failed with ${response.status}: ${detail}`);
+  }
+
+  /**
+   * Boots a sandbox ahead of the first question (called on panel summon), so
+   * asking costs a model turn instead of a cold sandbox boot. Best-effort:
+   * every failure is swallowed - a cold ask still works without it.
+   */
+  warm(): Promise<void> {
+    if (this.warmPromise) return this.warmPromise;
+    if (this.session?.runId) return Promise.resolve();
+    this.warmPromise = (async () => {
+      const context = await this.context();
+      if (!context) return;
+      const session = this.ensureSession();
+      const response = await this.postOpen(
+        context.apiHost,
+        context.projectId,
+        session.conversationId,
+        null,
+      );
+      // 204 = warm pool full; anything non-ok is reported by the real ask.
+      if (!response.ok || response.status === 204) return;
+      const payload = (await response.json()) as OpenResponse;
+      if (payload.task_id && payload.run_id) {
+        session.taskId = payload.task_id;
+        session.runId = payload.run_id;
+      }
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        this.warmPromise = null;
+      });
+    return this.warmPromise;
+  }
+
+  /**
+   * Files the conversation's task into the user's personal channel so the
+   * thread shows up in their personal space (and can be continued as a full
+   * desktop session). Best-effort: a failure never disturbs the answer.
+   */
+  private async fileTaskToPersonalChannel(
+    apiHost: string,
+    projectId: number,
+    taskId: string,
+  ): Promise<void> {
+    const channelsResponse = await this.authService.authenticatedFetch(
+      this.fetchImpl,
+      `${apiHost}/api/projects/${projectId}/task_channels/`,
+      { method: "GET" },
+    );
+    if (!channelsResponse.ok) {
+      throw new Error(`task_channels failed with ${channelsResponse.status}`);
     }
-    const payload = (await response.json()) as { results?: unknown };
-    return toChart(entry.query, payload.results, entry.title);
+    const channels = (await channelsResponse.json()) as {
+      results?: { id?: string; channel_type?: string }[];
+    };
+    const list = Array.isArray(channels)
+      ? (channels as { id?: string; channel_type?: string }[])
+      : (channels.results ?? []);
+    // The list is requester-scoped: the only personal channel is the user's own.
+    const personal = list.find((entry) => entry.channel_type === "personal");
+    if (!personal?.id) {
+      throw new Error("no personal channel in task_channels response");
+    }
+    const patchResponse = await this.authService.authenticatedFetch(
+      this.fetchImpl,
+      `${apiHost}/api/projects/${projectId}/tasks/${taskId}/`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: personal.id }),
+      },
+    );
+    if (!patchResponse.ok) {
+      throw new Error(`task channel patch failed with ${patchResponse.status}`);
+    }
   }
 
   async *ask(input: QuickAskInput): AsyncGenerator<QuickAskEvent> {
@@ -351,103 +372,277 @@ export class QuickAskService {
     const controller = new AbortController();
     this.controller = controller;
 
-    const { apiHost } = await this.authService.getValidAccessToken();
-    const projectId = this.authService.getState().currentProjectId;
-    if (projectId == null) {
+    const context = await this.context();
+    if (!context) {
       yield { type: "error", message: "Sign in to PostHog to ask questions." };
       return;
     }
+    const { apiHost, projectId } = context;
 
-    // The API requires a client-minted conversation id on every request; it
-    // retrieves the existing conversation or creates a new one from it.
-    const conversationId =
-      input.conversationId ?? globalThis.crypto.randomUUID();
-    yield { type: "conversation", conversationId };
+    // Let an in-flight summon warm finish first so the ask reuses its run
+    // instead of racing it for the conversation row.
+    if (this.warmPromise) {
+      await this.warmPromise;
+    }
+    const session = this.ensureSession(input.conversationId);
+    yield { type: "conversation", conversationId: session.conversationId };
 
-    const response = await this.authService.authenticatedFetch(
-      this.fetchImpl,
-      `${apiHost}/api/environments/${projectId}/conversations/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: `${input.question}${PANEL_STEERING}`,
-          conversation: conversationId,
-          trace_id: globalThis.crypto.randomUUID(),
-        }),
-        signal: controller.signal,
-      },
-    );
+    const firstTurn = session.turns === 0;
+    const content = firstTurn
+      ? `${input.question}\n\n${PANEL_STEERING}`
+      : input.question;
 
-    if (!response.ok || !response.body) {
-      const detail = await response
+    let openResponse: Response;
+    try {
+      openResponse = await this.postOpen(
+        apiHost,
+        projectId,
+        session.conversationId,
+        content,
+        controller.signal,
+      );
+    } catch (error) {
+      yield {
+        type: "error",
+        message: OPEN_UNAVAILABLE_MESSAGE,
+        detail: describeError(error),
+      };
+      return;
+    }
+    if (!openResponse.ok) {
+      const detail = await openResponse
         .text()
         .then((text) => text.slice(0, 500))
         .catch(() => "");
       yield {
         type: "error",
         message:
-          response.status === 402
+          openResponse.status === 402
             ? "You are out of PostHog AI credits."
-            : `PostHog AI is unavailable right now (${response.status}).`,
+            : openResponse.status === 400
+              ? "PostHog AI tasks are not enabled for this project."
+              : `PostHog AI is unavailable right now (${openResponse.status}).`,
         detail,
       };
       return;
     }
+    const opened = (await openResponse.json()) as OpenResponse;
+    if (!opened.task_id || !opened.run_id) {
+      yield {
+        type: "error",
+        message: OPEN_UNAVAILABLE_MESSAGE,
+        detail: "open returned no task/run handle",
+      };
+      return;
+    }
+    // A resume after a terminal run mints a successor run; reset the cursor
+    // so the new run's stream is read from its beginning.
+    if (session.runId !== opened.run_id) {
+      session.cursor = null;
+    }
+    session.taskId = opened.task_id;
+    session.runId = opened.run_id;
+    session.turns += 1;
 
-    const collector: StreamCollector = { vizQueries: [] };
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    if (!session.filed) {
+      session.filed = true;
+      void this.fileTaskToPersonalChannel(
+        apiHost,
+        projectId,
+        opened.task_id,
+      ).catch(() => {
+        // Filing is cosmetic; the conversation itself is unaffected.
+      });
+    }
+
+    yield* this.streamTurn(apiHost, projectId, session, controller);
+  }
+
+  /**
+   * Reads the run's SSE stream from the session cursor until the turn
+   * completes. `event: end` (server-side connection rotation) reconnects with
+   * the cursor; `event: stream-end` means the run itself finished.
+   */
+  private async *streamTurn(
+    apiHost: string,
+    projectId: number,
+    session: QuickAskSession,
+    controller: AbortController,
+  ): AsyncGenerator<QuickAskEvent> {
+    const turnId = `turn-${session.turns}`;
+    let answerText = "";
+    let thoughtBuffer = "";
+    let toolSinceText = false;
+    // Frames before this turn's own user-message echo are a previous turn's
+    // tail (or warm boot noise) - skip them. A brand-new stream (no cursor)
+    // also opens the gate on the first agent activity, in case the harness
+    // does not echo the first message.
+    let gateOpen = false;
+    const freshStream = session.cursor == null;
+
+    const finish = (): QuickAskEvent[] =>
+      answerText
+        ? [
+            { type: "text", id: turnId, content: answerText, complete: true },
+            { type: "done" },
+          ]
+        : [{ type: "done" }];
+
     try {
+      let rotations = 0;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // Process complete SSE blocks; keep the trailing partial block.
-        const lastDelimiter = buffer.lastIndexOf("\n\n");
-        if (lastDelimiter === -1) continue;
-        const complete = buffer.slice(0, lastDelimiter);
-        buffer = buffer.slice(lastDelimiter + 2);
-        for (const { event, data } of parseSseChunk(complete)) {
-          for (const quickAskEvent of toEvents(event, data, collector)) {
-            yield quickAskEvent;
+        const response = await this.authService.authenticatedFetch(
+          this.fetchImpl,
+          `${apiHost}/api/projects/${projectId}/tasks/${session.taskId}/runs/${session.runId}/stream/`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "text/event-stream",
+              ...(session.cursor
+                ? { "Last-Event-ID": session.cursor }
+                : undefined),
+            },
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok || !response.body) {
+          yield {
+            type: "error",
+            message: OPEN_UNAVAILABLE_MESSAGE,
+            detail: `stream failed with ${response.status}`,
+          };
+          return;
+        }
+
+        let rotated = false;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const frames = async function* (): AsyncGenerator<SseFrame> {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // Process complete SSE blocks; keep the trailing partial block.
+            const lastDelimiter = buffer.lastIndexOf("\n\n");
+            if (lastDelimiter === -1) continue;
+            const complete = buffer.slice(0, lastDelimiter);
+            buffer = buffer.slice(lastDelimiter + 2);
+            yield* parseSseChunk(complete);
+          }
+          yield* parseSseChunk(buffer);
+        };
+
+        for await (const frame of frames()) {
+          if (frame.id) {
+            session.cursor = frame.id;
+          }
+          if (frame.event === "end") {
+            rotated = true; // Server rotates long connections; resume below.
+            break;
+          }
+          if (frame.event === "stream-end") {
+            yield* finish();
+            return;
+          }
+          if (frame.event === "error") {
+            yield {
+              type: "error",
+              message: OPEN_UNAVAILABLE_MESSAGE,
+              detail: frame.data.slice(0, 500),
+            };
+            return;
+          }
+          if (frame.event !== "message") {
+            continue; // keepalive and other named events carry nothing to fold.
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(frame.data);
+          } catch {
+            continue;
+          }
+          const signal = translateFrame(parsed);
+          switch (signal.kind) {
+            case "user-echo":
+              gateOpen = true;
+              break;
+            case "agent-text":
+              if (!gateOpen && !freshStream) break;
+              gateOpen = true;
+              if (toolSinceText && answerText) {
+                answerText += "\n\n";
+              }
+              toolSinceText = false;
+              answerText += signal.text;
+              yield {
+                type: "text",
+                id: turnId,
+                content: answerText,
+                complete: false,
+              };
+              break;
+            case "reasoning": {
+              if (!gateOpen && !freshStream) break;
+              gateOpen = true;
+              thoughtBuffer += signal.text;
+              const label = reasoningLabel(thoughtBuffer);
+              if (label) {
+                yield { type: "reasoning", content: label };
+              }
+              break;
+            }
+            case "tool":
+              if (!gateOpen && !freshStream) break;
+              gateOpen = true;
+              toolSinceText = true;
+              yield { type: "reasoning", content: `Running ${signal.label}…` };
+              break;
+            case "turn-complete":
+              if (!gateOpen) break; // A previous turn's boundary.
+              yield* finish();
+              return;
+            case "run-terminal":
+              // The sandbox ended (timeout, failure, cancellation). The next
+              // question resumes into a successor run via `open`.
+              session.runId = null;
+              session.cursor = null;
+              if (signal.status === "failed") {
+                yield {
+                  type: "error",
+                  message: "PostHog AI hit an error. Try asking again.",
+                  detail: signal.errorMessage,
+                };
+              } else {
+                yield* finish();
+              }
+              return;
+            case "ignore":
+              if (signal.detail) {
+                yield {
+                  type: "trace",
+                  detail: `stream frame ignored (${signal.detail})`,
+                };
+              }
+              break;
           }
         }
-      }
-      for (const { event, data } of parseSseChunk(buffer)) {
-        for (const quickAskEvent of toEvents(event, data, collector)) {
-          yield quickAskEvent;
-        }
-      }
 
-      // Turn viz queries into drawable charts; anything unrenderable falls
-      // back to the "open in PostHog" note.
-      let chartRendered = false;
-      let chartFailure: string | null = null;
-      for (const entry of collector.vizQueries.slice(0, MAX_CHARTS)) {
-        try {
-          const chart = await this.runQueryToChartWithRetry(
-            apiHost,
-            projectId,
-            entry,
-            controller.signal,
-          );
-          if (chart) {
-            yield { type: "chart", chart };
-            chartRendered = true;
-          } else {
-            chartFailure ??= `results for ${(entry.query as AssistantQuery).kind ?? "unknown"} had no drawable series`;
+        if (!rotated) {
+          // Clean EOF without the stream-end sentinel: connection dropped.
+          rotations += 1;
+          if (rotations > 20) {
+            yield {
+              type: "error",
+              message: OPEN_UNAVAILABLE_MESSAGE,
+              detail: "stream kept dropping",
+            };
+            return;
           }
-        } catch (error) {
-          chartFailure ??= describeError(error);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          if (controller.signal.aborted) return;
         }
       }
-      if (collector.vizQueries.length > 0 && !chartRendered) {
-        yield { type: "viz", reason: chartFailure ?? undefined };
-      }
-
-      yield { type: "done" };
     } finally {
       if (this.controller === controller) {
         this.controller = null;

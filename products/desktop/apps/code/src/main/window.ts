@@ -109,6 +109,15 @@ export function saveWindowState(window: BrowserWindow): void {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let trpcIpcHandler: ReturnType<typeof createIPCHandler> | null = null;
+
+/**
+ * Serve the host tRPC router to a secondary window (the quick-ask panel).
+ * No-op until the main window - which creates the handler - exists.
+ */
+export function attachWindowToTrpc(window: BrowserWindow): void {
+  trpcIpcHandler?.attachWindow(window);
+}
 
 const mainWindowClosedListeners = new Set<() => void>();
 
@@ -342,7 +351,7 @@ export function createWindow(): void {
     .get<ElectronMainWindow>(MAIN_WINDOW_SERVICE)
     .setMainWindowGetter(() => mainWindow);
 
-  createIPCHandler({
+  trpcIpcHandler = createIPCHandler({
     router: trpcRouter,
     windows: [mainWindow],
     createContext: async () => ({ container }),
