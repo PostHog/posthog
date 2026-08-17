@@ -47,9 +47,7 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
                 try:
                     config["tables"] = source.get_documented_tables()
                 except Exception:
-                    logger.exception(
-                        "build_source_configs: get_documented_tables failed", source_type=str(source_type)
-                    )
+                    logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
                     config["tables"] = []
             results[str(source_type)] = config
         except Exception:
