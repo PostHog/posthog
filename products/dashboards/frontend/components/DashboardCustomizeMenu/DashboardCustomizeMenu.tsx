@@ -31,6 +31,11 @@ const GRID_COMPACTION_OPTIONS: {
         label: DASHBOARD_GRID_COMPACTION_LABELS.horizontal,
         description: 'Moves other tiles sideways so the tile fits in its row.',
     },
+    {
+        value: 'stable',
+        label: DASHBOARD_GRID_COMPACTION_LABELS.stable,
+        description: 'Leaves tiles in place. Moves only tiles that would overlap.',
+    },
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {

@@ -23,7 +23,7 @@ DASHBOARD_GRID_SPACING_GAPS = {
     "wide": 48,
 }
 
-DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal")
+DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal", "stable")
 
 
 class DashboardManager(RootTeamManager):

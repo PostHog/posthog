@@ -145,7 +145,7 @@ jest.mock('react-grid-layout', () => {
                 data-class-name={className}
                 data-row-height={String(rowHeight)}
                 data-margin={margin.join(',')}
-                data-compactor={compactor.type ?? 'none'}
+                data-compactor={compactor.type ?? 'stable'}
                 data-resize-enabled={String(resizeConfig.enabled)}
                 data-drag-enabled={String(dragConfig.enabled)}
             >
@@ -345,6 +345,7 @@ describe('DashboardItems', () => {
 
     it.each([
         ['horizontal', 'horizontal'],
+        ['stable', 'stable'],
         ['unknown', 'vertical'],
     ] as const)('uses %s layout compaction', (layoutCompaction, compactor) => {
         mockedUseValues.mockImplementation((logic) => {

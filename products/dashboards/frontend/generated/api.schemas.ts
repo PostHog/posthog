@@ -339,12 +339,14 @@ export const TileSpacingEnumApi = {
 /**
  * * `vertical` - vertical
  * * `horizontal` - horizontal
+ * * `stable` - stable
  */
 export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
 
 export const LayoutCompactionEnumApi = {
     Vertical: 'vertical',
     Horizontal: 'horizontal',
+    Stable: 'stable',
 } as const
 
 export interface DashboardCustomizationApi {
@@ -356,10 +358,11 @@ export interface DashboardCustomizationApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     tile_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical or horizontal.
+    /** Grid compaction mode. Use vertical, horizontal, or stable.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal */
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
 }
 
@@ -441,10 +444,11 @@ export interface DashboardApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical or horizontal.
+    /** Grid compaction mode. Use vertical, horizontal, or stable.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal */
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
     grid_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
@@ -1027,10 +1031,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical or horizontal.
+    /** Grid compaction mode. Use vertical, horizontal, or stable.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal */
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
     grid_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]

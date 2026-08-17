@@ -130,11 +130,11 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
         grid_compaction: zod
-            .enum(['vertical', 'horizontal'])
-            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal')
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()
             .describe(
-                'Grid compaction mode. Use vertical or horizontal.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal'
+                'Grid compaction mode. Use vertical, horizontal, or stable.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
         use_template: zod
             .string()
@@ -307,11 +307,11 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
         grid_compaction: zod
-            .enum(['vertical', 'horizontal'])
-            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal')
+            .enum(['vertical', 'horizontal', 'stable'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()
             .describe(
-                'Grid compaction mode. Use vertical or horizontal.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal'
+                'Grid compaction mode. Use vertical, horizontal, or stable.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
         tiles: zod
             .array(

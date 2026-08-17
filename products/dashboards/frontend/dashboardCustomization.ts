@@ -1,5 +1,5 @@
-import { horizontalCompactor, verticalCompactor } from 'react-grid-layout'
-import type { Compactor } from 'react-grid-layout'
+import { cloneLayoutItem, horizontalCompactor, verticalCompactor } from 'react-grid-layout'
+import type { Compactor, Layout } from 'react-grid-layout'
 
 import type { DashboardGridCompaction, DashboardTileSpacing } from '~/types'
 
@@ -22,6 +22,13 @@ export const DASHBOARD_TILE_SPACING_LABELS: Record<DashboardTileSpacing, string>
 export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, string> = {
     vertical: 'Fill empty space above',
     horizontal: 'Make room in the row',
+    stable: 'Keep positions where possible',
+}
+
+export const preservePositionsCompactor: Compactor = {
+    type: null,
+    allowOverlap: false,
+    compact: (layout: Layout): Layout => layout.map(cloneLayoutItem),
 }
 
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {
@@ -32,6 +39,8 @@ export function getDashboardGridCompactor(layoutCompaction?: string): Compactor 
     switch (layoutCompaction) {
         case 'horizontal':
             return horizontalCompactor
+        case 'stable':
+            return preservePositionsCompactor
         default:
             return verticalCompactor
     }
