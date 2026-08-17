@@ -7,6 +7,8 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -1694,7 +1696,7 @@ describe('CDP API', () => {
 
         it('fails closed when the reschedule JWT key is not provisioned', async () => {
             const savedJwt = api['rescheduleJwt']
-            api['rescheduleJwt'] = null
+            api['rescheduleJwt'] = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, '')
             try {
                 const res = await supertest(app)
                     .post(
