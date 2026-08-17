@@ -859,11 +859,18 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
             if (!action?.config.delay_until) {
                 return
             }
+            const serialized = buildDelayOffset(offset)
+            // Only direction 'on' truly means "no offset". A cleared amount also serializes to undefined,
+            // but writing it reads back as 'on' and unmounts the amount field mid-edit. Keep the last
+            // stored offset in that case, so the author can type a replacement into the field they cleared.
+            if (serialized === undefined && offset.direction !== 'on') {
+                return
+            }
             actions.setDelayWorkflowActionConfig(actionId, {
                 ...action.config,
                 delay_until: {
                     ...action.config.delay_until,
-                    offset: buildDelayOffset(offset),
+                    offset: serialized,
                 },
             })
         },

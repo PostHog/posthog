@@ -224,6 +224,23 @@ describe('stepDelayLogic', () => {
         expect(descriptionOf(delayAction.id)).toBe('Wait until 1 day before expires_at.')
     })
 
+    // Clearing the amount emits a unit-only 'd', which serializes to no offset and reads back as
+    // direction 'on', unmounting the amount field mid-edit. Keep the last offset so the author can
+    // type a replacement; only picking 'on' actually drops it.
+    it.each([
+        ['keeps the last offset when the amount is cleared mid-edit', { duration: 'd', direction: 'before' }, '-2d'],
+        ['drops the offset when the direction becomes on', { duration: '2d', direction: 'on' }, undefined],
+    ])('%s', async (_label, offset, expected) => {
+        const configured = { delay_until: { expression: 'person.properties.expires_at', offset: '-2d' } }
+        const delayAction = await setupInitialDelayAction(getDelayDescription(configured), configured)
+
+        await expectLogic(sdLogic, () => {
+            sdLogic.actions.setDelayOffset(delayAction.id, offset as DelayOffset)
+        }).toFinishListeners()
+
+        expect(configOf(delayAction.id).delay_until?.offset).toBe(expected)
+    })
+
     it('keeps a customized description when the mode changes', async () => {
         const customDescription = 'Nudge them before renewal'
         const delayAction = await setupInitialDelayAction(customDescription)
