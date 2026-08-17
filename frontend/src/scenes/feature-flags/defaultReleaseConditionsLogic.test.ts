@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -23,6 +24,35 @@ describe('defaultReleaseConditionsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    describe('loadError', () => {
+        // Drives the panel's failure banner: it must set on a failed load so the admin can tell
+        // "couldn't load" from "no defaults configured", and clear on a successful retry.
+        it('sets on a failed load and clears on a successful retry', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/default_release_conditions/': () => [500, {}],
+                },
+            })
+            logic.actions.loadDefaultReleaseConditions()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDefaultReleaseConditionsFailure'])
+                .toMatchValues({ loadError: true })
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/default_release_conditions/': () => [
+                        200,
+                        { enabled: false, default_groups: [] },
+                    ],
+                },
+            })
+            logic.actions.loadDefaultReleaseConditions()
+            await expectLogic(logic)
+                .toDispatchActions(['loadDefaultReleaseConditionsSuccess'])
+                .toMatchValues({ loadError: false })
+        })
     })
 
     describe('hasChanges', () => {

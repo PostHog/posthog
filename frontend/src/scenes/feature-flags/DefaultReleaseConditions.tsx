@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
@@ -16,10 +17,24 @@ export function DefaultReleaseConditions(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const { isEnabled, filtersForEditor, hasChanges, defaultReleaseConditionsLoading } =
+    const { isEnabled, filtersForEditor, hasChanges, defaultReleaseConditionsLoading, loadError } =
         useValues(defaultReleaseConditionsLogic)
-    const { setLocalEnabled, setLocalGroups, saveDefaultReleaseConditions, discardChanges } =
-        useActions(defaultReleaseConditionsLogic)
+    const {
+        setLocalEnabled,
+        setLocalGroups,
+        saveDefaultReleaseConditions,
+        discardChanges,
+        loadDefaultReleaseConditions,
+    } = useActions(defaultReleaseConditionsLogic)
+
+    if (loadError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadDefaultReleaseConditions }}>
+                We couldn't load your default release conditions, so new flags won't apply them until this loads. Retry
+                to view or edit them.
+            </LemonBanner>
+        )
+    }
 
     return (
         <div className="space-y-4">

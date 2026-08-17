@@ -52,6 +52,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadToolDataEvents',
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadDefaultReleaseConditions', // Feature flag defaults panel renders its own failure state; failures are dominated by transient DB timeouts
 ]
 
 /*
@@ -75,6 +76,14 @@ don't report them to error tracking — otherwise sporadic 5xxs surface as noisy
 issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
+/*
+Load actions that degrade gracefully in their own UI and whose failures are dominated by
+transient infrastructure (for example a database query-wait timeout spike), not code regressions.
+We keep these out of error tracking so a transient 5xx spike does not fan out into duplicate
+issues. Their user-facing toast is already suppressed via ERROR_FILTER_ALLOW_LIST.
+*/
+const REPORTING_EXCLUDED_ACTIONS = new Set(['loadDefaultReleaseConditions'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -211,7 +220,11 @@ export function initKea({
                 }
                 // An approvals 409 is expected control flow (a change request was created, or one
                 // is already pending) surfaced to the user by the approvals UI, not a failure.
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
+                if (
+                    !TRANSIENT_GATEWAY_STATUSES.includes(error?.status) &&
+                    !isApprovalRequiredError(error) &&
+                    !REPORTING_EXCLUDED_ACTIONS.has(String(actionKey))
+                ) {
                     posthog.captureException(error)
                 }
             },

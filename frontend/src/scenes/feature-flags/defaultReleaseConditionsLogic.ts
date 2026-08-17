@@ -48,6 +48,7 @@ export interface defaultReleaseConditionsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     defaultReleaseConditions: DefaultReleaseConditionsResponse | null
     defaultReleaseConditionsLoading: boolean
+    loadError: boolean
     filtersForEditor: FeatureFlagFilters
     groups: FeatureFlagGroupType[]
     hasChanges: boolean
@@ -148,6 +149,14 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 setLocalEnabled: (_, { enabled }) => enabled,
                 loadDefaultReleaseConditionsSuccess: (_, { defaultReleaseConditions }) =>
                     defaultReleaseConditions?.enabled ?? false,
+            },
+        ],
+        loadError: [
+            false,
+            {
+                loadDefaultReleaseConditions: () => false,
+                loadDefaultReleaseConditionsSuccess: () => false,
+                loadDefaultReleaseConditionsFailure: () => true,
             },
         ],
     }),
