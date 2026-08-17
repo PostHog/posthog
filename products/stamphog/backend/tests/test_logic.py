@@ -128,7 +128,12 @@ class BuildReviewerInvocationTests(SimpleTestCase):
 class SlackDigestEscapingTests(SimpleTestCase):
     def _summary(self, *, title: str, author: str, body: str, intro: str = "") -> DigestSummary:
         pr = DigestPRSummary(
-            pr_number=7, title=title, url="https://github.com/o/r/pull/7", author_login=author, summary=body
+            pr_number=7,
+            title=title,
+            url="https://github.com/o/r/pull/7",
+            author_login=author,
+            summary=body,
+            repository="o/r",
         )
         return DigestSummary(intro=intro, prs=[pr])
 
@@ -147,6 +152,33 @@ class SlackDigestEscapingTests(SimpleTestCase):
         text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
         assert "<!channel>" not in text
         assert "<!everyone>" not in text
+
+    def test_pr_lines_name_the_repo_only_when_the_digest_spans_repos(self) -> None:
+        # A team audience collects merges from every repo it owns code in, and PR numbers repeat
+        # across repos — two "#412" lines that differ only by link target are unreadable. The far
+        # more common single-repo digest must not pay a constant repo prefix on every line.
+        def _pr(repository: str, number: int) -> DigestPRSummary:
+            return DigestPRSummary(
+                pr_number=number,
+                title="Ship it",
+                url=f"https://github.com/{repository}/pull/{number}",
+                author_login="dev",
+                summary="did a thing",
+                repository=repository,
+            )
+
+        one_repo = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/widgets", 413)])
+        two_repos = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/charts", 412)])
+
+        assert "#412 Ship it" in _build_fallback_text(one_repo)
+        assert "acme/widgets#412" not in _build_fallback_text(one_repo)
+        sections = [b["text"]["text"] for b in _build_blocks(one_repo) if b.get("type") == "section"]
+        assert any("|#412 Ship it>" in text for text in sections)
+
+        assert "acme/widgets#412" in _build_fallback_text(two_repos)
+        assert "acme/charts#412" in _build_fallback_text(two_repos)
+        sections = [b["text"]["text"] for b in _build_blocks(two_repos) if b.get("type") == "section"]
+        assert any("|acme/charts#412 Ship it>" in text for text in sections)
 
     def test_section_text_is_capped_below_slack_limit(self) -> None:
         # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the

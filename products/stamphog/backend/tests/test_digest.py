@@ -54,6 +54,7 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
                 url=pr.pr_url,
                 author_login=pr.author_login,
                 summary=pr.title,
+                repository=pr.repo_config.repository,
             )
             for pr in prs
         ],

@@ -5,9 +5,11 @@ its channel, in order:
 
 1. A "repo:" audience matches the channel its repo declared under `digest:` in
    `.stamphog/policy.yml` (see logic/digest_config.py).
-2. A team slug matches the channel the repo's root `owners.yaml` declares for it, read through
+2. A team slug matches the channel a root `owners.yaml` declares for it, read through
    ``posthog_owners`` so the registry's semantics live in one place. This is what routes a team
-   whose channel isn't named after its slug — `logs` posts to `#team-apm`, not `#logs`.
+   whose channel isn't named after its slug — `logs` posts to `#team-apm`, not `#logs`. Every
+   digest-enabled repo the team connected is a candidate registry, so a repo that carries no
+   ownership metadata of its own still routes through one that does.
 3. Otherwise the slug is matched against a same-named Slack channel, which is the derived
    `#<slug>` rule the registry above exists to override.
 
@@ -24,10 +26,11 @@ from django.db import IntegrityError, router
 import structlog
 from posthog_owners.resolver import TeamChannel, team_channel, teams_registry
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 
 from ..facade.enums import ChannelResolutionSource
-from ..models import DigestChannel, PullRequestAudience, StamphogRepoConfig
+from ..models import DigestChannel, StamphogRepoConfig
 from .digest_config import load_repo_digest_config
 from .github_client import StamphogGitHubClient
 
@@ -98,52 +101,102 @@ class _RegistryUnavailable(Exception):
     """The owners.yaml registry could not be read, so no channel decision is safe this run."""
 
 
-def _audience_repo_config(team_id: int, audience_key: str) -> StamphogRepoConfig | None:
-    """A repo whose merges produced this audience — the source of the ownership that named it.
+@frozen
+class _RegistryLookup:
+    """What one repo's root ``owners.yaml`` says about a team slug."""
 
-    Writer pin: the audience rows are written at merge capture, which can be seconds before the
-    digest runs. A lagged reader returning nothing here silently downgrades a declared channel to
-    a name match, which is the mapping the registry exists to correct.
+    repository: str
+    # The repo's declaration for the slug, or None when it carries no registry or no entry for it.
+    declared: TeamChannel | None = None
+    # False when the file could not be fetched, which is not the same as carrying no registry.
+    readable: bool = True
 
-    Several repos can feed one team's audience and the newest wins. DigestChannel is keyed on
-    (team, audience) alone, so whichever provisions first decides; two repos disagreeing about one
-    team's channel is not something this resolves.
+
+def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
+    """Every digest-enabled repo the team connected, in a fixed order.
+
+    Any of them can carry the root ``owners.yaml`` that names a team's channel, so all of them are
+    read rather than whichever repo happened to merge last: a team whose PRs arrive from several
+    repos must not get a different channel depending on merge timing. Ordering by repository is
+    what makes the winner reproducible when more than one declares the same slug.
+
+    Writer pin: a repo connected (or digest-enabled) seconds ago is a legitimate registry source,
+    and a lagged reader dropping it would change the answer for that run only.
     """
-    audience = (
-        PullRequestAudience.objects.for_team(team_id)
-        .using(router.db_for_write(PullRequestAudience))
-        .filter(audience_key=audience_key)
-        .select_related("pull_request__repo_config")
-        .order_by("-created_at")
-        .first()
+    return list(
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(digest_enabled=True)
+        .order_by("repository")
     )
-    return audience.pull_request.repo_config if audience is not None else None
 
 
-def _declared_team_channel(team_id: int, audience_key: str) -> TeamChannel | None:
-    """The channel the repo's ``owners.yaml`` registry declares for this team slug, or None.
-
-    None means nothing declared one — no repo behind the audience, no ownership file, or no entry
-    for the slug — which leaves the caller on the name-match path. That path already implements the
-    registry's own derived ``#<slug>`` rule, so there is nothing to gain by returning a derivation
-    here, and something to lose: a derived name must stay a guess that a human confirms.
-    """
-    repo_config = _audience_repo_config(team_id, audience_key)
-    if repo_config is None:
-        return None
+def _lookup_team_channel(repo_config: StamphogRepoConfig, audience_key: str) -> _RegistryLookup:
+    """Read one repo's registry for the slug, reporting a failed fetch rather than raising."""
     try:
         raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
             repo_config.repository, _OWNERS_FILE_PATH
         )
-    except Exception as e:
-        # A blip must not read as "this team has no entry". Falling through to the name match would
-        # provision a channel for the derived slug, and that row then suppresses provisioning
-        # forever — so an unreadable registry stops this run and the next one tries again.
-        raise _RegistryUnavailable(f"could not read {_OWNERS_FILE_PATH} for {repo_config.repository}") from e
+    except Exception:
+        logger.warning(
+            "stamphog_channel_resolution_owners_fetch_failed",
+            repository=repo_config.repository,
+            exc_info=True,
+        )
+        return _RegistryLookup(repository=repo_config.repository, readable=False)
     if raw is None:
-        return None
+        return _RegistryLookup(repository=repo_config.repository)
     declared = team_channel(audience_key, teams_registry(raw))
-    return declared if declared.declared else None
+    return _RegistryLookup(repository=repo_config.repository, declared=declared if declared.declared else None)
+
+
+def _declared_team_channel(team_id: int, audience_key: str) -> TeamChannel | None:
+    """The channel the team's connected repos declare for this team slug, or None.
+
+    Reads every candidate repo (see ``_candidate_repo_configs``) and lets the first one in that
+    order decide. A later repo declaring something different is logged and ignored, so the answer
+    depends on the repo list rather than on which repo merged most recently.
+
+    None means no repo declared one — no ownership file anywhere, or no entry for the slug — which
+    leaves the caller on the name-match path. That path already implements the registry's own
+    derived ``#<slug>`` rule, so there is nothing to gain by returning a derivation here, and
+    something to lose: a derived name must stay a guess that a human confirms.
+    """
+    lookups = [_lookup_team_channel(repo_config, audience_key) for repo_config in _candidate_repo_configs(team_id)]
+    winner_index = next((index for index, lookup in enumerate(lookups) if lookup.declared is not None), None)
+
+    # A repo we could not read only blocks the decision when it could have won: it sorts ahead of
+    # the winner, or nothing was declared at all. Deciding around it would make the outcome depend
+    # on which fetch happened to fail, and the row it provisions suppresses provisioning forever.
+    # Ignoring one that sorts behind the winner keeps a permanently broken repo from wedging the
+    # team, since first-in-order wins and a later repo could not have changed that.
+    blocked = [
+        lookup.repository
+        for index, lookup in enumerate(lookups)
+        if not lookup.readable and (winner_index is None or index < winner_index)
+    ]
+    if blocked:
+        raise _RegistryUnavailable(f"could not read {_OWNERS_FILE_PATH} for {', '.join(blocked)}")
+
+    if winner_index is None:
+        return None
+
+    winner = lookups[winner_index]
+    disagreeing = [
+        lookup.repository
+        for lookup in lookups[winner_index + 1 :]
+        if lookup.declared is not None and lookup.declared != winner.declared
+    ]
+    if disagreeing:
+        # Not an error: the winner is stable, and a human owns reconciling the registries.
+        logger.warning(
+            "stamphog_channel_resolution_registry_conflict",
+            team_id=team_id,
+            audience_key=audience_key,
+            chosen_repository=winner.repository,
+            disagreeing_repositories=disagreeing,
+        )
+    return winner.declared
 
 
 _REGISTRY_UNKNOWN = TeamChannel(channel=None, declared=False)
@@ -153,12 +206,12 @@ def _resolve_declared_team_channel(team_id: int, audience_key: str) -> TeamChann
     """``_declared_team_channel`` with an unreadable registry reported as ``_REGISTRY_UNKNOWN``."""
     try:
         return _declared_team_channel(team_id, audience_key)
-    except _RegistryUnavailable:
+    except _RegistryUnavailable as e:
         logger.warning(
-            "stamphog_channel_resolution_owners_fetch_failed",
+            "stamphog_channel_resolution_deferred_unreadable_registry",
             team_id=team_id,
             audience_key=audience_key,
-            exc_info=True,
+            error=str(e),
         )
         return _REGISTRY_UNKNOWN
 

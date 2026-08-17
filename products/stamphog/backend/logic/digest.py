@@ -34,6 +34,9 @@ class DigestPRSummary:
     url: str
     author_login: str
     summary: str
+    # Owning repository, "owner/repo". A team digest can span repos, where a bare PR number is
+    # ambiguous — two repos routinely have a #412.
+    repository: str
 
 
 @dataclass
@@ -58,6 +61,7 @@ def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
                 url=pr.pr_url,
                 author_login=pr.author_login,
                 summary=pr.summary_line or pr.title,
+                repository=pr.repo_config.repository,
             )
             for pr in prs
         ],
@@ -158,6 +162,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
                 url=pr.pr_url,
                 author_login=pr.author_login,
                 summary=str(item.get("summary") or pr.summary_line or pr.title).strip() or pr.summary_line or pr.title,
+                repository=pr.repo_config.repository,
             )
         )
     raw_prs = data.get("prs")

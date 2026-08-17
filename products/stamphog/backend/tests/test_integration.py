@@ -25,6 +25,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
+from products.stamphog.backend.logic import channel_resolution
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
 from products.stamphog.backend.models import (
@@ -58,13 +59,13 @@ BASE_SHA = "base000"
 POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults"
 
 
-def _repo_config(team_id: int, *, digest_enabled: bool = True) -> StamphogRepoConfig:
+def _repo_config(team_id: int, *, digest_enabled: bool = True, repository: str = REPO) -> StamphogRepoConfig:
     # Reviews mint the sandbox gateway token under the connecting user, so wire the team's own
     # member in — exactly what sync_installation records in production.
     connected_by = Team.objects.get(id=team_id).organization.members.values_list("id", flat=True).first()
     return StamphogRepoConfig.objects.for_team(team_id).create(
         team_id=team_id,
-        repository=REPO,
+        repository=repository,
         installation_id=INSTALLATION_ID,
         enabled=True,
         digest_enabled=digest_enabled,
@@ -1301,6 +1302,134 @@ def test_owners_registry_routes_a_team_whose_channel_is_not_its_slug(
         return
     channel_id, enabled, source = expected
     assert [(c.slack_channel_id, c.enabled, c.resolution_source) for c in channels] == [(channel_id, enabled, source)]
+
+
+def _merged_pr_with_audience(
+    team_id: int, repo_config: StamphogRepoConfig, *, number: int, audience_key: str
+) -> PullRequest:
+    pr = PullRequest.objects.for_team(team_id).create(
+        team_id=team_id,
+        repo_config=repo_config,
+        pr_number=number,
+        title="Bump the deployment image tag",
+        author_login="devex-dev",
+        pr_url=f"https://github.com/{repo_config.repository}/pull/{number}",
+        merged_at=timezone.now(),
+    )
+    PullRequestAudience.objects.for_team(team_id).create(
+        team_id=team_id, pull_request=pr, audience_key=audience_key, reason=AudienceReason.AUTHORED
+    )
+    return pr
+
+
+_STANDUP_REGISTRY = _OWNERS_YAML_HEAD + "teams:\n  team-devex:\n    slack: '#team-devex-standup'\n"
+_DEVEX_WORKSPACE = [
+    {"id": "C-STANDUP", "name": "team-devex-standup"},
+    {"id": "C-DEVEX", "name": "team-devex"},
+]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_one(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A deployment repo carries no ownership metadata, so its merges resolve to the author's team
+    # slug and nothing else. Reading only the repo the merge came from would name-match that slug
+    # and bind the team to a disabled #team-devex, even though a repo it also connected declares
+    # the real channel. Every connected repo is a candidate registry, so the declaration wins.
+    _repo_config(team.id, repository="acme/charts")
+    _repo_config(team.id, repository="acme/widgets")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = _STANDUP_REGISTRY
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/charts"),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    send_daily_digests()
+
+    channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
+    assert (channel.slack_channel_id, channel.enabled, channel.resolution_source) == (
+        "C-STANDUP",
+        True,
+        ChannelResolutionSource.OWNERS_CONTACT,
+    )
+
+
+@pytest.mark.parametrize("audience_repository", ["acme/aardvark", "acme/widgets"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_disagreeing_registries_resolve_the_same_way_whichever_repo_merged_last(
+    team, stamphog_chain: StamphogChain, audience_repository: str
+) -> None:
+    # Two connected repos naming different channels for one team must not resolve by merge order:
+    # the DigestChannel row is keyed on (team, audience) alone, so whichever provisioned first
+    # would decide forever. Repository order picks the winner, so the answer is the same either way.
+    _repo_config(team.id, repository="acme/aardvark")
+    _repo_config(team.id, repository="acme/widgets")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.repo_files[("acme/aardvark", "owners.yaml")] = _STANDUP_REGISTRY
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = (
+        _OWNERS_YAML_HEAD + "teams:\n  team-devex:\n    slack: '#team-devex'\n"
+    )
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository=audience_repository),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    send_daily_digests()
+
+    assert DigestChannel.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
+
+
+def _client_failing_for(broken_repository: str) -> type:
+    """A StamphogGitHubClient that reads normally except for one repository, which raises."""
+    real_client = channel_resolution.StamphogGitHubClient
+
+    class _Client:
+        def __init__(self, installation_id: str) -> None:
+            self._delegate = real_client(installation_id)
+
+        def get_default_branch_file(self, repo: str, path: str) -> str | None:
+            if repo == broken_repository:
+                raise RuntimeError("github down")
+            return self._delegate.get_default_branch_file(repo, path)
+
+    return _Client
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_unreadable_repo_behind_the_winner_still_provisions(team, stamphog_chain: StamphogChain) -> None:
+    # An unreadable repo blocks the decision only when it could have held the winning declaration.
+    # One sorting behind the winner could not have, and treating it as blocking would let a single
+    # permanently broken repo keep the whole team off its channel.
+    _repo_config(team.id, repository="acme/aardvark")
+    _repo_config(team.id, repository="acme/zulu")
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.repo_files[("acme/aardvark", "owners.yaml")] = _STANDUP_REGISTRY
+    _merged_pr_with_audience(
+        team.id,
+        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/zulu"),
+        number=101,
+        audience_key="team-devex",
+    )
+    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
+
+    with patch.object(channel_resolution, "StamphogGitHubClient", _client_failing_for("acme/zulu")):
+        send_daily_digests()
+
+    assert DigestChannel.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
