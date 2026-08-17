@@ -4,6 +4,14 @@ import { AUTH_SERVICE } from "../auth/auth.module";
 
 export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
 
+/** A compact chart the panel can draw: series over shared x-axis labels. */
+export interface QuickAskChart {
+  kind: "line" | "bar";
+  title: string;
+  labels: string[];
+  series: { name: string; points: number[] }[];
+}
+
 /**
  * Events the quick-ask panel renders, distilled from the PostHog AI
  * conversations SSE stream (the same protocol the web app's Max parses in
@@ -14,6 +22,8 @@ export type QuickAskEvent =
   | { type: "conversation"; conversationId: string }
   | { type: "reasoning"; content: string }
   | { type: "text"; id: string; content: string; complete: boolean }
+  | { type: "chart"; chart: QuickAskChart }
+  /** The answer has a visualization the panel could not render. */
   | { type: "viz" }
   | { type: "error"; message: string; detail?: string }
   | { type: "done" };
@@ -29,7 +39,32 @@ interface AssistantSseMessage {
   id?: string;
   content?: unknown;
   status?: string;
+  answer?: unknown;
+  visualizations?: { answer?: unknown }[];
 }
+
+interface AssistantQuery {
+  kind?: string;
+  trendsFilter?: { display?: string };
+  series?: { custom_name?: string; name?: string; event?: string }[];
+}
+
+interface QueryResponseSeries {
+  label?: string;
+  data?: number[];
+  labels?: string[];
+  days?: string[];
+  action?: { name?: string };
+}
+
+/** Query kinds whose results share the trends series shape the panel can draw. */
+const CHARTABLE_QUERY_KINDS = new Set([
+  "TrendsQuery",
+  "LifecycleQuery",
+  "StickinessQuery",
+]);
+const MAX_CHART_SERIES = 3;
+const MAX_CHARTS = 2;
 
 /** Minimal SSE parser: collects `event:`/`data:` lines per blank-line-delimited block. */
 export function* parseSseChunk(
@@ -51,7 +86,16 @@ export function* parseSseChunk(
   }
 }
 
-function toEvents(event: string, data: string): QuickAskEvent[] {
+interface StreamCollector {
+  /** Query ASTs from viz messages, run after the stream to render charts. */
+  vizQueries: unknown[];
+}
+
+function toEvents(
+  event: string,
+  data: string,
+  collector: StreamCollector,
+): QuickAskEvent[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(data);
@@ -90,8 +134,21 @@ function toEvents(event: string, data: string): QuickAskEvent[] {
         ? [{ type: "reasoning", content: message.content }]
         : [];
     case "ai/viz":
-    case "ai/multi_viz":
+      if (message.answer != null) {
+        collector.vizQueries.push(message.answer);
+        return [];
+      }
       return [{ type: "viz" }];
+    case "ai/multi_viz": {
+      const answers = (message.visualizations ?? [])
+        .map((item) => item.answer)
+        .filter((answer) => answer != null);
+      if (answers.length > 0) {
+        collector.vizQueries.push(...answers);
+        return [];
+      }
+      return [{ type: "viz" }];
+    }
     case "ai/failure":
       return [
         {
@@ -107,10 +164,55 @@ function toEvents(event: string, data: string): QuickAskEvent[] {
   }
 }
 
+function seriesName(result: QueryResponseSeries, index: number): string {
+  return result.label ?? result.action?.name ?? `Series ${index + 1}`;
+}
+
+/** Shortens ISO dates ("2026-08-14") to "8/14" for the x-axis. */
+function shortLabel(label: string): string {
+  const isoMatch = label.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${Number(isoMatch[2])}/${Number(isoMatch[3])}`;
+  }
+  return label;
+}
+
+export function toChart(
+  query: unknown,
+  results: unknown,
+): QuickAskChart | null {
+  const assistantQuery = query as AssistantQuery;
+  if (!CHARTABLE_QUERY_KINDS.has(assistantQuery.kind ?? "")) {
+    return null;
+  }
+  if (!Array.isArray(results) || results.length === 0) {
+    return null;
+  }
+  const seriesResults = (results as QueryResponseSeries[])
+    .filter((result) => Array.isArray(result.data))
+    .slice(0, MAX_CHART_SERIES);
+  if (seriesResults.length === 0) {
+    return null;
+  }
+  const first = seriesResults[0];
+  const labels = (first.days ?? first.labels ?? []).map(shortLabel);
+  const display = assistantQuery.trendsFilter?.display ?? "";
+  return {
+    kind: display.includes("Bar") ? "bar" : "line",
+    title: seriesResults.map(seriesName).join(" · "),
+    labels,
+    series: seriesResults.map((result, index) => ({
+      name: seriesName(result, index),
+      points: result.data ?? [],
+    })),
+  };
+}
+
 /**
  * Streams one PostHog AI turn for the quick-ask panel. Business logic only:
- * auth, project resolution, the SSE request, and translation into
- * `QuickAskEvent`s. The host forwards events over IPC.
+ * auth, project resolution, the SSE request, translation into
+ * `QuickAskEvent`s, and running viz queries into drawable charts. The host
+ * forwards events over IPC.
  */
 @injectable()
 export class QuickAskService {
@@ -124,6 +226,33 @@ export class QuickAskService {
   cancel(): void {
     this.controller?.abort();
     this.controller = null;
+  }
+
+  private async runQueryToChart(
+    apiHost: string,
+    projectId: number,
+    query: unknown,
+    signal: AbortSignal,
+  ): Promise<QuickAskChart | null> {
+    const assistantQuery = query as AssistantQuery;
+    if (!CHARTABLE_QUERY_KINDS.has(assistantQuery.kind ?? "")) {
+      return null;
+    }
+    const response = await this.authService.authenticatedFetch(
+      fetch,
+      `${apiHost}/api/environments/${projectId}/query/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, refresh: "blocking" }),
+        signal,
+      },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json()) as { results?: unknown };
+    return toChart(query, payload.results);
   }
 
   async *ask(input: QuickAskInput): AsyncGenerator<QuickAskEvent> {
@@ -175,6 +304,7 @@ export class QuickAskService {
       return;
     }
 
+    const collector: StreamCollector = { vizQueries: [] };
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -189,16 +319,40 @@ export class QuickAskService {
         const complete = buffer.slice(0, lastDelimiter);
         buffer = buffer.slice(lastDelimiter + 2);
         for (const { event, data } of parseSseChunk(complete)) {
-          for (const quickAskEvent of toEvents(event, data)) {
+          for (const quickAskEvent of toEvents(event, data, collector)) {
             yield quickAskEvent;
           }
         }
       }
       for (const { event, data } of parseSseChunk(buffer)) {
-        for (const quickAskEvent of toEvents(event, data)) {
+        for (const quickAskEvent of toEvents(event, data, collector)) {
           yield quickAskEvent;
         }
       }
+
+      // Turn viz queries into drawable charts; anything unrenderable falls
+      // back to the "open in PostHog" note.
+      let chartRendered = false;
+      for (const query of collector.vizQueries.slice(0, MAX_CHARTS)) {
+        try {
+          const chart = await this.runQueryToChart(
+            apiHost,
+            projectId,
+            query,
+            controller.signal,
+          );
+          if (chart) {
+            yield { type: "chart", chart };
+            chartRendered = true;
+          }
+        } catch {
+          // Chart rendering is best-effort; the fallback note covers it.
+        }
+      }
+      if (collector.vizQueries.length > 0 && !chartRendered) {
+        yield { type: "viz" };
+      }
+
       yield { type: "done" };
     } finally {
       if (this.controller === controller) {

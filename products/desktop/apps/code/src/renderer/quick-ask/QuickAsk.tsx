@@ -1,4 +1,7 @@
-import type { QuickAskEvent } from "@posthog/core/quick-ask/quick-ask";
+import type {
+  QuickAskChart,
+  QuickAskEvent,
+} from "@posthog/core/quick-ask/quick-ask";
 import { happyHog } from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -45,6 +48,7 @@ export function QuickAsk(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>("idle");
   const [thinkingLabel, setThinkingLabel] = useState("Thinking…");
   const [textParts, setTextParts] = useState<TextPart[]>([]);
+  const [charts, setCharts] = useState<QuickAskChart[]>([]);
   const [hasViz, setHasViz] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
@@ -59,6 +63,7 @@ export function QuickAsk(): React.JSX.Element {
     setPhase("idle");
     setThinkingLabel("Thinking…");
     setTextParts([]);
+    setCharts([]);
     setHasViz(false);
     setErrorMessage("");
     setPillWidth(PILL_MIN_WIDTH);
@@ -67,14 +72,31 @@ export function QuickAsk(): React.JSX.Element {
     }
   }, []);
 
-  // Reset and refocus every time the panel is summoned.
+  // Sizes the answer card to the space between the window and the screen
+  // bottom, so long answers scroll instead of running off-screen.
+  const updateCardMaxHeight = useCallback((): void => {
+    const available = window.screen.availHeight - window.screenY - 200;
+    document.documentElement.style.setProperty(
+      "--qa-card-max",
+      `${Math.max(180, available)}px`,
+    );
+  }, []);
+
+  // Refocus on every summon. The previous session is kept — "New chat" or a
+  // new question clears it — so reopening restores the last answer.
   useEffect(() => {
+    updateCardMaxHeight();
     inputRef.current?.focus();
-    return window.quickAsk?.onShown(() => {
-      reset();
+    window.addEventListener("resize", updateCardMaxHeight);
+    const unsubscribe = window.quickAsk?.onShown(() => {
+      updateCardMaxHeight();
       inputRef.current?.focus();
     });
-  }, [reset]);
+    return () => {
+      window.removeEventListener("resize", updateCardMaxHeight);
+      unsubscribe?.();
+    };
+  }, [updateCardMaxHeight]);
 
   // Answer stream from the main process.
   useEffect(() => {
@@ -89,6 +111,14 @@ export function QuickAsk(): React.JSX.Element {
           break;
         case "text":
           setTextParts((parts) => applyTextEvent(parts, event));
+          setPhase((current) =>
+            current === "thinking" || current === "idle"
+              ? "streaming"
+              : current,
+          );
+          break;
+        case "chart":
+          setCharts((current) => [...current, event.chart]);
           setPhase((current) =>
             current === "thinking" || current === "idle"
               ? "streaming"
@@ -155,6 +185,7 @@ export function QuickAsk(): React.JSX.Element {
     }
     syncPillWidth();
     setTextParts([]);
+    setCharts([]);
     setHasViz(false);
     setErrorMessage("");
     setThinkingLabel("Thinking…");
@@ -216,8 +247,10 @@ export function QuickAsk(): React.JSX.Element {
         <AnswerCard
           text={answerText}
           streaming={phase === "streaming"}
+          charts={charts}
           hasViz={hasViz}
           onOpenInApp={openInApp}
+          onNewChat={reset}
         />
       )}
     </div>

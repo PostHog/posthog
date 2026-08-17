@@ -33,10 +33,15 @@ const QUICK_ASK_VITE_NAME = "main_window";
 
 const PANEL_WIDTH = 640;
 const PANEL_INITIAL_HEIGHT = 96;
-const PANEL_MAX_HEIGHT = 620;
 // Keep the panel clear of the menu bar and screen edges when opening at the cursor.
 const SCREEN_MARGIN = 16;
 const MENU_BAR_CLEARANCE = 40;
+// Where the pill's top-left corner sits inside the window (root padding +
+// hedgehog + gap; see quick-ask.css). Used to anchor the pill at the cursor.
+const PILL_OFFSET_X = 63;
+const PILL_OFFSET_Y = 10;
+// The pill must stay fully visible when summoned near the screen bottom.
+const MIN_VISIBLE_HEIGHT = 120;
 
 export interface QuickAskState {
   enabled: boolean;
@@ -160,7 +165,12 @@ function createQuickAskWindow(): BrowserWindow {
   return window;
 }
 
-/** Position the panel at the cursor, clamped to the cursor's display. */
+/**
+ * Position the panel so the pill's top-left corner lands just beside the
+ * cursor (Figma cursor-chat style), clamped to the cursor's display. Only the
+ * pill's own height is reserved below the cursor; the answer card scrolls
+ * within whatever space remains (see the resize handler).
+ */
 function positionAtCursor(window: BrowserWindow): void {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
@@ -168,18 +178,29 @@ function positionAtCursor(window: BrowserWindow): void {
 
   const x = Math.round(
     Math.min(
-      Math.max(cursor.x - 24, dx + SCREEN_MARGIN),
+      Math.max(
+        cursor.x + 8 - PILL_OFFSET_X,
+        dx + SCREEN_MARGIN - PILL_OFFSET_X,
+      ),
       dx + dw - PANEL_WIDTH - SCREEN_MARGIN,
     ),
   );
   const y = Math.round(
     Math.min(
-      Math.max(cursor.y - 24, dy + MENU_BAR_CLEARANCE),
-      dy + dh - PANEL_MAX_HEIGHT - SCREEN_MARGIN,
+      Math.max(cursor.y + 10 - PILL_OFFSET_Y, dy + MENU_BAR_CLEARANCE),
+      dy + dh - MIN_VISIBLE_HEIGHT,
     ),
   );
 
   window.setBounds({ x, y, width: PANEL_WIDTH, height: PANEL_INITIAL_HEIGHT });
+}
+
+/** The vertical space between the window's top and the display's bottom edge. */
+function availableHeightAt(window: BrowserWindow): number {
+  const bounds = window.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+  const { y: dy, height: dh } = display.workArea;
+  return Math.max(MIN_VISIBLE_HEIGHT, dy + dh - bounds.y - SCREEN_MARGIN);
 }
 
 function showQuickAsk(): void {
@@ -194,7 +215,8 @@ function showQuickAsk(): void {
 }
 
 function hideQuickAsk(): void {
-  getQuickAskService().cancel();
+  // The stream keeps running while hidden so reopening restores the finished
+  // answer; it is only cancelled by a new question or app quit.
   if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
   if (!quickAskWindow.isVisible()) return;
   quickAskWindow.hide();
@@ -273,7 +295,10 @@ export function setupQuickAsk(): void {
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;
     const clamped = Math.round(
-      Math.min(Math.max(height, PANEL_INITIAL_HEIGHT), PANEL_MAX_HEIGHT),
+      Math.min(
+        Math.max(height, PANEL_INITIAL_HEIGHT),
+        availableHeightAt(quickAskWindow),
+      ),
     );
     const bounds = quickAskWindow.getBounds();
     quickAskWindow.setBounds({ ...bounds, height: clamped });

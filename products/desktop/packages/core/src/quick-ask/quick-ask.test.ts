@@ -4,6 +4,7 @@ import {
   parseSseChunk,
   type QuickAskEvent,
   QuickAskService,
+  toChart,
 } from "./quick-ask";
 
 function sseResponse(frames: string[]): Response {
@@ -107,6 +108,80 @@ describe("QuickAskService", () => {
       { type: "error", message: "Rate limited" },
       { type: "done" },
     ]);
+  });
+
+  it("runs a viz query and emits a drawable chart", async () => {
+    const query = {
+      kind: "TrendsQuery",
+      trendsFilter: { display: "ActionsLineGraph" },
+    };
+    const sse = sseResponse([
+      `event: message\ndata: ${JSON.stringify({ type: "ai/viz", id: "v1", answer: query })}\n\n`,
+    ]);
+    const queryResponse = new Response(
+      JSON.stringify({
+        results: [
+          {
+            label: "signups",
+            data: [1, 2, 3],
+            days: ["2026-08-01", "2026-08-02", "2026-08-03"],
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+    const service = serviceWith(sse);
+    const fetchMock = (
+      service as unknown as {
+        authService: { authenticatedFetch: ReturnType<typeof vi.fn> };
+      }
+    ).authService.authenticatedFetch;
+    fetchMock.mockResolvedValueOnce(sse).mockResolvedValueOnce(queryResponse);
+    const events = await collect(service);
+    expect(events).toEqual([
+      { type: "conversation", conversationId: expect.any(String) },
+      {
+        type: "chart",
+        chart: {
+          kind: "line",
+          title: "signups",
+          labels: ["8/1", "8/2", "8/3"],
+          series: [{ name: "signups", points: [1, 2, 3] }],
+        },
+      },
+      { type: "done" },
+    ]);
+    // The chart request went to the query endpoint with the viz's query AST.
+    expect(fetchMock.mock.calls[1][1]).toContain("/query/");
+    expect(JSON.parse(fetchMock.mock.calls[1][2].body as string).query).toEqual(
+      query,
+    );
+  });
+
+  it("falls back to the viz note for query kinds the panel cannot draw", async () => {
+    const sse = sseResponse([
+      `event: message\ndata: ${JSON.stringify({ type: "ai/viz", id: "v1", answer: { kind: "FunnelsQuery" } })}\n\n`,
+    ]);
+    const events = await collect(serviceWith(sse));
+    expect(events).toEqual([
+      { type: "conversation", conversationId: expect.any(String) },
+      { type: "viz" },
+      { type: "done" },
+    ]);
+  });
+
+  it("maps bar display types and non-ISO labels through toChart", () => {
+    const chart = toChart(
+      { kind: "TrendsQuery", trendsFilter: { display: "ActionsBar" } },
+      [{ label: "WAU", data: [5, 6], labels: ["W31", "W32"] }],
+    );
+    expect(chart).toEqual({
+      kind: "bar",
+      title: "WAU",
+      labels: ["W31", "W32"],
+      series: [{ name: "WAU", points: [5, 6] }],
+    });
+    expect(toChart({ kind: "HogQLQuery" }, [])).toBeNull();
   });
 
   it("yields a sign-in error without calling the API when no project is selected", async () => {
