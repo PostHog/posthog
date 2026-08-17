@@ -252,6 +252,9 @@ mod tests {
             capture_ingestion_warnings_kafka_topic: String::new(),
             capture_ingestion_warnings_kafka_hosts: String::new(),
             capture_ingestion_warnings_kafka_tls: false,
+            ai_byte_limit_per_second: 0,
+            ai_byte_limit_burst: 16_777_216,
+            ai_byte_limit_overrides: None,
         }
     }
 

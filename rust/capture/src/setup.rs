@@ -28,6 +28,7 @@ use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
+use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -327,6 +328,50 @@ pub async fn build_components(
             None
         };
 
+    let ai_byte_limit_per_second =
+        if config.ai_byte_limit_per_second > ByteRateLimiter::RATE_CEILING {
+            warn!(
+            ai_byte_limit_per_second = config.ai_byte_limit_per_second,
+            "AI_BYTE_LIMIT_PER_SECOND exceeds 1e9; governor truncates its replenish interval to \
+             zero above that, which disables rate limiting entirely -- clamping to 1e9"
+        );
+            ByteRateLimiter::RATE_CEILING
+        } else {
+            config.ai_byte_limit_per_second
+        };
+    let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
+        std::num::NonZeroU32::new(ai_byte_limit_per_second).map(|per_second| {
+            let burst = if config.ai_byte_limit_burst < ByteRateLimiter::BURST_FLOOR {
+                warn!(
+                    ai_byte_limit_burst = config.ai_byte_limit_burst,
+                    "AI_BYTE_LIMIT_BURST is below the 8 MiB max AI event size; \
+                     clamping up to 8 MiB so legitimate large AI events aren't always dropped"
+                );
+                ByteRateLimiter::BURST_FLOOR
+            } else {
+                config.ai_byte_limit_burst
+            };
+            let burst = std::num::NonZeroU32::new(burst).unwrap_or(per_second);
+            let limiter =
+                ByteRateLimiter::new(per_second, burst, config.ai_byte_limit_overrides.clone());
+
+            if config.export_prometheus {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.report_metrics("ai_byte").await;
+                });
+            }
+
+            {
+                let limiter = limiter.clone();
+                tokio::spawn(async move {
+                    limiter.clean_state().await;
+                });
+            }
+
+            Arc::new(limiter)
+        });
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -364,6 +409,7 @@ pub async fn build_components(
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
+        ai_byte_rate_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,

@@ -260,6 +260,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         50 * 1024 * 1024,
         None,
         None,
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,

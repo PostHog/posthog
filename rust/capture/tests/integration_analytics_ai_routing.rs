@@ -134,6 +134,7 @@ fn setup_router_for_mode(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         overflow_limiter,
         ai_events_overflow_limiter,
+        None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
         None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch

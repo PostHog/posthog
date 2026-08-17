@@ -190,6 +190,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         50 * 1024 * 1024,         // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
         None,                     // ai_events_overflow_limiter
+        None,                     // ai_byte_rate_limiter
         None,                     // replay_overflow_limiter
         None,                     // v1_sink_router
         8,                        // capture_v1_scatter_gather_min_batch

@@ -129,6 +129,7 @@ async fn setup_analytics_router_with_restriction(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -554,6 +555,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
