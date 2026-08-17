@@ -165,7 +165,7 @@ Make the canvas useful before anyone starts a conversation:
 - Show confidence, uncertainty, open questions, suggested reviewers, existing work, and PR state when present.
 - End with one clear recommended next step.
 
-The canvas is presentation, not a trusted action surface. Do not render controls that merely look clickable. A button or link is allowed only when it navigates to a real supplied URL; otherwise present the next step as plain text. Desktop provides agent, PR, and lifecycle actions outside the canvas.
+Do not render controls that merely look clickable. Use links only for real supplied URLs. If the report identifies a concrete code change, has a selected repository, and has no existing PR, you may render a Create pull request button wired to `await ph.report.createPullRequest()`. Show a loading state while it runs and show any returned error beside the button. Do not offer this action for reports whose next step is investigation, a product decision, configuration, or review.
 
 If a PR exists, make review status and the PR the primary outcome. Use live PostHog data or report charts when the supplied query nodes support them.
 

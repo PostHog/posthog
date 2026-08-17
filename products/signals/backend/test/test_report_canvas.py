@@ -113,6 +113,8 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert "reviewer-example" in prompt
         assert "immediately_actionable" in prompt
         assert "Do not render controls that merely look clickable" in prompt
+        assert "ph.report.createPullRequest()" in prompt
+        assert "Do not offer this action" in prompt
 
     @parameterized.expand([SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED])
     def test_skips_reports_outside_the_initial_statuses(self, status: str) -> None:
