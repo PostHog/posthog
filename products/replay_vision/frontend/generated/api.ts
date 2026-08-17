@@ -562,6 +562,29 @@ export const visionScannersBulkObserveCreate = async (
     })
 }
 
+export const getVisionScannersDuplicateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/duplicate/`
+}
+
+/**
+ * Copy a scanner into a new disabled scanner named "<name> (copy)".
+ *
+ * Copies the stored model row rather than the serializer's read representation, which
+ * redacts a query that no longer validates and an experiment the caller can't view;
+ * duplicating through the create endpoint would silently drop both. Unlike create, no
+ * digest is provisioned: the copy starts disabled and unreviewed.
+ */
+export const visionScannersDuplicateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerApi> => {
+    return apiMutator<ReplayScannerApi>(getVisionScannersDuplicateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersImpactRetrieveUrl = (
     projectId: string,
     id: string,

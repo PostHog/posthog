@@ -22,9 +22,9 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 
 import {
-    visionScannersCreate,
     visionScannersCreatorsRetrieve,
     visionScannersDestroy,
+    visionScannersDuplicateCreate,
     visionScannersList,
     visionScannersPartialUpdate,
     visionScannersStatsRetrieve,
@@ -40,7 +40,6 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
-    scannerToApiBody,
     scannersFromApi,
 } from './types'
 
@@ -99,16 +98,6 @@ export const DEFAULT_FILTERS: ScannersFilters = {
 
 export function resolveScannerOrderByKey(columnKey: string): ScannerOrderKey | null {
     return (SORTABLE_COLUMN_KEYS as readonly string[]).includes(columnKey) ? (columnKey as ScannerOrderKey) : null
-}
-
-// Matches the serializer's `name` max_length in products/replay_vision/backend/api/scanners.py.
-const MAX_SCANNER_NAME_LENGTH = 255
-// Bounds the copy-name retry loop on the team-unique name 400, so it can't spin forever.
-const MAX_COPY_NAME_ATTEMPTS = 5
-
-export function scannerCopyName(name: string, attempt: number): string {
-    const suffix = attempt <= 1 ? ' (copy)' : ` (copy ${attempt})`
-    return `${name.slice(0, MAX_SCANNER_NAME_LENGTH - suffix.length)}${suffix}`
 }
 
 export function buildScannerListParams(
@@ -572,54 +561,15 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             if (!teamId || values.duplicatingIds.includes(id)) {
                 return
             }
-            const source = values.scanners.find((s) => s.id === id)
-            if (!source) {
-                return
-            }
             actions.setScannerDuplicating(id, true)
             try {
-                // Explicit allowlist of the writable serializer fields; the copy starts disabled so it
-                // spends no credits until the user reviews it in the editor.
-                const body: Record<string, unknown> = {
-                    description: source.description,
-                    tags: source.tags,
-                    scanner_type: source.scanner_type,
-                    scanner_config: source.scanner_config,
-                    sampling_rate: source.sampling_rate,
-                    sampling_mode: source.sampling_mode,
-                    provider: source.provider,
-                    model: source.model,
-                    emits_signals: source.emits_signals,
-                    enabled: false,
-                }
-                // Omit nullable fields entirely when unset, matching the editor's create payload.
-                if (source.query != null) {
-                    body.query = source.query
-                }
-                if (source.credit_limit != null) {
-                    body.credit_limit = source.credit_limit
-                }
-                if (source.experiment_targeting != null) {
-                    body.experiment_targeting = source.experiment_targeting
-                }
-                for (let attempt = 1; attempt <= MAX_COPY_NAME_ATTEMPTS; attempt++) {
-                    try {
-                        const response = await visionScannersCreate(
-                            String(teamId),
-                            scannerToApiBody({ ...body, name: scannerCopyName(source.name, attempt) })
-                        )
-                        lemonToast.success('Scanner duplicated')
-                        router.actions.push(urls.replayVisionScannerConfigure(response.id))
-                        return
-                    } catch (error: any) {
-                        // A name-uniqueness 400 means this copy name is taken; try the next numbered one.
-                        if (error?.status === 400 && error?.attr === 'name' && attempt < MAX_COPY_NAME_ATTEMPTS) {
-                            continue
-                        }
-                        lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
-                        return
-                    }
-                }
+                // The server copies the stored config (including fields the list response redacts),
+                // picks a free copy name, and leaves the copy disabled for review in the editor.
+                const response = await visionScannersDuplicateCreate(String(teamId), id)
+                lemonToast.success('Scanner duplicated')
+                router.actions.push(urls.replayVisionScannerConfigure(response.id))
+            } catch (error: any) {
+                lemonToast.error(`Failed to duplicate scanner${error?.detail ? `: ${error.detail}` : ''}`)
             } finally {
                 actions.setScannerDuplicating(id, false)
             }
