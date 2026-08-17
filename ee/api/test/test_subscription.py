@@ -3383,6 +3383,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         deleted = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
         assert deleted.status_code == status.HTTP_200_OK, deleted.json()
 
+    def test_member_without_any_access_rules_sees_their_subscriptions(self, mock_sync):
+        # Pins the no-rules short-circuit: a team without object rules must not filter anything.
+        AccessControl.objects.filter(team=self.team).delete()
+        cache.clear()
+        subscription = self._subscription_for(insight=self.open_insight)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+
     def test_org_admin_still_sees_subscription_on_a_private_insight(self, mock_sync):
         # Admins bypass the save-time check; without a read-side bypass their save would then 404.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

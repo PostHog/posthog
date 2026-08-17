@@ -969,6 +969,12 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
         # No entitlement means no rules, and org admins bypass them all, so skip the subqueries.
         return Q()
 
+    blocked = user_access_control.blocked_resource_ids_by_scope
+    allowlisted = user_access_control.allowlisted_resource_ids_by_scope
+    if not any(scope.get(resource) for scope in (blocked, allowlisted) for resource in ("insight", "dashboard")):
+        # No object rules on insights or dashboards means there is nothing to filter.
+        return Q()
+
     # Include soft-deleted targets: the default managers exclude them, which would hide those
     # subscriptions from their owners.
     team_insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
