@@ -168,7 +168,7 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
     settings = get_settings()
     if not settings.desktop_access_gate_enabled or settings.debug:
         return
-    if resolve_product_alias(product) != POSTHOG_CODE_PRODUCT:
+    if product != POSTHOG_CODE_PRODUCT:
         return
     if user.auth_method != "oauth_access_token":
         return
@@ -176,13 +176,8 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
     if INTERNAL_RUN_SCOPE in (user.scopes or []):
         return
 
-    resolver: DesktopAccessResolver | None = getattr(request.app.state, "desktop_access_resolver", None)
-    allowed = await resolver.has_access(user.user_id, upstream_auth_header(request)) if resolver else None
-
-    if allowed is None:
-        logger.warning("desktop_access_check_unavailable", user_id=user.user_id, team_id=user.team_id)
-        return
-    if allowed:
+    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
+    if await resolver.has_access(user.user_id, upstream_auth_header(request)):
         return
 
     logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id)

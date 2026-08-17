@@ -12,7 +12,11 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 from llm_gateway.config import get_settings
-from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver, _redis_key
+from llm_gateway.services.desktop_access_resolver import (
+    FAIL_OPEN_CACHE_TTL_SECONDS,
+    DesktopAccessResolver,
+    _redis_key,
+)
 
 
 def _make_response(status_code: int, payload: dict[str, object] | None = None) -> httpx.Response:
@@ -47,9 +51,6 @@ class _FakeRedis:
         if ex is not None:
             self.ttls[key] = ex
 
-    async def delete(self, key: str) -> None:
-        self.store.pop(key, None)
-
 
 def _make_resolver(redis: _FakeRedis | None, http_client: MagicMock) -> DesktopAccessResolver:
     return DesktopAccessResolver(cast("Redis[bytes] | None", redis), http_client)
@@ -74,47 +75,40 @@ class TestDesktopAccessResolver:
         assert await resolver.has_access(7, "Bearer tok") is False
 
     @pytest.mark.asyncio
-    async def test_no_auth_header_is_unknown(self) -> None:
+    async def test_no_auth_header_allows_without_asking(self) -> None:
         http = _make_http_client(_make_response(200, {"has_access": False}))
         resolver = _make_resolver(_FakeRedis(), http)
-        assert await resolver.has_access(7, "") is None
+        assert await resolver.has_access(7, "") is True
         http.get.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_transport_error_is_unknown_not_denied(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(httpx.ConnectError("boom")))
-        assert await resolver.has_access(7, "Bearer tok") is None
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param(httpx.ConnectError("boom"), id="transport_error"),
+            pytest.param(_make_response(500), id="server_error"),
+            pytest.param(_make_response(404), id="route_missing"),
+            pytest.param(_make_response(200, {"has_access": "yes"}), id="malformed_payload"),
+        ],
+    )
+    async def test_unavailable_answer_fails_open_and_is_cached_briefly(
+        self, response: httpx.Response | Exception
+    ) -> None:
+        redis = _FakeRedis()
+        http = _make_http_client(response)
+        resolver = _make_resolver(redis, http)
 
-    @pytest.mark.asyncio
-    async def test_server_error_is_unknown_not_denied(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(500)))
-        assert await resolver.has_access(7, "Bearer tok") is None
+        assert await resolver.has_access(7, "Bearer tok") is True
+        assert await resolver.has_access(7, "Bearer tok") is True
+
+        assert http.get.await_count == 1
+        assert redis.ttls[_redis_key(7)] == FAIL_OPEN_CACHE_TTL_SECONDS
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status_code", [400, 401, 403, 429])
     async def test_caller_attributable_rejection_is_denied(self, status_code: int) -> None:
         resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(status_code)))
         assert await resolver.has_access(7, "Bearer tok") is False
-
-    @pytest.mark.asyncio
-    async def test_missing_route_is_unknown_not_denied(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(404)))
-        assert await resolver.has_access(7, "Bearer tok") is None
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("header", ["bearer tok", "BEARER  tok ", "Bearer tok"])
-    async def test_bearer_scheme_is_canonicalized(self, header: str) -> None:
-        http = _make_http_client(_make_response(200, {"has_access": True}))
-        resolver = _make_resolver(None, http)
-
-        await resolver.has_access(7, header)
-
-        assert http.get.await_args.kwargs["headers"] == {"Authorization": "Bearer tok"}
-
-    @pytest.mark.asyncio
-    async def test_malformed_payload_is_unknown(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, {"has_access": "yes"})))
-        assert await resolver.has_access(7, "Bearer tok") is None
 
     @pytest.mark.asyncio
     async def test_result_is_cached_and_reused(self) -> None:
@@ -139,25 +133,6 @@ class TestDesktopAccessResolver:
         assert redis.ttls[_redis_key(7)] == settings.desktop_access_cache_ttl
         assert redis.ttls[_redis_key(8)] == settings.desktop_access_denied_cache_ttl
         assert settings.desktop_access_denied_cache_ttl < settings.desktop_access_cache_ttl
-
-    @pytest.mark.asyncio
-    async def test_unknown_result_is_not_cached(self) -> None:
-        redis = _FakeRedis()
-        http = _make_http_client(_make_response(500))
-        resolver = _make_resolver(redis, http)
-
-        assert await resolver.has_access(7, "Bearer tok") is None
-        assert await resolver.has_access(7, "Bearer tok") is None
-        assert http.get.await_count == 2
-
-    @pytest.mark.asyncio
-    async def test_invalidate_clears_cache(self) -> None:
-        redis = _FakeRedis()
-        resolver = _make_resolver(redis, _make_http_client(_make_response(200, {"has_access": True})))
-
-        await resolver.has_access(7, "Bearer tok")
-        await resolver.invalidate(7)
-        assert _redis_key(7) not in redis.store
 
     @pytest.mark.asyncio
     async def test_calls_django_check_access_endpoint(self) -> None:

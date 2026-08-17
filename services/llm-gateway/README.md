@@ -272,7 +272,7 @@ The check fails open only on states a caller cannot induce (a 5xx, a transport e
 missing route), so a Django outage or a rollout doesn't lock out entitled users. A 4xx is a
 denial, because a caller can otherwise manufacture one (a malformed credential draws a 401, and
 this endpoint's per-user throttle can be exhausted for a 429) and fail open through it.
-`DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
+`LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
 ### Adding a new product
 

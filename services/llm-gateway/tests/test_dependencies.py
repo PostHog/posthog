@@ -548,7 +548,7 @@ class TestDesktopAccessGate:
             application_id=POSTHOG_CODE_US_APP_ID,
         )
 
-    def _request(self, resolver_answer: bool | None, path: str = "/posthog_code/v1/messages") -> Request:
+    def _request(self, resolver_answer: bool, path: str = "/posthog_code/v1/messages") -> Request:
         request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
         resolver = MagicMock()
         resolver.has_access = AsyncMock(return_value=resolver_answer)
@@ -576,11 +576,21 @@ class TestDesktopAccessGate:
             get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_unknown_entitlement_fails_open(self) -> None:
+    @pytest.mark.parametrize(
+        "env_var",
+        [
+            pytest.param("LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED", id="kill_switch"),
+            pytest.param("LLM_GATEWAY_DEBUG", id="debug"),
+        ],
+    )
+    async def test_gate_short_circuits(self, monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
+        monkeypatch.setenv(env_var, "false" if env_var.endswith("GATE_ENABLED") else "true")
         get_settings.cache_clear()
         try:
+            request = self._request(False)
             user = self._oauth_user()
-            assert await enforce_product_access(request=self._request(None), user=user) is user
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 
@@ -596,14 +606,12 @@ class TestDesktopAccessGate:
             get_settings.cache_clear()
 
     @pytest.mark.asyncio
-    async def test_alias_path_is_gated(self) -> None:
+    @pytest.mark.parametrize("path", ["/array/v1/messages", "/twig/v1/messages"])
+    async def test_alias_path_is_gated(self, path: str) -> None:
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(
-                    request=self._request(False, path="/array/v1/messages"),
-                    user=self._oauth_user(),
-                )
+                await enforce_product_access(request=self._request(False, path=path), user=self._oauth_user())
             assert exc_info.value.status_code == 403
         finally:
             get_settings.cache_clear()

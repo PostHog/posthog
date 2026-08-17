@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from llm_gateway.auth.service import BEARER_PATTERN
 from llm_gateway.config import get_settings
 
 if TYPE_CHECKING:
@@ -15,19 +14,11 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DESKTOP_ACCESS_CACHE_PREFIX = "desktop_access"
+FAIL_OPEN_CACHE_TTL_SECONDS = 60
 
 
 def _redis_key(user_id: int) -> str:
     return f"{DESKTOP_ACCESS_CACHE_PREFIX}:{user_id}"
-
-
-def _canonical_bearer(auth_header: str) -> str:
-    # Django matches the Bearer scheme case-sensitively; the gateway does not.
-    match = BEARER_PATTERN.match(auth_header.strip())
-    if not match:
-        return auth_header
-    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-    return f"Bearer {match.group(1).strip()}"
 
 
 class DesktopAccessResolver:
@@ -39,17 +30,9 @@ class DesktopAccessResolver:
         self._redis = redis
         self._http = http_client
 
-    async def invalidate(self, user_id: int) -> None:
-        if not self._redis:
-            return
-        try:
-            await self._redis.delete(_redis_key(user_id))
-        except Exception:
-            logger.debug("desktop_access_cache_invalidate_failed", user_id=user_id)
-
-    async def has_access(self, user_id: int, auth_header: str) -> bool | None:
+    async def has_access(self, user_id: int, auth_header: str) -> bool:
         if not auth_header:
-            return None
+            return True
 
         cached = await self._get_cached(user_id)
         if cached is not None:
@@ -59,12 +42,15 @@ class DesktopAccessResolver:
             allowed = await self._fetch_access(auth_header)
         except Exception:
             logger.warning("desktop_access_fetch_failed", user_id=user_id, exc_info=True)
-            return None
+            allowed = None
 
         if allowed is None:
-            return None
+            await self._set_cached(user_id, True, FAIL_OPEN_CACHE_TTL_SECONDS)
+            return True
 
-        await self._set_cached(user_id, allowed)
+        settings = get_settings()
+        ttl = settings.desktop_access_cache_ttl if allowed else settings.desktop_access_denied_cache_ttl
+        await self._set_cached(user_id, allowed, ttl)
         return allowed
 
     async def _get_cached(self, user_id: int) -> bool | None:
@@ -81,11 +67,9 @@ class DesktopAccessResolver:
             logger.debug("desktop_access_cache_read_failed", user_id=user_id)
         return None
 
-    async def _set_cached(self, user_id: int, has_access: bool) -> None:
+    async def _set_cached(self, user_id: int, has_access: bool, ttl: int) -> None:
         if not self._redis:
             return
-        settings = get_settings()
-        ttl = settings.desktop_access_cache_ttl if has_access else settings.desktop_access_denied_cache_ttl
         try:
             await self._redis.set(_redis_key(user_id), json.dumps({"has_access": has_access}), ex=ttl)
         except Exception:
@@ -99,7 +83,7 @@ class DesktopAccessResolver:
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/code/invites/check-access/"
         resp = await self._http.get(
             url,
-            headers={"Authorization": _canonical_bearer(auth_header)},
+            headers={"Authorization": auth_header},
             timeout=settings.desktop_access_request_timeout,
         )
 
@@ -114,7 +98,8 @@ class DesktopAccessResolver:
         resp.raise_for_status()
 
         data = resp.json()
-        if not isinstance(data, dict):
+        has_access = data.get("has_access") if isinstance(data, dict) else None
+        if not isinstance(has_access, bool):
+            logger.warning("desktop_access_check_malformed_response")
             return None
-        has_access = data.get("has_access")
-        return has_access if isinstance(has_access, bool) else None
+        return has_access
