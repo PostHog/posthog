@@ -226,6 +226,9 @@ class TestStripeSource:
             # account_invalid: key not authorized for the configured account, or revoked app access.
             # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
             "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
+            # A publishable key was used where a secret/restricted key is required — matched on the
+            # stable message text, ignoring the request id prefix.
+            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
