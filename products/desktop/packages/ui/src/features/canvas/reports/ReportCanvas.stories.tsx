@@ -6,7 +6,7 @@ import type {
 } from "@posthog/shared/types";
 import type { ReportTaskData } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ReportWorkspaceView } from "./ReportCanvas";
+import { NewReportConversation, ReportWorkspaceView } from "./ReportCanvas";
 
 const baseReport: SignalReport = {
   id: "report-checkout-errors",
@@ -29,7 +29,7 @@ const signals: Signal[] = [
   {
     signal_id: "signal-errors",
     content:
-      "Payment confirmation failures cluster around the saved-card checkout path in Safari.",
+      "Payment confirmation failures cluster around the **saved-card checkout** path in Safari.\n\nThe error begins after payment confirmation.",
     source_product: "error_tracking",
     source_type: "issue",
     source_id: "issue-example",
@@ -42,11 +42,19 @@ const signals: Signal[] = [
     content:
       "Affected sessions repeatedly submit the payment form after the confirmation step stalls.",
     source_product: "session_replay",
-    source_type: "cluster",
-    source_id: "cluster-example",
+    source_type: "session_problem",
+    source_id: "session-example",
     weight: 3,
     timestamp: "2026-08-10T09:00:00Z",
-    extra: {},
+    extra: {
+      session_id: "00000000-0000-4000-8000-000000000001",
+      problem_type: "confusion",
+      segment_title: "Payment confirmation stalls",
+      start_time: "01:14",
+      end_time: "01:42",
+      session_duration: 182,
+      session_active_seconds: 96,
+    },
   },
 ];
 
@@ -59,7 +67,22 @@ const artefacts: AnySignalReportArtefact[] = [
       actionability: "immediately_actionable",
       already_addressed: false,
       explanation:
-        "The failure begins in a recently changed checkout path and has a focused reproduction case.",
+        "The failure begins in the **saved-card checkout path** and has a focused reproduction case.\n\n- The regression follows a recent release\n- Replays show the same stalled confirmation step",
+    },
+  },
+  {
+    id: "replay-finding",
+    type: "signal_finding",
+    created_at: "2026-08-10T10:30:00Z",
+    content: {
+      signal_id: "signal-replays",
+      relevant_code_paths: [
+        "frontend/src/scenes/checkout/PaymentConfirmation.tsx",
+      ],
+      relevant_commit_hashes: {},
+      data_queried:
+        "Safari sessions with saved payment methods after the release",
+      verified: true,
     },
   },
 ];
@@ -133,7 +156,13 @@ const meta: Meta<typeof ReportWorkspaceView> = {
     signals,
     artefacts,
     reportTasks,
-    conversation: <ConversationFixture />,
+    conversation: (
+      <NewReportConversation
+        report={baseReport}
+        isStarting={false}
+        onPrompt={() => undefined}
+      />
+    ),
   },
   parameters: {
     layout: "fullscreen",
@@ -145,6 +174,13 @@ export default meta;
 type Story = StoryObj<typeof ReportWorkspaceView>;
 
 export const Actionable: Story = {};
+
+export const EvidenceDetails: Story = {
+  args: {
+    initialRail: "evidence",
+    conversation: <ConversationFixture />,
+  },
+};
 
 export const ExistingPullRequest: Story = {
   args: {
