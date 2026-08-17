@@ -16,6 +16,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { ActivityPanelBody } from "@posthog/ui/features/canvas/components/ActivityPanelBody";
 import {
   LazyCloudReviewPage as CloudReviewPage,
+  preloadReviewPages,
   LazyReviewPage as ReviewPage,
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
@@ -30,7 +31,7 @@ import {
 } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
@@ -154,18 +155,35 @@ const PANEL_FADE_OUT_MS = 120;
 function useFadingSide(
   active: RightPanelSide | null,
   held: boolean,
-): RightPanelSide | null {
+): { contentReady: boolean; drawn: RightPanelSide | null } {
   const [drawn, setDrawn] = useState(active);
+  const [contentReady, setContentReady] = useState(active != null);
+  const open = active != null;
+  const wasOpen = useRef(open);
+
   useEffect(() => {
     if (active != null) {
       setDrawn(active);
       return;
     }
     if (held) return;
-    const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
+    const timer = setTimeout(() => {
+      setDrawn(null);
+      setContentReady(false);
+    }, PANEL_FADE_OUT_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
-  return drawn;
+
+  useEffect(() => {
+    const opening = open && !wasOpen.current;
+    wasOpen.current = open;
+    if (!opening) return;
+    setContentReady(false);
+    const timer = setTimeout(() => setContentReady(true), SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
+
+  return { contentReady, drawn };
 }
 
 /**
@@ -197,7 +215,9 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
 
   const open = active != null;
-  const drawn = useFadingSide(active, isResizing);
+  const { contentReady, drawn } = useFadingSide(active, isResizing);
+
+  useEffect(() => preloadReviewPages(), []);
 
   // Dragging the handle past the panel's floor closes it, and dragging back out
   // while still holding brings it in again. The drag holds the closing panel's
@@ -247,7 +267,8 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
                   the route says there is a session and an empty state would
                   contradict it. */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {task &&
+                {contentReady &&
+                  task &&
                   (drawn === "changes" ? (
                     <ChangesPanelContent task={task} />
                   ) : (

@@ -22,8 +22,10 @@ const hiddenTabStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   visibility: "hidden",
+  contentVisibility: "hidden",
   pointerEvents: "none",
 };
+const MAX_MOUNTED_TABS = 5;
 
 interface TabBarButtonProps {
   ariaLabel: string;
@@ -95,8 +97,8 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   const hostClient = useHostTRPCClient();
   const [mountedTabs, setMountedTabs] = useState<{
     scopeKey: string;
-    tabIds: Set<string>;
-  }>(() => ({ scopeKey: mountScopeKey, tabIds: new Set() }));
+    tabIds: string[];
+  }>(() => ({ scopeKey: mountScopeKey, tabIds: [] }));
 
   useEffect(() => {
     if (!content.activeTabId) return;
@@ -104,16 +106,29 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       if (current.scopeKey !== mountScopeKey) {
         return {
           scopeKey: mountScopeKey,
-          tabIds: new Set([content.activeTabId]),
+          tabIds: [content.activeTabId],
         };
       }
-      if (current.tabIds.has(content.activeTabId)) return current;
+      const nextTabIds = current.tabIds.filter(
+        (tabId) => tabId !== content.activeTabId,
+      );
+      nextTabIds.push(content.activeTabId);
       return {
         scopeKey: mountScopeKey,
-        tabIds: new Set(current.tabIds).add(content.activeTabId),
+        tabIds: nextTabIds.slice(-MAX_MOUNTED_TABS),
       };
     });
   }, [content.activeTabId, mountScopeKey]);
+
+  const mountedTabIds =
+    mountedTabs.scopeKey === mountScopeKey
+      ? mountedTabs.tabIds
+          .filter((tabId) => tabId !== content.activeTabId)
+          .concat(content.activeTabId ?? [])
+          .slice(-MAX_MOUNTED_TABS)
+      : content.activeTabId
+        ? [content.activeTabId]
+        : [];
 
   const handleSplitClick = async () => {
     const result = await hostClient.contextMenu.showSplitContextMenu.mutate();
@@ -279,8 +294,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
             .filter(
               (tab) =>
                 tab.id === content.activeTabId ||
-                (mountedTabs.scopeKey === mountScopeKey &&
-                  mountedTabs.tabIds.has(tab.id)),
+                mountedTabIds.includes(tab.id),
             )
             .map((tab) => (
               <div
