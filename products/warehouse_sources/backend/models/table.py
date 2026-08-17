@@ -291,6 +291,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
+    class CreatedVia(models.TextChoices):
+        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+        # attribution can be counted together. The last two have no source equivalent: a source's
+        # own row records how a person connected it, while the tables underneath it are created by
+        # PostHog on that source's behalf.
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
+        SOURCE = "source", "source"
+        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -300,6 +313,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,

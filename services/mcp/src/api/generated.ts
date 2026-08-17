@@ -52367,6 +52367,28 @@ export namespace Schemas {
       DeltaS3Wrapper: 'DeltaS3Wrapper',
     } as const;
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     */
+    export type TableCreatedViaEnum = typeof TableCreatedViaEnum[keyof typeof TableCreatedViaEnum];
+
+
+    export const TableCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+      Source: 'source',
+      MaterializedView: 'materialized_view',
+    } as const;
+
     export interface SimpleExternalDataSourceSerializers {
       readonly id: string;
       readonly created_at: string;
@@ -52399,6 +52421,16 @@ export namespace Schemas {
       format: TableFormatEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, and `materialized_view` for the table behind a materialized view. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view */
+      readonly created_via: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern: string;
       credential: Credential;
@@ -61124,6 +61156,16 @@ export namespace Schemas {
       format?: TableFormatEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
+      /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, and `materialized_view` for the table behind a materialized view. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving
+       * * `source` - source
+       * * `materialized_view` - materialized_view */
+      readonly created_via?: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern?: string;
       credential?: Credential;
