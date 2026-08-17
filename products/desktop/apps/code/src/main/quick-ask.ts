@@ -218,6 +218,20 @@ const __dirname = path.dirname(__filename);
 
 let quickAskWindow: BrowserWindow | null = null;
 
+/**
+ * The only host tRPC routes the panel renderer may call: auth state and
+ * tokens for its PostHog API client, and opening vetted external links.
+ * Everything else on the router (shell, fs, secureStore, git…) stays
+ * unreachable from this window even if its renderer is compromised.
+ */
+const QUICK_ASK_TRPC_ROUTES = new Set([
+  "auth.getState",
+  "auth.onStateChanged",
+  "auth.getValidAccessToken",
+  "auth.refreshAccessToken",
+  "os.openExternal",
+]);
+
 function createQuickAskWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: PANEL_INITIAL_WIDTH,
@@ -250,8 +264,9 @@ function createQuickAskWindow(): BrowserWindow {
     },
   });
 
-  // Answer rendering fetches live data over the host tRPC bridge.
-  attachWindowToTrpc(window);
+  // Answer rendering fetches live data over the host tRPC bridge, narrowed
+  // to the auth-token and external-link routes the panel actually uses.
+  attachWindowToTrpc(window, (path) => QUICK_ASK_TRPC_ROUTES.has(path));
 
   // The panel shares the app session and its privileged preload bridges, so
   // it gets the same navigation boundary as the main window: links open in

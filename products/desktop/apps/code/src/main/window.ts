@@ -113,10 +113,15 @@ let trpcIpcHandler: ReturnType<typeof createIPCHandler> | null = null;
 
 /**
  * Serves the host tRPC router to a secondary window (the quick-ask panel).
- * No-op until the main window creates the handler.
+ * No-op until the main window creates the handler. `allowedPaths` narrows
+ * the window to a route allowlist: auxiliary windows get only the procedures
+ * they need, never the full privileged router.
  */
-export function attachWindowToTrpc(window: BrowserWindow): void {
-  trpcIpcHandler?.attachWindow(window);
+export function attachWindowToTrpc(
+  window: BrowserWindow,
+  allowedPaths?: (path: string) => boolean,
+): void {
+  trpcIpcHandler?.attachWindow(window, { allowedPaths });
 }
 
 const mainWindowClosedListeners = new Set<() => void>();
