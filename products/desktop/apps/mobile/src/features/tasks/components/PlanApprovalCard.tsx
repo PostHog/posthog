@@ -122,7 +122,7 @@ export function PlanApprovalCard({
               showsVerticalScrollIndicator={false}
             >
               <View className="px-3 py-3">
-                <MarkdownText content={planText} />
+                <MarkdownText content={planText} disableRemoteImages />
               </View>
             </ScrollView>
           </View>

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -368,10 +368,9 @@ function generateMessageId(): string {
 }
 
 function sessionSlug(sessionId: string): string {
-  const compact = sessionId.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  const suffix = compact.slice(0, 12) || "unknown";
+  const digest = createHash("sha256").update(sessionId).digest("hex");
 
-  return `session-${suffix}`;
+  return `session-${digest.slice(0, 12)}`;
 }
 
 export function conversationTurnsToJsonlEntries(
