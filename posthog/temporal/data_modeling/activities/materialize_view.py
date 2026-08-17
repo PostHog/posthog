@@ -55,6 +55,8 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.data_quality.backend.facade import api as data_quality_facade
+from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 
@@ -177,7 +179,7 @@ class MaterializeViewInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MaterializeViewResult:
     node_id: str
     node_name: str
@@ -185,6 +187,7 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
+    quality_audit: QualityAuditMode = QUALITY_AUDIT_SKIP
     # Whether this run upserted a window rather than rebuilding. Defaulted so old workflow
     # histories decode without it.
     incremental: bool = False
@@ -839,6 +842,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             )
 
         await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+        inputs.team_id, str(objects.saved_query.id)
+    )
     return MaterializeViewResult(
         node_id=objects.node.id,
         node_name=objects.node.name,
@@ -846,5 +852,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         table_uri=table_uri,
         file_uris=file_uris,
         saved_query_id=str(objects.saved_query.id),
+        quality_audit=quality_audit,
         incremental=plan.incremental,
     )
