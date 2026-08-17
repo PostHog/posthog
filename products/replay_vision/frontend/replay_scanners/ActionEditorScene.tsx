@@ -132,8 +132,8 @@ function ScheduleSection(): JSX.Element {
             </div>
 
             <span className="text-xs text-muted">
-                Each run summarizes up to 100 observations since the last digest ran. Busier periods are sampled down
-                to that limit.
+                Each run summarizes up to 100 observations since the last digest ran. Busier periods are sampled down to
+                that limit.
             </span>
 
             <div className="w-32">
