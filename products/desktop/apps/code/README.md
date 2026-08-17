@@ -44,9 +44,11 @@ pnpm run check:write       # Linting & typecheck
 
 ### Screen recording permission in development
 
-Quick ask's screen capture needs the macOS Screen Recording permission. In development the app runs inside the stock Electron binary (`node_modules/electron/dist/Electron.app`), so macOS attributes the consent to **Electron**, not PostHog:
+Quick ask's screen capture needs the macOS Screen Recording permission. In development the app runs inside the stock Electron binary (`node_modules/electron/dist/Electron.app`), and macOS attributes the consent to the **responsible process** — for a `pnpm start` from a terminal, that is the terminal (Ghostty, iTerm, Terminal, or the IDE hosting the integrated terminal), not Electron:
 
-- Grant it to "Electron" in System Settings → Privacy & Security → Screen & System Audio Recording, then fully relaunch the dev app (a renderer reload is not enough).
+- Grant it to **your terminal** in System Settings → Privacy & Security → Screen & System Audio Recording, quit the terminal fully, reopen it, and start the app again. An enabled "Electron" row alone is usually not enough (it belongs to a Finder-launched Electron).
+- On a capture failure the app logs the consent status macOS reports (`Quick ask screen capture unavailable` in main.log) — "denied" while the toggles look on means the grant sits on the wrong identity.
+- To see what TCC actually holds: `sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client, auth_value FROM access WHERE service='kTCCServiceScreenCapture';"` (2 = allowed).
 - The first capture attempt is what registers Electron in that list and fires the consent prompt — hit the camera button once if the entry is missing.
 - An Electron version bump replaces the binary, which invalidates the grant (macOS ties it to the code identity). If capture silently stops working after `pnpm install`, reset and re-grant:
 

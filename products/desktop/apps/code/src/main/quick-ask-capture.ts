@@ -156,6 +156,14 @@ export async function beginCapture(host: CaptureHost): Promise<void> {
   } catch (error) {
     log.warn("Quick ask screen capture failed", { error });
   }
+  if (!dataUrl && process.platform === "darwin") {
+    // "denied" with the app toggled on in System Settings usually means the
+    // grant sits on the wrong identity: dev runs launched from a terminal
+    // are attributed to the terminal (the responsible process).
+    log.warn("Quick ask screen capture unavailable", {
+      mediaAccessStatus: systemPreferences.getMediaAccessStatus("screen"),
+    });
+  }
   if (!dataUrl) {
     host.showPanel();
     // Dev runs are the stock Electron binary; macOS attributes the consent
