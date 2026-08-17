@@ -9,24 +9,41 @@ inserts are durable on commit — no async delivery pipeline to drain.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Optional
 
 import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
 
 logger = structlog.get_logger(__name__)
+
+# PgBouncer occasionally closes a just-opened connection under load or failover ("server
+# closed the connection unexpectedly"). A short local retry clears it without failing the
+# whole Temporal activity attempt, which would re-run the entire pipeline setup for what is
+# usually a one-off blip.
+_CONNECT_MAX_ATTEMPTS = 3
+_CONNECT_RETRY_BACKOFF_SECONDS = 0.5
+
+
+def _connect_with_retry(database_url: str) -> psycopg.Connection:
+    for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
+        try:
+            return psycopg.Connection.connect(database_url, autocommit=True)
+        except psycopg.OperationalError:
+            time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
+    return psycopg.Connection.connect(database_url, autocommit=True)
 
 
 class PostgresProducer:
@@ -77,7 +94,7 @@ class PostgresProducer:
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
 
-        self._conn = psycopg.Connection.connect(database_url, autocommit=True)
+        self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
 
     @property
@@ -132,6 +149,10 @@ class PostgresProducer:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
 
+        # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
+        # this job go terminal so their batches can't double-load. Runs the loader is
+        # still draining are spared (see supersede_other_runs); a spared run that
+        # stalls later is recovered by the reconcile sweep's stranded-run pass.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
                 self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid

@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -23,11 +22,9 @@ import {
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { processPersonlessDistinctIdsChunkStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
@@ -54,9 +51,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
-    flagCalledPersonlessDefaultTeams: string
-    hogTransformer: HogTransformer
-    cdpHogWatcherSampleRate: number
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -64,8 +58,9 @@ export function createPostTeamPreprocessingSubpipeline<
     TInput extends PostTeamPreprocessingSubpipelineInput,
     TContext,
     R extends string = never,
+    D = unknown,
 >(
-    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R>,
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R, D>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
@@ -81,9 +76,6 @@ export function createPostTeamPreprocessingSubpipeline<
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,
-        flagCalledPersonlessDefaultTeams,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
     } = config
 
     return (
@@ -123,20 +115,5 @@ export function createPostTeamPreprocessingSubpipeline<
             // Same best-effort, fire-and-forget cache warming for groups: one
             // batched fetch for the chunk's $groupidentify group keys.
             .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
-            // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
-            // This step awaits its DB write, so retry transient persons-Postgres failures
-            // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
-                {
-                    retry: {
-                        tries: 5,
-                        sleepMs: 100,
-                        name: 'personless_distinct_ids',
-                    },
-                }
-            )
-            // Prefetch hog functions for all teams in the batch
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )
 }

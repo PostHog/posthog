@@ -42,6 +42,7 @@ describe('FilterGroup', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/quick_filters/': { results: [] },
+                '/api/projects/:team_id/surveys/question_labels/': { labels: [] },
             },
         })
         initKeaTests()
@@ -73,6 +74,100 @@ describe('FilterGroup', () => {
 
         const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
         expect(inner.type).toBe(FilterLogicalOperator.And)
+
+        logic.unmount()
+    })
+
+    it('renders active filters below the filter picker', () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+        logic.actions.setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [firefoxFilter] }],
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup />
+                </BindLogic>
+            </Provider>
+        )
+
+        const filterPickerButton = screen.getByText('Add filter')
+        const activeFilters = screen.getByTestId('error-tracking-active-filters')
+
+        expect(filterPickerButton).not.toContainElement(activeFilters)
+        expect(
+            filterPickerButton.compareDocumentPosition(activeFilters) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+
+        logic.unmount()
+    })
+
+    it('renders the compact picker as an icon after active filters', () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+        logic.actions.setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [firefoxFilter] }],
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup activeFiltersInline iconOnly />
+                </BindLogic>
+            </Provider>
+        )
+
+        const filterPickerButton = screen.getByLabelText('Add filter')
+        const activeFilters = screen.getByTestId('error-tracking-active-filters')
+
+        expect(filterPickerButton).not.toHaveTextContent('Add filter')
+        expect(
+            activeFilters.compareDocumentPosition(filterPickerButton) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+
+        logic.unmount()
+    })
+
+    it('does not open the filter config for a filter added from a preview', async () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup />
+                </BindLogic>
+            </Provider>
+        )
+
+        logic.actions.addPropertyFilter('$browser', 'Chrome', PropertyOperator.Exact, false)
+
+        expect(await screen.findByText(/Chrome/)).toBeInTheDocument()
+        expect(screen.queryByText('Choose filter')).not.toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('opens the filter picker directly to the main category', async () => {
+        const logic = issueFiltersLogic({ logicKey: LOGIC_KEY })
+        logic.mount()
+
+        render(
+            <Provider>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: LOGIC_KEY }}>
+                    <FilterGroup />
+                </BindLogic>
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByText('Add filter'))
+
+        expect(await screen.findByText('Choose filter')).toBeInTheDocument()
+        expect(screen.queryByText('New filter…')).not.toBeInTheDocument()
 
         logic.unmount()
     })

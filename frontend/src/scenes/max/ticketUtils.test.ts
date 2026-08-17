@@ -1,11 +1,16 @@
 import { ThreadMessage } from './maxLogic'
-import { appendTicketMetadata, composeTicketBody, getTicketSummaryData, parseTicketTargetArea } from './ticketUtils'
+import {
+    appendTicketMetadata,
+    composeTicketBody,
+    formatTicketConfirmationMessage,
+    getTicketSummaryData,
+    isTicketConfirmationMessage,
+} from './ticketUtils'
 
 const human = (content: string): ThreadMessage => ({ type: 'human', content }) as unknown as ThreadMessage
 const ai = (content: string): ThreadMessage => ({ type: 'ai', content }) as unknown as ThreadMessage
 
 const SUMMARY = 'PostHog AI Support Ticket Summary:\n\nIssue: Session recordings are not appearing in the dashboard.'
-const SUMMARY_WITH_TOPIC = `${SUMMARY}\n\n**Topic:** session_replay`
 const DENIAL =
     'The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help. If your issue is about billing, you can always contact our support team through the in-app help panel.'
 
@@ -30,22 +35,30 @@ describe('ticketUtils', () => {
                 ai(SUMMARY),
             ]
 
-            expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3, targetArea: null })
+            expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3 })
+        })
+    })
+
+    describe('formatTicketConfirmationMessage', () => {
+        it('promises the response time the plan covers', () => {
+            expect(formatTicketConfirmationMessage('4321', '48 hours')).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team aims to get back to you within 48 hours."
+            )
         })
 
-        it('extracts the target area from the summary topic line', () => {
-            const thread = [
-                human('My recordings are missing'),
-                ai('Let me check that...'),
-                human('/ticket'),
-                ai(SUMMARY_WITH_TOPIC),
-            ]
+        it('promises no response time when the plan has none', () => {
+            const message = formatTicketConfirmationMessage('4321', null)
+            expect(message).toBe(
+                "I've created a support ticket for you.\nYour ticket ID is #4321.\nOur support team will get back to you soon!"
+            )
+            expect(message).not.toContain('within')
+        })
 
-            expect(getTicketSummaryData(thread, false)).toEqual({
-                summary: SUMMARY_WITH_TOPIC,
-                messageIndex: 3,
-                targetArea: 'session_replay',
-            })
+        it.each([
+            ['with a response time', '48 hours'],
+            ['without a response time', null],
+        ])('stays detectable as a confirmation %s', (_name, responseTime) => {
+            expect(isTicketConfirmationMessage(ai(formatTicketConfirmationMessage('4321', responseTime)))).toBe(true)
         })
     })
 
@@ -55,7 +68,7 @@ describe('ticketUtils', () => {
                 'note leads with summary attached',
                 'It still repros in prod',
                 SUMMARY,
-                `It still repros in prod\n\n----\nPostHog AI's analysis:\n${SUMMARY}`,
+                `It still repros in prod\n\n----\n${SUMMARY}`,
             ],
             ['summary alone when note is empty', '', SUMMARY, SUMMARY],
             ['summary alone when note is whitespace', '   ', SUMMARY, SUMMARY],
@@ -84,31 +97,6 @@ describe('ticketUtils', () => {
             expect(appendTicketMetadata('My issue', { conversationId: 'conv-1', traceId: null })).toBe(
                 'My issue\n\n----\nConversation ID: conv-1'
             )
-        })
-    })
-
-    describe('parseTicketTargetArea', () => {
-        it.each([
-            ['bold topic line with valid area', 'Issue: foo\n\n**Topic:** data_warehouse', 'data_warehouse'],
-            ['plain topic line with valid area', 'Issue: foo\n\nTopic: session_replay', 'session_replay'],
-            ['case and whitespace variations', 'Issue: foo\n\ntopic:   Data_Warehouse  ', 'data_warehouse'],
-            ['trailing period is stripped', 'Issue: foo\n\nTopic: session_replay.', 'session_replay'],
-            [
-                'trailing parenthetical is ignored',
-                'Issue: foo\n\n**Topic:** data_warehouse (Stripe integration)',
-                'data_warehouse',
-            ],
-            [
-                'trailing comma and prose are ignored',
-                'Issue: foo\n\nTopic: feature_flags, most likely',
-                'feature_flags',
-            ],
-            ['unknown area is rejected', 'Issue: foo\n\nTopic: quantum_computing', null],
-            ['unknown area with trailing prose is rejected', 'Issue: foo\n\nTopic: quantum_computing (maybe)', null],
-            ['no topic line', 'Issue: foo\n\nStatus: bar', null],
-            ['topic mentioned mid-sentence is ignored', 'Issue: the topic: billing came up in chat', null],
-        ])('%s', (_name, content, expected) => {
-            expect(parseTicketTargetArea(content)).toBe(expected)
         })
     })
 })

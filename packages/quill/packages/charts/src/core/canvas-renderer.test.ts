@@ -13,8 +13,10 @@ import {
     drawSelectionRect,
     drawTickMarks,
     resolveAxisLineColor,
+    traceScatterMarker,
+    withVerticalClip,
 } from './canvas-renderer'
-import type { ChartDrawArgs, ChartTheme } from './types'
+import type { ChartDrawArgs, ChartTheme, ScatterMarkerShape } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -1144,7 +1146,12 @@ describe('hog-charts canvas-renderer', () => {
         it('clamps a 2D drag that extends past the vertical plot edges', () => {
             const ctx = mockCanvasContext()
             composeDrawHoverWithSelection(jest.fn())(
-                makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250, y0: -500, y1: plotTop + plotHeight + 500 })
+                makeSelectionArgs(ctx, {
+                    x0: plotLeft + 100,
+                    x1: plotLeft + 250,
+                    y0: -500,
+                    y1: plotTop + plotHeight + 500,
+                })
             )
             expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
         })
@@ -1174,5 +1181,79 @@ describe('hog-charts canvas-renderer', () => {
                 expect(rectCall[2]).toBe(expectedWidth)
             }
         )
+    })
+
+    describe('traceScatterMarker', () => {
+        it.each<[ScatterMarkerShape, 'arc' | 'rect', number[]]>([
+            ['circle', 'arc', [10, 20, 6, 0, Math.PI * 2]],
+            ['square', 'rect', [4, 14, 12, 12]],
+        ])('traces a %s as one path spanning the radius on every side', (shape, method, args) => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, shape, 10, 20, 6)
+
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(ctx[method]).toHaveBeenCalledWith(...args)
+        })
+
+        it('centers a triangle on the data point, not on its bounding box', () => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, 'triangle', 10, 20, 6)
+
+            const vertices = [...ctx.moveTo.mock.calls, ...ctx.lineTo.mock.calls]
+            expect(vertices).toHaveLength(3)
+            const centroid = vertices.reduce(([sx, sy], [x, y]) => [sx + x / 3, sy + y / 3], [0, 0])
+            expect(centroid).toEqual([10, 20])
+            expect(ctx.closePath).toHaveBeenCalledTimes(1)
+        })
+
+        it('traces a cross as two open strokes', () => {
+            const ctx = mockCanvasContext()
+
+            traceScatterMarker(ctx, 'cross', 10, 20, 6)
+
+            expect(ctx.moveTo.mock.calls).toEqual([
+                [4, 14],
+                [16, 14],
+            ])
+            expect(ctx.lineTo.mock.calls).toEqual([
+                [16, 26],
+                [4, 26],
+            ])
+            // Closing the path would break ScatterChart's "a cross is strokes only" fill skip.
+            expect(ctx.closePath).not.toHaveBeenCalled()
+        })
+    })
+})
+
+describe('withVerticalClip', () => {
+    it.each([
+        { name: 'a normal plot box', width: 800, plotLeft: 48, clips: true },
+        { name: 'a left margin wider than the container', width: 40, plotLeft: 48, clips: false },
+        { name: 'a left margin exactly at the container edge', width: 48, plotLeft: 48, clips: false },
+        { name: 'a non-finite width', width: Number.NaN, plotLeft: 48, clips: false },
+    ])('with clipLeft on and $name, clips=$clips', ({ width, plotLeft, clips }) => {
+        const ctx = mockCanvasContext()
+        const draw = jest.fn()
+
+        withVerticalClip(ctx, { ...dimensions, width, plotLeft }, draw, undefined, true)
+
+        // A reserved left gutter wider than the container makes the rect negative, which canvas
+        // reads as a reversed rectangle off the right edge — clipping to it would discard the whole
+        // series layer, so the draw has to run unclipped instead.
+        expect(draw).toHaveBeenCalledTimes(1)
+        expect(ctx.clip).toHaveBeenCalledTimes(clips ? 1 : 0)
+    })
+
+    it('restores the context even when draw throws', () => {
+        const ctx = mockCanvasContext()
+
+        expect(() =>
+            withVerticalClip(ctx, dimensions, () => {
+                throw new Error('boom')
+            })
+        ).toThrow('boom')
+        expect(ctx.restore).toHaveBeenCalledTimes(1)
     })
 })

@@ -13,6 +13,11 @@ is_muted = False
 # See FeatureFlag for an example.
 model_activity_signal = Signal()
 
+# Sent by Team.rotate_secret_token_and_save after the new token is persisted, so
+# dependent stores (e.g. the conversations signing secret) can stay in sync without
+# core importing product models. Receives `team` with the new token already saved.
+secret_api_token_rotated = Signal()
+
 
 def mutable_receiver(*args, **kwargs):
     """

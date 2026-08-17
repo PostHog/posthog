@@ -92,6 +92,13 @@ class EvaluationSummaryResponseSerializer(serializers.Serializer):
     statistics = EvaluationSummaryStatisticsSerializer()
 
 
+class EvaluationSummaryThrottleResponseSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category")
+    code = serializers.CharField(help_text="Machine-readable error code")
+    detail = serializers.CharField(help_text="Why the request was throttled")
+    attr = serializers.CharField(allow_null=True, help_text="Related request field, when applicable")
+
+
 def _fetch_evaluation_runs(
     team: Team,
     evaluation_id: str,
@@ -269,6 +276,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             400: OpenApiTypes.OBJECT,
             403: OpenApiTypes.OBJECT,
             404: OpenApiTypes.OBJECT,
+            429: EvaluationSummaryThrottleResponseSerializer,
             500: OpenApiTypes.OBJECT,
         },
         examples=[
@@ -401,6 +409,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
             summary = async_to_sync(summarize_evaluation_runs)(
                 evaluation_runs=runs,
                 team_id=self.team_id,
+                evaluation_id=evaluation_id,
                 model=OpenAIModel.GPT_5_MINI,
                 filter_type=filter_type,
                 evaluation_name=evaluation.name,
@@ -452,7 +461,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 
             return Response(result, status=status.HTTP_200_OK)
 
-        except exceptions.ValidationError:
+        except exceptions.APIException:
             raise
         except Exception as e:
             logger.exception(

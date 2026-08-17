@@ -103,7 +103,6 @@ fn make_frame_js(name: &str) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
-        release: None,
     }
 }
 
@@ -126,7 +125,6 @@ fn make_frame_ts(name: &str) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
-        release: None,
     }
 }
 
@@ -207,9 +205,8 @@ impl TestHarness {
                     .body(Body::from(serde_json::to_vec(&events).unwrap()))
                     .unwrap()
             },
-            Arc::new(Self::create_s3_mock()),
+            Arc::new(MockS3Client::new()),
             |config| {
-                config.remote_resolution_enabled = true;
                 config.remote_resolution_host = "127.0.0.1".to_string();
                 config.remote_resolution_port = addr.port();
                 config.resolver.internal_api_secret = "test-secret".to_string();
@@ -222,7 +219,6 @@ impl TestHarness {
                 // Fast tick so the snapshot arrives within the first retry
                 // window even when the stub server runs at default cadence.
                 config.remote_resolution_subscribe_tick_hint_ms = 25;
-                config.remote_resolution_sample_rate = 1.0;
                 config.remote_resolution_dns_refresh_secs = 3600;
             },
         )
@@ -382,13 +378,16 @@ async fn empty_exception_list_returns_event_with_error(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn creates_issue_with_fingerprint(db: PgPool) {
+async fn new_issue_only_infers_confident_severity_without_overwriting_existing_severity(
+    db: PgPool,
+) {
     let harness = TestHarness::new(db);
-    let input = make_event(vec![make_exception_with_stack(
+    let exception = make_exception_with_stack(
         "Error",
         "test error message",
         vec![frame_at(make_frame_js("handleClick"), "src/app.js", 42, 10)],
-    )]);
+    );
+    let mut input = make_event(vec![exception]);
 
     let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
 
@@ -398,6 +397,29 @@ async fn creates_issue_with_fingerprint(db: PgPool) {
     assert_eq!(event.types(), ["Error"]);
     assert_eq!(event.values(), ["test error message"]);
     assert_eq!(harness.get_issue_id().await, event.issue_id());
+    let severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(event.issue_id())
+            .fetch_one(&harness.db)
+            .await
+            .expect("Issue should have severity");
+    assert_eq!(severity, None);
+
+    sqlx::query("UPDATE posthog_errortrackingissue SET severity = 'low' WHERE id = $1")
+        .bind(event.issue_id())
+        .execute(&harness.db)
+        .await
+        .expect("Issue severity should update");
+    input.properties["$exception_level"] = json!("fatal");
+    let (status, _): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success(), "Expected success, got {:?}", status);
+    let severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(event.issue_id())
+            .fetch_one(&harness.db)
+            .await
+            .expect("Issue should keep severity");
+    assert_eq!(severity.as_deref(), Some("low"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

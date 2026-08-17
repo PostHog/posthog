@@ -16,6 +16,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
+import { visionDocsUrl } from '../../components/DocsLink'
+import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
@@ -67,16 +69,19 @@ function EditorGate({
     })
 }
 
-function deliverySummary(action: VisionActionApi): string {
+export function deliverySummary(action: VisionActionApi): string {
     const targets = action.delivery_config ?? []
     if (!targets.length) {
         return '—'
     }
     return targets
         .map((t) => {
+            if (t.type === DeliveryTargetTypeEnumApi.Webhook) {
+                return 'Webhook'
+            }
             // channel is the `${id}|#${name}` picker composite for actions saved with a friendly name;
             // fall back to "Slack" rather than exposing a bare channel id (older rows, id-only input).
-            const name = slackChannelDisplayName(t.channel)
+            const name = slackChannelDisplayName(t.channel ?? '')
             return name.startsWith('#') ? name : 'Slack'
         })
         .join(', ')
@@ -118,6 +123,7 @@ function VisionActionsTable({
                 thingName="digest or alert"
                 isEmpty
                 customHog={HedgehogXRay}
+                docsURL={visionDocsUrl('actions')}
                 description="Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
                     <div className="flex gap-2">
@@ -160,7 +166,7 @@ function VisionActionsTable({
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Daily digest</LemonTag>}
+                    {action.is_scanner_digest && <LemonTag type="highlight">Featured digest</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),

@@ -407,6 +407,29 @@ class TestTask(TestCase):
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
 
+    def test_unclaimed_prewarm_cleanup_does_not_overwrite_claimed_task(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"prewarmed": True, "await_user_message": True},
+        )
+        Task.objects.filter(pk=task.pk).update(title="Claimed task", description="User prompt")
+
+        cleaned_up = task.soft_delete_if_unclaimed_prewarm(run)
+
+        task.refresh_from_db()
+        self.assertFalse(cleaned_up)
+        self.assertFalse(task.deleted)
+        self.assertEqual(task.title, "Claimed task")
+        self.assertEqual(task.description, "User prompt")
+
     def test_hard_delete_blocked(self):
         task = Task.objects.create(
             team=self.team,
@@ -652,6 +675,32 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "sandbox_id": "old-sandbox",
+                "sandbox_url": "https://old-sandbox.test",
+                "sandbox_jwt_kid": "old-key",
+                "snapshot_external_id": "snapshot-1",
+                "pending_user_message": "Review the attachment",
+                "pending_user_artifact_ids": ["artifact-1"],
+            },
+        )
+
+        run.prepare_for_cloud_handoff()
+
+        self.assertNotIn("sandbox_id", run.state)
+        self.assertNotIn("sandbox_url", run.state)
+        self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("pending_user_message", run.state)
+        self.assertNotIn("pending_user_artifact_ids", run.state)
+        self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
+        self.assertTrue(run.state["handoff_resumed"])
+
     def test_s3_prefixes_keep_existing_logs_and_artifact_paths(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -696,6 +745,42 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.state["sandbox_url"], "https://sandbox.example.com")
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
+
+    def test_clear_sandbox_connection_state_atomic_removes_matching_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "sandbox-123",
+                "sandbox_url": "https://sandbox.example.com",
+                "sandbox_connect_token": "token",
+                "sandbox_jwt_kid": "key",
+                "mode": "interactive",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "sandbox-123")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state, {"mode": "interactive"})
+
+    def test_clear_sandbox_connection_state_atomic_preserves_newer_sandbox(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            state={
+                "sandbox_id": "new-sandbox",
+                "sandbox_url": "https://new-sandbox.example.com",
+                "sandbox_connect_token": "new-token",
+                "sandbox_jwt_kid": "new-key",
+            },
+        )
+
+        TaskRun.clear_sandbox_connection_state_atomic(run.id, "old-sandbox")
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["sandbox_id"], "new-sandbox")
+        self.assertEqual(run.state["sandbox_connect_token"], "new-token")
 
     def test_mutate_state_atomic_can_derive_values_under_lock(self):
         run = TaskRun.objects.create(
@@ -1512,10 +1597,17 @@ class TestSandboxEnvironment(TestCase):
                 "NODE_OPTIONS": "--import=evil",
                 "LD_PRELOAD": "/tmp/evil.so",
                 "GITHUB_TOKEN": "stolen",
+                # Forging either would redirect the agent's model calls to an
+                # attacker host, so both must be reserved.
+                "AI_GATEWAY_URL": "https://evil.example.com",
+                "AI_GATEWAY_PRODUCTS": "signals_scout",
             }
         )
         self.assertEqual(safe, {"SAFE_VAR": "ok"})
-        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
+        self.assertEqual(
+            sorted(skipped),
+            ["AI_GATEWAY_PRODUCTS", "AI_GATEWAY_URL", "GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"],
+        )
 
     @parameterized.expand(
         [

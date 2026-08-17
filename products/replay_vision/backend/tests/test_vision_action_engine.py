@@ -45,7 +45,7 @@ def _action(team, **overrides) -> VisionAction:
             name=f"scanner-{uuid.uuid4().hex[:8]}",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "x"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
     defaults: dict = {"team": team, "name": "a", "trigger_config": {"rrule": DAILY, "timezone": "UTC"}}
     defaults.update(overrides)
@@ -60,7 +60,7 @@ def _scanner(team) -> ReplayScanner:
         name=f"scanner-{uuid.uuid4().hex[:8]}",
         scanner_type=ScannerType.SUMMARIZER,
         scanner_config={"prompt": "x"},
-        model=ScannerModel.GEMINI_3_6_FLASH,
+        model=ScannerModel.GEMINI_3_7_FLASH,
     )
 
 
@@ -258,6 +258,8 @@ class TestEngineActivities(BaseTest):
             vision_action=action,
             team=self.team,
             idempotency_key="k",
+            synthesized_markdown="hello **world**",
+            observation_count=3,
             output={"slack": "hello *world*", "slack_blocks": [{"type": "section"}]},
         )
         run.save()
@@ -276,6 +278,46 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(event.properties["vision_action_id"], str(action.id))
         self.assertEqual(event.properties["slack_text"], "hello *world*")
         self.assertEqual(event.properties["slack_blocks"], [{"type": "section"}])
+        # Structured fields the webhook body references — the raw markdown report (not the mrkdwn),
+        # the run link, and a digest/alert routing kind. Dropping these silently empties webhook bodies.
+        self.assertEqual(event.properties["event_kind"], "digest")
+        self.assertFalse(event.properties["is_recovery"])
+        self.assertEqual(event.properties["report_markdown"], "hello **world**")
+        self.assertEqual(event.properties["observation_count"], 3)
+        self.assertEqual(event.properties["action_name"], action.name)
+        self.assertEqual(event.properties["scanner_name"], action.scanner.name)
+        self.assertIn(f"/replay-vision/actions/{action.id}/runs/{run.id}", event.properties["run_url"])
+
+    @parameterized.expand(
+        [
+            ("alert_fired", {}, "alert_fired"),
+            ("alert_recovered", {"recovered": True}, "alert_recovered"),
+        ]
+    )
+    def test_emit_event_kind_for_alert(self, _label: str, extra_output: dict, expected_kind: str) -> None:
+        # A webhook consumer routes on `replay_vision.{event_kind}`; an alert's recovery bookend
+        # (output.recovered) must surface as a distinct kind from the firing that preceded it.
+        action = _action(
+            self.team,
+            mode="alert",
+            alert_config=EVERY_MATCH,
+            delivery_config=[{"type": "webhook", "url": "https://example.com/hook"}],
+        )
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key=f"k-{_label}",
+            synthesized_markdown="fired",
+            output={"slack": "fired", **extra_output},
+        )
+        run.save()
+
+        with patch.object(act, "produce_internal_event") as mock_emit:
+            act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
+
+        event = mock_emit.call_args.kwargs["event"]
+        self.assertEqual(event.properties["event_kind"], expected_kind)
+        self.assertEqual(event.properties["is_recovery"], extra_output.get("recovered", False))
 
     def test_emit_noops_without_delivery(self) -> None:
         # No destinations configured → nothing to emit; the run row itself is the in-app artifact.

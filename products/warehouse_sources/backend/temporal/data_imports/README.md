@@ -8,6 +8,8 @@ Typically only incremental syncs can cause an OOM on a pod, this affects all job
 
 Some jobs may look like they cause OOMs due to how they're always running when an OOM occurs. This is usually the case for long-running jobs, such as big Stripe tables or any other full-refresh/append-only jobs. These jobs are almost always not the cause, and so it's best to just focus on the incremental jobs when this happens.
 
+To help with exactly that attribution problem, every import activity self-reports its workload — current phase (extract/merge), its own in-memory buffer size (the same slice-accurate accounting dynamic chunking uses), process RSS, and the peaks of both — to the warehouse Redis every `DATA_WAREHOUSE_WORKLOAD_REPORT_INTERVAL_SECONDS` (default 30s; zero disables). See `workload_report.py`. When a worker dies silently, the retry reads the dead attempt's last report plus its pod co-tenants' and attaches them to the `dwh_pod_heartbeat_timeout` event — `self_phase`, `self_peak_buffer_bytes`, and co-tenant **aggregates only** (`co_tenant_max_peak_buffer_bytes`, counts by phase; never their schema or run ids, since a pod is multi-tenant and co-tenant identifiers belong to other teams) — so a death can be read as "was anything on this pod holding more memory, doing what" instead of guessing from at-rest table sizes. The v3 load consumer reports too, under a `{job_id}:load` span key of its own, since for v3 schemas the memory-heavy merge phase runs there rather than in the import activity. Runs whose peak buffer crosses `DATA_WAREHOUSE_WORKLOAD_HIGH_WATERMARK_BYTES` (default 500 MB) additionally emit one `dwh_workload_high_watermark` event on completion, capturing the tail of surviving runs. Observe-only for now: nothing acts on any of it.
+
 ## Why does this happen?
 
 This happens during a deltalake merge because we have to read the whole partition from S3 (or the whole table if partitioning isn't enabled for the table) to merge data into it. If the partition has great ordering, then a lot of data can be skipped via parquet row group min/max's, but this often isn't the case, and so we often have to load the whole partition into memory. The library we use for this attempts to be clever with how it reads the data in, but it doesn't always work out in our favour.
@@ -34,19 +36,27 @@ If the table has no partitions, but it could be partitioned, then again just res
 
 ### Automated in-place repartitioning
 
-The manual flow above re-pulls every row from the source. We also have an automated path that repartitions the data **already in S3**, so it never re-extracts from the source and never materialises an oversized partition. It lives in `pipelines/pipeline/repartition.py` (the streaming rewrite + crash-safe swap), `pipelines/pipeline/repartition_controller.py` (size-aware detection + gating), and `workflow_activities/repartition_table.py` (the pre-extraction activity that runs it).
+The manual flow above re-pulls every row from the source. We also have an automated path that repartitions the data **already in S3**, so it never re-extracts from the source and never materialises an oversized partition. It lives in `pipelines/core/repartition.py` (the streaming rewrite + crash-safe swap), `pipelines/core/repartition_controller.py` (size-aware detection + gating), and `workflow_activities/repartition_table.py` (the pre-extraction activity that runs it).
 
 How it works:
 
-- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. It records a `repartition_pending` target (the next finer tier — md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`) when **either** the largest partition is over the budget (`trigger_reason=proactive_threshold`) **or** the schema has repeatedly OOM'd recently (`trigger_reason=oom_history`). The OOM path catches tables whose compressed at-rest size looks safe but whose real merge working set is much larger (e.g. wide nested-JSON columns) — see `ExternalDataSchemaOOMEvent`, recorded per OOM occurrence at the heartbeat-timeout detection point.
+- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. It records a `repartition_pending` target (the next finer tier — md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`) when **either** the largest partition is over the budget (`trigger_reason=proactive_threshold`) **or** the schema has repeatedly OOM'd recently (`trigger_reason=oom_history`). The OOM path catches tables whose compressed at-rest size looks safe but whose real merge working set is much larger (e.g. wide nested-JSON columns) — see `ExternalDataSchemaOOMEvent`, recorded per occurrence at the heartbeat-timeout detection point. _Suspected_, because the raw signal ("the previous attempt stopped heartbeating") is equally a deploy, an eviction or a lost heartbeat. Each row snapshots the workload self-report evidence available at recording time (own phase, own peak buffer, co-tenant aggregates — see the self-reporting section above), and `recent_count` only counts occurrences the evidence cannot explain away: deaths self-reported outside the merge phase are excluded (their remedy is chunking or routing, not partitioning), deaths where a pod co-tenant reported a strictly larger peak buffer are excluded as collateral, and occurrences inside a fleet-wide burst of many distinct schemas are attributed to infrastructure. Exonerating evidence must also be fresh relative to the death — self-reports are periodic, so a stale snapshot describes an earlier phase of the run. Every rule fails open — missing or stale evidence never exonerates.
+- **What the OOM trigger requires.** The signal behind `ExternalDataSchemaOOMEvent` is "the previous attempt stopped heartbeating", which a deploy, an eviction, a node drain and a lost heartbeat all produce as readily as a real OOM, and repartitioning finer fixes none of those. The prerequisite that keeps it from acting where partition size cannot be the cause is `min_splittable_partition_bytes()`: a split has to land above the size the coarsening path treats as over-fragmented, because below it we would be splitting a table into a layout we immediately want to merge back. Since an OOM-triggered split targets half the current largest partition, the table's largest partition must be at least a quarter of the budget for the trigger to act at all. Note that every retry attempt counts, including repeats within one job: each is a separate attempt at the same merge on whichever worker picks it up, so a job that OOMs attempt after attempt is a table failing deterministically, which is the clearest evidence the log carries.
+- **Coarsening.** The same detection pass also runs the reverse direction (`trigger_reason=coarsening`, `select_coarsen_target`): a table split far below what memory safety needs pays for every partition on each merge, and most tables in that state were put there by the finer path reacting to failures that were never about size. A table is coarsened only when it has at least 16 partitions, its largest is under an eighth of the budget, at least a 4x reduction is available, no occurrence in the last 14 days still looks like its own merge OOM once the classification rules have run (infrastructure bursts and non-merge deaths do not block it, an unexplained death does, and a merge-phase death whose own peak buffer crossed `DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES` blocks whatever the rules concluded), and its current layout is at least 7 days old. Candidate layouts are computed from the measured partitions (re-formatting datetime keys, merging md5 buckets into a divisor of the current count, multiplying numerical bucket size) rather than estimated, and the coarsest one landing under **half** the budget wins. The gap between the two triggers is what stops the controller oscillating: a coarsened table must double before the finer path can claim it, and a split one must shrink eightfold before this path can.
+
+Week into month is the one transition that cannot be computed exactly, because ISO weeks straddle month boundaries and the key does not say how a week's bytes divide between two months. It is sized by upper bound instead, charging each straddling week's full size to both months, so a layout that fits under the bound fits in reality. The transition is worth supporting rather than skipping: the finer path's first step is month into week, so without it a table this controller wrongly split could never be merged back. Note the bound also makes it the narrowest transition on offer, since a month holds only about 4.3 weeks against a 4x minimum reduction, so in practice it needs roughly a year of weekly partitions to qualify.
+
 - **Rewrite.** On the next run, a pre-extraction activity streams the live Delta table one record-batch at a time, recomputes `_ph_partition_key` under the finer scheme, and writes a sibling temp table. It then does a crash-safe swap: delete live → server-side copy temp → verify row count → delete temp. Memory is bounded by batch size, independent of partition size. Temp stays the source of truth until the swap is verified, so a worker death at any point loses wasted compute, never data. An interruption (OOM, worker restart) can leave the `__repartitioned` temp partial, so every step that could destroy live re-validates temp first: the swap opens temp and checks it holds the full row count before deleting live, and a resume re-validates the temp the `ready` marker points at — discarding it and rebuilding fresh from the intact live rather than copying a broken temp over live. A live table whose own log is unreadable is skipped (the import activity's revival handles it), not counted as a repartition failure.
-- **Safety.** Concurrent _syncs_ are excluded (the schedule's `OnlyOne` overlap policy plus the v3 pipeline lock), but concurrent _repartition attempts_ are not: an attempt Temporal heartbeat-times-out keeps running as a zombie (heartbeat failures are swallowed) while its retry starts, and S3 has no locking. The schema row's `repartition_claim` is the fence — each attempt mints a claim token, temp tables are scoped to it (`__repartitioned_<token>`), and the claim is re-checked before every batch write and every destructive step (temp sweep, swap marker, live delete). A superseded attempt raises `RepartitionSupersededError` and stands down silently; orphaned temp variants from superseded or crashed attempts are swept by name prefix before each fresh rebuild. A repartition failure never fails the sync — it's swallowed, retried on a later run, and capped at `MAX_REPARTITION_ATTEMPTS` (3) consecutive failures before it gives up and alerts. Cancellations, superseded attempts, and transient infra errors (DB pooler drops, S3 rate limits) don't count against that cap.
+- **Safety.** Concurrent _syncs_ are excluded (the schedule's `OnlyOne` overlap policy plus the v3 pipeline lock), but concurrent _repartition attempts_ are not: an attempt Temporal heartbeat-times-out keeps running as a zombie (heartbeat failures are swallowed) while its retry starts, and S3 has no locking. The schema row's `repartition_claim` is the fence — each attempt mints a claim token, temp tables are scoped to it (`__repartitioned_<token>`), and the claim is re-checked before every batch write and every destructive step (temp sweep, swap marker, live delete). A superseded attempt raises `RepartitionSupersededError` and stands down silently; orphaned temp variants from superseded or crashed attempts are swept by name prefix before each fresh rebuild. A repartition failure never fails the sync — it's swallowed, retried on a later run, and capped at `MAX_REPARTITION_ATTEMPTS` (3) consecutive failures before it gives up and alerts. Cancellations, superseded attempts, transient infra errors (DB pooler drops, S3 rate limits), and budget-exceeded attempts that advanced the rewrite checkpoint don't count against that cap — a table too large to rewrite in one activity budget converges across runs via the checkpoint, and only an attempt that made no forward progress is charged.
 
 Tuning and gating:
 
-- Gated by the `data-warehouse-auto-repartition` feature flag plus a 24h per-table cooldown. The flag can be released to a single schema (`schema_id = <id>`) before rolling out by team/org/project.
+- Gated by the `data-warehouse-auto-repartition` feature flag plus a 24h per-table cooldown. The flag can be released to a single schema (`schema_id = <id>`) before rolling out by team/org/project. Coarsening has its own flag, `data-warehouse-auto-coarsen`, released the same way.
+- **Repairing the existing backlog.** The automatic coarsening path will not reach a table that keeps recording OOM occurrences, and the tables most in need of coarsening are exactly the ones the unreliable OOM signal keeps firing on. `./manage.py stage_warehouse_coarsening` is the way in: it nominates tables by setting a `coarsen_requested` marker, and the next sync evaluates them. A nomination skips the policy gates (rollout flag, OOM history, layout age, minimum partition count) because an operator has made that call, but never the safety check: the controller still measures the live layout and refuses any target that would not fit the budget, so a nomination can only ever be a no-op. Nominated rewrites report `trigger_reason=coarsening_requested`. Dry run by default, `--limit` defaults low, and it is worth keeping low: a rewrite blocks that table's sync for as long as it runs, which is seconds for small tables and hours for the largest.
 - The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~0.5 GB at-rest → ~10 GB worst-case merge). Worker pods are multi-tenant, so the budget leaves headroom for concurrent merges under the 29 GB pod limit rather than sizing to a single merge.
 - The OOM-history override is tunable via `DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD` (default 3) and `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS` (default 7). An OOM-triggered rewrite of an under-budget table steps one tier finer per cooldown cycle, converging as the (still-recorded) OOMs continue.
+- The split floor and the coarsening trigger are both derived from the budget rather than tuned separately (`COARSEN_TRIGGER_DIVISOR`), so the two directions stay consistent by construction.
+- The coarsening gate's own tunables are `COARSEN_OOM_FREE_DAYS` (default 14, deliberately longer than the split window) and `DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES` (default 1 MB), the peak above which a merge-phase death blocks regardless of how the classification rules explained it. `DELTA_COARSEN_DECLINE_TOTAL` records which gate declined, labelled by reason.
 - CDC tables are excluded for now.
 
 Observability: `warehouse_repartition_flagged` / `started` / `completed` / `failed` / `skipped` PostHog events (with full team/schema/source/table context, before→after scheme, sizes, durations, and trigger reason) plus `DELTA_REPARTITION_*` Prometheus metrics.
@@ -142,137 +152,16 @@ for index, schema_id in enumerate(schema_ids):
     print(f"{index + 1}/{len(schema_ids)}")
 ```
 
-## How to replay load messages for a stuck/failed job in PipelineV3
+## Recovering a stuck or failed load in PipelineV3
 
-When extraction completed but the load consumer failed (OOM, crash, retries exhausted), the parquet files are still in S3. You can replay the Kafka messages to re-trigger just the load phase without re-extracting from the source.
+There is no manual replay step for the load phase.
+The extraction-to-load hand-off is a durable Postgres batch queue (`pipeline_v3/postgres_queue/`), not fire-and-forget messages: batch rows survive consumer crashes, transient failures retry automatically with backoff (`waiting_retry`), a crashed consumer's lease expires and its batches are reclaimed, and a reconcile sweep fails the `ExternalDataJob` for runs whose batches ended up terminally `failed`.
 
-Run this on a `temporal-worker-data-warehouse` pod via `manage.py shell_plus`:
+If a job still ends up failed, re-run the sync with the snippets above (use `reset_pipeline: false` to keep existing data).
+Queue rows and their parquet files are pruned after the queue's retention window (see `postgres_queue/README.md`), so there is nothing to replay from S3 after that point either.
 
-```python
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import list_parquet_files, read_parquet
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import get_base_folder, get_data_folder, strip_s3_protocol
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, get_warpstream_kafka_producer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker import clear_retry_info
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.s3 import get_s3_client
-
-schema_id = '...'  # UUID of the schema to replay
-dry_run = True  # Set to False to actually send messages
-skip_job_check = False  # If True, ignore job status in DB and replay whatever is in S3
-
-schema = ExternalDataSchema.objects.select_related('source').get(id=schema_id)
-source = schema.source
-team_id = schema.team_id
-
-if skip_job_check:
-    # Discover the latest run_uuid folder directly from S3 — strip the trailing run_uuid
-    # segment from get_base_folder to get the schema-level prefix
-    schema_base = get_base_folder(team_id, str(schema.id), '').rstrip('/')
-    schema_prefix = strip_s3_protocol(schema_base)
-    s3 = get_s3_client()
-    try:
-        run_folders = sorted(f.rstrip('/').split('/')[-1] for f in s3.ls(schema_prefix))
-    except FileNotFoundError:
-        run_folders = []
-    if not run_folders:
-        print(f"No S3 run folders found under {schema_prefix}")
-        job = None
-    else:
-        run_uuid = run_folders[-1]
-        job = ExternalDataJob.objects.filter(schema_id=schema_id, workflow_run_id=run_uuid).order_by('-created_at').first()
-        if job is None:
-            print(f"Found S3 run_uuid={run_uuid} but no matching ExternalDataJob")
-else:
-    # Find the latest failed or running job for this schema
-    job = (
-        ExternalDataJob.objects
-        .filter(schema_id=schema_id, status__in=[ExternalDataJob.Status.FAILED, ExternalDataJob.Status.RUNNING])
-        .order_by('-created_at')
-        .first()
-    )
-
-if job is None:
-    print(f"No job available for schema {schema_id}")
-else:
-    run_uuid = job.workflow_run_id
-    print(f"Found job {job.id} (status={job.status}, run_uuid={run_uuid})")
-    base_folder = get_base_folder(team_id, str(schema.id), run_uuid)
-    data_folder = get_data_folder(base_folder)
-    parquet_files = list_parquet_files(data_folder)
-    if not parquet_files:
-        print(f"No parquet files found in {data_folder}")
-    else:
-        print(f"Found {len(parquet_files)} parquet files in {data_folder}")
-    sync_type_config = schema.sync_type_config or {}
-    sync_type = schema.sync_type or 'full_refresh'
-    if sync_type == 'incremental':
-        sync_type_literal = 'incremental'
-    elif sync_type == 'append':
-        sync_type_literal = 'append'
-    else:
-        sync_type_literal = 'full_refresh'
-    total_rows = 0
-    messages = []
-    for i, s3_path in enumerate(parquet_files):
-        pa_table = read_parquet(s3_path)
-        row_count = pa_table.num_rows
-        total_rows += row_count
-        already_processed = is_batch_already_processed(team_id, str(schema.id), run_uuid, i)
-        messages.append({
-            'batch_index': i,
-            's3_path': s3_path,
-            'row_count': row_count,
-            'byte_size': pa_table.nbytes,
-            'already_processed': already_processed,
-        })
-        print(f"  batch {i}: {s3_path} ({row_count} rows) {'[SKIP - already processed]' if already_processed else ''}")
-    print(f"\nTotal: {len(messages)} batches, {total_rows} rows")
-    if not dry_run:
-        producer = get_warpstream_kafka_producer()
-        # Reset job status
-        job.status = ExternalDataJob.Status.RUNNING
-        job.latest_error = None
-        job.finished_at = None
-        job.save()
-        print(f"Reset job {job.id} to RUNNING")
-        for msg_info in messages:
-            # Clear retry info so previously-exhausted retries don't block
-            clear_retry_info(team_id, str(schema.id), run_uuid, msg_info['batch_index'])
-            is_final = msg_info['batch_index'] == len(messages) - 1
-            message = ExportSignalMessage(
-                team_id=team_id,
-                job_id=str(job.id),
-                schema_id=str(schema.id),
-                source_id=str(source.id),
-                resource_name=schema.name,
-                run_uuid=run_uuid,
-                batch_index=msg_info['batch_index'],
-                s3_path=msg_info['s3_path'],
-                row_count=msg_info['row_count'],
-                byte_size=msg_info['byte_size'],
-                is_final_batch=is_final,
-                total_batches=len(messages) if is_final else None,
-                total_rows=total_rows if is_final else None,
-                sync_type=sync_type_literal,
-                data_folder=data_folder if is_final else None,
-                schema_path=None,
-                primary_keys=sync_type_config.get('primary_keys'),
-                is_resume=True,
-                partition_count=sync_type_config.get('partition_count'),
-                partition_size=sync_type_config.get('partition_size'),
-                partition_keys=sync_type_config.get('partition_keys'),
-                partition_format=sync_type_config.get('partition_format'),
-                partition_mode=sync_type_config.get('partition_mode'),
-            )
-            key = f"{team_id}:{schema.id}"
-            producer.produce(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, data=message.to_dict(), key=key)
-        producer.flush()
-        print(f"Sent {len(messages)} messages to {KAFKA_WAREHOUSE_SOURCES_JOBS}")
-    else:
-        print("\nDry run - set dry_run = False to send messages")
-```
+The Kafka-era replay runbook that used to live here reconstructed `ExportSignalMessage`s from S3 and re-produced them to the `data_warehouse_sources_jobs` topic.
+That transport was removed; see git history for the old procedure.
 
 ## How to clean up orphaned S3 data
 

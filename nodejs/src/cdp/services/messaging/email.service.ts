@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import {
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     IntegrationType,
@@ -86,6 +87,9 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
+    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
+    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
+    sesTenantAttributionEnabled: boolean
 }
 
 /**
@@ -114,6 +118,17 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
             return (bracketed ? bracketed[1] : trimmed).trim()
         })
         .filter((addr) => addr.length > 0)
+}
+
+// Deliberately stricter than RFC 5322: exactly one @, a dotted domain, and none of the
+// characters that would let a templated value smuggle a second address or break out of the
+// RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
+const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+
+// The display name is embedded as `"${name}" <email>`, so strip the characters that would
+// terminate the quoted phrase or start the address part, plus control characters.
+function sanitizeFromName(name: string): string {
+    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -181,6 +196,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
+            // Team-level kill switch: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability. Same choke-point placement as the
+            // suppression check below so no upstream route can bypass it. Test sends are blocked
+            // too — they hit SES and count against the tenant all the same.
+            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
+                addLog('warn', 'Skipping send: email sending is suspended for this project')
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
@@ -193,7 +228,7 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration)
+            const from = this.resolveFromSender(integration, params.from)
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -297,7 +332,7 @@ export class EmailService {
             }
 
             if (success && assetRow) {
-                result.emailAssets.push(assetRow)
+                result.messageAssets.push(assetRow)
             }
         }
 
@@ -317,6 +352,11 @@ export class EmailService {
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
                     $email_subject: params.subject,
+                    // Always set, never conditional: an untracked send can never produce a
+                    // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
+                    // dimension on the send there is no way to build an open rate in an insight that
+                    // isn't deflated by however much of the audience declined tracking.
+                    $email_tracking_enabled: trackingEnabled,
                 },
             })
         }
@@ -436,7 +476,10 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
-    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
+    private resolveFromSender(
+        integration: IntegrationType,
+        from: CyclotronInvocationQueueParametersEmailType['from']
+    ): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -445,7 +488,44 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        return { email: integration.config.email, name: integration.config.name }
+        // Overrides arrive already rendered by the templating engine, so a template that
+        // resolved to nothing means "no override" and the integration's stored sender applies.
+        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+
+        return {
+            email: this.resolveFromEmailAddress(integration, from.email?.trim()),
+            name: overrideName || integration.config.name,
+        }
+    }
+
+    private resolveFromEmailAddress(integration: IntegrationType, overrideEmail: string | undefined): string {
+        if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (!FROM_OVERRIDE_EMAIL_REGEX.test(overrideEmail)) {
+            throw new Error(
+                `The custom sender address "${overrideEmail}" is not a valid email address. Fix the From address in the workflow's email step so it resolves to a single valid address.`
+            )
+        }
+
+        // Verification is domain-level (the DNS records cover the whole domain), so any address
+        // on the integration's domain is exactly as verified as the integration's own address.
+        // Anything off-domain must fail: allowing it would let a workflow send as a domain the
+        // team never proved ownership of.
+        const integrationDomain: string = (
+            integration.config.domain ??
+            integration.config.email.split('@')[1] ??
+            ''
+        ).toLowerCase()
+        const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
+        if (!integrationDomain || overrideDomain !== integrationDomain) {
+            throw new Error(
+                `The custom sender address "${overrideEmail}" is not on the verified domain "${integrationDomain}" of the selected sender. Use an address on that domain, or select a different sender in the workflow's email step.`
+            )
+        }
+
+        return overrideEmail
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
@@ -504,7 +584,16 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
+        // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
+        const workflowVersion =
+            'hogFlow' in result.invocation
+                ? (result.invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
+                : undefined
+        const trackingCode = this.trackingCodeSigner.generate(
+            { ...result.invocation, distinctId, workflowVersion },
+            isTest
+        )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
@@ -512,7 +601,13 @@ export class EmailService {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
                           trackingEnabled
-                              ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                              ? addTrackingToEmail(
+                                    params.html,
+                                    result.invocation,
+                                    this.trackingCodeSigner,
+                                    isTest,
+                                    'ses'
+                                )
                               : params.html,
                           params.preheader
                       ),
@@ -546,6 +641,20 @@ export class EmailService {
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
             FeedbackForwardingEmailAddress: from.email,
+        }
+
+        if (this.sesConfig.sesTenantAttributionEnabled) {
+            // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
+            // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
+            // is the provisioning convention (products/workflows/backend/providers/ses.py and
+            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+            // unattributed would (a) push their bounces onto the shared account's reputation and
+            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+            // this class only shield our internal metrics, a separate concern from SES-side
+            // attribution; test volume is far below the representative volume AWS needs for a
+            // reputation finding.
+            sendEmailParams.TenantName = `team-${result.invocation.teamId}`
         }
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't

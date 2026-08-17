@@ -11,20 +11,22 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
+    _normalize_organization_slug,
     sentry_source,
     validate_credentials as validate_sentry_credentials,
 )
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     REQUIRED_SENTRY_SCOPES,
+    SENTRY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -49,6 +52,15 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SENTRY
+
+    def parse_config(self, job_inputs: dict) -> SentrySourceConfig:
+        # Normalize before building the config so both the credential check and the stored
+        # job_inputs use the extracted slug. Normalizing only in validate_credentials would let a
+        # pasted URL pass validation but persist as the slug, breaking every later sync.
+        organization_slug = job_inputs.get("organization_slug")
+        if isinstance(organization_slug, str):
+            job_inputs = {**job_inputs, "organization_slug": _normalize_organization_slug(organization_slug)}
+        return self._config_class.from_dict(job_inputs)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -115,7 +127,27 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             + ", ".join(REQUIRED_SENTRY_SCOPES)
             + ".",
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
+            # Raised as `SentryStatsSummaryRejectedError` for any stats-summary 400 other than the
+            # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
+            # stop retrying; the message is defined at the raise site so it stays credential-safe.
+            STATS_SUMMARY_REJECTED_MESSAGE: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_request_with_retry` (sentry.py) already retries a dropped connection, read timeout, or
+        # persistent 429/5xx before re-raising once that budget is exhausted. urllib3 wraps all of
+        # those as "... Max retries exceeded with url: ..." regardless of the underlying cause, so
+        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
+        # then retries the whole activity, so the failure is transient and self-recovering. Mirrors
+        # Close's equivalent case.
+        return {"Max retries exceeded with url"}
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # issue_tag_values fans out over issues through its custom two-level iterator, so it
+        # carries no DependentEndpointConfig to derive the dependency from.
+        if schema_name == "issue_tag_values":
+            return ["issues"]
+        return required_parents_from_endpoint_configs(SENTRY_ENDPOINTS, schema_name)
 
     def get_schemas(
         self,
@@ -185,4 +217,6 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )

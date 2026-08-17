@@ -1,19 +1,11 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import {
-    FilterLogicalOperator,
-    LogPropertyFilter,
-    PersonType,
-    PropertyFilterType,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
+import { PersonType } from '~/types'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
@@ -21,29 +13,13 @@ import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, logsConfigLogic } from 'produc
 // Renders the Logs tab on the person profile. Mounted only when the tab is active
 // (LemonTabs renders just the active tab's content), so `logsConfigLogic` only fetches
 // the team's `logs_distinct_id_attribute_keys` on demand rather than on every team load.
-// While the config loads, falls back to the default keys — accurate for the vast majority
-// of teams; non-default teams briefly see the wrong filter then resolve to the override.
+// The config only drives the caption here — the query is scoped via `personId`, which the
+// backend expands to the person's distinct ids and matches against the configured keys plus
+// the built-in distinct-id conventions (the same keys the logs UI links as a person).
 export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
     const { logsConfig } = useValues(logsConfigLogic)
     const distinctIdAttributeKeys =
         logsConfig?.logs_distinct_id_attribute_keys ?? DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
-
-    const pinnedFilters = useMemo((): UniversalFiltersGroup => {
-        const keyFilters = distinctIdAttributeKeys.map(
-            (key): LogPropertyFilter => ({
-                key,
-                type: PropertyFilterType.LogAttribute,
-                operator: PropertyOperator.Exact,
-                value: person.distinct_ids,
-            })
-        )
-        return {
-            type: FilterLogicalOperator.And,
-            // A single key pins a plain filter; multiple keys pin a nested OR group so a
-            // log matches when any configured attribute holds one of the distinct IDs.
-            values: keyFilters.length === 1 ? keyFilters : [{ type: FilterLogicalOperator.Or, values: keyFilters }],
-        }
-    }, [distinctIdAttributeKeys, person.distinct_ids])
 
     return (
         <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
@@ -56,7 +32,7 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
                             <code>{key}</code>
                         </span>
                     ))}{' '}
-                    log {distinctIdAttributeKeys.length === 1 ? 'attribute' : 'attributes'}.
+                    and other common distinct ID attributes.
                 </span>
                 <LemonButton
                     size="xsmall"
@@ -67,8 +43,7 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
             </p>
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
-                pinnedFilters={pinnedFilters}
-                showFullScreenButton={false}
+                personId={String(person.uuid ?? person.id)}
                 showSavedViewsButton={false}
             />
         </div>

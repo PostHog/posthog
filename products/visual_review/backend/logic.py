@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from posthog.models.integration import GitHubIntegration
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import (
     TrigramSearchField,
@@ -46,6 +47,7 @@ from posthog.ph_client import ph_scoped_capture
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
 from .diff_metadata import DiffMetadata
+from .facade.contracts import CreateRunInput, UpdateRepoInput
 from .facade.enums import (
     ChangeKind,
     ReviewDecision,
@@ -157,17 +159,12 @@ def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> Rep
     )
 
 
-def update_repo(
-    repo_id: UUID,
-    team_id: int,
-    baseline_file_paths: dict[str, str] | None = None,
-    enable_pr_comments: bool | None = None,
-) -> Repo:
-    repo = get_repo(repo_id, team_id)
-    if baseline_file_paths is not None:
-        repo.baseline_file_paths = baseline_file_paths
-    if enable_pr_comments is not None:
-        repo.enable_pr_comments = enable_pr_comments
+def update_repo(input: UpdateRepoInput, team_id: int) -> Repo:
+    repo = get_repo(input.repo_id, team_id)
+    if input.baseline_file_paths is not None:
+        repo.baseline_file_paths = input.baseline_file_paths
+    if input.enable_pr_comments is not None:
+        repo.enable_pr_comments = input.enable_pr_comments
     repo.save()
     return repo
 
@@ -578,7 +575,8 @@ def _resolve_baselines_with_merge_base(
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    tombstoned = _tombstoned_identifiers(repo, run_type, branch)
+    source_pr_number = _verified_merge_queue_source_pr(github, repo.repo_full_name, branch)
+    tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
     healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
 
     healed = set(healable_merge_base) - set(branch_baseline)
@@ -599,7 +597,64 @@ def _resolve_baselines_with_merge_base(
     return merged, len(healed)
 
 
-def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
+_MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
+
+
+def _verified_merge_queue_source_pr(github: GitHubIntegration, repo_full_name: str, branch: str) -> int | None:
+    """Source PR number for a merge-queue branch, verified against GitHub.
+
+    Merge-queue branches (``trunk-merge/pr-<n>/<uuid>``) are freshly
+    minted per attempt, so tombstones recorded on the source PR would
+    never apply — every queue attempt would re-heal the removed entries
+    and fail the gate. Queue branches therefore also honor the source
+    PR's tombstones.
+
+    The branch name is client-supplied, though, so parsing it alone must
+    not grant cross-PR tombstone inheritance: a caller with a write token
+    could name a branch after an unrelated PR to inherit its approved
+    removals. Require the claimed PR's head commit to be an ancestor of
+    the queue branch — inheriting a PR's approvals then means actually
+    testing that PR's code, which is exactly what Trunk's queue branches
+    do (they merge the PR into the base branch). Fails closed to
+    branch-only scoping.
+    """
+    match = _MERGE_QUEUE_BRANCH_RE.match(branch)
+    if not match:
+        return None
+    pr_number = int(match.group("pr_number"))
+
+    try:
+        response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
+    except GitHubIntegrationError:
+        logger.warning("visual_review.merge_queue_source_pr_fetch_failed", repo=repo_full_name, branch=branch)
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.merge_queue_source_pr_fetch_failed",
+            repo=repo_full_name,
+            branch=branch,
+            status=response.status_code,
+        )
+        return None
+
+    pr_head_sha = (response.json().get("head") or {}).get("sha")
+    if not pr_head_sha:
+        return None
+
+    if _get_merge_base_sha(github, repo_full_name, pr_head_sha, branch) != pr_head_sha:
+        logger.warning(
+            "visual_review.merge_queue_source_pr_unverified",
+            repo=repo_full_name,
+            branch=branch,
+            pr_number=pr_number,
+            pr_head_sha=pr_head_sha,
+        )
+        return None
+
+    return pr_number
+
+
+def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str, source_pr_number: int | None = None) -> set[str]:
     """Identifiers whose latest approved outcome on this branch was REMOVED.
 
     Healing pulls entries from merge-base back into the baseline when
@@ -610,15 +665,23 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
 
     Uses the most recent approved decision per identifier so that a
     later re-addition (approved as NEW/CHANGED) clears the tombstone.
+
+    ``source_pr_number`` widens the scope to that PR's runs — pass only a
+    server-verified value (see ``_verified_merge_queue_source_pr``), never
+    one parsed from client-supplied input alone.
     """
     from django.db.models import OuterRef, Subquery
+
+    branch_scope = Q(run__branch=branch)
+    if source_pr_number is not None:
+        branch_scope |= Q(run__pr_number=source_pr_number)
 
     latest_approved_run = (
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             identifier=OuterRef("identifier"),
@@ -630,9 +693,9 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     return set(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             result=SnapshotResult.REMOVED,
@@ -644,63 +707,28 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     )
 
 
-def create_run(
-    repo_id: UUID,
-    team_id: int,
-    run_type: str,
-    commit_sha: str,
-    branch: str,
-    pr_number: int | None,
-    snapshots: list[dict],
-    baseline_hashes: dict[str, str] | None = None,
-    unchanged_count: int = 0,
-    removed_identifiers: list[str] | None = None,
-    purpose: str = RunPurpose.REVIEW,
-    metadata: dict | None = None,
-    is_partial: bool = False,
-) -> tuple[Run, list[dict]]:
+def create_run(input: CreateRunInput, team_id: int) -> tuple[Run, list[dict]]:
     """
     Create a new run with its snapshots.
 
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
 
-    baseline_hashes, unchanged_count, removed_identifiers are deprecated —
-    the backend fetches baselines from GitHub and computes everything.
-    Params kept for backward compat with older CLI versions.
+    input.baseline_hashes, input.unchanged_count and input.removed_identifiers
+    are deprecated and ignored: the backend fetches baselines from GitHub and
+    computes everything. The fields are kept for backward compat with older
+    CLI versions.
 
-    is_partial tags the run as a subset; the classifier then leaves baseline
+    input.is_partial tags the run as a subset; the classifier then leaves baseline
     identifiers we didn't touch alone instead of marking them as removed.
     """
-    repo = get_repo(repo_id, team_id)
+    repo = get_repo(input.repo_id, team_id)
 
-    return _create_run_inner(
-        repo,
-        team_id,
-        run_type,
-        commit_sha,
-        branch,
-        pr_number,
-        snapshots,
-        purpose,
-        metadata,
-        is_partial,
-    )
+    return _create_run_inner(repo, team_id, input)
 
 
 @transaction.atomic(using=WRITER_DB)
-def _create_run_inner(
-    repo,
-    team_id,
-    run_type,
-    commit_sha,
-    branch,
-    pr_number,
-    snapshots,
-    purpose,
-    metadata,
-    is_partial: bool = False,
-) -> tuple[Run, list[dict]]:
+def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[Run, list[dict]]:
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
     # requires the slot to be free before the insert. A new CI push always
@@ -708,8 +736,8 @@ def _create_run_inner(
     # their respective UI filters via REVIEW_STATE_FILTERS.
     supersede_filter = Run.objects.using(WRITER_DB).filter(
         repo_id=repo.id,
-        branch=branch,
-        run_type=run_type,
+        branch=input.branch,
+        run_type=input.run_type,
         superseded_by__isnull=True,
     )
     # Collect IDs before mutating, then self-reference to clear the slot
@@ -722,20 +750,30 @@ def _create_run_inner(
     run = Run.objects.create(
         repo=repo,
         team_id=repo.team_id,
-        run_type=run_type,
-        commit_sha=commit_sha,
-        branch=branch,
-        pr_number=pr_number,
-        purpose=purpose,
-        total_snapshots=len(snapshots),
-        metadata=metadata or {},
-        is_partial=is_partial,
+        run_type=input.run_type,
+        commit_sha=input.commit_sha,
+        branch=input.branch,
+        pr_number=input.pr_number,
+        purpose=input.purpose,
+        total_snapshots=len(input.snapshots),
+        metadata=input.metadata or {},
+        is_partial=input.is_partial,
     )
 
     # Fix up the sentinel pointers to reference the actual new run
     if superseded_ids:
         Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
+    snapshots = [
+        {
+            "identifier": s.identifier,
+            "content_hash": s.content_hash,
+            "width": s.width,
+            "height": s.height,
+            "metadata": dict(s.metadata) if s.metadata else {},
+        }
+        for s in input.snapshots
+    ]
     _added, uploads = _register_snapshots(run, repo, snapshots)
     _update_run_counts(run, using=WRITER_DB)
 
@@ -2775,7 +2813,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     )
 
 
-@dataclass
+@frozen
 class _BaselineOverviewRaw:
     """Internal raw shape — the facade layer reshapes this into the public DTOs.
 

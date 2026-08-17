@@ -44,8 +44,9 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -578,10 +579,11 @@ function OutputActions({
 interface OutputPaneProps {
     tabId: string
     showToolbar?: boolean
+    biMode?: boolean
     onShareTab?: () => void
 }
 
-export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareTab }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -600,7 +602,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
-    const splitView = activeTab === OutputTab.Both
+    const splitView = !biMode && activeTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -806,7 +808,23 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
 
-    const outputContent = splitView ? (
+    const outputContent = biMode ? (
+        <div className="relative flex flex-1 min-h-0 bg-dark">
+            {showToolbar ? (
+                <LemonButton
+                    className="absolute right-2 top-2 z-10"
+                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                    type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
+                    icon={<IconGear />}
+                    size="small"
+                    onClick={toggleVisualizationSettingsPanel}
+                    tooltip="Visualization settings"
+                    data-attr="sql-editor-visualization-settings-button"
+                />
+            ) : null}
+            <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
+        </div>
+    ) : splitView ? (
         <div className="flex flex-1 min-h-0 bg-dark">
             <div
                 ref={splitPaneRef}
@@ -940,7 +958,7 @@ function InternalDataTableVisualization(
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <LineGraph
+            <SqlChart
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
@@ -958,9 +976,18 @@ function InternalDataTableVisualization(
         component = (
             <PieChart
                 className="p-2"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        component = (
+            <SqlScatterGraph
+                className="p-2"
+                xData={xData}
+                yData={yData}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -1107,6 +1134,10 @@ const Content = ({
     showVisualizationSettings,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
+    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
+    // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
+    const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1201,6 +1232,15 @@ const Content = ({
                     pollResponse={pollResponse}
                     setProgress={setProgress}
                     progress={progress}
+                    suggestion={
+                        // Only worth saying once the query is demonstrably slow.
+                        selectedDirectSource?.source_type === 'Motherduck' && loadingTimeSeconds >= 60 ? (
+                            <p className="text-xs m-0 text-center">
+                                This query runs live on your MotherDuck database. Speed depends on its capacity and
+                                current load.
+                            </p>
+                        ) : undefined
+                    }
                 />
             </div>
         )

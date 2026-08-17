@@ -30,6 +30,11 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
+const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
+    { value: 'smooth', label: 'Smooth' },
+    { value: 'linear', label: 'Straight' },
+]
+
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
@@ -37,9 +42,14 @@ export const DisplayTab = (): JSX.Element => {
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isLineChart =
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
+        const leftPlaceholder = isScatterPlot ? 'Y-axis label' : 'Left Y-axis label'
+        const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
             <>
@@ -80,7 +90,10 @@ export const DisplayTab = (): JSX.Element => {
                 <LemonSwitch
                     className="flex-1 w-full"
                     label="Begin at zero"
-                    checked={chartSettings[name]?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
+                    checked={
+                        chartSettings[name]?.startAtZero ??
+                        (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
+                    }
                     onChange={(value) => {
                         updateChartSettings({ [name]: { startAtZero: value } })
                     }}
@@ -158,30 +171,59 @@ export const DisplayTab = (): JSX.Element => {
                                     </>
                                 ) : (
                                     <>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show total row"
-                                            checked={chartSettings.showTotalRow ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showTotalRow: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show nulls as zero"
-                                            checked={chartSettings.showNullsAsZero ?? false}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showNullsAsZero: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show values on series"
-                                            checked={chartSettings.showValuesOnSeries ?? false}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showValuesOnSeries: value })
-                                            }}
-                                        />
+                                        {isScatterPlot && (
+                                            <LemonSwitch
+                                                className="flex-1 w-full"
+                                                label="Show line of best fit"
+                                                checked={chartSettings.scatter?.showBestFit ?? false}
+                                                onChange={(value) => {
+                                                    updateChartSettings({ scatter: { showBestFit: value } })
+                                                }}
+                                            />
+                                        )}
+                                        {!isScatterPlot && (
+                                            <>
+                                                <LemonSwitch
+                                                    className="flex-1 w-full"
+                                                    label="Show total row"
+                                                    checked={chartSettings.showTotalRow ?? true}
+                                                    onChange={(value) => {
+                                                        updateChartSettings({ showTotalRow: value })
+                                                    }}
+                                                />
+                                                <LemonSwitch
+                                                    className="flex-1 w-full"
+                                                    label="Show nulls as zero"
+                                                    checked={chartSettings.showNullsAsZero ?? false}
+                                                    onChange={(value) => {
+                                                        updateChartSettings({ showNullsAsZero: value })
+                                                    }}
+                                                />
+                                                <LemonSwitch
+                                                    className="flex-1 w-full"
+                                                    label="Show values on series"
+                                                    checked={chartSettings.showValuesOnSeries ?? false}
+                                                    onChange={(value) => {
+                                                        updateChartSettings({ showValuesOnSeries: value })
+                                                    }}
+                                                />
+                                            </>
+                                        )}
+                                        {isLineChart && (
+                                            <div className="flex flex-col gap-1">
+                                                <LemonLabel>Line style</LemonLabel>
+                                                <LemonSegmentedButton
+                                                    className="w-full"
+                                                    data-attr="data-visualization-line-style"
+                                                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
+                                                    onChange={(value) =>
+                                                        updateChartSettings({ chartStyle: { curve: value } })
+                                                    }
+                                                    options={LINE_STYLE_OPTIONS}
+                                                    fullWidth
+                                                />
+                                            </div>
+                                        )}
                                         <div className="flex flex-col gap-1">
                                             <LemonLabel>X-axis label</LemonLabel>
                                             <LemonInput
@@ -201,36 +243,76 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showXAxisTicks: value })
                                             }}
                                         />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show X-axis border"
-                                            checked={chartSettings.showXAxisBorder ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showXAxisBorder: value })
-                                            }}
-                                        />
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label="Show Y-axis border"
-                                            checked={chartSettings.showYAxisBorder ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showYAxisBorder: value })
-                                            }}
-                                        />
+                                        {/* Quill's scatter draws both axis lines together, so a
+                                            per-edge toggle can't be honored there. */}
+                                        {!isScatterPlot && (
+                                            <>
+                                                <LemonSwitch
+                                                    className="flex-1 w-full"
+                                                    label="Show X-axis border"
+                                                    checked={chartSettings.showXAxisBorder ?? true}
+                                                    onChange={(value) => {
+                                                        updateChartSettings({ showXAxisBorder: value })
+                                                    }}
+                                                />
+                                                <LemonSwitch
+                                                    className="flex-1 w-full"
+                                                    label="Show Y-axis border"
+                                                    checked={chartSettings.showYAxisBorder ?? true}
+                                                    onChange={(value) => {
+                                                        updateChartSettings({ showYAxisBorder: value })
+                                                    }}
+                                                />
+                                            </>
+                                        )}
                                     </>
                                 )}
                             </>
                         ),
                     },
+                    isScatterPlot
+                        ? {
+                              key: 'x-axis',
+                              header: 'X-axis',
+                              className: 'p-2 flex flex-col gap-2',
+                              content: (
+                                  <>
+                                      <div className="flex gap-2 items-center justify-between">
+                                          <span className="font-medium">Scale</span>
+                                          <LemonSelect
+                                              size="xsmall"
+                                              value={chartSettings.scatter?.xScale ?? 'linear'}
+                                              options={[
+                                                  { value: 'linear', label: 'Linear' },
+                                                  { value: 'logarithmic', label: 'Logarithmic' },
+                                              ]}
+                                              onChange={(value) => {
+                                                  updateChartSettings({ scatter: { xScale: value } })
+                                              }}
+                                          />
+                                      </div>
+                                      <LemonSwitch
+                                          className="flex-1 w-full"
+                                          label="Begin at zero"
+                                          checked={chartSettings.scatter?.xStartAtZero ?? false}
+                                          onChange={(value) => {
+                                              updateChartSettings({ scatter: { xStartAtZero: value } })
+                                          }}
+                                      />
+                                  </>
+                              ),
+                          }
+                        : null,
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: 'Left Y-axis',
+                              header: isScatterPlot ? 'Y-axis' : 'Left Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
-                    !isPieChart
+                    // A scatter has one gutter per axis, so there is no second Y axis to configure.
+                    !isPieChart && !isScatterPlot
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -255,7 +337,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart
+                    !isPieChart && !isScatterPlot
                         ? {
                               key: 'goals',
                               header: (

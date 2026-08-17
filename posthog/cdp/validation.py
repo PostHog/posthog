@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -31,6 +32,54 @@ CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
 
+def build_html_wrap_design(html: str) -> dict:
+    """Build an Unlayer design holding the given html in a single custom HTML block.
+
+    Emails authored programmatically (API/MCP) often carry html without a design, which the
+    visual editor cannot open. Wrapping the html keeps the stored html byte-identical (sends
+    don't change) while giving the editor a design to load. _meta numbering mirrors what the
+    Unlayer editor emits so id-addressed design operations keep working. Ids are fixed so the
+    wrap is deterministic: callers that resend the same html-only value on every save would
+    otherwise produce a fresh design each time, and the content-equality checks behind
+    workflow revisions and hog function draft diffing would register a change on every no-op
+    resave.
+    """
+
+    return {
+        "counters": {"u_row": 1, "u_column": 1, "u_content_html": 1},
+        "schemaVersion": 16,
+        "body": {
+            "id": "html-wrap-body",
+            "headers": [],
+            "footers": [],
+            "rows": [
+                {
+                    "id": "html-wrap-row",
+                    "cells": [1],
+                    "columns": [
+                        {
+                            "id": "html-wrap-column",
+                            "contents": [
+                                {
+                                    "id": "html-wrap-content",
+                                    "type": "html",
+                                    "values": {
+                                        "html": html,
+                                        "_meta": {"htmlID": "u_content_html_1", "htmlClassNames": "u_content_html"},
+                                    },
+                                }
+                            ],
+                            "values": {"_meta": {"htmlID": "u_column_1", "htmlClassNames": "u_column"}},
+                        }
+                    ],
+                    "values": {"_meta": {"htmlID": "u_row_1", "htmlClassNames": "u_row"}},
+                }
+            ],
+            "values": {},
+        },
+    }
+
+
 def register_supported_function(name: str) -> None:
     PRODUCT_ASYNC_FUNCTIONS.add(name)
 
@@ -46,6 +95,10 @@ register_supported_function("postHogSetAccountProperties")
 # Keep in sync with HogTransformerService.createInvocationGlobals
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
 TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
+
+# Globals available to log transformations, which run per log record in the logs
+# ingestion pipeline and see a log record instead of an event.
+TRANSFORMATION_LOG_AVAILABLE_GLOBALS = {"project", "record", "inputs"}
 
 # Helper functions that the transformer exposes via getTransformationFunctions
 # (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
@@ -82,9 +135,19 @@ class TransformationGlobalsValidator(TraversingVisitor):
 
     invalid_globals: set[str]
 
-    def __init__(self):
+    def __init__(
+        self,
+        available_globals: Optional[set[str]] = None,
+        runtime_functions: Optional[set[str]] = None,
+    ):
         super().__init__()
         self.invalid_globals = set()
+        self._available_globals = (
+            available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
+        )
+        self._runtime_functions = (
+            runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
+        )
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -92,8 +155,8 @@ class TransformationGlobalsValidator(TraversingVisitor):
             return
         root = str(node.chain[0])
         if (
-            root in TRANSFORMATION_AVAILABLE_GLOBALS
-            or root in TRANSFORMATION_RUNTIME_FUNCTIONS
+            root in self._available_globals
+            or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
             or root in STL
@@ -101,6 +164,39 @@ class TransformationGlobalsValidator(TraversingVisitor):
         ):
             return
         self.invalid_globals.add(root)
+
+
+class DeclaredNamesCollector(TraversingVisitor):
+    """Collect every identifier a hog program declares (variables, functions, params,
+    loop vars, lambda args) so program-level global validation can ignore them.
+    Deliberately flat rather than scope-precise: a false negative just defers the
+    error to runtime, while a false positive would reject valid code.
+    """
+
+    names: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.names = set()
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        self.names.add(node.name)
+        super().visit_variable_declaration(node)
+
+    def visit_function(self, node: ast.Function):
+        self.names.add(node.name)
+        self.names.update(node.params)
+        super().visit_function(node)
+
+    def visit_lambda(self, node: ast.Lambda):
+        self.names.update(node.args)
+        super().visit_lambda(node)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement):
+        if node.keyVar:
+            self.names.add(node.keyVar)
+        self.names.add(node.valueVar)
+        super().visit_for_in_statement(node)
 
 
 class HyphenatedPropertyDetector(TraversingVisitor):
@@ -189,6 +285,18 @@ def generate_template_bytecode(
                 raise Exception(
                     f"Variable not available in transformations: {names}. "
                     f"Transformations only have access to project, event, and inputs."
+                )
+        elif function_type == "transformation_log":
+            log_validator = TransformationGlobalsValidator(
+                available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
+                runtime_functions=set(),
+            )
+            log_validator.visit(node)
+            if log_validator.invalid_globals:
+                names = ", ".join(sorted(log_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in log transformations: {names}. "
+                    f"Log transformations only have access to project, record, and inputs."
                 )
         return create_bytecode(node).bytecode
     else:
@@ -353,12 +461,35 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
-            for key_ in ["from", "to", "subject"]:
-                if not value.get(key_):
-                    raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
-
+            # Report every missing key in one error: these objects are typically authored
+            # programmatically, and a one-at-a-time raise forces a round trip per missing key.
+            missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]
             if not value.get("text") and not value.get("html"):
-                raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+                missing.append("either 'text' or 'html'")
+            if missing:
+                label = "value" if len(missing) == 1 else "values"
+                raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
+
+            # Templated sender overrides on the `from` object. Non-string values would only
+            # surface as a send-time failure in the runtime's schema parse, so reject them here.
+            from_value = value.get("from")
+            if isinstance(from_value, dict):
+                wrong_types = [
+                    f"'from.{key_}'"
+                    for key_ in ("email", "name")
+                    if from_value.get(key_) is not None and not isinstance(from_value[key_], str)
+                ]
+                if wrong_types:
+                    label = "value" if len(wrong_types) == 1 else "values"
+                    raise serializers.ValidationError(
+                        {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
+                    )
+
+            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+                # Programmatically authored emails often supply html without a design, which the
+                # visual editor can't open. Wrap it so every stored email has an editable design.
+                value = {**value, "design": build_html_wrap_design(value["html"])}
+                attrs["value"] = value
         elif item_type == "non_failure_status_codes":
             if not isinstance(value, list):
                 raise serializers.ValidationError({"input": "Value must be a list of status codes."})
@@ -537,6 +668,21 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if function_type == "transformation_log":
+            # Filter bytecode is compiled against event-shaped globals, which log records
+            # don't have — silently accepting filters would mis-evaluate at ingestion time.
+            # Log transformations express conditions in Hog code instead.
+            disallowed = [
+                key
+                for key in ("events", "actions", "properties", "data_warehouse", "filter_test_accounts")
+                if data.get(key)
+            ]
+            if disallowed:
+                raise serializers.ValidationError(
+                    f"Filters are not supported for log transformations (got: {', '.join(disallowed)}). "
+                    "Use conditions in the Hog code instead."
+                )
+
         if data.get("source") == "events":
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
@@ -646,13 +792,47 @@ def compile_hog(
             # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
+        elif hog_type == "transformation_log":
+            # Log transformations run synchronously per log record in the logs ingestion
+            # hot path — no async functions (fetch, postHogCapture) can ever be allowed.
+            # Stated explicitly so a future refactor can't silently widen the surface.
+            supported_functions = set()
 
-        return create_bytecode(
+            # Validate the code body's globals like input templates are: without this,
+            # code referencing `event`/`person` compiles fine and only fails per record
+            # at ingestion time. Declared locals are excluded from the check.
+            declared = DeclaredNamesCollector()
+            declared.visit(program)
+            body_validator = TransformationGlobalsValidator(
+                available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
+                runtime_functions=set(),
+            )
+            body_validator.visit(program)
+            if body_validator.invalid_globals:
+                names = ", ".join(sorted(body_validator.invalid_globals))
+                raise serializers.ValidationError(
+                    {
+                        "hog": f"Variable not available in log transformations: {names}. "
+                        f"Log transformations only have access to project, record, and inputs."
+                    }
+                )
+
+        context = HogQLContext(team_id=None)
+        bytecode = create_bytecode(
             program,
             supported_functions=supported_functions,
             in_repl=in_repl,
             null_safe_comparisons=null_safe_comparisons,
+            context=context,
         ).bytecode
+
+        # The compiler only records unknown-function calls as context errors; the call still
+        # compiles and fails at runtime. Log transformations run in a synchronous VM with no
+        # async functions registered, so surface the error at save time instead.
+        if hog_type == "transformation_log" and context.errors:
+            raise serializers.ValidationError({"hog": context.errors[0].message})
+
+        return bytecode
     except serializers.ValidationError:
         raise
     except Exception as e:

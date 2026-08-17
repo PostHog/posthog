@@ -7,12 +7,10 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import (
     AwinResumeConfig,
     awin_source,
@@ -20,8 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.settings import (
     AWIN_ENDPOINTS,
+    DEFAULT_REGION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REGION_OPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -66,6 +67,16 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue=DEFAULT_REGION,
+                        caption="Your Awin account's primary region. Used to sync the advertiser performance report.",
+                        options=[
+                            SourceFieldSelectConfigOption(label=label, value=value) for value, label in REGION_OPTIONS
+                        ],
                     ),
                 ],
             ),
@@ -139,6 +150,7 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            region=config.region,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
