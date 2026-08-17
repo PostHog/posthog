@@ -158,4 +158,21 @@ describe('tracingFiltersLogic', () => {
             }
         })
     })
+
+    describe('addFilter', () => {
+        it.each([
+            [PropertyOperator.Exact, PropertyFilterType.SpanAttribute],
+            [PropertyOperator.IsNot, PropertyFilterType.SpanResourceAttribute],
+        ])('appends a %s filter of type %s to the editable filterGroup', (operator, propertyType) => {
+            logic.actions.addFilter('http.method', 'GET', operator, propertyType)
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toContainEqual({
+                key: 'http.method',
+                value: ['GET'],
+                operator,
+                type: propertyType,
+            })
+        })
+    })
 })

@@ -1,7 +1,14 @@
-import { LemonTable } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+
+import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
 interface AttributeRow {
     key: string
@@ -12,15 +19,56 @@ export interface SpanAttributesProps {
     attributes: Record<string, string>
     title: string
     emptyLabel?: string
+    /** @default true */
+    showFilterActions?: boolean
+    /** Required when `showFilterActions` is true. */
+    propertyType?: PropertyFilterType.SpanAttribute | PropertyFilterType.SpanResourceAttribute
 }
 
-// Key-value list rendering for span attributes, mirroring the Logs attribute KVP list
-// (products/logs/.../LogsViewer/LogAttributes). Kept presentational for now — the filter,
-// breakdown, and add-as-column actions from the logs version depend on logs-only infra.
-export function SpanAttributes({ attributes, title, emptyLabel = 'No attributes' }: SpanAttributesProps): JSX.Element {
+export function SpanAttributes({
+    attributes,
+    title,
+    emptyLabel = 'No attributes',
+    showFilterActions = true,
+    propertyType,
+}: SpanAttributesProps): JSX.Element {
+    const { addFilter } = useActions(tracingFiltersLogic)
+
     const rows: AttributeRow[] = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
     const columns: LemonTableColumns<AttributeRow> = [
+        ...(showFilterActions
+            ? [
+                  {
+                      key: 'actions',
+                      width: 0,
+                      render: (_: unknown, record: AttributeRow) => (
+                          <div className="flex gap-x-0">
+                              <LemonButton
+                                  tooltip="Add as filter"
+                                  size="xsmall"
+                                  onClick={(e) => {
+                                      e.stopPropagation()
+                                      addFilter(record.key, record.value, PropertyOperator.Exact, propertyType)
+                                  }}
+                              >
+                                  <IconPlusSquare />
+                              </LemonButton>
+                              <LemonButton
+                                  tooltip="Exclude as filter"
+                                  size="xsmall"
+                                  onClick={(e) => {
+                                      e.stopPropagation()
+                                      addFilter(record.key, record.value, PropertyOperator.IsNot, propertyType)
+                                  }}
+                              >
+                                  <IconMinusSquare />
+                              </LemonButton>
+                          </div>
+                      ),
+                  },
+              ]
+            : []),
         {
             title: 'Key',
             key: 'key',
