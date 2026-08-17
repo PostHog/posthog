@@ -190,6 +190,10 @@ def _deep_sweep(
         max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
         scanner_id=str(scanner.id),
     )
+    # Deliberately still on the in-query blocklist. This pass holds its watermark when a batch
+    # saturates, which assumes a full batch spent the headroom; scoped exclusion breaks that, since a
+    # fully excluded batch dispatches nothing and the same rows return forever. It has no keyset to
+    # resume from, so it cannot advance instead.
     deep_candidates = deep_query.run()
     if len(deep_candidates) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:
         # Truncated by the dispatch headroom rather than by the window running out, so hold the
