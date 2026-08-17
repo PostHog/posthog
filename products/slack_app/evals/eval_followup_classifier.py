@@ -127,6 +127,19 @@ CHATTER_CASES = [
         prompt="yep, same conclusion I came to",
         expected=_routes(False),
     ),
+    # Orders aimed at a person. The @mention that would settle who is being asked is the
+    # first thing people drop once a thread is moving, which leaves the imperative — the
+    # shape the agent reads as its own instruction.
+    BaseEvalCase(
+        name="instruction_to_a_named_human",
+        prompt="sam go ahead and put yourself down as reviewer on that PR too",
+        expected=_routes(False),
+    ),
+    BaseEvalCase(
+        name="request_only_a_person_can_do",
+        prompt="if you could join the call with their eng team tomorrow that would be great too",
+        expected=_routes(False),
+    ),
 ]
 
 
