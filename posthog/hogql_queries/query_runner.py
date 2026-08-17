@@ -9,7 +9,6 @@ from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, Type
 from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
-
 from django.db import OperationalError
 
 import orjson
