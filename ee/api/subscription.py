@@ -947,61 +947,37 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+def _blocked_target_ids(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
+    return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset).values("id")).values("id")
+
+
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
-    """Match only subscriptions whose rendered target the caller can view.
+    """Hide subscriptions that would render a restricted insight or dashboard.
 
-    Subscriptions are not an access-control resource, so without this filter a restricted insight
-    or dashboard leaks through the subscription routes. get_object() resolves detail routes from
-    the same queryset, so it covers list, retrieve, update, and delete.
-
-    A dashboard subscription needs every exported insight to be viewable, since each is rendered
-    and delivered on its own. An empty dashboard_export_insights selection renders every live tile
-    (admin- and legacy-created rows), so those are gated on the tiles instead. AI prompt
-    subscriptions have no target here; _should_hide_ai_report gates their content.
-
-    Known limits, shared with alerts: this filter only reads object-level access control rows
-    (the write gate also honors a resource-level deny), and deliveries do not re-check access at
-    render time. Both fixes belong in posthog/rbac, for both features at once.
-
-    Keep every M2M condition negated: Django compiles a negated multi-valued lookup to a
-    NOT EXISTS subquery, while a positive one joins the through table and duplicates rows.
+    Applied to the viewset querysets, so list and every detail route share it. An empty
+    dashboard_export_insights selection renders every live tile, so it is gated on the tiles.
+    Keep the multi-valued conditions under the negation: Django compiles them to NOT EXISTS
+    there, while a positive M2M lookup joins the through table and duplicates rows.
     """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
-        # No entitlement means no rules, and org admins bypass them all, so skip the subqueries.
+        return Q()
+    rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
+    if not any(scope.get(resource) for scope in rules for resource in ("insight", "dashboard")):
         return Q()
 
-    blocked = user_access_control.blocked_resource_ids_by_scope
-    allowlisted = user_access_control.allowlisted_resource_ids_by_scope
-    if not any(scope.get(resource) for scope in (blocked, allowlisted) for resource in ("insight", "dashboard")):
-        # No object rules on insights or dashboards means there is nothing to filter.
-        return Q()
-
-    # Include soft-deleted targets: the default managers exclude them, which would hide those
-    # subscriptions from their owners.
-    team_insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
-    viewable_insights = _viewable_queryset(user_access_control, team_insights)
-    viewable_dashboards = _viewable_queryset(
-        user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
-    )
-    # A soft-deleted insight is never rendered, so it cannot leak and does not block.
-    blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id")).exclude(deleted=True)
-    # Use DashboardTile.objects rather than a tiles__ lookup: the manager skips soft-deleted
-    # tiles, a raw join would not.
-    blocked_tile_dashboard_ids = DashboardTile.objects.filter(
-        dashboard__team_id=team_id, insight__in=blocked_insights
+    blocked_insights = _blocked_target_ids(user_access_control, Insight.objects.filter(team_id=team_id))
+    blocked_dashboards = _blocked_target_ids(user_access_control, Dashboard.objects.filter(team_id=team_id))
+    blocked_tile_dashboards = DashboardTile.objects.filter(
+        dashboard__team_id=team_id, insight_id__in=blocked_insights
     ).values("dashboard_id")
-
-    views_the_insight = Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
-    views_the_dashboard = Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
-    no_blocked_export = ~Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights.values("id")})
-    has_explicit_selection = ~Q(**{f"{prefix}dashboard_export_insights__isnull": True})
-    no_blocked_tile = ~Q(**{f"{prefix}dashboard_id__in": blocked_tile_dashboard_ids})
-    has_no_render_target = Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
-
-    return (
-        views_the_insight
-        | (views_the_dashboard & no_blocked_export & (has_explicit_selection | no_blocked_tile))
-        | has_no_render_target
+    return ~(
+        Q(**{f"{prefix}insight_id__in": blocked_insights})
+        | Q(**{f"{prefix}dashboard_id__in": blocked_dashboards})
+        | Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights})
+        | (
+            Q(**{f"{prefix}dashboard_export_insights__isnull": True})
+            & Q(**{f"{prefix}dashboard_id__in": blocked_tile_dashboards})
+        )
     )
 
 

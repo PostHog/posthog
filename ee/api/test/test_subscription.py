@@ -3344,6 +3344,16 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
         subscription = self._subscription_for(dashboard=dashboard)
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-no-selection",
+            idempotency_key="no-selection-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+        )
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
@@ -3354,6 +3364,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert listed.json()["results"] == []
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
         assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.json()["results"] == []
 
         # A removed tile is no longer rendered, so it must stop hiding the subscription.
         restricted_tile.deleted = True
