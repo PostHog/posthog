@@ -1,3 +1,5 @@
+import typing
+
 from django.conf import settings
 
 from posthog.hogql.constants import HogQLQuerySettings
@@ -46,8 +48,8 @@ class UserHogQLBatchExportQuerySettings(BatchExportQuerySettings):
 
     # These are ClickHouse's own defaults but we pin them here just to be sure (setting them to
     # 'break' for example would allow for queries to return partial data on failure).
-    read_overflow_mode: str | None = "throw"
-    timeout_overflow_mode: str | None = "throw"
+    read_overflow_mode: typing.Literal["throw", "break"] | None = "throw"
+    timeout_overflow_mode: typing.Literal["throw", "break"] | None = "throw"
     # Must be 0 or the absolute `max_bytes_before_external_*` thresholds do nothing: a non-zero ratio
     # (0.5 by default) measures against *available server* memory instead, which on a large node sits
     # far above any per-query cap.

@@ -412,6 +412,28 @@ class TestHogQLQueryRecordBatchModel:
         with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
             model.get_hogql_query(data_interval_start, data_interval_end)
 
+    @pytest.mark.parametrize(
+        "hogql_query",
+        [
+            "SELECT event AS event FROM events SETTINGS max_bytes_to_read=0",
+            "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events SETTINGS max_bytes_to_read=0",
+            "WITH x AS (SELECT event FROM events SETTINGS max_bytes_to_read=0) SELECT event AS event FROM x",
+        ],
+        ids=["top-level", "after-union", "in-cte"],
+    )
+    async def test_get_hogql_query_rejects_a_settings_clause(self, hogql_query, data_interval_start, data_interval_end):
+        """A user query carrying its own SETTINGS is rejected, wherever that clause appears.
+
+        The per-query resource limits are sent as request settings, and a query-level SETTINGS clause
+        takes precedence over those, so a query able to smuggle one through could lift its own memory,
+        time and bytes-read caps. The parser refusing these is what the limits rest on, and nothing
+        else asserts it.
+        """
+        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
+
+        with pytest.raises(UnsupportedHogQLQueryError, match="settingsClause"):
+            model.get_hogql_query(data_interval_start, data_interval_end)
+
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
         batch_export_model = BatchExportModel(
             name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"

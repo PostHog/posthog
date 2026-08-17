@@ -821,6 +821,8 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
     """
     logger = LOGGER.bind(query_id=query_id)
     num_attempts = 10
+    # This check can fail while ClickHouse is under heavy load, plus it can also take a while for
+    # queries to be flushed to the query_log, so we retry a few times, over a period of time.
     check_query = make_retryable_with_exponential_backoff(
         client.acheck_query,
         max_attempts=num_attempts,
