@@ -294,6 +294,7 @@ export const DataCatalogMetricsBulkApproveCreateBody = /* @__PURE__ */ zod
     .object({
         names: zod
             .array(zod.string().max(dataCatalogMetricsBulkApproveCreateBodyNamesItemMax))
+            .min(1)
             .max(dataCatalogMetricsBulkApproveCreateBodyNamesMax)
             .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
     })
@@ -310,6 +311,7 @@ export const DataCatalogMetricsBulkDeleteCreateBody = /* @__PURE__ */ zod
     .object({
         names: zod
             .array(zod.string().max(dataCatalogMetricsBulkDeleteCreateBodyNamesItemMax))
+            .min(1)
             .max(dataCatalogMetricsBulkDeleteCreateBodyNamesMax)
             .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
     })

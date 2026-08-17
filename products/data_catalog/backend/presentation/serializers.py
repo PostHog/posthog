@@ -201,6 +201,9 @@ class MetricBulkNamesRequestSerializer(serializers.Serializer):
     names = serializers.ListField(
         child=serializers.CharField(max_length=METRIC_NAME_MAX_LENGTH),
         allow_empty=False,
+        # `allow_empty` alone doesn't reach the OpenAPI schema; `min_length` emits `minItems: 1`
+        # so generated MCP/Zod clients can't construct an empty batch the API would 400.
+        min_length=1,
         max_length=api.METRIC_BULK_MAX,
         help_text=f"Names of the metrics to act on, at most {api.METRIC_BULK_MAX}. Duplicates are collapsed.",
     )

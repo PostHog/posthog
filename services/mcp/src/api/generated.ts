@@ -19746,6 +19746,7 @@ export namespace Schemas {
     export interface DataCatalogMetricBulkNamesRequest {
       /**
          * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
          * @maxItems 100
          * @items.maxLength 128
          */
