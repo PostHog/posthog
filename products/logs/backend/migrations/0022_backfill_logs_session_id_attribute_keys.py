@@ -2,11 +2,12 @@ from django.db import migrations
 
 BATCH_SIZE = 1000
 
-# Teams predating #83710 carry 0015's default, which our SDKs don't emit.
+# No SDK emits this key, so a team still carrying it as its stored default resolves nothing
+# wherever detection trusts the configured keys.
 OLD_DEFAULT = ["posthogSessionId"]
 
-# Old key stays first: 14 teams emit both, and detection is first-match-wins, so leading
-# with `sessionId` would move them onto a different attribute than they resolve on today.
+# The old key stays first. Some pipelines do emit it, and detection is first-match-wins, so
+# reordering these two would move those teams onto a different attribute.
 NEW_VALUE = ["posthogSessionId", "sessionId"]
 
 
