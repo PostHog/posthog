@@ -4,6 +4,7 @@ import {
   PANEL_STEERING,
   parseSseChunk,
   type QuickAskEvent,
+  type QuickAskRunDefaults,
   QuickAskService,
   reasoningLabel,
   translateFrame,
@@ -92,7 +93,10 @@ interface MockRoutes {
 }
 
 /** URL-routed fetch mock - the warm call runs detached from ask generators. */
-function serviceWith(routes: MockRoutes): MockedAuth {
+function serviceWith(
+  routes: MockRoutes,
+  runDefaults?: () => QuickAskRunDefaults,
+): MockedAuth {
   const queues = {
     warm: [...(routes.warm ?? [])],
     createTask: [...(routes.createTask ?? [])],
@@ -137,6 +141,7 @@ function serviceWith(routes: MockRoutes): MockedAuth {
     service: new QuickAskService(
       authService,
       s3Mock as unknown as typeof fetch,
+      runDefaults,
     ),
     fetchMock,
     s3Mock,
@@ -715,6 +720,60 @@ describe("QuickAskService", () => {
     expect(service.currentTaskId).toBe("task-1");
     service.reset();
     expect(service.currentTaskId).toBeNull();
+  });
+
+  it("applies run defaults to warm and task creation", async () => {
+    const { service, fetchMock } = serviceWith(
+      {
+        warm: [new Response("", { status: 200 })],
+        createTask: [taskResponse()],
+        stream: [sseResponse(SIMPLE_TURN)],
+      },
+      () => ({
+        channelId: "chan-7",
+        repositories: ["posthog/posthog"],
+        githubIntegrationId: 42,
+      }),
+    );
+    await service.warm();
+    await collect(service);
+
+    const warmBody = JSON.parse(
+      callsTo(fetchMock, "/tasks/warm/")[0][2].body as string,
+    );
+    expect(warmBody).toMatchObject({
+      repository: "posthog/posthog",
+      repositories: ["posthog/posthog"],
+      github_integration: 42,
+    });
+    const createBody = JSON.parse(
+      callsTo(fetchMock, "/tasks/")[0][2].body as string,
+    );
+    expect(createBody).toMatchObject({
+      channel: "chan-7",
+      repositories: ["posthog/posthog"],
+      github_integration: 42,
+    });
+  });
+
+  it("a space default without repos leaves repositories to the space", async () => {
+    const { service, fetchMock } = serviceWith(
+      {
+        createTask: [taskResponse()],
+        stream: [sseResponse(SIMPLE_TURN)],
+      },
+      () => ({
+        channelId: "chan-7",
+        repositories: [],
+        githubIntegrationId: null,
+      }),
+    );
+    await collect(service);
+    const createBody = JSON.parse(
+      callsTo(fetchMock, "/tasks/")[0][2].body as string,
+    );
+    expect(createBody.channel).toBe("chan-7");
+    expect(createBody).not.toHaveProperty("repositories");
   });
 
   it("reset drops the session so the next ask creates a new task", async () => {

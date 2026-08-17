@@ -93,6 +93,18 @@ export interface QuickAskState {
   shortcut: string;
   /** False when another app owns the accelerator. */
   registered: boolean;
+  /** Space new threads file into; empty means the personal space. */
+  defaultChannelId: string;
+  defaultRepositories: string[];
+  defaultGithubIntegrationId: number;
+  warmOnSummon: boolean;
+}
+
+export interface QuickAskSettingsPatch {
+  defaultChannelId?: string;
+  defaultRepositories?: string[];
+  defaultGithubIntegrationId?: number;
+  warmOnSummon?: boolean;
 }
 
 let quickAskEnabled = false;
@@ -122,7 +134,32 @@ export function getQuickAskState(): QuickAskState {
     enabled: quickAskEnabled,
     shortcut: currentShortcut,
     registered: shortcutRegistered,
+    defaultChannelId: quickAskStore.get("defaultChannelId"),
+    defaultRepositories: quickAskStore.get("defaultRepositories"),
+    defaultGithubIntegrationId: quickAskStore.get("defaultGithubIntegrationId"),
+    warmOnSummon: quickAskStore.get("warmOnSummon"),
   };
+}
+
+export function setQuickAskSettings(
+  patch: QuickAskSettingsPatch,
+): QuickAskState {
+  if (patch.defaultChannelId !== undefined) {
+    quickAskStore.set("defaultChannelId", patch.defaultChannelId);
+  }
+  if (patch.defaultRepositories !== undefined) {
+    quickAskStore.set("defaultRepositories", patch.defaultRepositories);
+  }
+  if (patch.defaultGithubIntegrationId !== undefined) {
+    quickAskStore.set(
+      "defaultGithubIntegrationId",
+      patch.defaultGithubIntegrationId,
+    );
+  }
+  if (patch.warmOnSummon !== undefined) {
+    quickAskStore.set("warmOnSummon", patch.warmOnSummon);
+  }
+  return getQuickAskState();
 }
 
 export function setQuickAskShortcut(accelerator: string): QuickAskState {
@@ -135,7 +172,7 @@ export function setQuickAskShortcut(accelerator: string): QuickAskState {
   }
   // On failure `currentShortcut` keeps the last working accelerator; report
   // the requested one so the settings UI can show it is taken.
-  return { enabled: true, shortcut: accelerator, registered };
+  return { ...getQuickAskState(), shortcut: accelerator, registered };
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -270,7 +307,9 @@ function showQuickAsk(): void {
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
   // Boot a sandbox while the user types.
-  void getQuickAskService().warm();
+  if (quickAskStore.get("warmOnSummon")) {
+    void getQuickAskService().warm();
+  }
 }
 
 function hideQuickAsk(): void {

@@ -11,6 +11,18 @@ export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
  */
 export const QUICK_ASK_FETCH = Symbol.for("posthog.core.quickAsk.fetch");
 
+/** Where new quick-ask threads run: the space they file into and the repos
+ * their sandbox clones. Empty values mean the personal space and no repos. */
+export interface QuickAskRunDefaults {
+  channelId: string | null;
+  repositories: string[];
+  githubIntegrationId: number | null;
+}
+
+export const QUICK_ASK_RUN_DEFAULTS = Symbol.for(
+  "posthog.core.quickAsk.runDefaults",
+);
+
 /**
  * Events the quick-ask panel renders, distilled from the task run's SSE
  * stream. Text arrives as growing snapshots keyed by a per-turn id; the
@@ -266,8 +278,21 @@ export class QuickAskService {
     @inject(AUTH_SERVICE)
     private readonly authService: AuthService,
     @inject(QUICK_ASK_FETCH) @optional() fetchImpl?: FetchLike,
+    @inject(QUICK_ASK_RUN_DEFAULTS)
+    @optional()
+    private readonly runDefaults?: () => QuickAskRunDefaults,
   ) {
     this.fetchImpl = fetchImpl ?? fetch;
+  }
+
+  private defaults(): QuickAskRunDefaults {
+    return (
+      this.runDefaults?.() ?? {
+        channelId: null,
+        repositories: [],
+        githubIntegrationId: null,
+      }
+    );
   }
 
   cancel(): void {
@@ -341,13 +366,14 @@ export class QuickAskService {
     this.warmPromise = (async () => {
       const context = await this.context();
       if (!context) return;
+      const defaults = this.defaults();
       const response = await this.post(
         context.apiHost,
         `/api/projects/${context.projectId}/tasks/warm/`,
         {
-          repository: null,
-          repositories: [],
-          github_integration: null,
+          repository: defaults.repositories[0] ?? null,
+          repositories: defaults.repositories,
+          github_integration: defaults.githubIntegrationId,
           branch: null,
         },
       );
@@ -381,15 +407,26 @@ export class QuickAskService {
     pendingArtifactIds: string[],
     signal: AbortSignal,
   ): Promise<Response> {
+    const defaults = this.defaults();
     return this.post(
       apiHost,
       `/api/projects/${projectId}/tasks/`,
       {
         description: question,
-        repositories: [],
         branch: null,
         pending_user_message: content,
         pending_user_artifact_ids: pendingArtifactIds,
+        ...(defaults.channelId ? { channel: defaults.channelId } : {}),
+        // Explicit repos win; a space brings its own; otherwise none. Omitting
+        // the key lets the space's repositories apply server-side.
+        ...(defaults.repositories.length
+          ? {
+              repositories: defaults.repositories,
+              github_integration: defaults.githubIntegrationId,
+            }
+          : defaults.channelId
+            ? {}
+            : { repositories: [] }),
       },
       signal,
     );

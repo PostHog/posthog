@@ -121,7 +121,10 @@ import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import { QUICK_ASK_FETCH } from "@posthog/quick-ask/service/quick-ask";
+import {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+} from "@posthog/quick-ask/service/quick-ask";
 import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
@@ -281,7 +284,7 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { rendererStore } from "../utils/store";
+import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
@@ -823,6 +826,16 @@ container.load(quickAskCoreModule);
 // Chromium's network stack, not Node's undici: it honors system proxies and
 // VPN routing, which undici intermittently fails against ("fetch failed").
 container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
+container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
+  const repositories = quickAskStore.get("defaultRepositories");
+  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
+  return {
+    channelId: quickAskStore.get("defaultChannelId") || null,
+    repositories,
+    githubIntegrationId:
+      repositories.length > 0 && integrationId ? integrationId : null,
+  };
+});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

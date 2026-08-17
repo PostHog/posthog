@@ -246,7 +246,7 @@ function resizeShape(shape: Shape, handle: string, to: Point): Shape {
 export function Annotate(): React.JSX.Element {
   const [shot, setShot] = useState<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState<Rect | null>(null);
-  const [tool, setTool] = useState<Tool>("arrow");
+  const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState(COLORS[0]);
   const [doc, setDoc] = useState<Doc>({ past: [], shapes: [], future: [] });
   const [selected, setSelected] = useState<number | null>(null);
@@ -254,7 +254,7 @@ export function Annotate(): React.JSX.Element {
   const [textSize, setTextSize] = useState(TEXT_SIZE);
   const [draft, setDraft] = useState<Shape | null>(null);
   const [textDraft, setTextDraft] = useState<Point | null>(null);
-  const [cursor, setCursor] = useState("crosshair");
+  const [cursor, setCursor] = useState("default");
   const [spaceHeld, setSpaceHeld] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);

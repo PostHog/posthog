@@ -31,6 +31,10 @@ interface RendererStoreSchema {
 
 interface QuickAskStoreSchema {
   shortcut: string;
+  defaultChannelId: string;
+  defaultRepositories: string[];
+  defaultGithubIntegrationId: number;
+  warmOnSummon: boolean;
 }
 
 export interface WindowStateSchema {
@@ -61,7 +65,13 @@ export const focusStore = new Store<FocusStoreSchema>({
 export const quickAskStore = new Store<QuickAskStoreSchema>({
   name: "quick-ask",
   cwd: userDataDir,
-  defaults: { shortcut: "" },
+  defaults: {
+    shortcut: "",
+    defaultChannelId: "",
+    defaultRepositories: [],
+    defaultGithubIntegrationId: 0,
+    warmOnSummon: true,
+  },
 });
 
 export type { FocusSession };

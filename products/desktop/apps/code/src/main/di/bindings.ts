@@ -131,7 +131,11 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import type { QUICK_ASK_FETCH } from "@posthog/quick-ask/service/quick-ask";
+import type {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+  QuickAskRunDefaults,
+} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
@@ -379,6 +383,7 @@ export interface MainBindings {
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
   [QUICK_ASK_FETCH]: FetchLike;
+  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;

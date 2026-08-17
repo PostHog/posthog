@@ -13,11 +13,26 @@ export interface QuickAskState {
   shortcut: string;
   /** False when another app owns the accelerator. */
   registered: boolean;
+  /** Space new threads file into; empty means the personal space. */
+  defaultChannelId: string;
+  /** Repos the sandbox clones; empty defers to the space's repositories. */
+  defaultRepositories: string[];
+  defaultGithubIntegrationId: number;
+  /** Boot a sandbox when the panel is summoned. */
+  warmOnSummon: boolean;
+}
+
+export interface QuickAskSettingsPatch {
+  defaultChannelId?: string;
+  defaultRepositories?: string[];
+  defaultGithubIntegrationId?: number;
+  warmOnSummon?: boolean;
 }
 
 export interface QuickAskSettingsClient {
   getState(): Promise<QuickAskState>;
   setShortcut(accelerator: string): Promise<QuickAskState>;
+  setSettings(patch: QuickAskSettingsPatch): Promise<QuickAskState>;
 }
 
 export const QUICK_ASK_SETTINGS_CLIENT = Symbol.for(

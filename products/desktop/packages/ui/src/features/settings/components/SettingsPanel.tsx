@@ -11,6 +11,7 @@ import {
   GithubLogo,
   Keyboard,
   Lightbulb,
+  Lightning,
   MagnifyingGlass,
   Palette,
   Plugs,
@@ -73,6 +74,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: "personalization", icon: <Palette size={16} /> },
       { id: "sidebar", icon: <SidebarSimple size={16} /> },
       { id: "shortcuts", icon: <Keyboard size={16} /> },
+      { id: "quick-ask", icon: <Lightning size={16} /> },
     ],
   },
   {
