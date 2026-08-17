@@ -9,18 +9,18 @@ import deltalake
 import pyarrow.compute as pc
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_matches
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.test.test_delta_table_helper import (
-    _decimal_array,
-    _make_local_helper,
-    _table_is_misaligned,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    decimal_array,
+    make_local_table_ref,
+    table_is_misaligned,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_matches
 
 _TS_TYPE = pa.timestamp("us", tz="UTC")
 
 
 def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
-    return Scd2DeltaWriter(_make_local_helper(delta_uri), valid_from_column="valid_from", valid_to_column="valid_to")
+    return Scd2DeltaWriter(make_local_table_ref(delta_uri), valid_from_column="valid_from", valid_to_column="valid_to")
 
 
 class TestScd2Write:
@@ -37,7 +37,7 @@ class TestScd2Write:
             pa.table(
                 {
                     "id": pa.array([1]),
-                    "amount": _decimal_array([5], misaligned=False),
+                    "amount": decimal_array([5], misaligned=False),
                     "valid_from": pa.array([ts1], type=_TS_TYPE),
                     "valid_to": pa.array([None], type=_TS_TYPE),
                 }
@@ -47,12 +47,12 @@ class TestScd2Write:
         batch = pa.table(
             {
                 "id": pa.array([1]),
-                "amount": _decimal_array([7], misaligned=True),
+                "amount": decimal_array([7], misaligned=True),
                 "valid_from": pa.array([ts2], type=_TS_TYPE),
                 "valid_to": pa.array([None], type=_TS_TYPE),
             }
         )
-        assert _table_is_misaligned(batch) is True
+        assert table_is_misaligned(batch) is True
 
         result = await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
 

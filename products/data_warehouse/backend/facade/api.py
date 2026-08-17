@@ -76,6 +76,7 @@ _LAZY = {
     "HogQLQueryFixerTool": "max_tools",
     "hide_direct_mysql_table": "direct_mysql",
     "upsert_direct_mysql_table": "direct_mysql",
+    "DIRECT_MOTHERDUCK_URL_PATTERN": "direct_motherduck",
     "DIRECT_POSTGRES_URL_PATTERN": "direct_postgres",
     "hide_direct_postgres_table": "direct_postgres",
     "upsert_direct_postgres_table": "direct_postgres",
@@ -96,6 +97,7 @@ _LAZY = {
     "ensure_bucket_exists": "s3",
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
+    "delta_proxy_storage_options": "s3_proxy",
 }
 
 __all__ = sorted(_LAZY)

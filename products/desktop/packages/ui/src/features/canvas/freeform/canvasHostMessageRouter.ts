@@ -1,5 +1,6 @@
 import type {
   CanvasNavIntent,
+  CanvasTextSelection,
   CanvasToHostMessage,
   HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -28,6 +29,8 @@ export interface CanvasHostCallbacks {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
 }
 
 export type ExternalOpenBlockReason =
@@ -66,6 +69,25 @@ export function createCanvasHostMessageRouter(
   return async (message) => {
     switch (message.type) {
       case "data-request":
+        // Canvas code is untrusted, so the host is what stops a canvas from
+        // firing writes just by being loaded or rendered.
+        if (
+          (message.method === "actionInvoke" ||
+            message.method === "agentRequest") &&
+          !options.hasUserActivation()
+        ) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "data-response",
+            id: message.id,
+            ok: false,
+            error:
+              message.method === "agentRequest"
+                ? "Agent requests require a user action"
+                : "Canvas actions require a user action",
+          });
+          break;
+        }
         if (
           activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
           !isBoundedPayload(message.payload)
@@ -81,22 +103,32 @@ export function createCanvasHostMessageRouter(
         }
         activeDataRequests += 1;
         try {
+          const call = options
+            .callbacks()
+            .onDataRequest(message.method, message.payload);
+          // agentRequest settles only when a viewer approves or cancels the
+          // request in a dialog, which can take arbitrarily long. Racing it
+          // against the generic timeout would tell the canvas the request
+          // failed while the dialog is still open and a later approval could
+          // still start the run, so it opts out of the timeout.
+          const result =
+            message.method === "agentRequest"
+              ? await call
+              : await Promise.race([
+                  call,
+                  new Promise<never>((_, reject) =>
+                    setTimeout(
+                      () => reject(new Error("Canvas data request timed out")),
+                      DATA_REQUEST_TIMEOUT_MS,
+                    ),
+                  ),
+                ]);
           options.post({
             channel: "posthog-canvas",
             type: "data-response",
             id: message.id,
             ok: true,
-            result: await Promise.race([
-              options
-                .callbacks()
-                .onDataRequest(message.method, message.payload),
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error("Canvas data request timed out")),
-                  DATA_REQUEST_TIMEOUT_MS,
-                ),
-              ),
-            ]),
+            result,
           });
         } catch (error) {
           options.post({
@@ -119,6 +151,15 @@ export function createCanvasHostMessageRouter(
       case "navigate":
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
+        break;
+      case "text-selection":
+        options.callbacks().onTextSelection?.(message.selection);
+        break;
+      case "text-selection-cleared":
+        options.callbacks().onTextSelection?.(null);
+        break;
+      case "comment-activate":
+        options.callbacks().onCommentActivate?.(message.id);
         break;
       case "open-external":
         // Re-checks the schema's allowlist refine in case it ever drifts.

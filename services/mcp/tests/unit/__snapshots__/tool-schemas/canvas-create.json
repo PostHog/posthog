@@ -2,13 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "channel_id": {
-            "description": "Id of the channel to create the canvas in (resolve it with channel-list).",
+            "description": "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default).",
             "type": "string"
-        },
-        "is_home": {
-            "default": false,
-            "description": "Create the canvas as the channel's home board (at most one per channel).",
-            "type": "boolean"
         },
         "name": {
             "description": "Display name for the canvas.",

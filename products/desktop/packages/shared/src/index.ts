@@ -90,9 +90,11 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -211,12 +213,19 @@ export {
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
+  McpServerConnection,
 } from "./local-mcp-domain";
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
@@ -272,6 +281,7 @@ export {
   supports1MContext,
   supportsFastMode,
 } from "./reasoning-effort";
+export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   type CloudRegion,
   formatRegionBadge,
@@ -353,6 +363,7 @@ export {
   formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,
@@ -363,6 +374,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

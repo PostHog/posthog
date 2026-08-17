@@ -69,12 +69,6 @@ import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 const HedgehogExperiment = pngHoggie(experimentPng)
 
-// Renders nothing on purpose: throwaway code that exists only so the experiment-cleanup-e2e-dummy
-// flag has references in the repo for the flag-cleanup PR flow to remove.
-const CleanupDummyExperiment = (): JSX.Element | null => {
-    return null
-}
-
 export const scene: SceneExport = {
     component: Experiments,
     logic: experimentsLogic,
@@ -567,11 +561,8 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
-    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const cleanupDummyTestVariant = featureFlags[FEATURE_FLAGS.EXPERIMENT_CLEANUP_E2E_DUMMY] === 'test'
-
+    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
@@ -650,7 +641,6 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
             />
-            {cleanupDummyTestVariant && <CleanupDummyExperiment />}
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
@@ -705,6 +695,9 @@ export function Experiments(): JSX.Element {
                     isOpen={true}
                     onCancel={() => setSurveyModalExperiment(null)}
                 />
+            )}
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_LIST_AA_TEST] === 'test' && (
+                <div data-attr="experiments-list-aa-test-variant" className="hidden" />
             )}
         </SceneContent>
     )

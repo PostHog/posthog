@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -146,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -170,6 +171,9 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
+INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
+    "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -215,6 +219,17 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
         return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, True
 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
+
+
+def _credentials_validation_failed(source: AnySource, team_id: int, error: Exception) -> tuple[bool, str | None]:
+    """Fallback result for an *unexpected* exception raised by a source's credential probe.
+
+    Sources are expected to catch their own errors and return ``(False, message)``. One that raises
+    instead would 500 the create/update request and show someone mid-onboarding an opaque server
+    error, so capture it for us and hand back an actionable message — the same treatment schema
+    discovery already gives an unexpected error just below the credential check."""
+    capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -473,7 +488,7 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -1196,31 +1211,34 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         if job_inputs_were_submitted:
             effective_api_version = source.resolve_api_version(instance.api_version)
-            if isinstance(source, (PostgresSource, MySQLSource)):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config),
-                    instance.team_id,
-                    instance.access_method,
-                    api_version=effective_api_version,
-                )
-            elif isinstance(source, CustomSource):
-                # Pass the source being updated so an integration-backed OAuth2 source can only validate
-                # with the integration bound to it — not another source's, whose token the probe would
-                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
-                # an as-yet-unbound integration to its creator.
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config,
-                    instance.team_id,
-                    source_id=str(instance.pk),
-                    owner_user_id=self.context["request"].user.id,
-                    api_version=effective_api_version,
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, api_version=effective_api_version
-                )
+            try:
+                if isinstance(source, (PostgresSource, MySQLSource)):
+                    credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                        cast(Any, source_config),
+                        instance.team_id,
+                        instance.access_method,
+                        api_version=effective_api_version,
+                    )
+                elif isinstance(source, CustomSource):
+                    # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                    # with the integration bound to it — not another source's, whose token the probe would
+                    # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                    # an as-yet-unbound integration to its creator.
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config,
+                        instance.team_id,
+                        source_id=str(instance.pk),
+                        owner_user_id=self.context["request"].user.id,
+                        api_version=effective_api_version,
+                    )
+                else:
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config, instance.team_id, api_version=effective_api_version
+                    )
+            except Exception as e:
+                credentials_valid, credentials_error = _credentials_validation_failed(source, instance.team_id, e)
             if not credentials_valid:
-                raise ValidationError(credentials_error or "Invalid credentials")
+                raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
@@ -1318,7 +1336,11 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
-        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.",
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1383,7 +1405,10 @@ class SourceSetupSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.",
+        help_text=(
+            "Prefix added to the table names PostHog creates in HogQL, e.g. 'stripe' produces stripe_charges. "
+            "Does not filter which tables are imported. Defaults to the source type."
+        ),
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
@@ -1693,6 +1718,13 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     )
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ResolvedStoredCredential:
+    payload: dict
+    credential: PendingSourceCredential | None
+    error_response: Response | None
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -1875,9 +1907,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .order_by(self.ordering)
         )
 
-    def _resolve_stored_credential(
-        self, source_type: str, payload: dict
-    ) -> tuple[dict, PendingSourceCredential | None, Response | None]:
+    def _resolve_stored_credential(self, source_type: str, payload: dict) -> ResolvedStoredCredential:
         """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
 
         Lets the create and setup flows reference credentials the user entered on the connect page
@@ -1890,25 +1920,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         credential_id = payload.pop("credential_id", None)
         if credential_id is None:
-            return payload, None, None
+            return ResolvedStoredCredential(payload=payload, credential=None, error_response=None)
         try:
             credential = PendingSourceCredential.objects.for_team(self.team_id).get(
                 id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
             )
         except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-            return (
-                payload,
-                None,
-                Response(
+            return ResolvedStoredCredential(
+                payload=payload,
+                credential=None,
+                error_response=Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": f"Stored credential '{credential_id}' not found or expired"},
                 ),
             )
         if credential.source_type != source_type:
-            return (
-                payload,
-                None,
-                Response(
+            return ResolvedStoredCredential(
+                payload=payload,
+                credential=None,
+                error_response=Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": f"Stored credential '{credential_id}' is for "
@@ -1917,7 +1947,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ),
             )
         # Stored credentials win over inline keys so an agent can't override what the user entered.
-        return {**payload, **credential.payload}, credential, None
+        return ResolvedStoredCredential(
+            payload={**payload, **credential.payload}, credential=credential, error_response=None
+        )
 
     @extend_schema(
         request=ExternalDataSourceCreateSerializer, responses={201: ExternalDataSourceCreateResponseSerializer}
@@ -1936,14 +1968,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # A `credential_id` in the payload references connection details the user entered on the
         # connect-link page — resolve it to the real secrets so `create` can target a specific
         # `schemas` set (unlike `setup`, which discovers and enables every table).
-        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
-        if credential_error is not None:
-            return credential_error
+        resolved = self._resolve_stored_credential(source_type, payload)
+        if resolved.error_response is not None:
+            return resolved.error_response
 
         response = self._create_external_data_source(
             request,
             source_type=source_type,
-            payload=payload,
+            payload=resolved.payload,
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
@@ -1951,8 +1983,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
-        if credential is not None and response.status_code == status.HTTP_201_CREATED:
-            credential.delete()
+        if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
+            resolved.credential.delete()
         return response
 
     @extend_schema(
@@ -2082,13 +2114,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
-        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
-        # Upgrade that machine-injected value when the transport identifies one of them, so their
-        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        # The setup wizard and PostHog's agent surfaces drive creation through the MCP tools, which
+        # inject `created_via=mcp` before the request reaches us — the agent can't set the field
+        # itself. Upgrade that machine-injected value when the transport identifies one of them, so
+        # their runs are distinguishable from other MCP clients. Explicit `web`/`api` values are
+        # left alone. The PostHog apps and the headless agents all map to `self_driving`: the
+        # distinction between them is an analytics one, and splitting it here would need a new
+        # stored value.
         if created_via == ExternalDataSource.CreatedVia.MCP:
             transport_created_via = {
                 EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
@@ -2212,6 +2249,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
+        except Exception as e:
+            # `get_schemas` opens its own connection, so credentials validated above can still fail
+            # here (e.g. a BigQuery service account key rotated/revoked in between). Classify via
+            # the source's own non-retryable-error map, same as `database_schema` and
+            # `refresh_schemas`, and roll back the row so a source that can't discover its schema
+            # doesn't linger half-created.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(
+                    e,
+                    {
+                        "source_type": source_type,
+                        "team_id": self.team_id,
+                        "source_id": str(new_source_model.id),
+                    },
+                )
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": error_message},
             )
         if is_direct_query:
             new_source_model.connection_metadata = get_direct_connection_metadata(
@@ -2973,7 +3031,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # qualified rows for the others, so bare↔qualified tail matching would wrongly collapse
             # them; match names exactly and seed per-resource location metadata on new rows.
             namespaced_adapter = get_namespaced_resource_adapter(instance.source_type)
-            schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+            sync_result = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
@@ -2983,6 +3041,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if namespaced_adapter is not None
                 else None,
             )
+            # Mutable local: engine reconciliation below may extend the deleted set.
+            schemas_deleted = sync_result.deleted
 
             if engine is not None:
                 reconciled_deleted_schemas = engine.reconcile_schemas(
@@ -2996,18 +3056,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
-        # the source row lock or against rows that could still roll back. `schemas_created` holds
+        # the source row lock or against rows that could still roll back. `sync_result.created` holds
         # post-substitution stored names, so remap the discovered names to match.
         auto_enabled_names: list[str] = []
-        if schemas_created:
+        if sync_result.created:
             source_schemas_by_name = {name_substitutions.get(s.name, s.name): s for s in schemas}
-            auto_enabled_names = auto_enable_new_schemas(instance, schemas_created, source_schemas_by_name)
+            auto_enabled_names = auto_enable_new_schemas(instance, sync_result.created, source_schemas_by_name)
 
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),
             team_id=self.team_id,
-            added=len(schemas_created),
+            added=len(sync_result.created),
             deleted=len(schemas_deleted),
             auto_enabled=len(auto_enabled_names),
             total_tables_seen=len(schemas),
@@ -3015,7 +3075,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(
             status=status.HTTP_200_OK,
             data={
-                "added": len(schemas_created),
+                "added": len(sync_result.created),
                 "deleted": len(schemas_deleted),
                 "auto_enabled": len(auto_enabled_names),
                 "total_tables_seen": len(schemas),
@@ -3054,23 +3114,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
-            # an unbound integration owned by the requester, or the probe could send another source's token
-            # to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+                # an unbound integration owned by the requester, or the probe could send another source's token
+                # to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
+                data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
             )
 
         try:
@@ -3163,9 +3226,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
-        if credential_error is not None:
-            return credential_error
+        resolved = self._resolve_stored_credential(source_type, payload)
+        if resolved.error_response is not None:
+            return resolved.error_response
+        # Mutable local: the CustomSource branch below rewrites payload keys before source creation.
+        payload = resolved.payload
 
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
@@ -3196,8 +3261,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            # Credentials validated above can still fail here — `get_schemas` opens its own
+            # connection — so classify via the source's non-retryable-error map, same as `create`,
+            # `database_schema`, and `refresh_schemas`, instead of surfacing the raw driver error.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
             return Response(
@@ -3205,10 +3275,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "No tables found for this source. Check the credentials and permissions."},
             )
 
+        # Same best-effort per-table scope probe the schema picker runs, so one-shot setup doesn't
+        # enable tables the credentials can only ever 403 on. Transient failure falls back to
+        # "available", which is the pre-probe behavior.
+        try:
+            setup_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in source_schemas]
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            setup_permissions = {}
+
+        # Some sources report a probe that couldn't run as a per-table reason rather than raising
+        # (Stripe does this so the picker can render one row per failure). Setup has no such UI: a
+        # blanket denial would silently create a source with every table off. Credentials that
+        # genuinely read nothing are already rejected by validate_credentials above, so read
+        # "everything denied" as an unreliable probe and keep the polling defaults.
+        if setup_permissions and all(setup_permissions.get(schema.name) for schema in source_schemas):
+            setup_permissions = {}
+
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas)
+        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
 
         response = self._create_external_data_source(
             request,
@@ -3222,12 +3311,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
-        if credential is not None and response.status_code == status.HTTP_201_CREATED:
-            credential.delete()
+        if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
+            resolved.credential.delete()
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas
+                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
@@ -3384,6 +3473,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config,
         source_id: str,
         source_schemas: list[SourceSchema],
+        permission_errors: Mapping[str, str | None] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -3393,11 +3483,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Failure never breaks setup: the polling defaults stay in place and webhook-only tables remain
         disabled, exactly as if the source didn't support webhooks.
         """
-        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks}
+        # Tables marked `should_sync_default=False` need explicit opt-in even when webhook-capable —
+        # one-shot setup must not force-enable what the schema picker would leave off (the same
+        # contract `build_default_schemas` honors). A table the credentials can't read is excluded
+        # for the same reason: a webhook can't deliver rows the connection was denied.
+        denied = {name for name, reason in (permission_errors or {}).items() if reason}
+        webhook_capable = {
+            s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default and s.name not in denied
+        }
         if not webhook_capable or source.webhook_template is None:
             return None
 
         instance = ExternalDataSource.objects.get(pk=source_id, team_id=self.team_id)
+        # Registration can't succeed on a connection whose grants exclude webhook management, and
+        # one-shot setup has no manual-fallback UI to fall back into: leave the polling defaults.
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
+        if blocked_reason is not None:
+            return {"success": False, "webhook_url": None, "error": blocked_reason, "pending_inputs": []}
+
         eligible_schemas = list(
             ExternalDataSchema.objects.filter(source=instance, team_id=self.team_id, name__in=webhook_capable).exclude(
                 deleted=True
@@ -3486,23 +3589,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Create-time validation for an integration-backed manifest may only use an unbound integration
-            # owned by the requester, so the probe can't send another source's token to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Create-time validation for an integration-backed manifest may only use an unbound integration
+                # owned by the requester, so the probe can't send another source's token to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return (
                 Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or "Invalid credentials"},
+                    data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
                 ),
                 None,
             )
@@ -3894,18 +4000,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not cdc_config.enabled:
             return Response(status=status.HTTP_200_OK, data={"success": True, "already_disabled": True})
 
-        # Cancel running jobs for this source's CDC schemas — one holding the slot fails
-        # pg_drop_replication_slot. Scope to CDC schemas so we don't cancel unrelated
-        # incremental/full-refresh syncs on the same source. Read before the sync_type reset
-        # below, while these schemas are still marked CDC.
-        cdc_schema_ids = list(
+        # Read the CDC schemas before the sync_type reset below, while they're still
+        # marked CDC. Scoped so we don't touch unrelated incremental/full-refresh syncs.
+        cdc_schemas = list(
             ExternalDataSchema.objects.filter(
                 source=instance,
                 sync_type=ExternalDataSchema.SyncType.CDC,
             )
             .exclude(deleted=True)
-            .values_list("id", flat=True)
+            .select_related("table")
         )
+        # Disabling cancels jobs, drops the slot, purges buffered change data, and resets
+        # every CDC schema — editor on the source isn't enough when a table is locked below it.
+        self._assert_can_write_schemas(cdc_schemas)
+        cdc_schema_ids = [schema.id for schema in cdc_schemas]
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk,
             team_id=instance.team_id,
@@ -3932,6 +4040,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except Exception as e:
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
+
+        # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
+        # change data with no consumer once CDC is off, and nothing else expires them.
+        for schema_id in cdc_schema_ids:
+            purge_buffer_prefix(instance.team_id, str(schema_id), logger)
 
         with transaction.atomic():
             # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
@@ -4603,6 +4716,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
             )
 
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
+
         hog_function = HogFunction.objects.filter(
             team=self.team,
             type="warehouse_source_webhook",
@@ -4613,7 +4728,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not hog_function:
             return Response(
                 status=status.HTTP_200_OK,
-                data={"supports_webhooks": True, "exists": False},
+                data={
+                    "supports_webhooks": True,
+                    "exists": False,
+                    "auto_creation_blocked_reason": blocked_reason,
+                },
             )
 
         webhook_url = get_webhook_url(hog_function.id)
@@ -4656,8 +4775,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
                 "missing_events": missing_events,
+                "auto_creation_blocked_reason": blocked_reason,
             },
         )
+
+    def _webhook_creation_blocked_reason(self, source: WebhookSource, instance: ExternalDataSource) -> str | None:
+        """Ask the source whether this connection can never create the provider-side webhook.
+        Best-effort: an unparseable config or a source-side failure leaves the button offered,
+        which is the behavior before the check existed."""
+        if not instance.job_inputs:
+            return None
+        try:
+            return source.webhook_creation_blocked_reason(source.parse_config(instance.job_inputs), self.team_id)
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -4677,6 +4809,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "This source type does not support webhooks"},
             )
+
+        # A connection known to lack the grant can't be fixed by trying. The hog function is still
+        # minted below so manual setup has a URL to paste; only the doomed provider round-trip (one
+        # call per repository, for GitHub) is skipped.
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
 
         effective_api_version = source.resolve_api_version(instance.api_version)
         try:
@@ -4717,6 +4854,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": hog_fn_result.error},
+            )
+
+        if blocked_reason is not None:
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    "success": False,
+                    "webhook_url": hog_fn_result.webhook_url,
+                    "error": blocked_reason,
+                    "pending_inputs": [],
+                },
             )
 
         result = create_and_register_webhook(

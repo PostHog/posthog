@@ -67,7 +67,7 @@
                     "type": "string"
                 },
                 "capabilities": {
-                    "description": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.",
+                    "description": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.",
                     "properties": {
                         "network": {
                             "properties": {
@@ -86,6 +86,19 @@
                         },
                         "posthog": {
                             "properties": {
+                                "actions": {
+                                    "description": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                                    "items": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "type": "array"
+                                },
+                                "agentRequests": {
+                                    "default": false,
+                                    "type": "boolean"
+                                },
                                 "captureEvents": {
                                     "items": {
                                         "maxLength": 200,
@@ -104,6 +117,16 @@
                                     },
                                     "maxItems": 100,
                                     "type": "array"
+                                },
+                                "state": {
+                                    "description": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                                    "items": {
+                                        "description": "* `user` - user\n* `shared` - shared",
+                                        "enum": ["user", "shared"],
+                                        "type": "string"
+                                    },
+                                    "maxItems": 2,
+                                    "type": "array"
                                 }
                             },
                             "required": ["insights", "inlineQueries", "captureEvents"],
@@ -117,7 +140,7 @@
                     "additionalProperties": {
                         "type": "string"
                     },
-                    "description": "Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.",
+                    "description": "Exact-version dependencies, restricted to the platform-supported set at its pinned versions.",
                     "propertyNames": {
                         "type": "string"
                     },

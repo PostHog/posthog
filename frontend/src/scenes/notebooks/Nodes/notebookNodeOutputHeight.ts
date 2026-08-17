@@ -50,3 +50,19 @@ export const outputHeightForShape = ({
     }
     return Math.min(MAX_OUTPUT_HEIGHT, Math.max(MIN_OUTPUT_HEIGHT, NODE_CHROME_HEIGHT + content))
 }
+
+/**
+ * The run a mounting cell is already sized for. A cell auto-sizes a given run only once, and this
+ * seeds that guard: a cell carrying a height was sized by the editor that ran it, while one
+ * carrying a result but no height ran outside the editor — an MCP run writes the envelope straight
+ * into the markdown — so it still needs sizing on its first render.
+ */
+export const initialSizedRunId = ({
+    hasResult,
+    height,
+    runId,
+}: {
+    hasResult: boolean
+    height: string | number | undefined
+    runId: string | null
+}): string | null | undefined => (hasResult && typeof height === 'number' ? runId : undefined)
