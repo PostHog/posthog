@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { GuidedWizardStep } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -29,6 +30,13 @@ export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     budget: 'Budget',
 }
 
+export const SCANNER_STEPPER_STEPS: GuidedWizardStep<ScannerEditorStep>[] = SCANNER_EDITOR_STEPS.map((step) => ({
+    step,
+    label: STEP_LABELS[step],
+    // pinned: data-attr for autocapture, renaming breaks dashboards
+    dataAttr: `vision-editor-step-${step}`,
+}))
+
 export interface ScannerFieldErrors {
     scanner_config?: unknown
     sampling_rate?: unknown
@@ -39,21 +47,38 @@ export interface ScannerFieldErrors {
 /** Steps that mount no validated field, so leaving them must not run whole-form validation. */
 export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['template', 'details']
 
+// Fallback for error shapes that carry no message, so an errored step is never silently clean
+function fieldErrorMessages(error: unknown): string[] {
+    if (!error) {
+        return []
+    }
+    if (typeof error === 'string') {
+        return [error]
+    }
+    if (typeof error === 'object') {
+        const nested = Object.values(error).flatMap((value) => fieldErrorMessages(value))
+        if (nested.length > 0) {
+            return nested
+        }
+    }
+    return ['This step has errors to fix']
+}
+
 /** Which step mounts each validated field. The stepper badges and the post-submit jump both read this. */
-export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, boolean> {
+export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, string[]> {
     return {
-        template: false,
-        details: false,
-        configure: !!errors.scanner_config,
-        triggers: !!errors.duration,
-        budget: !!(errors.sampling_rate || errors.credit_limit),
+        template: [],
+        details: [],
+        configure: fieldErrorMessages(errors.scanner_config),
+        triggers: fieldErrorMessages(errors.duration),
+        budget: [...fieldErrorMessages(errors.sampling_rate), ...fieldErrorMessages(errors.credit_limit)],
     }
 }
 
 /** Earliest step rendering an errored field, so a failed submit lands where the user can fix it. */
 export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEditorStep | null {
     const stepErrors = scannerStepErrors(errors)
-    return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step]) ?? null
+    return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step].length > 0) ?? null
 }
 
 /**

@@ -21,7 +21,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -48,10 +48,10 @@ import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
+    SCANNER_STEPPER_STEPS,
     STEP_LABELS,
     ScannerEditorStep,
     UNVALIDATED_SCANNER_STEPS,
-    scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
@@ -104,14 +104,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const {
-        scanner,
-        scannerLoading,
-        isScannerSubmitting,
-        scannerValidationErrors,
-        showScannerErrors,
-        durationValidationError,
-    } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
@@ -123,22 +116,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     }
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
-
-    const stepperSteps: GuidedWizardStep<ScannerEditorStep>[] = SCANNER_EDITOR_STEPS.map((wizardStep) => ({
-        step: wizardStep,
-        label: STEP_LABELS[wizardStep],
-        dataAttr: `vision-editor-step-${wizardStep}`,
-    }))
-
-    const erroredSteps = showScannerErrors
-        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
-        : null
-    const stepErrors: Partial<Record<ScannerEditorStep, string[]>> = Object.fromEntries(
-        SCANNER_EDITOR_STEPS.filter((wizardStep) => erroredSteps?.[wizardStep]).map((wizardStep) => [
-            wizardStep,
-            ['This step has errors to fix'],
-        ])
-    )
 
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
@@ -178,7 +155,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         actions={<ReplayVisionFeedbackButton />}
                     />
                     <GuidedWizardStepper
-                        steps={stepperSteps}
+                        steps={SCANNER_STEPPER_STEPS}
                         currentStep={step}
                         onStepClick={goToStep}
                         stepErrors={stepErrors}
