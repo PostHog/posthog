@@ -826,12 +826,13 @@ class TestPollForTurnTimeoutDiagnosis:
 
     @pytest.mark.asyncio
     async def test_no_turn_output_fails_fast_before_the_wall(self):
-        # A sandbox that provisioned, wrote only side-channel noise, then went silent must not hold
-        # the poll budget to the wall — the turn never started, so waiting cannot help. It fails fast
-        # at the no-output floor, releasing the sandbox and starting the retry sooner.
+        # The incident shape: the agent received the prompt (echoed into the log) and a relay
+        # side-channel line, then went fully silent without ever producing turn output. The floor must
+        # fail the turn fast instead of holding the sandbox to the wall.
+        log = "\n".join([_user_message_line("scan the project"), _console_line("agentsh network events")])
         fake = FakeTaskRun()
         with (
-            patch("posthog.storage.object_storage.read", return_value=_console_line("agentsh network events")),
+            patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
@@ -842,17 +843,38 @@ class TestPollForTurnTimeoutDiagnosis:
                 await poll_for_turn(fake, skip_lines=0)
 
         assert exc_info.value.stage == "no_turn_output"
-        # Tripped at the floor (last side-channel line at 10s + 30s of silence), not the 900s wall.
+        # Tripped at the floor (last line at 10s + 30s of silence), not the 900s wall.
         assert exc_info.value.elapsed == 40
 
     @pytest.mark.asyncio
-    async def test_ongoing_side_channel_activity_does_not_trip_the_floor(self):
-        # The floor keys on ANY log growth, not turn-relevant growth: a live-but-slow sandbox that
-        # keeps emitting setup/side-channel lines past the floor window must not be killed. It runs to
-        # completion once its first real turn output arrives.
-        base: list[str] = []
+    async def test_provisioning_silence_does_not_trip_the_floor(self):
+        # Before the turn starts, poll_for_turn covers sandbox provisioning, where the log can stay
+        # silent for minutes between boundary progress events. With no prompt echo yet, the floor must
+        # stay disarmed — otherwise a healthy slow setup is killed before the agent ever starts.
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_progress_line(status="in_progress")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 90),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        # Ran to the 90s wall, not the 30s floor — provisioning was not mistaken for a dead turn.
+        assert exc_info.value.elapsed == 90
+        assert exc_info.value.stage == "no_turn_output"
+
+    @pytest.mark.asyncio
+    async def test_ongoing_activity_does_not_trip_the_floor(self):
+        # After the prompt echo arms the floor, a live agent that keeps emitting side-channel lines past
+        # the floor window must not be killed — the floor keys on silence since the last log line, not
+        # since turn start. It runs to completion once its first real turn output arrives.
+        base = [_user_message_line("scan the project")]
         logs: list[str] = []
-        for i in range(6):  # six polls of side-channel-only growth, past the 30s floor
+        for i in range(6):  # six polls of side-channel growth after the prompt echo, past the 30s floor
             base = [*base, _console_line(f"audit {i}")]
             logs.append("\n".join(base))
         logs.append("\n".join([*base, _agent_message_line("done"), _end_turn_line()]))
