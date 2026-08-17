@@ -130,6 +130,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "DataWarehouseModelPath should be created for the saved_query",
         )
 
+    def test_create_with_materialization_enabled_schedules_saved_query(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "materialized-on-create",
+                "query": self.sample_hogql_query,
+                "is_materialized": True,
+                "data_freshness_seconds": 86400,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertTrue(response.json()["materialization"]["enabled"])
+        self.assertFalse(response.json()["materialization"]["ready"])
+        version = EndpointVersion.objects.get(endpoint__team=self.team, endpoint__name="materialized-on-create")
+        self.assertIsNotNone(version.saved_query_id)
+        assert version.saved_query is not None
+        self.assertTrue(version.saved_query.is_materialized)
+
     def test_unsatisfiable_freshness_rolls_back_the_whole_enable(self):
         # if scheduling rejects the chosen freshness (finer than an upstream source can deliver),
         # the enable must unwind completely — no dangling saved query, version link, or DAG node
@@ -1019,7 +1039,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             name="status_freshness_endpoint",
             query=self.sample_hogql_query,
             is_materialized=True,
-            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            status=None,
             last_run_at=timezone.now() - timedelta(days=3),
         )
         endpoint = create_endpoint_with_version(
@@ -1046,6 +1066,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["last_materialized_at"], job_time.isoformat())
+        self.assertEqual(response.json()["status"], DataModelingJob.Status.COMPLETED)
+        self.assertTrue(response.json()["enabled"])
+        self.assertFalse(response.json()["ready"])
 
     def test_force_mode_uses_materialized_table(self):
         """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""

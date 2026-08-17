@@ -30,3 +30,16 @@ def saved_query_materialized_at(saved_query: DataWarehouseSavedQuery) -> datetim
     )
     candidates = [ts for ts in (job_last_run_at, saved_query.last_run_at) if ts is not None]
     return max(candidates) if candidates else None
+
+
+def latest_saved_query_materialization_job(saved_query: DataWarehouseSavedQuery) -> DataModelingJob | None:
+    """Return the latest ClickHouse materialization attempt recorded by the v2 workflow."""
+    return (
+        DataModelingJob.objects.filter(
+            team_id=saved_query.team_id,
+            saved_query_id=saved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+        .order_by("-last_run_at")
+        .first()
+    )
