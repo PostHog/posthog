@@ -3115,8 +3115,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        # Owners and creators bypass access controls, so the caller has to be a plain member and the
-        # restricted objects must belong to nobody.
+        # Owners and creators bypass access controls, so the caller is a plain member and the
+        # restricted objects belong to nobody.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
 
@@ -3177,7 +3177,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "Viewer access" in str(response.json()), response.json()
-        # No delivery may be enqueued for a rejected target — send_test_now defaults to true on create.
+        # send_test_now defaults to true on create, so a rejected target must not enqueue a delivery.
         mock_client.start_workflow.assert_not_called()
 
     def test_create_allows_an_open_insight(self, mock_sync):
@@ -3191,8 +3191,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_create_rejects_restricted_insight_among_dashboard_exports(self, mock_sync):
-        # An insight can be restricted independently of the dashboard it sits on, and each selected
-        # tile is rendered and delivered on its own.
+        # An insight can be restricted independently of its dashboard, and each selected tile is
+        # delivered on its own.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
         DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
@@ -3212,8 +3212,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand(
         [
-            # A PATCH that omits insight/dashboard must not skip the check, and neither may a
-            # soft-delete or a test delivery on someone else's subscription.
+            # A PATCH that omits insight/dashboard must not skip the check either.
             ("patch", "patch", "", {"target_value": "attacker@example.com"}),
             ("retrieve", "get", "", None),
             ("test_delivery", "post", "/test-delivery", None),
@@ -3237,7 +3236,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [row["id"] for row in listed.json()["results"]] == [visible.id]
 
-        # Filtering by the restricted insight's id must not confirm the subscription exists or leak its name.
+        # Filtering by the restricted insight's id must not confirm the subscription exists.
         filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
         assert filtered.status_code == status.HTTP_200_OK
         assert filtered.json()["results"] == []
@@ -3264,9 +3263,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.json()["results"] == []
 
     def test_export_insight_restricted_after_creation_hides_the_subscription(self, mock_sync):
-        # The selection is validated at save time, but an insight can be restricted afterwards, and a
-        # viewable dashboard doesn't cover it — its rendered results would keep leaking through the
-        # subscription and its deliveries.
+        # An insight can be restricted after the subscription was saved; the read side must catch that.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         DashboardTile.objects.create(dashboard=dashboard, insight=exported)
@@ -3283,7 +3280,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             status=SubscriptionDelivery.Status.COMPLETED,
             content_snapshot={"insights": [{"id": exported.id, "name": "Secret", "query_results": [[1, 2, 3]]}]},
         )
-        # Visible while the export insight is open — restricting it is what must hide the row below.
+        # Visible before the restriction, so the restriction is what hides the row below.
         before = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert [row["id"] for row in before.json()["results"]] == [subscription.id]
 
@@ -3306,8 +3303,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert deliveries.json()["results"] == []
 
     def test_dashboard_subscription_without_selection_is_gated_on_its_tiles(self, mock_sync):
-        # An empty dashboard_export_insights selection makes the delivery render every tile — admin-
-        # and legacy-created rows look like this — so a restricted tile must hide the row.
+        # An empty selection renders every tile (admin- and legacy-created rows look like this),
+        # so a restricted tile must hide the row.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
         subscription = self._subscription_for(dashboard=dashboard)
@@ -3329,8 +3326,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
 
     def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self, mock_sync):
-        # The filter's M2M conditions must compile to subqueries, not joins — a join returns the
-        # row once per selected insight and makes detail routes 500 on queryset.get().
+        # A join on the M2M would return the row once per insight and make detail routes 500.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
@@ -3356,8 +3352,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert len(deliveries.json()["results"]) == 1
 
     def test_selection_without_the_restricted_tile_keeps_the_subscription_visible(self, mock_sync):
-        # A restricted tile the subscription doesn't export can't leak through it, so an explicit
-        # selection of open insights must keep the row visible.
+        # A restricted tile that is not exported cannot leak, so the row stays visible.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
         DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
@@ -3371,8 +3366,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand([("insight",), ("dashboard",)])
     def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync, target_field):
-        # Soft-deleting a target must not hide its subscription: the owner still needs to see the
-        # row and turn it off. The access gate is about restriction, not deletion.
+        # The owner still needs to see and turn off a subscription whose target was soft-deleted.
         if target_field == "insight":
             target: Insight | Dashboard = Insight.objects.create(
                 team=self.team, filters={"events": [{"id": "$pageview"}]}
@@ -3390,12 +3384,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert deleted.status_code == status.HTTP_200_OK, deleted.json()
 
     def test_org_admin_still_sees_subscription_on_a_private_insight(self, mock_sync):
-        # Org admins bypass object-level access control when a subscription is saved, so the read side
-        # has to let them through too — otherwise a save succeeds and the follow-up GET 404s.
+        # Admins bypass the save-time check; without a read-side bypass their save would then 404.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save(update_fields=["level"])
         private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        # "Private" means a project-default deny on the object, with no member or role attached.
+        # A deny with no member or role attached applies to the whole project.
         AccessControl.objects.create(
             team=self.team, resource="insight", resource_id=str(private_insight.id), access_level="none"
         )

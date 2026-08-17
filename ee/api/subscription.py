@@ -98,16 +98,15 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
-    # `subscription` isn't an access-control resource, so team scoping is the only gate the framework
-    # applies. Saving a subscription renders its target server-side and delivers the results to an
-    # arbitrary address, so subscription:write must not become a way to read a restricted object.
+    # Subscriptions are not an access-control resource, and a saved subscription emails the rendered
+    # target. Without this check, saving one would be a way to read a restricted object.
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
         raise ValidationError({field: [f"Viewer access to this {field} is required."]})
 
 
 def _viewable_queryset(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
-    # include_all_if_admin mirrors check_access_level_for_object, which org admins bypass outright —
-    # without it an admin could save a subscription the read side then hides from them.
+    # include_all_if_admin matches the admin bypass in check_access_level_for_object. Without it,
+    # an admin could save a subscription that the read side then hides.
     return user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
 
 
@@ -433,8 +432,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
-        # Gate on the target the row will have *after* this write, falling back to the persisted one,
-        # so a PATCH that omits insight/dashboard can't skip the check.
+        # Check the target the row will have after this write, so a PATCH that omits the field
+        # cannot skip the check.
         user_access_control = self.context["view"].user_access_control
         for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
@@ -699,18 +698,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     {"dashboard_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]}
                 )
 
-            # Every selected insight must belong to the team and be viewable by the caller: each
-            # selected tile is rendered and delivered on its own, and an insight can be restricted
-            # independently of the dashboard it sits on, so viewer access to the dashboard doesn't
-            # cover them. The dashboard API redacts such tiles for the same reason.
+            # Each selected insight is rendered and delivered on its own and can be restricted
+            # independently of its dashboard, so dashboard access alone is not enough.
             team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
             user_access_control = self.context["view"].user_access_control
             viewable_ids = set(_viewable_queryset(user_access_control, team_insights).values_list("id", flat=True))
             unusable_ids = selected_ids - viewable_ids
             if unusable_ids:
-                # The happy path pays one query; the unfiltered count runs only to tell the two errors
-                # apart. An id outside the team can never be viewable, so the membership error stays
-                # reachable.
+                # The count runs only on failure, to pick between the two errors. An id outside
+                # the team is never viewable, so the membership error stays reachable.
                 if team_insights.count() != len(selected_ids):
                     raise ValidationError(
                         {
@@ -953,47 +949,37 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
     """Match only subscriptions whose rendered target the caller can view.
 
-    `subscription` isn't an access-control resource, so without this a restricted insight or dashboard
-    leaks its name and rendered results through the subscription routes. Applied to the viewset
-    queryset it covers list, retrieve, update, and delete, since get_object() resolves detail routes
-    from it. A dashboard subscription also requires every exported insight to be viewable — each one
-    is rendered and delivered on its own, and can be restricted after the subscription was saved. An
-    empty dashboard_export_insights selection means the delivery renders every live tile on the
-    dashboard (admin- and legacy-created rows look like this), so it is gated on those tiles instead.
-    AI prompt subscriptions have no insight or dashboard; their report content is gated on query
-    access separately, by _should_hide_ai_report.
+    Subscriptions are not an access-control resource, so without this filter a restricted insight
+    or dashboard leaks through the subscription routes. get_object() resolves detail routes from
+    the same queryset, so it covers list, retrieve, update, and delete.
 
-    Known limitations, shared with the alerts sibling: this filter resolves object-level access
-    control rows only, while the write gate also consults resource-level rows (get_user_access_level
-    falls through to access_level_for_resource; filter_queryset_by_access_level never does). So a
-    member denied a whole resource (an AccessControl row with resource_id=None) can't save a
-    subscription on it but can still list existing ones — closing that belongs in
-    posthog/rbac/user_access_control.py, for both features at once. The delivery pipeline also
-    doesn't re-check access at render time, so a hidden subscription keeps delivering until an org
-    admin turns it off.
+    A dashboard subscription needs every exported insight to be viewable, since each is rendered
+    and delivered on its own. An empty dashboard_export_insights selection renders every live tile
+    (admin- and legacy-created rows), so those are gated on the tiles instead. AI prompt
+    subscriptions have no target here; _should_hide_ai_report gates their content.
 
-    Every multi-valued (M2M or reverse-FK) condition below must stay negated: Django compiles a
-    negated multi-valued lookup to a correlated NOT EXISTS subquery, while a positive one joins the
-    through table into the outer query and duplicates each subscription row per related row.
+    Known limits, shared with alerts: this filter only reads object-level access control rows
+    (the write gate also honors a resource-level deny), and deliveries do not re-check access at
+    render time. Both fixes belong in posthog/rbac, for both features at once.
+
+    Keep every M2M condition negated: Django compiles a negated multi-valued lookup to a
+    NOT EXISTS subquery, while a positive one joins the through table and duplicates rows.
     """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
-        # Without the entitlement there are no rules to enforce, and org admins bypass every object
-        # rule (the include_all_if_admin path would return each queryset unfiltered anyway) — return
-        # early so those list requests don't carry pointless subqueries.
+        # No entitlement means no rules, and org admins bypass them all, so skip the subqueries.
         return Q()
 
-    # The soft-delete-excluding default managers would silently widen the deny set to every
-    # subscription on a soft-deleted target, hiding it from its owner and admins alike; access
-    # control rows are keyed on resource_id and don't care about the deleted flag.
+    # Include soft-deleted targets: the default managers exclude them, which would hide those
+    # subscriptions from their owners.
     team_insights = Insight.objects_including_soft_deleted.filter(team_id=team_id)
     viewable_insights = _viewable_queryset(user_access_control, team_insights)
     viewable_dashboards = _viewable_queryset(
         user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
     )
-    # The renderer never draws a soft-deleted insight, so one can't leak and doesn't block.
+    # A soft-deleted insight is never rendered, so it cannot leak and does not block.
     blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id")).exclude(deleted=True)
-    # DashboardTile.objects skips soft-deleted tiles and dashboards (a relation-spanning lookup
-    # would not), so only tiles a delivery would actually render count as blocking.
+    # Use DashboardTile.objects rather than a tiles__ lookup: the manager skips soft-deleted
+    # tiles, a raw join would not.
     blocked_tile_dashboard_ids = DashboardTile.objects.filter(
         dashboard__team_id=team_id, insight__in=blocked_insights
     ).values("dashboard_id")
@@ -1578,8 +1564,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        # A delivery row carries the rendered target (content_snapshot holds each insight's
-        # query_results), so it needs the same target-access gate as the parent subscription.
+        # Delivery rows carry the rendered results (content_snapshot), so they get the same gate.
         return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, prefix="subscription__"))
 
 
