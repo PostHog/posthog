@@ -687,6 +687,7 @@ runcmd:
         print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
+        replay_found = False
         while time.time() < deadline:
             attempt += 1
             try:
@@ -700,7 +701,8 @@ runcmd:
                     results = recordings_resp.json().get("results", [])
                     if any(recording.get("id") == session_id for recording in results):
                         print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
-                        return True, "Events, log, exception issue, and session recording ingested successfully"
+                        replay_found = True
+                        break
                     print(f"   Poll {attempt}: no session recording yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
@@ -708,7 +710,72 @@ runcmd:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+        if not replay_found:
+            return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        trace_id = uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        start_time_ns = time.time_ns()
+        print("📤 Sending test trace...", flush=True)
+        try:
+            trace_resp = requests.post(
+                f"{base_url}/i/v1/traces",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceSpans": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeSpans": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "spans": [
+                                        {
+                                            "traceId": trace_id,
+                                            "spanId": span_id,
+                                            "name": "hobby-ci-smoke-test",
+                                            "kind": 1,
+                                            "startTimeUnixNano": str(start_time_ns),
+                                            "endTimeUnixNano": str(start_time_ns + 1_000_000),
+                                            "status": {"code": 1},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Trace capture request failed: {e}"
+        if trace_resp.status_code != 200:
+            return False, f"Trace capture failed: HTTP {trace_resp.status_code} - {trace_resp.text[:200]}"
+
+        print(f"⏳ Polling for trace (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                query_resp = requests.post(
+                    f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"query": {"dateRange": {"date_from": date_from}, "traceId": trace_id, "limit": 1}},
+                    headers=headers,
+                    timeout=10,
+                )
+                if query_resp.status_code == 200 and query_resp.json().get("results", []):
+                    print(f"✅ Trace found after {attempt} poll(s)", flush=True)
+                    return True, "Events, log, exception issue, session recording, and trace ingested successfully"
+                if query_resp.status_code != 200:
+                    print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
+                else:
+                    print(f"   Poll {attempt}: trace pending", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):

@@ -29,6 +29,8 @@ class RunCheckSuiteInputs:
     suite_run_id: str | None = None
     data_modeling_job_id: str | None = None
     created_by_id: int | None = None
+    # Audits the staged folder rather than the published table. Needs exactly one saved query.
+    staged_queryable_folder: str | None = None
 
 
 @frozen
@@ -48,6 +50,8 @@ class RunCheckBatchInputs:
     team_id: int
     suite_run_id: str
     check_ids: list[str]
+    staged_queryable_folder: str | None = None
+    staged_saved_query_id: str | None = None
 
 
 @frozen

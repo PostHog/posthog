@@ -86,7 +86,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Description</LemonLabel>
+                    <LemonLabel>Description (optional)</LemonLabel>
                     <LemonTextArea
                         value={description}
                         onChange={setDescription}
