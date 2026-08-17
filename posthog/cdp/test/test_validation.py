@@ -499,6 +499,47 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            ("email_not_a_string", {"email": 123}, "Expected string value for 'from.email'."),
+            (
+                "both_not_strings",
+                {"email": 123, "name": ["x"]},
+                "Expected string values for 'from.email', 'from.name'.",
+            ),
+        ]
+    )
+    def test_email_from_overrides_must_be_strings(self, _name, overrides, expected):
+        # A non-string override saves fine without this check and then fails every send in the
+        # runtime's schema parse, so the shape error must surface at authoring time instead.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, **overrides},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert expected in str(ctx.value.detail)
+
+    def test_email_from_overrides_accept_templated_strings(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, "email": "{{ event.properties.sender_email }}", "name": "Community"},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert validated["email"]["value"]["from"] == {
+            "integrationId": 1,
+            "email": "{{ event.properties.sender_email }}",
+            "name": "Community",
+        }
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),
