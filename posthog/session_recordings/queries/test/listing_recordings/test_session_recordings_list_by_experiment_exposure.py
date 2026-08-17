@@ -188,6 +188,67 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-control", "session-test"],
         )
 
+    def test_test_accounts_stay_excluded_through_exposure_criteria_alone(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": True})
+        create_person(team=self.team, distinct_ids=["real-user"])
+        create_person(team=self.team, distinct_ids=["test-account-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("real-user", exposure_time, "test", properties={"$host": "example.com"})
+        self._create_exposure_event("test-account-user", exposure_time, "test", properties={"$host": "localhost"})
+        flush_persons_and_events()
+
+        self._produce_recording("real-user", "real-user-session", exposure_time, exposure_time + timedelta(hours=1))
+        self._produce_recording(
+            "test-account-user", "test-account-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            ["real-user-session"],
+        )
+
+    @parameterized.expand(
+        [
+            ("criteria_filter_test_accounts", True, ["exposed-user-session"]),
+            ("criteria_allow_test_accounts", False, []),
+        ]
+    )
+    def test_recordings_side_test_filter_defers_to_exposure_criteria(
+        self, _name: str, criteria_filter_test_accounts: bool, expected_sessions: list[str]
+    ) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": criteria_filter_test_accounts})
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("exposed-user", exposure_time, "test", properties={"$host": "example.com"})
+        # An in-session event matching the test-account filters. When the criteria filter test
+        # accounts, the person already passed at exposure and their session must stay; when the
+        # criteria allow test accounts, the query's own filter_test_accounts must still drop it.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="exposed-user",
+            timestamp=exposure_time + timedelta(minutes=10),
+            properties={"$host": "localhost", "$session_id": "exposed-user-session"},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "exposed-user", "exposed-user-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            expected_sessions,
+        )
+
     def test_links_server_side_exposures_through_the_person(self) -> None:
         # The case the person-scoped linkage exists for: the exposure event is captured
         # server-side under a backend distinct id and without a usable $session_id, while the
