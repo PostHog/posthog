@@ -165,6 +165,25 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             schema.save()
             assert before_update.called
 
+    def test_set_backfill_incomplete_does_not_write_back_a_stale_instance(self) -> None:
+        # A pipeline holds one schema for the whole run, loaded before post-load links the table. A
+        # full save off that instance writes its stale table_id and last_synced_at back over what the
+        # run just recorded, and the row then reads as never synced with no table.
+        schema = self._create(sync_type_config={"incremental_field": "updated_at"})
+        stale = ExternalDataSchema.objects.get(pk=schema.pk)
+
+        synced_at = timezone.now()
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(last_synced_at=synced_at, status="Completed")
+
+        stale.set_backfill_incomplete(True)
+
+        schema.refresh_from_db()
+        assert schema.backfill_incomplete is True
+        assert schema.last_synced_at == synced_at
+        assert schema.status == "Completed"
+        # Unrelated keys the run wrote are merged, not replaced.
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
     def test_reset_pipeline_save_skips_activity_log(self) -> None:
         schema = self._create(
             sync_type=ExternalDataSchema.SyncType.XMIN,

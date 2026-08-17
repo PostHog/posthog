@@ -1013,11 +1013,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if incomplete == self.backfill_incomplete:
             return
 
-        if incomplete:
-            self.sync_type_config["backfill_incomplete"] = True
-        else:
-            self.sync_type_config.pop("backfill_incomplete", None)
-        self.save(skip_activity_log=True)
+        # Merged under a row lock rather than saved off this instance. Callers hold a schema loaded
+        # at the start of a run, before post-load linked the table, so a full save here would write
+        # that stale `table_id` and `last_synced_at` back over what the run just recorded.
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id,
+            self.team_id,
+            updates={"backfill_incomplete": True} if incomplete else None,
+            removes=None if incomplete else ["backfill_incomplete"],
+        )
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
