@@ -2237,13 +2237,13 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
     # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
     # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
     setting_key = _DIGEST_PROJECT_SETTING_KEYS[NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value]
-    autoselect_counts: dict[int, dict] = {}
+    autoselect_counts: dict[int, error_tracking_api.ExceptionSummary] = {}
     if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
         autoselect_counts = {
             tid: summary
             for tid in team_ids_with_exceptions
             if (summary := error_tracking_api.get_exception_summary_for_team(all_org_teams[tid]))
-            and summary["exception_count"] > 0
+            and summary.exception_count > 0
         }
 
     # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
