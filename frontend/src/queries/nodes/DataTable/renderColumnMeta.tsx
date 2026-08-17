@@ -57,6 +57,10 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     } else if (propertyName && isGroupsQuery(query.source)) {
         const splitPropertyName = propertyName.split('--')
         title = splitPropertyName.length > 1 ? splitPropertyName[1].trim() : propertyName
+    } else if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && key.includes('--')) {
+        // A trailing `-- comment` is a display name the user typed, so it has to outrank the
+        // property-name branches below, which strip it and show the bare expression instead.
+        title = extractExpressionComment(key)
     } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {
