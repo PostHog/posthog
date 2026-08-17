@@ -92,6 +92,15 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
+# name") or the raw socket wording ("Name or service not known" / "No address associated with
+# hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
+# so surface actionable guidance on the sync path (the validate path already has its own copy).
+_DNS_RESOLUTION_ERROR = (
+    "Could not resolve the database host to an address. Check that the host is spelled correctly "
+    "and reachable from the public internet, then re-enable the sync."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -377,7 +386,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
             ),
-            "could not translate host name": None,
+            "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
             "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
             # Some providers (observed on a Neon-style pooler) report the same auth rejection without
@@ -470,12 +479,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # it too, instead of burning the retry budget re-scanning the same oversized catalog.
             "listing table columns while discovering the database schema": None,
             "TemporaryFileSizeExceedsLimitException": None,
-            "Name or service not known": None,
+            "Name or service not known": _DNS_RESOLUTION_ERROR,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
             # surfaces as "[Errno -5] No address associated with hostname". Both mean the customer's
             # database host doesn't resolve to an address — a config/DNS issue on their side that
             # retrying won't fix.
-            "No address associated with hostname": None,
+            "No address associated with hostname": _DNS_RESOLUTION_ERROR,
             "Network is unreachable": None,
             # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
             # Temporal wraps the activity failure (`ApplicationError` stringifies as
@@ -514,6 +523,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
                 "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
+            ),
+            # A custom "app.*" session GUC the connecting role doesn't set — raised (SQLSTATE 42704)
+            # by a row-level security policy, view, or connection pooler that reads a per-session
+            # setting the application is expected to set (e.g. `current_setting('app.client_id')`).
+            # PostHog only ever sets standard parameters (client_encoding, statement_timeout,
+            # DateStyle, idle_in_transaction_session_timeout), so an unrecognized `app.*` parameter is
+            # always the customer's own setup and is permanent until they change it — retrying just
+            # re-hits it. Match the stable "app." namespace prefix; the parameter name after it varies.
+            'unrecognized configuration parameter "app.': (
+                "Your database expects a session setting that PostHog doesn't provide (PostgreSQL "
+                'reported "unrecognized configuration parameter"). This usually comes from a row-level '
+                "security policy, view, or connection pooler that reads a custom setting (for example "
+                "app.current_tenant). Make that setting optional in your database (for example with "
+                "current_setting('setting_name', true)), or remove the affected tables from this sync, "
+                "then re-enable the sync."
             ),
             # A row-level security policy on this table (or another table its policy queries) is
             # self-referential, so Postgres can't evaluate it and raises SQLSTATE 42P17 on every
