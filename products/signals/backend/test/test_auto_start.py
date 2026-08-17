@@ -541,6 +541,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as mock_capture,
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -558,6 +559,16 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
         )
 
     assert mock_create.call_count == (0 if already_addressed else 1)
+    skip_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "signals_autostart_skipped"]
+    if already_addressed:
+        assert len(skip_events) == 1
+        props = skip_events[0].kwargs["properties"]
+        assert props["reason"] == "already_addressed"
+        assert props["report_id"] == str(report.id)
+        # Org attribution ($group_0) is what lets the stall analysis join skip events to orgs.
+        assert "organization" in skip_events[0].kwargs["groups"]
+    else:
+        assert skip_events == []
 
 
 @pytest.mark.parametrize(

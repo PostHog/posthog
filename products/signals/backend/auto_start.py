@@ -335,6 +335,38 @@ def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_i
         logger.exception("Failed to capture signals_pr_billing_exempted", report_id=report_id)
 
 
+async def _acapture_autostart_skipped(
+    *,
+    team_id: int,
+    report_id: str,
+    reason: str,
+    team: Team | None = None,
+    actionability: str | None = None,
+    priority: str | None = None,
+) -> None:
+    """`signals_autostart_skipped` records every skipped auto-start evaluation with a stable
+    reason slug, so ready-reports-that-never-start is queryable per org instead of log-only."""
+    try:
+        if team is None:
+            team = await Team.objects.select_related("organization").aget(pk=team_id)
+        posthoganalytics.capture(
+            event="signals_autostart_skipped",
+            distinct_id=str(team.organization.id),
+            properties={
+                "team_id": team_id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "reason": reason,
+                "actionability": actionability,
+                "priority": priority,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break auto-start.
+        logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
+
+
 def _create_implementation_task_if_absent(
     *,
     team_id: int,
@@ -629,20 +661,29 @@ async def maybe_autostart_implementation_task(
             report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         )
     )
-    skip_reason: str | None = None
+    # Each skip pairs the existing log wording with a stable event reason slug; the slugs feed
+    # the `signals_autostart_skipped` event, so don't reword them without checking consumers.
+    skip: tuple[str, str] | None = None  # (log reason, event reason slug)
     if task_exists:
-        skip_reason = "implementation task already exists"
+        skip = ("implementation task already exists", "task_exists")
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
-        skip_reason = f"not immediately actionable: {actionability.actionability.value}"
+        skip = (f"not immediately actionable: {actionability.actionability.value}", "not_immediately_actionable")
     elif actionability.already_addressed:
-        skip_reason = "report already addressed"
+        skip = ("report already addressed", "already_addressed")
     elif priority is None:
-        skip_reason = "no priority assessment"
-    if skip_reason is not None:
-        logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
+        skip = ("no priority assessment", "no_priority")
+    if skip is not None:
+        logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason=skip[0])
+        await _acapture_autostart_skipped(
+            team_id=team_id,
+            report_id=report_id,
+            reason=skip[1],
+            actionability=actionability.actionability.value,
+            priority=priority.priority.value if priority else None,
+        )
         return
 
-    assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
+    assert priority is not None  # narrowed by the `priority is None` skip guard above
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
     if team_config and team_config.autostart_enabled is False:
@@ -654,6 +695,13 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="autostart disabled for team",
+        )
+        await _acapture_autostart_skipped(
+            team_id=team_id,
+            report_id=report_id,
+            reason="autostart_disabled",
+            actionability=actionability.actionability.value,
+            priority=priority.priority.value,
         )
         return
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
@@ -672,6 +720,14 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="org over self-driving credits quota",
+        )
+        await _acapture_autostart_skipped(
+            team_id=team_id,
+            report_id=report_id,
+            reason="quota_enforced",
+            team=team,
+            actionability=actionability.actionability.value,
+            priority=priority.priority.value,
         )
         return
 
@@ -696,6 +752,14 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
+        )
+        await _acapture_autostart_skipped(
+            team_id=team_id,
+            report_id=report_id,
+            reason="no_runner",
+            team=team,
+            actionability=actionability.actionability.value,
+            priority=priority.priority.value,
         )
         return
 
@@ -725,6 +789,14 @@ async def maybe_autostart_implementation_task(
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
+        await _acapture_autostart_skipped(
+            team_id=team_id,
+            report_id=report_id,
+            reason="lost_create_race",
+            team=team,
+            actionability=actionability.actionability.value,
+            priority=priority.priority.value,
+        )
         return
 
 
