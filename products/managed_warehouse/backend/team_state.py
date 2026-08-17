@@ -158,10 +158,10 @@ def backfill_row_exists(team_id: int, organization_id: str) -> bool:
 
 
 def list_enabled_backfill_rows(call_site: str) -> list[ManagedWarehouseTeamMembership]:
-    """Every team with warehouse backfills enabled, for sensor enumeration.
+    """Every backfill-enabled team in a ready warehouse, for sensor enumeration.
 
-    Failure posture: an unreachable control plane yields an empty enumeration (the
-    sensor tick becomes a no-op and the next tick retries) — it must never raise.
+    Failure posture: an unavailable team or warehouse listing yields an empty enumeration.
+    The sensor tick becomes a no-op and the next tick retries; it must never raise.
     """
     cp_rows = cp_teams.list_enabled_backfills()
     if cp_rows is None:

@@ -8,6 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { dataModelingLogic } from './dataModelingLogic'
+import type { Edge, Node } from './modeling/types'
 
 describe('dataModelingLogic', () => {
     let logic: ReturnType<typeof dataModelingLogic.build>
@@ -71,5 +72,68 @@ describe('dataModelingLogic', () => {
         logic.mount()
 
         expect(logic.values.selectedDagId).toBe('dag-123')
+    })
+
+    it('lays out only the nodes matched by a lineage search', async () => {
+        logic = dataModelingLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toDispatchActions(['loadDataModelingNodesSuccess', 'loadDataModelingEdgesSuccess'])
+            .toFinishAllListeners()
+
+        const nodes: Node[] = [
+            {
+                id: 'source',
+                type: 'model',
+                position: { x: 0, y: 0 },
+                data: {
+                    id: 'source',
+                    name: 'this_view',
+                    type: 'view',
+                    upstreamCount: 0,
+                    downstreamCount: 1,
+                },
+            },
+            {
+                id: 'unrelated',
+                type: 'model',
+                position: { x: 5000, y: 0 },
+                data: {
+                    id: 'unrelated',
+                    name: 'unrelated_view',
+                    type: 'view',
+                    upstreamCount: 0,
+                    downstreamCount: 0,
+                },
+            },
+            {
+                id: 'target',
+                type: 'model',
+                position: { x: 10000, y: 0 },
+                data: {
+                    id: 'target',
+                    name: 'dependent_view',
+                    type: 'view',
+                    upstreamCount: 1,
+                    downstreamCount: 0,
+                },
+            },
+        ]
+        const edges: Edge[] = [
+            {
+                id: 'source->target',
+                source: 'source',
+                target: 'target',
+            },
+        ]
+
+        logic.actions.setNodesRaw(nodes)
+        logic.actions.setEdges(edges)
+        logic.actions.setDebouncedSearchTerm('this_view+')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.enrichedNodes.map((node) => node.id)).toEqual(['source', 'target'])
+        const [source, target] = logic.values.enrichedNodes
+        expect(Math.abs(target.position.x - source.position.x)).toBeLessThan(1000)
     })
 })
