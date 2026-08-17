@@ -259,16 +259,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             self.save(update_fields=["_provisioning_config"])
         return self.provisioning
 
-    def update_provisioning_rate_limits(self, **changes: object) -> "ProvisioningConfig":
-        """Apply a partial change to the nested rate limits and persist it.
+    def update_provisioning_rate_limits(self, **changes: int | None) -> "ProvisioningConfig":
+        """Apply a partial change to the per-endpoint rate limit overrides and persist it.
 
-        Nested under the same lock as any other partial change, so the read of the current
-        limits can't be stale by the time it is written back.
+        A value of None removes the endpoint's override (back to the tier-derived
+        budget). Nested under the same lock as any other partial change, so the read
+        of the current limits can't be stale by the time it is written back.
         """
         with transaction.atomic():
             current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
             self._provisioning_config = current._provisioning_config
-            return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+            merged = {**self.provisioning.rate_limits, **changes}
+            return self.update_provisioning(rate_limits={k: v for k, v in merged.items() if v is not None})
 
     @property
     def partner_tier(self) -> "PartnerTier":

@@ -655,7 +655,7 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
             ),
             (
                 "quota_recorded",
-                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limit_source="admin")},
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limits={"account_requests": 5})},
                 True,
             ),
         ]

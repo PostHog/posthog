@@ -18,9 +18,8 @@ to an operator as a capability that was granted.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PartnerTier(StrEnum):
@@ -42,21 +41,10 @@ class PartnerTier(StrEnum):
     JWKS_ATTESTED = "jwks_attested"
 
 
-# Records who set the account-request rate limit, so a verification flip doesn't overwrite an
-# explicit admin override. Empty for rows that pre-date the field.
-RateLimitSource = Literal["", "default_unverified", "default_verified", "admin"]
-
-
-class ProvisioningRateLimits(BaseModel):
-    """Per-endpoint hourly overrides. None means "use the endpoint's default"."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    account_requests: int | None = None
-    token_exchanges: int | None = None
-    resource_creates: int | None = None
-    github_grants: int | None = None
-    wizard_runs: int | None = None
+# Admin override value that disables an endpoint's limit outright. Distinct from the
+# BLOCKED tier multiplier (0) on purpose: an operator typing 0 into a form must not
+# accidentally grant infinity, so 0 is rejected at the write paths.
+UNLIMITED_OVERRIDE = -1
 
 
 class ProvisioningConfig(BaseModel):
@@ -94,5 +82,21 @@ class ProvisioningConfig(BaseModel):
     # Grandfathered: only the legacy Stripe app still mints a Personal API Key.
     issues_personal_api_key: bool = False
 
-    rate_limits: ProvisioningRateLimits = Field(default_factory=ProvisioningRateLimits)
-    rate_limit_source: RateLimitSource = ""
+    # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
+    # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
+    # Every value stored here is admin-authored: the self-serve tiers are derived at
+    # request time and never written, which is what made rate_limit_source obsolete.
+    rate_limits: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("rate_limits", mode="before")
+    @classmethod
+    def _normalize_rate_limits(cls, value: object) -> dict[str, int]:
+        """Load blobs written by any release: the old fixed-field shape stored null
+        for "no override" and 0 for "unlimited"."""
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(key): (UNLIMITED_OVERRIDE if int(raw) <= 0 else int(raw))
+            for key, raw in value.items()
+            if raw is not None
+        }

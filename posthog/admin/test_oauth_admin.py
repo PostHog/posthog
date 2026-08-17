@@ -58,10 +58,8 @@ class TestOAuthApplicationAdmin(BaseTest):
         # Unticked boxes stay off rather than picking up a default.
         assert granted.can_start_wizard_runs is False
 
-    def test_admin_rate_limit_override_outranks_the_verified_default(self):
-        # A CIMD refresh re-tiers the account-request limit unless the source says an admin set
-        # it, so an override typed here has to record that or the next refresh overwrites it.
-        app = OAuthApplication.objects.create(
+    def _rate_limit_app(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
             name="Rate Limit App",
             client_id="rate_limit_client_id",
             client_secret="secret",
@@ -71,13 +69,29 @@ class TestOAuthApplicationAdmin(BaseTest):
             algorithm="RS256",
         )
 
+    def test_admin_rate_limit_override_is_stored_per_endpoint(self):
+        app = self._rate_limit_app()
+
         form = self._provisioning_form(app, provisioning_rate_limit_account_requests="250")
         assert form.is_valid(), form.errors
         form.save()
 
         app.refresh_from_db()
-        assert app.provisioning.rate_limits.account_requests == 250
-        assert app.provisioning.rate_limit_source == "admin"
+        assert app.provisioning.rate_limits == {"account_requests": 250}
+
+    def test_admin_rate_limit_zero_is_rejected_and_minus_one_means_unlimited(self):
+        # 0 used to mean unlimited; an operator typing it must get an error, not infinity.
+        app = self._rate_limit_app()
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="0")
+        assert not form.is_valid()
+        assert "provisioning_rate_limit_account_requests" in form.errors
+
+        form = self._provisioning_form(app, provisioning_rate_limit_account_requests="-1")
+        assert form.is_valid(), form.errors
+        form.save()
+        app.refresh_from_db()
+        assert app.provisioning.rate_limits == {"account_requests": -1}
 
     @parameterized.expand(
         [
