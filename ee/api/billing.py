@@ -335,6 +335,16 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+def _parse_team_ids(raw_team_ids: str) -> list[int]:
+    try:
+        parsed = json.loads(raw_team_ids)
+        if not isinstance(parsed, list):
+            raise ValueError("team_ids must be a JSON array")
+        return [int(team_id) for team_id in parsed]
+    except (ValueError, TypeError):
+        raise ValidationError({"team_ids": "team_ids must be a JSON array of team IDs."})
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -848,6 +858,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 params_to_pass["team_ids"] = json.dumps(scoped_team_ids)
 
             res = billing_data_getter(organization, params_to_pass)
+            if scoped_team_ids is not None and isinstance(res, dict) and "team_id_options" in res:
+                scoped_team_id_set = set(scoped_team_ids)
+                res["team_id_options"] = [
+                    team_id for team_id in (res.get("team_id_options") or []) if team_id in scoped_team_id_set
+                ]
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
@@ -907,7 +922,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _get_teams_map(self, organization: Organization, team_ids: Optional[Sequence[int]] = None) -> dict[int, str]:
         """
-        Safely build a mapping of team.id to team.name for the org. Return empty dict on failure.
+        Safely build a mapping of team.id to team.name for the org, optionally limited to team_ids.
+        Return empty dict on failure.
         """
         try:
             teams = Team.objects.filter(organization=organization)
