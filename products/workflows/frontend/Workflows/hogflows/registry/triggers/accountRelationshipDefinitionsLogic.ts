@@ -68,8 +68,13 @@ export const accountRelationshipDefinitionsLogic = kea<accountRelationshipDefini
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    try {
+                        const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
+                        return response.results
+                    } catch (error) {
+                        posthog.captureException(error, { scope: 'accountRelationshipDefinitionsLogic.load' })
+                        return values.definitions
+                    }
                 },
             },
         ],
