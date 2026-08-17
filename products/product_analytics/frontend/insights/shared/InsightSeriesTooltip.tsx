@@ -9,6 +9,7 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
+    FormattedDateOptions,
     getDatumTitle,
     getFormattedDate,
     getTooltipTitle,
@@ -19,7 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, IntervalType } from '~/types'
+import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,17 @@ function formatRowValue(
     return formatAggregationAxisValue(opts.trendsFilter, value, opts.baseCurrency)
 }
 
+/** Format one period's date for the tooltip header, spelling out the weekday on daily
+ *  buckets to match the classic insight tooltip. */
+function formatHeaderDate(date: string | undefined, options: FormattedDateOptions): string {
+    const formattedDate = getFormattedDate(date, options)
+    if (options.interval !== 'day' || typeof date !== 'string') {
+        return formattedDate
+    }
+    const parsed = parseDateInTimezone(date, options.timezone ?? 'UTC')
+    return parsed.isValid() ? `${parsed.format('dddd')}, ${formattedDate}` : formattedDate
+}
+
 // ── SeriesLabel ────────────────────────────────────────────────────────────
 
 /** How rows must identify the series they belong to:
@@ -108,6 +120,9 @@ interface SeriesLabelProps {
     datum: TooltipSeriesDatum
     breakdownFilter?: BreakdownFilter
     formatCompareLabel?: (label: string, dateLabel?: string) => string
+    /** What the row says about its period — the bucket's date where the chart has one, otherwise
+     *  "Current"/"Previous". Null for rows that aren't comparing periods. */
+    periodLabel: string | null
     seriesIdentification: SeriesIdentification
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
@@ -123,6 +138,7 @@ export function SeriesLabel({
     datum,
     breakdownFilter,
     formatCompareLabel,
+    periodLabel,
     seriesIdentification,
     renderSeriesOverride,
 }: SeriesLabelProps): React.ReactNode {
@@ -160,14 +176,6 @@ export function SeriesLabel({
         )
     }
 
-    const comparePeriod = datum.compare_label
-        ? formatCompareLabel
-            ? formatCompareLabel(String(datum.compare_label), datum.date_label)
-            : datum.compare_label === 'current'
-              ? 'Current'
-              : 'Previous'
-        : null
-
     const breakdownTitle = hasBreakdown
         ? getDatumTitle({ ...datum, compare_label: undefined }, breakdownFilter, formatCompareLabel)
         : null
@@ -195,7 +203,7 @@ export function SeriesLabel({
             {seriesPrefix}
             <span className="inline-flex items-center min-w-0 shrink-0 max-w-full">
                 <span className="truncate min-w-0 shrink">{breakdownTitle ?? datum.label}</span>
-                {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
+                {periodLabel && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{periodLabel}</span>}
             </span>
         </span>
     )
@@ -274,6 +282,106 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return new Set(nameByEntity.values()).size < nameByEntity.size ? 'letter-and-name' : 'name'
     }, [datumByKey])
 
+    // Each row carries its own period's date, so read the header's dates from the rows that own
+    // them. Row order can't stand in for period: grouped bars list the previous period first, and
+    // hiding the current series in the legend drops it from the tooltip entirely.
+    const compareDates = useMemo((): Partial<Record<CompareLabelType, string>> => {
+        const dates: Partial<Record<CompareLabelType, string>> = {}
+        for (const datum of datumByKey.values()) {
+            const label = datum.compare_label
+            if (label === CompareLabelType.Current || label === CompareLabelType.Previous) {
+                dates[label] ??= datum.date_label
+            }
+        }
+        return dates
+    }, [datumByKey])
+
+    const comparePeriodsShareAYear = useMemo((): boolean => {
+        const current = compareDates[CompareLabelType.Current]
+        const previous = compareDates[CompareLabelType.Previous]
+        if (!current || !previous) {
+            return true
+        }
+        return parseDateInTimezone(current, timezone).year() === parseDateInTimezone(previous, timezone).year()
+    }, [compareDates, timezone])
+
+    // A previous-period row names its own bucket's date instead of just saying which period it is:
+    // the row already has the space, and a date there answers the question "Previous" leaves open.
+    // Current rows keep the word, since the header above them is already that date.
+    const periodLabelOf = useCallback(
+        (datum: TooltipSeriesDatum): string | null => {
+            if (!datum.compare_label) {
+                return null
+            }
+            if (formatCompareLabel) {
+                return formatCompareLabel(String(datum.compare_label), datum.date_label)
+            }
+            if (datum.compare_label !== CompareLabelType.Previous) {
+                return 'Current'
+            }
+            // A row only covers one bucket on a chart that dates its header. An aggregated bar or a
+            // pie slice spans the whole range, so a single date would misdescribe it, and both of
+            // those drop the header. Stickiness sets `altTitle` because its `date_label` counts
+            // intervals rather than naming a date.
+            if (altTitle || showHeader === false || !datum.date_label) {
+                return 'Previous'
+            }
+            return getFormattedDate(datum.date_label, {
+                interval,
+                // `dateRange` is deliberately left out: it bounds the current period, and clamping
+                // this previous-period week to it would cut that week's range short.
+                timezone,
+                weekStartDay,
+                // The header already carries the year, so the row only repeats it when the periods
+                // straddle two of them (e.g. comparing to the previous year).
+                short: comparePeriodsShareAYear,
+            })
+        },
+        [formatCompareLabel, interval, altTitle, showHeader, timezone, weekStartDay, comparePeriodsShareAYear]
+    )
+
+    // Comparing periods puts two rows on the same thing, and they're only comparable if they sit
+    // together. Sorting every row by value interleaves them, so order by what each series and
+    // breakdown value did in the current period, then keep its two periods adjacent.
+    const compareRowComparator = useMemo(() => {
+        if (!compareDates[CompareLabelType.Previous]) {
+            return undefined
+        }
+        const pairKeyOf = (datum: TooltipSeriesDatum): string => `${datum.order}|${String(datum.breakdown_value)}`
+        const pairs = new Map<string, { current?: number; best: number }>()
+        for (const datum of datumByKey.values()) {
+            const pair = pairs.get(pairKeyOf(datum)) ?? { best: -Infinity }
+            if (datum.compare_label === CompareLabelType.Current) {
+                pair.current = datum.count
+            }
+            pair.best = Math.max(pair.best, datum.count)
+            pairs.set(pairKeyOf(datum), pair)
+        }
+        // A pair whose current row is hidden or absent still needs a place, so fall back to its
+        // largest row.
+        const rankByPair = new Map(
+            [...pairs.entries()]
+                .sort(([, a], [, b]) => (b.current ?? b.best) - (a.current ?? a.best))
+                .map(([key], index) => [key, index])
+        )
+        return (a: InsightSeriesTooltipEntry<Meta>, b: InsightSeriesTooltipEntry<Meta>): number => {
+            const datumA = datumByKey.get(a.series.key)
+            const datumB = datumByKey.get(b.series.key)
+            if (!datumA || !datumB) {
+                return 0
+            }
+            const rankA = rankByPair.get(pairKeyOf(datumA)) ?? 0
+            const rankB = rankByPair.get(pairKeyOf(datumB)) ?? 0
+            if (rankA !== rankB) {
+                return rankA - rankB
+            }
+            // Current above previous, matching the order the header names the two dates in.
+            const isPrevious = (datum: TooltipSeriesDatum): number =>
+                datum.compare_label === CompareLabelType.Previous ? 1 : 0
+            return isPrevious(datumA) - isPrevious(datumB)
+        }
+    }, [datumByKey, compareDates])
+
     const valueFormatter = useCallback(
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
@@ -313,30 +421,27 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                     datum={datum}
                     breakdownFilter={breakdownFilter}
                     formatCompareLabel={formatCompareLabel}
+                    periodLabel={periodLabelOf(datum)}
                     seriesIdentification={seriesIdentification}
                     renderSeriesOverride={renderSeriesOverride}
                 />
             )
         },
-        [datumByKey, breakdownFilter, formatCompareLabel, seriesIdentification, renderSeriesOverride]
+        [datumByKey, breakdownFilter, formatCompareLabel, periodLabelOf, seriesIdentification, renderSeriesOverride]
     )
 
     const labelFormatter = useCallback((): React.ReactNode => {
+        // Prefer the current period's own date: row order can't stand in for period, since grouped
+        // bars list the previous period first and hiding the current series in the legend drops it.
         const firstKey = context.seriesData[0]?.series.key
-        const date = firstKey ? datumByKey.get(firstKey)?.date_label : undefined
-        let formattedDate = getFormattedDate(date, { interval, dateRange, timezone, weekStartDay })
-        // Match the classic insight tooltip, which spells out the weekday on daily buckets
-        if (interval === 'day' && typeof date === 'string') {
-            const parsed = parseDateInTimezone(date, timezone)
-            if (parsed.isValid()) {
-                formattedDate = `${parsed.format('dddd')}, ${formattedDate}`
-            }
-        }
+        const currentDate =
+            compareDates[CompareLabelType.Current] ?? (firstKey ? datumByKey.get(firstKey)?.date_label : undefined)
+        const formattedDate = formatHeaderDate(currentDate, { interval, dateRange, timezone, weekStartDay })
         if (altTitle) {
             return getTooltipTitle([...datumByKey.values()], altTitle, formattedDate) ?? formattedDate
         }
         return formattedDate
-    }, [context.seriesData, datumByKey, interval, dateRange, timezone, weekStartDay, altTitle])
+    }, [context.seriesData, datumByKey, compareDates, interval, dateRange, timezone, weekStartDay, altTitle])
 
     const onRowClickEntry = useCallback(
         (entry: InsightSeriesTooltipEntry<Meta>): void => {
@@ -352,6 +457,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         <DefaultTooltip<Meta>
             {...context}
             sortedByValue={sortedByValue}
+            rowComparator={compareRowComparator}
             hideZeroRows={hideZeroRows}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}

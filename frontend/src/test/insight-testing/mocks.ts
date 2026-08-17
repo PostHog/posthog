@@ -234,7 +234,7 @@ function resolveSeriesData(query: QueryBody): SeriesData[] {
     return (query.series ?? []).flatMap((s, seriesIndex) => {
         const eventName = s.event ?? s.name ?? 'Unknown'
         if (isCompare) {
-            const compareSeries = lookupCompareSeries(eventName)
+            const compareSeries = lookupCompareSeries(eventName, breakdownProp ?? undefined)
             if (compareSeries) {
                 return compareSeries.map((row) => ({ ...row, seriesIndex, eventName }))
             }

@@ -6,11 +6,13 @@ import { Stage, playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 import { useChartTheme } from 'lib/charts/hooks'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import { CompareLabelType } from '~/types'
 
 import type { TrendsSeriesMeta } from '../trends/shared/trendsSeriesMeta'
 import { InsightSeriesTooltip } from './InsightSeriesTooltip'
 
 const DAYS = ['2024-06-10', '2024-06-11', '2024-06-12', '2024-06-13', '2024-06-14']
+const PREVIOUS_DAYS = ['2024-06-03', '2024-06-04', '2024-06-05', '2024-06-06', '2024-06-07']
 
 const BOOLEAN_BREAKDOWN_FILTER: BreakdownFilter = { breakdown: 'is_subscribed', breakdown_type: 'event' }
 
@@ -22,7 +24,10 @@ interface FixtureSeries {
     /** Formula label carried as `series_name` for rows without an event. */
     seriesName?: string
     seriesOrder: number
-    breakdown_value: string
+    breakdown_value?: string
+    compareLabel?: CompareLabelType
+    /** The period this series covers — a previous-period series carries its own dates. */
+    days?: string[]
 }
 
 function buildSeries(fixtures: FixtureSeries[]): {
@@ -39,7 +44,8 @@ function buildSeries(fixtures: FixtureSeries[]): {
             action: f.event ? { id: f.event, name: f.event, type: 'events', order: f.seriesOrder } : undefined,
             series_name: f.seriesName,
             breakdown_value: f.breakdown_value,
-            days: DAYS,
+            compare_label: f.compareLabel,
+            days: f.days ?? DAYS,
             order: f.seriesOrder,
         },
     }))
@@ -141,6 +147,80 @@ export const SameEventSeriesWithBreakdown: Story = {
                     breakdown_value: 'true',
                 },
                 { label: 'false', data: [2, 4, 5, 9, 3], event: '$pageview', seriesOrder: 1, breakdown_value: 'false' },
+            ]}
+        />
+    ),
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
+}
+
+// Comparing to the previous period: the previous row is dated, so its value never has to be
+// matched back to a date by hand. The current row's date is the header above it.
+export const CompareToPreviousPeriod: Story = {
+    render: () => (
+        <TooltipChart
+            fixtures={[
+                {
+                    label: '$pageview',
+                    data: [45, 82, 134, 210, 95],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    compareLabel: CompareLabelType.Current,
+                },
+                {
+                    label: '$pageview',
+                    data: [30, 64, 100, 155, 71],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    compareLabel: CompareLabelType.Previous,
+                    days: PREVIOUS_DAYS,
+                },
+            ]}
+        />
+    ),
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
+}
+
+// Compare doubles the row count once a breakdown is on. Each breakdown value sits directly above
+// its own previous period, which is the pair a reader is trying to compare. Sorting all four rows
+// by value would read 134, 46, 22, 12 and split both pairs.
+export const CompareToPreviousPeriodWithBreakdown: Story = {
+    render: () => (
+        <TooltipChart
+            fixtures={[
+                {
+                    label: 'true',
+                    data: [45, 82, 134, 210, 95],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    breakdown_value: 'true',
+                    compareLabel: CompareLabelType.Current,
+                },
+                {
+                    label: 'false',
+                    data: [20, 31, 46, 70, 38],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    breakdown_value: 'false',
+                    compareLabel: CompareLabelType.Current,
+                },
+                {
+                    label: 'true',
+                    data: [8, 15, 22, 34, 17],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    breakdown_value: 'true',
+                    compareLabel: CompareLabelType.Previous,
+                    days: PREVIOUS_DAYS,
+                },
+                {
+                    label: 'false',
+                    data: [5, 9, 12, 19, 10],
+                    event: '$pageview',
+                    seriesOrder: 0,
+                    breakdown_value: 'false',
+                    compareLabel: CompareLabelType.Previous,
+                    days: PREVIOUS_DAYS,
+                },
             ]}
         />
     ),
