@@ -28,6 +28,7 @@ export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, s
 export const preservePositionsCompactor: Compactor = {
     type: null,
     allowOverlap: false,
+    preventCollision: true,
     compact: (layout: Layout): Layout => {
         const items = layout.map((item) => cloneLayoutItem(item))
         const placedItems = items.filter((item) => item.static)

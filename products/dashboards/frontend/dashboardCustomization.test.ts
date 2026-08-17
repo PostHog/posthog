@@ -3,6 +3,10 @@ import type { Layout } from 'react-grid-layout'
 import { preservePositionsCompactor } from './dashboardCustomization'
 
 describe('preservePositionsCompactor', () => {
+    it('prevents a drag from moving other tiles', () => {
+        expect(preservePositionsCompactor.preventCollision).toBe(true)
+    })
+
     it('preserves tile coordinates without returning the original layout items', () => {
         const layout = [
             { i: 'first', x: 4, y: 3, w: 4, h: 3 },

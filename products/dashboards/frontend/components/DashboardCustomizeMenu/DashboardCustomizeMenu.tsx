@@ -34,7 +34,7 @@ const GRID_COMPACTION_OPTIONS: {
     {
         value: 'stable',
         label: DASHBOARD_GRID_COMPACTION_LABELS.stable,
-        description: 'Leaves tiles in place. Moves only tiles that would overlap.',
+        description: 'Leaves tiles in place. You cannot place one tile on top of another.',
     },
 ]
 
