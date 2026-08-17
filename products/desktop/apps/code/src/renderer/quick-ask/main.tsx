@@ -16,6 +16,7 @@ import { Container } from "inversify";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import superjson from "superjson";
+import { BootErrorBoundary } from "../components/BootErrorBoundary";
 
 // The panel boots only what answer rendering needs: host tRPC (auth tokens,
 // external links), react-query, and the theme.
@@ -59,13 +60,21 @@ const root = document.getElementById("root");
 if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <HostTRPCProvider trpcClient={hostTrpcClient} queryClient={queryClient}>
-          <ThemeWrapper>
-            <QuickAsk />
-          </ThemeWrapper>
-        </HostTRPCProvider>
-      </QueryClientProvider>
+      {/* A render crash (rich answer content is live data) otherwise unmounts
+          the whole panel with no way to close, reset, or retry; the boundary's
+          reload boots the window fresh. */}
+      <BootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <HostTRPCProvider
+            trpcClient={hostTrpcClient}
+            queryClient={queryClient}
+          >
+            <ThemeWrapper>
+              <QuickAsk />
+            </ThemeWrapper>
+          </HostTRPCProvider>
+        </QueryClientProvider>
+      </BootErrorBoundary>
     </React.StrictMode>,
   );
 }
