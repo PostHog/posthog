@@ -192,10 +192,7 @@ function createQuickAskWindow(): BrowserWindow {
   return window;
 }
 
-/** Last logged decision; geometry logs only when the decision changes. */
-let lastGeometryLogKey = "";
-
-function applyGeometry(window: BrowserWindow, why: string): void {
+function applyGeometry(window: BrowserWindow): void {
   if (window.isDestroyed()) return;
   const bounds = window.getBounds();
   const anchor = pillAnchor ?? {
@@ -217,28 +214,6 @@ function applyGeometry(window: BrowserWindow, why: string): void {
       y: geometry.y,
       width: geometry.width,
       height: geometry.height,
-    });
-  }
-  // Log every decision change so placement bugs are debuggable from the
-  // field (main.log), without spamming a line per streamed token.
-  const clamped = content.height > geometry.maxHeight;
-  const logKey = `${geometry.flip}|${clamped}|${why === "summon"}`;
-  if (why === "summon" || logKey !== lastGeometryLogKey) {
-    lastGeometryLogKey = logKey;
-    log.info("Quick ask geometry", {
-      why,
-      anchor,
-      content,
-      flip: geometry.flip,
-      clamped,
-      maxHeight: geometry.maxHeight,
-      bounds: {
-        x: geometry.x,
-        y: geometry.y,
-        width: geometry.width,
-        height: geometry.height,
-      },
-      workArea: area,
     });
   }
   const payload: QuickAskLayoutPayload = {
@@ -274,7 +249,7 @@ function summonAtCursor(window: BrowserWindow): void {
   pillAnchor = { x, y: Math.round(cursor.y + CURSOR_ABOVE_PILL_PX) };
   // Fresh summon, fresh direction decision.
   currentFlip = false;
-  applyGeometry(window, "summon");
+  applyGeometry(window);
 }
 
 function showQuickAsk(): void {
@@ -324,9 +299,6 @@ async function streamAnswer(
           message: event.message,
           detail: event.detail,
         });
-      }
-      if (event.type === "trace") {
-        log.info("Quick ask stream trace", { detail: event.detail });
       }
       send(event);
     }
@@ -387,7 +359,7 @@ export function setupQuickAsk(): void {
       Math.max(PANEL_INITIAL_WIDTH, Math.round(width)),
     );
     cachedContentHeight = Math.max(PILL_HEIGHT, Math.round(height));
-    applyGeometry(quickAskWindow, "content");
+    applyGeometry(quickAskWindow);
   });
   // Dragging: native `-webkit-app-region: drag` is incompatible with the
   // forwarded click-through events, so the renderer reports a grab offset
@@ -441,7 +413,7 @@ export function setupQuickAsk(): void {
   ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => {
     stopDrag();
     if (quickAskWindow && !quickAskWindow.isDestroyed()) {
-      applyGeometry(quickAskWindow, "drag-end");
+      applyGeometry(quickAskWindow);
     }
   });
   ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {

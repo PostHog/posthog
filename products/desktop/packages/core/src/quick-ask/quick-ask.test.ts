@@ -136,9 +136,7 @@ async function collect(
 ): Promise<QuickAskEvent[]> {
   const events: QuickAskEvent[] = [];
   for await (const event of service.ask({ question, conversationId })) {
-    if (event.type !== "trace") {
-      events.push(event);
-    }
+    events.push(event);
   }
   return events;
 }

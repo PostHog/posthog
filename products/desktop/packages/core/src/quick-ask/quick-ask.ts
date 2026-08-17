@@ -21,8 +21,7 @@ export type QuickAskEvent =
   | { type: "reasoning"; content: string }
   | { type: "text"; id: string; content: string; complete: boolean }
   | { type: "error"; message: string; detail?: string }
-  | { type: "done" }
-  | { type: "trace"; detail: string };
+  | { type: "done" };
 
 export interface QuickAskInput {
   question: string;
@@ -848,12 +847,6 @@ export class QuickAskService {
                 }
                 return;
               case "ignore":
-                if (signal.detail) {
-                  yield {
-                    type: "trace",
-                    detail: `stream frame ignored (${signal.detail})`,
-                  };
-                }
                 break;
             }
           }
