@@ -30,6 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
@@ -162,12 +163,12 @@ def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> 
 
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
-    # Lazy: DeltaTableHelper drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
+    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
     # create_external_data_job_model_activity uses (it only imports statistics_enabled).
     from asgiref.sync import async_to_sync  # noqa: PLC0415
 
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415
-        DeltaTableHelper,
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (  # noqa: PLC0415
+        DeltaTableRef,
     )
 
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
@@ -216,8 +217,8 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
-    delta_table_helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=log)
-    delta_table = async_to_sync(delta_table_helper.get_delta_table)()
+    delta_table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=log)
+    delta_table = async_to_sync(delta_table_ref.get_delta_table)()
     if delta_table is None:
         emit_completed("skipped", reason="no_delta_table")
         return {"status": "skipped", "reason": "no_delta_table"}
@@ -281,7 +282,11 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
                 inputs.team_id, inputs.schema_id
             )
         except Exception as e:
-            capture_exception(e)
+            # get_delta_table already re-raises known-transient object-store blips as
+            # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally
+            # skips reporting them itself — don't undo that here.
+            if not isinstance(e, NonReportableError):
+                capture_exception(e)
             try:
                 posthoganalytics.capture(
                     distinct_id=f"team-{inputs.team_id}",

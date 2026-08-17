@@ -447,8 +447,9 @@ export function HogFunctionTest(): JSX.Element {
                                             </>
                                         ) : (
                                             <LemonBanner type="warning">
-                                                The event was dropped by the transformation. If this is expected then
-                                                great news! If not, you should double check the configuration.
+                                                The {type === 'transformation_log' ? 'record' : 'event'} was dropped by
+                                                the transformation. If this is expected then great news! If not, you
+                                                should double check the configuration.
                                             </LemonBanner>
                                         )}
                                     </>

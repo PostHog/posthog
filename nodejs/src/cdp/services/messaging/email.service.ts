@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import {
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     IntegrationType,
@@ -184,6 +185,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
+            // Team-level kill switch: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability. Same choke-point placement as the
+            // suppression check below so no upstream route can bypass it. Test sends are blocked
+            // too — they hit SES and count against the tenant all the same.
+            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
+                addLog('warn', 'Skipping send: email sending is suspended for this project')
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
@@ -300,7 +321,7 @@ export class EmailService {
             }
 
             if (success && assetRow) {
-                result.emailAssets.push(assetRow)
+                result.messageAssets.push(assetRow)
             }
         }
 
@@ -512,7 +533,16 @@ export class EmailService {
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
-        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
+        // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
+        const workflowVersion =
+            'hogFlow' in result.invocation
+                ? (result.invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
+                : undefined
+        const trackingCode = this.trackingCodeSigner.generate(
+            { ...result.invocation, distinctId, workflowVersion },
+            isTest
+        )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
@@ -520,7 +550,13 @@ export class EmailService {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
                           trackingEnabled
-                              ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                              ? addTrackingToEmail(
+                                    params.html,
+                                    result.invocation,
+                                    this.trackingCodeSigner,
+                                    isTest,
+                                    'ses'
+                                )
                               : params.html,
                           params.preheader
                       ),

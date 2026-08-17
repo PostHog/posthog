@@ -33,8 +33,8 @@ def bucket_name(request) -> str:
 
 
 @pytest.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -43,17 +43,17 @@ async def minio_client(bucket_name):
         "s3",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
-    ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+    ) as object_storage_client:
+        await object_storage_client.create_bucket(Bucket=bucket_name)
 
-        yield minio_client
+        yield object_storage_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+        await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="/")
 
-        await minio_client.delete_bucket(Bucket=bucket_name)
+        await object_storage_client.delete_bucket(Bucket=bucket_name)
 
 
-async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
+async def test_s3_check_bucket_exists_test_step(bucket_name, object_storage_client):
     test_step = S3EnsureBucketTestStep(
         bucket_name=bucket_name,
         aws_access_key_id="object_storage_root_user",
@@ -66,7 +66,7 @@ async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
     assert result.message is None
 
 
-async def test_s3_check_bucket_exists_test_step_without_bucket(minio_client):
+async def test_s3_check_bucket_exists_test_step_without_bucket(object_storage_client):
     test_step = S3EnsureBucketTestStep(
         bucket_name="some-other-bucket",
         aws_access_key_id="object_storage_root_user",

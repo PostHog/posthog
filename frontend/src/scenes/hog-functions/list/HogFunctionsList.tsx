@@ -218,7 +218,12 @@ export function HogFunctionList({
                                 forceParams={{
                                     appSource: 'hog_function',
                                     appSourceId: hogFunction.id,
-                                    metricKind: ['success', 'failure'],
+                                    // Log transformations report drops and budget skips under
+                                    // metric_kind 'other' — without it their sparkline reads as idle.
+                                    metricKind:
+                                        hogFunction.type === 'transformation_log'
+                                            ? ['success', 'failure', 'other']
+                                            : ['success', 'failure'],
                                     breakdownBy: 'metric_kind',
                                     interval: 'day',
                                     dateFrom: '-7d',

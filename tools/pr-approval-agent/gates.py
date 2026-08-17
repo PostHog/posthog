@@ -60,7 +60,7 @@ class Ecosystem:
 
 DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
     "node": Ecosystem(
-        manifests=frozenset({"package.json"}),
+        manifests=frozenset({"package.json", "pnpm-workspace.yaml"}),
         lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
         trusted_at_dismiss=True,
     ),

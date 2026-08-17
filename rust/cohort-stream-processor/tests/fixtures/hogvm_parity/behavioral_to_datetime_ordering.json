@@ -1,7 +1,7 @@
 {
   "name": "to_datetime_ordering_lt",
   "oracle": "clickhouse",
-  "note": "toDateTime instant ordering: Lt(toDateTime(toString(person.properties.signup_date)), toDateTime(\"2026-01-01 00:00:00\")). expected_result is the ClickHouse/instant-ordering answer the Rust VM matches; the Python/TS reference VMs cannot order Hog temporals, so this is a Rust-vs-ClickHouse oracle, not a cross-runtime one. See the module-level provenance caveat.",
+  "note": "toDateTime instant ordering: Lt(toDateTime(toString(person.properties.signup_date)), toDateTime(\"2026-01-01 00:00:00\")). expected_result is the ClickHouse/instant-ordering answer, which the Rust VM matches and the Python/TS reference VMs now also match. Note both literals use the ClickHouse space-separated form: luxon's fromISO rejects it, so the TS VM used to return a NaN-valued HogDateTime here and could not in fact match — all three now share one date-like grammar (see parse_datetime_to_seconds in rust/common/hogvm/src/stl.rs). See the module-level provenance caveat.",
   "bytecode": [
     "_H",
     1,

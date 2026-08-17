@@ -15,26 +15,35 @@ from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
+from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    ReplayScannerPromptSuggestion,
+    SuggestionStatus,
+)
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+from products.replay_vision.backend.prompt_evaluation import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
+    reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     reap_stuck_vision_action_runs_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
+    INLINE_SCANNER_REAP_GRACE,
     OBSERVATION_ORPHAN_CUTOFF,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
@@ -44,6 +53,7 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_ID_PREFIX,
     SWEEP_SCANNER_WORKFLOW_NAME,
     VISION_ACTION_RUN_STUCK_CUTOFF,
+    build_evaluate_prompt_suggestion_workflow_id,
 )
 from products.replay_vision.backend.temporal.reconciler import (
     ReconcileScannerSchedulesWorkflow,
@@ -73,7 +83,7 @@ def _make_scanner(team: Team, **overrides: Any) -> ReplayScanner:
         "name": "reconciler-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -529,7 +539,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await reap_orphaned_observations_activity()
+        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -544,6 +554,61 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_settles_stuck_prompt_suggestion_evaluations(org_team) -> None:
+    # The evaluation workflow swallows finalize failures, so a terminated run leaves the row claiming to
+    # be running forever: the UI polls a test that will never finish and quota reserves its unspent credits.
+    _, team = org_team
+    scanner = await sync_to_async(_make_scanner)(team)
+    stale = timezone.now() - (EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT * 2 + dt.timedelta(minutes=5))
+
+    def _setup() -> dict[str, ReplayScannerPromptSuggestion]:
+        rows = {}
+        for key, started_at in (("stuck", stale), ("recent", timezone.now()), ("still_open", stale)):
+            rows[key] = ReplayScannerPromptSuggestion.objects.create(
+                scanner=scanner,
+                team=team,
+                suggested_prompt=f"p-{key}",
+                status=SuggestionStatus.PENDING,
+                scanner_version=1,
+                evaluation={
+                    "status": "running",
+                    "started_at": started_at.isoformat(),
+                    "total": 2,
+                    "results": [{"outcome": "kept"}],
+                    "summary": None,
+                },
+            )
+        return rows
+
+    rows = await sync_to_async(_setup)()
+    outcomes = {
+        build_evaluate_prompt_suggestion_workflow_id(rows["stuck"].id): "not_found",
+        build_evaluate_prompt_suggestion_workflow_id(rows["still_open"].id): "open",
+    }
+    temporal = _StubReapTemporal(outcomes)
+
+    with patch(
+        "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
+
+    assert reaped == 1
+    settled = await sync_to_async(lambda: ReplayScannerPromptSuggestion.objects.get(pk=rows["stuck"].pk))()
+    assert settled.evaluation is not None
+    assert settled.evaluation["status"] == "failed"
+    assert settled.evaluation["finished_at"] is not None
+    assert settled.evaluation["summary"] == {"kept": 1, "regressed": 0, "fixed": 0, "still_wrong": 0, "errors": 0}
+    for key in ("recent", "still_open"):
+        untouched = await sync_to_async(lambda k=key: ReplayScannerPromptSuggestion.objects.get(pk=rows[k].pk))()
+        assert untouched.evaluation is not None
+        assert untouched.evaluation["status"] == "running", key
+    # A stamp inside the timeout is never described: only provably-dead runs are settled.
+    assert build_evaluate_prompt_suggestion_workflow_id(rows["recent"].id) not in temporal.described
 
 
 def _make_run(action: VisionAction, *, status: str, workflow_id: str, age: dt.timedelta) -> VisionActionRun:
@@ -600,3 +665,70 @@ async def test_reap_stuck_vision_action_runs_activity(org_team) -> None:
     for key in ("running_open", "describe_error", "too_fresh", "already_completed"):
         assert statuses[key].status == rows[key].status, key
     assert set(temporal.described) == {"wf-gone-1", "wf-open", "wf-err"}
+
+
+def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplayScanner:
+    scanner = ReplayScanner.all_origins.create(
+        team=team,
+        name="",
+        origin=ScannerOrigin.INLINE,
+        inline_key=key,
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": f"p-{key}"},
+        model=ScannerModel.GEMINI_3_7_FLASH,
+        enabled=False,
+        sampling_rate=0.0,
+    )
+    ReplayScanner.all_origins.filter(pk=scanner.pk).update(created_at=timezone.now() - age)
+    return scanner
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_childless_inline_scanners_activity(org_team) -> None:
+    # An inline scan mints a scanner just before its scans start, so a scan that then fails to start
+    # leaves a permanent row nothing lists and nothing collects. Only childless rows go: one that
+    # produced an observation is somebody's answer.
+    _, team = org_team
+    grace = INLINE_SCANNER_REAP_GRACE + dt.timedelta(minutes=5)
+
+    def _setup() -> dict[str, ReplayScanner]:
+        rows = {
+            "childless_old": _make_inline_scanner(team, key="a", age=grace),
+            "childless_but_claimed": _make_inline_scanner(team, key="d", age=grace),
+            "childless_fresh": _make_inline_scanner(team, key="b", age=dt.timedelta(minutes=1)),
+            "has_observation": _make_inline_scanner(team, key="c", age=grace),
+            "configured": _make_scanner(team, name="kept-scanner"),
+        }
+        _make_observation(
+            rows["has_observation"],
+            session_id="s-1",
+            status=ObservationStatus.PENDING,
+            workflow_id="wf-inline",
+            age=dt.timedelta(0),
+        )
+        # A reused scanner whose scan has started but not yet persisted its row holds a claim, and
+        # nothing else distinguishes it from a dead one. Reaping it deletes the scanner out from under
+        # an accepted scan.
+        try_claim_enqueue_slot(
+            team_id=team.id,
+            scanner_id=rows["childless_but_claimed"].id,
+            workflow_id="wf-inflight",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+        # A configured scanner with no observations is not the reaper's business at any age.
+        ReplayScanner.all_origins.filter(pk=rows["configured"].pk).update(created_at=timezone.now() - grace)
+        return rows
+
+    rows = await sync_to_async(_setup)()
+
+    reaped = await ActivityEnvironment().run(reap_childless_inline_scanners_activity)
+
+    assert reaped == 1
+    surviving = await sync_to_async(
+        lambda: set(ReplayScanner.all_origins.values_list("id", flat=True)),
+    )()
+    assert rows["childless_old"].id not in surviving
+    for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
+        assert rows[key].id in surviving, key
