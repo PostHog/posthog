@@ -13,6 +13,12 @@ a half-set row reads as "no preference" rather than half-applying.
 stale effort from a previous model choice can't silently stick. Unset keys
 stay `None` so the task layer applies its own defaults rather than
 duplicating them here.
+
+Layering with the tasks product's central defaults: the resolved triple is
+passed to task creation as explicit per-run values, so Slack preferences sit
+above the central per-user / per-team defaults (see
+`products.tasks.backend.facade.ai_run_defaults`). When both Slack rows are
+empty the task layer falls back to those central defaults on its own.
 """
 
 from __future__ import annotations
