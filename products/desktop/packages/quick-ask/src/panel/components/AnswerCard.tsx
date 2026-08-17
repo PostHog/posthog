@@ -3,6 +3,7 @@ import {
   baseComponents,
   MarkdownRenderer,
 } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { useCopy } from "@posthog/ui/primitives/useCopy";
 import {
   chartBlockKey,
   isGeneratedChartBlock,
@@ -133,7 +134,10 @@ export function AnswerCard({
   statusLabel,
   onOpenInApp,
 }: AnswerCardProps): React.JSX.Element {
-  const [copied, setCopied] = useState(false);
+  // Sets `copied` only after the clipboard write resolves, so the button
+  // never reports a success that didn't happen (unfocused panel, blocked
+  // permission).
+  const { copied, copy } = useCopy(1400);
   // null follows the newest segment; a number pins an earlier one.
   const [pinned, setPinned] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -147,12 +151,8 @@ export function AnswerCard({
   const text = shown?.content ?? "";
 
   const copyAnswer = useCallback((): void => {
-    void navigator.clipboard.writeText(
-      parts.map((part) => part.content).join("\n\n"),
-    );
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  }, [parts]);
+    copy(parts.map((part) => part.content).join("\n\n"));
+  }, [copy, parts]);
 
   const page = useCallback(
     (direction: -1 | 1): void => {
