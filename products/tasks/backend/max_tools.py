@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
@@ -8,8 +10,8 @@ from posthog.storage import object_storage
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
+from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
-from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
 
 
@@ -69,7 +71,10 @@ By default, the task will be created and immediately executed. Set run=false to 
     ) -> tuple[str, dict[str, Any]]:
         from posthog.models.integration import Integration
 
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
         @sync_to_async
+        @transaction.atomic
         def create_task_and_maybe_run():
             github_integration = Integration.objects.filter(team=self._team, kind="github").first()
 
@@ -87,6 +92,10 @@ By default, the task will be created and immediately executed. Set run=false to 
             task_run = None
             if run:
                 task_run = task.create_run()
+                enqueue_or_start_workflow(
+                    task_run,
+                    options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+                )
 
             task_url = f"/project/{self._team.project.id}/tasks/{task.id}"
             if task_run:
@@ -112,16 +121,6 @@ By default, the task will be created and immediately executed. Set run=false to 
         result = await create_task_and_maybe_run()
 
         if run and "latest_run" in result:
-            slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
-
-            await execute_task_processing_workflow_async(
-                task_id=result["task_id"],
-                run_id=result["latest_run"]["run_id"],
-                team_id=result["team_id"],
-                user_id=self._user.id,
-                slack_thread_context=slack_thread_context,
-            )
-
             return (
                 f"Created and started task '{result['title']}' (ID: {result['task_id']}).\n"
                 f"Run ID: {result['latest_run']['run_id']}\n"
@@ -149,7 +148,10 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = RunTaskArgs
 
     async def _arun_impl(self, task_id: str) -> tuple[str, dict[str, Any]]:
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
         @sync_to_async
+        @transaction.atomic
         def get_task_and_create_run():
             task = (
                 Task.objects.filter(id=task_id, team=self._team, deleted=False)
@@ -163,6 +165,10 @@ Use this tool when the user wants to:
                 return {"error": "unsupported_runtime"}
 
             task_run = task.create_run()
+            enqueue_or_start_workflow(
+                task_run,
+                options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+            )
             task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
             return {
                 "task_id": str(task.id),
@@ -179,17 +185,6 @@ Use this tool when the user wants to:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
         if result.get("error") == "unsupported_runtime":
             return "Pi tasks cannot be run through the ACP task workflow.", result
-
-        # Extract slack thread context from config if available
-        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
-
-        await execute_task_processing_workflow_async(
-            task_id=result["task_id"],
-            run_id=result["run_id"],
-            team_id=result["team_id"],
-            user_id=self._user.id,
-            slack_thread_context=slack_thread_context,
-        )
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"

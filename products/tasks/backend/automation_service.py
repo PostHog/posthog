@@ -17,6 +17,7 @@ from posthog.temporal.common.schedule import (
 )
 
 from .access import has_tasks_access
+from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskAutomation, TaskRun
 
 logger = logging.getLogger(__name__)
@@ -108,13 +109,9 @@ def run_task_automation(automation_id: str, trigger_workflow_id: str | None = No
             ]
         )
 
-        transaction.on_commit(
-            lambda: execute_task_processing_workflow_for_automation(
-                team_id=team_id,
-                user_id=user_id,
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-            )
+        enqueue_or_start_workflow(
+            task_run,
+            options=WorkflowDispatchOptions(user_id=user_id),
         )
 
     logger.info(
