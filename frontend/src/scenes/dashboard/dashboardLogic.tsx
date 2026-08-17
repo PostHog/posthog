@@ -22,7 +22,7 @@ import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import {
@@ -3410,38 +3410,74 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const toastId = `remove-tile-${tile.id}`
             const otherDashboardIds = new Set(
                 (
-                    tile.insight?.dashboard_tiles?.map((dashboardTile) => dashboardTile.dashboard_id) ??
+                    tile.insight?.dashboard_tiles
+                        ?.filter((dashboardTile) => !dashboardTile.deleted)
+                        .map((dashboardTile) => dashboardTile.dashboard_id) ??
                     tile.insight?.dashboards ??
                     []
                 ).filter((dashboardId) => dashboardId !== props.id)
             )
+            const canDeleteInsight =
+                !tile.insight?.user_access_level ||
+                accessLevelSatisfied(
+                    AccessControlResourceType.Insight,
+                    tile.insight.user_access_level,
+                    AccessControlLevel.Editor
+                )
             const deleteInsight = (): void => {
                 if (!tile.insight) {
                     return
                 }
 
-                const otherDashboardCount = otherDashboardIds.size
-                const dashboardSuffix = otherDashboardCount === 1 ? '' : 's'
-                const otherDashboardDescription =
-                    otherDashboardCount > 0
-                        ? `This insight is also used on ${otherDashboardCount} other dashboard${dashboardSuffix}. `
-                        : ''
+                const otherDashboards = Array.from(otherDashboardIds).map((dashboardId) => ({
+                    id: dashboardId,
+                    name: dashboardsModel.values.rawDashboards[dashboardId]?.name || `Dashboard ${dashboardId}`,
+                }))
+                const dashboardIds = [props.id, ...otherDashboardIds]
+                const otherDashboardCount = otherDashboards.length
 
                 LemonDialog.open({
-                    title: 'Delete insight?',
-                    description: `${otherDashboardDescription}Deleting it will remove it from every dashboard. You can undo this action.`,
+                    title: 'Delete insight everywhere?',
+                    shouldAwaitSubmit: true,
+                    description: (
+                        <div className="pt-2 space-y-4">
+                            {otherDashboards.length > 0 && (
+                                <div>
+                                    <div>This insight is also used on:</div>
+                                    <ul className="list-inside list-disc">
+                                        {otherDashboards.map((dashboard) => (
+                                            <li key={dashboard.id}>
+                                                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            <div>
+                                This deletes the insight and removes it from every dashboard. You can undo this action.
+                            </div>
+                        </div>
+                    ),
                     primaryButton: {
-                        children: 'Delete insight',
+                        children: 'Delete insight everywhere',
                         status: 'danger',
                         onClick: () => {
-                            void deleteInsightWithUndo({
-                                object: tile.insight!,
+                            eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalConfirmed(
+                                otherDashboardCount
+                            )
+                            return deleteInsightWithUndo({
+                                object: { ...tile.insight!, dashboards: dashboardIds },
                                 endpoint: `projects/${values.currentTeamId}/insights`,
-                                callback: (undo) => {
-                                    dashboardsModel.actions.updateDashboardInsight(
-                                        { ...tile.insight!, deleted: !undo },
-                                        [props.id, ...otherDashboardIds]
-                                    )
+                                callback: (undo, insight) => {
+                                    const updatedInsight = {
+                                        ...insight,
+                                        deleted: !undo,
+                                        dashboards: undo ? insight.dashboards : [],
+                                    }
+                                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, dashboardIds)
+                                    if (!undo) {
+                                        lemonToast.dismiss(toastId)
+                                    }
                                 },
                             })
                         },
@@ -3449,54 +3485,88 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     secondaryButton: { children: 'Cancel' },
                 })
             }
+            const undoTileRemoval = async (): Promise<void> => {
+                try {
+                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                        tiles: [{ id: tile.id, deleted: false }],
+                    })
+
+                    if (tile.insight) {
+                        const insight = tile.insight
+                        const nextDashboards = insight.dashboards?.includes(props.id)
+                            ? insight.dashboards
+                            : [...(insight.dashboards || []), props.id]
+                        dashboardsModel.actions.updateDashboardInsight({ ...insight, dashboards: nextDashboards }, [
+                            props.id,
+                        ])
+                    }
+
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+
+                    lemonToast.success(
+                        <>
+                            <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
+                        </>,
+                        { toastId }
+                    )
+                } catch (e) {
+                    lemonToast.error('Could not restore tile: ' + String(e))
+                }
+            }
 
             lemonToast.info(
-                <>
-                    <b>{tileName}</b> {removedMessage}
-                </>,
-                {
-                    toastId,
-                    button: {
-                        label: 'Undo',
-                        dataAttr: 'undo-remove-tile-from-dashboard',
-                        action: async () => {
-                            try {
-                                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                                    tiles: [{ id: tile.id, deleted: false }],
-                                })
-
-                                if (tile.insight) {
-                                    const insight = tile.insight
-                                    const nextDashboards = insight.dashboards?.includes(props.id)
-                                        ? insight.dashboards
-                                        : [...(insight.dashboards || []), props.id]
-                                    dashboardsModel.actions.updateDashboardInsight(
-                                        { ...insight, dashboards: nextDashboards },
-                                        [props.id]
-                                    )
-                                }
-
-                                actions.loadDashboard({ action: DashboardLoadAction.Update })
-
-                                lemonToast.success(
-                                    <>
-                                        <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
-                                    </>,
-                                    { toastId }
-                                )
-                            } catch (e) {
-                                lemonToast.error('Could not restore tile: ' + String(e))
-                            }
-                        },
-                    },
-                    secondaryButton: tile.insight
-                        ? {
-                              label: 'Delete insight',
-                              dataAttr: 'delete-removed-insight',
-                              action: deleteInsight,
-                          }
-                        : undefined,
-                }
+                tile.insight ? (
+                    <span className="flex flex-col gap-2">
+                        <span>
+                            <b>{tileName}</b> {removedMessage}
+                        </span>
+                        <span className="flex items-center gap-2">
+                            {canDeleteInsight && (
+                                <LemonButton
+                                    type="primary"
+                                    status="danger"
+                                    size="small"
+                                    data-attr="delete-removed-insight"
+                                    className="!m-0"
+                                    onClick={() => {
+                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
+                                            otherDashboardIds.size
+                                        )
+                                        deleteInsight()
+                                    }}
+                                >
+                                    Delete insight everywhere
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                data-attr="undo-remove-tile-from-dashboard"
+                                className="!m-0"
+                                onClick={() => {
+                                    void undoTileRemoval()
+                                    lemonToast.dismiss(toastId)
+                                }}
+                            >
+                                Undo
+                            </LemonButton>
+                        </span>
+                    </span>
+                ) : (
+                    <>
+                        <b>{tileName}</b> {removedMessage}
+                    </>
+                ),
+                tile.insight
+                    ? { toastId }
+                    : {
+                          toastId,
+                          button: {
+                              label: 'Undo',
+                              dataAttr: 'undo-remove-tile-from-dashboard',
+                              action: undoTileRemoval,
+                          },
+                      }
             )
         },
         moveToDashboardSuccess: ({ payload }) => {

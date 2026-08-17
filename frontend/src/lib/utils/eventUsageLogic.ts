@@ -736,6 +736,12 @@ export interface eventUsageLogicActions {
         insightId: number
         source: DashboardEventSource
     }
+    reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => {
+        otherDashboardCount: number
+    }
+    reportDashboardInsightDeleteAfterRemovalConfirmed: (otherDashboardCount: number) => {
+        otherDashboardCount: number
+    }
     reportDashboardInsightLegendToggled: (
         dashboardId: number | undefined,
         insightId: number,
@@ -2418,6 +2424,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             originalLength: number,
             newLength: number
         ) => ({ dashboardId, attribute, originalLength, newLength }),
+        reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => ({ otherDashboardCount }),
+        reportDashboardInsightDeleteAfterRemovalConfirmed: (otherDashboardCount: number) => ({ otherDashboardCount }),
         reportDashboardShareToggled: (dashboardId: number | undefined, isShared: boolean) => ({
             dashboardId,
             isShared,
@@ -3508,6 +3516,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 attribute,
+            })
+        },
+        reportDashboardInsightDeleteAfterRemovalClicked: async ({ otherDashboardCount }) => {
+            posthog.capture('dashboard insight delete after removal clicked', {
+                other_dashboard_count: otherDashboardCount,
+            })
+        },
+        reportDashboardInsightDeleteAfterRemovalConfirmed: async ({ otherDashboardCount }) => {
+            posthog.capture('dashboard insight delete after removal confirmed', {
+                other_dashboard_count: otherDashboardCount,
             })
         },
         reportDashboardInsightValuesOnSeriesToggled: async ({ dashboardId, insightId, source }) => {

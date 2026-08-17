@@ -33,7 +33,6 @@ interface ToastButton {
 
 interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
-    secondaryButton?: ToastButton
     hideButton?: boolean
 }
 
@@ -57,28 +56,13 @@ export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
     button?: ToastButton
-    secondaryButton?: ToastButton
     id?: number | string
 }
 
-export function ToastContent({ type, message, button, secondaryButton, id }: ToastContentProps): JSX.Element {
+export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
             <span className="grow overflow-hidden text-ellipsis">{message}</span>
-            {secondaryButton && (
-                <LemonButton
-                    onClick={() => {
-                        void secondaryButton.action()
-                        toast.dismiss(id)
-                    }}
-                    type="secondary"
-                    size="small"
-                    data-attr={secondaryButton.dataAttr}
-                    className={secondaryButton.className}
-                >
-                    {secondaryButton.label}
-                </LemonButton>
-            )}
             {button && (
                 <LemonButton
                     onClick={() => {
@@ -139,7 +123,7 @@ interface ToastError {
 const cancelledIds = new Set<number | string>()
 
 export const lemonToast = {
-    info(message: string | JSX.Element, { button, secondaryButton, ...toastOptions }: ToastOptionsWithButton = {}) {
+    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
         const id = options.toastId!
         // Defer so React can flush the re-render with the updated theme on ToastContainer
@@ -147,19 +131,10 @@ export const lemonToast = {
             if (cancelledIds.delete(id)) {
                 return
             }
-            toast.info(
-                <ToastContent
-                    type="info"
-                    message={message}
-                    button={button}
-                    secondaryButton={secondaryButton}
-                    id={id}
-                />,
-                {
-                    icon: <IconInfo />,
-                    ...options,
-                }
-            )
+            toast.info(<ToastContent type="info" message={message} button={button} id={id} />, {
+                icon: <IconInfo />,
+                ...options,
+            })
         })
         return id
     },
