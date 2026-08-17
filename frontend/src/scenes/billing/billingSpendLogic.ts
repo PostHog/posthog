@@ -74,7 +74,7 @@ export interface BillingSpendLogicProps {
 export interface billingSpendLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canAccessBilling: boolean // billingLogic
+    canViewBillingUsage: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
