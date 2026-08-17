@@ -494,18 +494,28 @@ export class DashboardsService {
     id: string;
     prompt: string;
   }): Promise<CanvasAgentRequestResult> {
-    const body = await this.api.json<{
-      request_outcome: string;
-      task_id: string;
-    }>(
+    const res = await this.api.fetch(
       `canvases/${encodeURIComponent(input.id)}/request_agent/`,
-      "request canvas agent",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: input.prompt }),
       },
     );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      request_outcome?: string;
+      task_id?: string;
+    };
+    // The backend answers quota, capability, and missing-task refusals with a
+    // structured `detail`; surface it so the viewer sees the reason, not a bare
+    // status code.
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to request canvas agent (${res.status})`,
+        res.status,
+      );
+    }
     return canvasAgentRequestResultSchema.parse({
       requestOutcome: body.request_outcome,
       taskId: body.task_id,
