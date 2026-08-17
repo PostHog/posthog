@@ -86,7 +86,11 @@ export function CollapsibleFrameHeader({
                 <div className="gap-x-1 frame-icons">
                     {part && <FingerprintRecordPartDisplay part={part} />}
                     {isUnsymbolicated ? (
-                        <UnsymbolicatedIcon in_app={in_app} resolve_failure={resolve_failure} />
+                        <UnsymbolicatedIcon
+                            in_app={in_app}
+                            resolve_failure={resolve_failure}
+                            instructionAddress={instructionAddress}
+                        />
                     ) : (
                         match([in_app, resolved, recordLoading, hasRecordContext])
                             .with([false, P.any, P.any, P.any], () => <VendorIcon />)
@@ -133,20 +137,31 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
 function UnsymbolicatedIcon({
     in_app,
     resolve_failure,
+    instructionAddress,
 }: {
     in_app: boolean
     resolve_failure: string | null
+    instructionAddress: string | null
 }): JSX.Element {
     return (
         <Tooltip
             title={
                 <>
                     <h5>{UNKNOWN_FRAME_LABEL}</h5>
-                    <p>The SDK sent only a memory address for this frame, with no function or file name.</p>
-                    <p>
-                        PostHog found no debug image covering that address, so it has nothing to match against your
-                        symbol sets.
-                    </p>
+                    {instructionAddress ? (
+                        <>
+                            <p>The SDK sent only a memory address for this frame, with no function or file name.</p>
+                            <p>
+                                PostHog found no debug image covering that address, so it has nothing to match against
+                                your symbol sets.
+                            </p>
+                        </>
+                    ) : (
+                        <p>
+                            The SDK sent no function name, file name or memory address for this frame, so there is
+                            nothing to identify it with.
+                        </p>
+                    )}
                     {resolve_failure && <p className="text-xs text-muted-foreground">{resolve_failure}</p>}
                 </>
             }
