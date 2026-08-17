@@ -113,7 +113,7 @@ class MaterializeViewWorkflowInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MaterializeViewWorkflowResult:
     """Result from the MaterializeViewWorkflow.
 

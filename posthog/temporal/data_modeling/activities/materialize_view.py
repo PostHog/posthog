@@ -179,7 +179,7 @@ class MaterializeViewInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MaterializeViewResult:
     node_id: str
     node_name: str

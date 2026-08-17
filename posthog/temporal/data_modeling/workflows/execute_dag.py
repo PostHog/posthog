@@ -76,7 +76,7 @@ class ExecuteDAGInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NodeResult:
     """Result for a single node materialization."""
 
