@@ -999,6 +999,7 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     end_time: number
     url: string
     exported_asset_id: number
+    element?: string | null
     distinct_id?: string | null
     recording_start_time?: string | null
     recording_end_time?: string | null
