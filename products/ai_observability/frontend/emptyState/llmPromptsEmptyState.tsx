@@ -19,8 +19,8 @@ export const llmPromptsEmptyState: SceneProductEmptyState = {
         productKey: ProductKey.LLM_PROMPTS,
         productName: 'Prompt management',
         icon: <IconLlmPromptManagement />,
-        accentColor: 'var(--color-product-llm-prompts-light)',
-        accentColorDark: 'var(--color-product-llm-prompts-dark)',
+        accentColor: 'var(--color-product-llm-analytics-light)',
+        accentColorDark: 'var(--color-product-llm-analytics-dark)',
         hedgehog: HedgehogDeskWizard,
         text: {
             'needs-setup': {

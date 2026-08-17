@@ -19,8 +19,8 @@ export const llmSkillsEmptyState: SceneProductEmptyState = {
         productKey: ProductKey.SKILLS,
         productName: 'Skills',
         icon: <IconLlmPromptManagement />,
-        accentColor: 'var(--color-product-llm-prompts-light)',
-        accentColorDark: 'var(--color-product-llm-prompts-dark)',
+        accentColor: 'var(--color-product-llm-analytics-light)',
+        accentColorDark: 'var(--color-product-llm-analytics-dark)',
         hedgehog: HedgehogPuzzle,
         text: {
             'needs-setup': {
