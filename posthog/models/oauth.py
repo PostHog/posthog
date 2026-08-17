@@ -585,6 +585,11 @@ class OAuthRefreshToken(AbstractRefreshToken):
         verbose_name = "OAuth Refresh Token"
         verbose_name_plural = "OAuth Refresh Tokens"
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
+        indexes = [
+            # revoke_oauth_token_family sweeps by token_family on the /oauth/token path;
+            # without this index the sweep scans the whole refresh token table.
+            models.Index(fields=["token_family"], name="oauthrefreshtoken_family_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -791,12 +796,13 @@ def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
     with transaction.atomic():
         # Revoke refresh tokens before deleting access tokens, in one transaction, so a
         # mid-way failure can't leave one of them live after its access token is gone
-        # (same ordering as revoke_oauth_session above).
-        live_members = OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family, revoked__isnull=True)
-        access_token_ids = list(live_members.exclude(access_token_id=None).values_list("access_token_id", flat=True))
-        live_members.update(revoked=now)
-        if access_token_ids:
-            OAuthAccessToken.objects.filter(pk__in=access_token_ids).delete()
+        # (same ordering as revoke_oauth_session above). The delete joins through the
+        # subquery instead of listing ids in Python: reuse protection fires rarely, but
+        # a compromised family can hold tens of thousands of historical rows.
+        OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family, revoked__isnull=True).update(
+            revoked=now
+        )
+        OAuthAccessToken.objects.filter(refresh_token__token_family=refresh_token.token_family).delete()
 
 
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
