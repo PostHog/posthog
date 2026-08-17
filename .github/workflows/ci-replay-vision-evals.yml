@@ -1,18 +1,25 @@
 # Golden-dataset eval for Replay Vision scanner prompts (products/replay_vision/evals).
 #
-# Advisory only, never a required check: Gemini scores are a directional signal, not a merge gate.
+# Advisory only, never a required check: Gemini scores are a directional signal, not a merge gate,
+# and the collect/eval steps run with continue-on-error so infra failures (LLM 5xx, warehouse lag,
+# empty dataset) surface in the step summary rather than as a red X.
 # The dataset (real dogfood session recordings) is collected fresh on the ephemeral runner each run,
 # which re-verifies AI data-processing consent; it is never cached, uploaded as an artifact, or
 # otherwise persisted. Only aggregate scores reach the step summary.
 # The job executes the PR's own code with secrets, so it only runs once a maintainer applies the
-# replay-vision-evals-ready label (the ci-ai.yml trust gate), or on manual dispatch.
-# Without the REPLAY_VISION_EVAL_POSTHOG_API_KEY secret the job skips green, so forks and
+# replay-vision-evals-ready label, or on manual dispatch. The label approves the labeled revision
+# only: pushes never trigger this workflow, so re-running on a new revision takes removing and
+# re-applying the label.
+# If any required secret is missing the job skips green with a warning, so forks and
 # not-yet-configured environments are unaffected.
 name: Replay Vision Evals
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, labeled]
+        # No synchronize: the label must approve each revision, not the PR, or a labeled PR's later
+        # pushes would run their own code with secrets unreviewed. An unlabeled run skips, but
+        # dispatching it cancels any in-flight run via the concurrency group.
+        types: [labeled, unlabeled]
         paths:
             - '.github/workflows/ci-replay-vision-evals.yml'
             - 'products/replay_vision/backend/temporal/scanners/prompts/**'
@@ -53,15 +60,26 @@ jobs:
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-            COLLECTION_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
 
         steps:
-            - name: Check collection key
+            - name: Check required secrets
               id: gate
+              # All five up front: one rotated key must not boot the Docker stack and collect a
+              # dataset before failing inside the eval.
+              env:
+                  REPLAY_VISION_EVAL_POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
               run: |
-                  if [ -z "$COLLECTION_API_KEY" ]; then
+                  missing=""
+                  for name in REPLAY_VISION_EVAL_POSTHOG_API_KEY GEMINI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY BRAINTRUST_API_KEY; do
+                      [ -n "${!name}" ] || missing="$missing $name"
+                  done
+                  if [ -n "$missing" ]; then
                       echo "enabled=false" >> "$GITHUB_OUTPUT"
-                      echo "::notice::REPLAY_VISION_EVAL_POSTHOG_API_KEY is not set; skipping the golden-dataset eval"
+                      echo "::warning::Missing secrets:$missing; skipping the golden-dataset eval"
                   else
                       echo "enabled=true" >> "$GITHUB_OUTPUT"
                   fi
@@ -124,7 +142,11 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Collect golden dataset
+              id: collect
               if: steps.gate.outputs.enabled == 'true'
+              # Advisory: collection failures (warehouse lag, empty dataset, expired assets) must
+              # not paint a red X; the eval step is skipped and the summary explains.
+              continue-on-error: true
               shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
@@ -132,10 +154,16 @@ jobs:
                   # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
                   PER_TYPE: ${{ inputs.per_type || '3' }}
               run: |
+                  # An unrebased branch can check out a collect.py that predates --max-observations;
+                  # only pass the flag when the script advertises it.
+                  max_obs_args=()
+                  if python -m products.replay_vision.evals.collect --help 2>/dev/null | grep -q -- '--max-observations'; then
+                      max_obs_args=(--max-observations 50)
+                  fi
                   python -m products.replay_vision.evals.collect \
                       --project-id 2 \
                       --per-type "$PER_TYPE" \
-                      --max-observations 50 \
+                      "${max_obs_args[@]}" \
                       --output "$DATASET_DIR"
                   # An empty dataset (expired assets, warehouse lag) must fail loudly, not score green over nothing.
                   python - <<'EOF'
@@ -146,7 +174,10 @@ jobs:
                   EOF
 
             - name: Run scanner quality suite
-              if: steps.gate.outputs.enabled == 'true'
+              if: steps.gate.outputs.enabled == 'true' && steps.collect.outcome == 'success'
+              # Advisory: eval failures (LLM 5xx, harness crash) must not paint a red X; the
+              # verdict lives in the step summary.
+              continue-on-error: true
               # bash (not the default shell) for pipefail: without it a failing harness piped into a
               # succeeding tee reports this step green.
               shell: bash
@@ -179,7 +210,7 @@ jobs:
                       # Only the stable aggregate lines: this summary is public, and case payloads
                       # (session-derived content) must never leave the runner even if the harness's
                       # console output grows.
-                      grep -E '^(CASE|EXPERIMENT DONE|Suites:|Cases:|Mean score:|Score gate:|Duration:)|eval summary' \
+                      grep -E '^(CASE|SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:)' \
                           /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
