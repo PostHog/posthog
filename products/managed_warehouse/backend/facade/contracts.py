@@ -97,7 +97,7 @@ class ServiceCredential:
 class ServiceCredentialUnavailable(RuntimeError):
     """The control plane couldn't issue a service credential (unreachable,
     org/team not provisioned, or a 5xx). Callers decide whether to fall back
-    to stored org-root credentials (transitional) or fail the run."""
+    to the stored server login or fail the run."""
 
 
 @dataclass(frozen=True, kw_only=True)
