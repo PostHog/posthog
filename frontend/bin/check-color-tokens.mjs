@@ -8,10 +8,9 @@
  * `color-mix()` reading it invalid at computed-value time, so the browser drops those
  * declarations rather than falling back, and a whole surface renders with no colour.
  *
- * Also reports tokens defined but referenced nowhere, usually a rename left half done. That is a
- * warning unless `--strict-unused` is passed.
+ * Also fails on a token defined but referenced nowhere, usually a rename left half done.
  *
- * Usage: node frontend/bin/check-color-tokens.mjs [--strict-unused]
+ * Usage: node frontend/bin/check-color-tokens.mjs
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -92,22 +91,16 @@ if (dangling.length) {
     console.error('\nDefine them in frontend/src/styles/base.scss, or drop the reference.')
 }
 
-// A warning rather than a failure by default. Adding a token in one commit and wiring it up in
-// the next is reasonable, and this runs on every pull request, so failing here would block work
-// that has nothing to do with the token.
-const strictUnused = process.argv.includes('--strict-unused')
 if (unused.length) {
-    const log = strictUnused ? console.error : console.info
-    log(`\n${unused.length} token(s) defined but referenced nowhere:`)
+    console.error(`\n${unused.length} token(s) defined but referenced nowhere:`)
     for (const token of unused) {
-        log(`  ${token}`)
+        console.error(`  ${token}`)
     }
+    console.error('\nReference them, or remove them from frontend/src/styles/base.scss.')
 }
 
-const failed = dangling.length > 0 || (unused.length > 0 && strictUnused)
-if (!failed && !dangling.length && !unused.length) {
+const failed = dangling.length > 0 || unused.length > 0
+if (!failed) {
     console.info('No dangling or unused product colour tokens.')
-} else if (!failed) {
-    console.info('\nNo dangling product colour tokens.')
 }
 process.exit(failed ? 1 : 0)
