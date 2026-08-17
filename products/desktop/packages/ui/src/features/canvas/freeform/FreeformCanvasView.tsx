@@ -25,9 +25,9 @@ import {
   canvasAgentRequestInputSchema,
   limitCanvasCommentHighlights,
 } from "@posthog/core/canvas/freeformSchemas";
-import { textToContent } from "@posthog/core/message-editor/content";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
+import { textToContent } from "@posthog/core/message-editor/content";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   Badge,
@@ -71,7 +71,6 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
-import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import {
   useInboxReportArtefacts,
@@ -82,6 +81,7 @@ import {
   findUserDiscussionTask,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
