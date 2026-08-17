@@ -13,6 +13,8 @@ Only reports in `ready` or `pending_input` are eligible. The organization featur
 
 Canvas generation requires the PostHog MCP server. Report-canvas tasks probe it from their sandbox before starting the agent and fail with a setup error when it is missing or unreachable.
 
+The report workflow follows the canvas build rather than the longer-lived agent session. A ready build completes generation immediately; a failed build immediately records its diagnostic on the report canvas.
+
 Each report owns one `SignalReportCanvas` link. The link points to:
 
 - one visible discussion task, used as the stable shared session;

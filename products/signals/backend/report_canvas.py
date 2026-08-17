@@ -266,20 +266,28 @@ def finalize_report_canvas_generation(
         return True
     if generation.generation_task_id is None or generation.generation_run_id is None:
         return False
-    terminal = tasks_facade.task_run_is_terminal(generation.generation_run_id, generation.generation_task_id, team_id)
-    if not terminal:
-        return None
-    published, drafted = canvas_api.canvas_generation_result(
+    canvas_state = canvas_api.canvas_generation_result(
         team_id=team_id,
         canvas_id=generation.canvas_id,
         task_id=generation.generation_task_id,
     )
-    succeeded = published or drafted
+    if canvas_state.status in ("waiting_for_source", "building"):
+        terminal = tasks_facade.task_run_is_terminal(
+            generation.generation_run_id, generation.generation_task_id, team_id
+        )
+        if not terminal or canvas_state.status == "building":
+            return None
+
+    succeeded = canvas_state.status == "ready"
     session = SignalReportCanvas.objects.for_team(team_id).get(report_id=report_id)
     session.generation_status = (
         SignalReportCanvas.GenerationStatus.READY if succeeded else SignalReportCanvas.GenerationStatus.FAILED
     )
-    session.failure_reason = "" if succeeded else "The canvas agent finished without producing a canvas version."
+    session.failure_reason = (
+        ""
+        if succeeded
+        else canvas_state.failure_reason or "The canvas agent finished without producing a canvas version."
+    )
     if succeeded:
         session.generated_fingerprint = generation.fingerprint
     session.save(update_fields=["generation_status", "failure_reason", "generated_fingerprint", "updated_at"])
