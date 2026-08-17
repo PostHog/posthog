@@ -274,8 +274,6 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "additions",
             "deletions",
             "changed_files",
-            "audience_key",
-            "digest_run",
             "created_at",
             "updated_at",
         ]
@@ -291,10 +289,6 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "additions": {"help_text": "Lines added, recorded when the pull request merges."},
             "deletions": {"help_text": "Lines deleted, recorded when the pull request merges."},
             "changed_files": {"help_text": "Files changed, recorded when the pull request merges."},
-            "audience_key": {
-                "help_text": "Digest bucket this merged PR belongs to; blank unless it was digest-eligible."
-            },
-            "digest_run": {"help_text": "ID of the digest run that reported this merged PR, if any."},
             "created_at": {"help_text": "When this pull request was first captured."},
             "updated_at": {"help_text": "When this pull request was last updated."},
         }

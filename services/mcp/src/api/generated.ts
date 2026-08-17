@@ -52366,13 +52366,6 @@ export namespace Schemas {
       readonly deletions: number;
       /** Files changed, recorded when the pull request merges. */
       readonly changed_files: number;
-      /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
-      readonly audience_key: string;
-      /**
-         * ID of the digest run that reported this merged PR, if any.
-         * @nullable
-         */
-      readonly digest_run: string | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
