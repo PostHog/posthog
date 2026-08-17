@@ -39,5 +39,11 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
         "You signed in with a different account. Please try again with the account you're logged in as.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    expired: "This invite has expired. Please ask your organization's admin to send you a new one.",
+    invalid_recipient:
+        'This invite was sent to a different email address. Please log in with the address it was sent to, or ask your admin to re-send it.',
+    user_already_member: "You're already a member of this organization. Please log in to continue.",
+    existing_email_address:
+        'An account with this email address already belongs to this organization. Please log in with that account to continue.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
 }

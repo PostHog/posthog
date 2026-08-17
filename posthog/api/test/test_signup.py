@@ -1428,6 +1428,24 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_sso_invite_rejection_redirects_to_login_instead_of_500(self, mock_sso_providers, mock_request):
+        # Invite validation raises a DRF exception (not an AuthException). Without the middleware
+        # mapping it escapes to handler500 and the invitee sees the generic 500 page. It must
+        # redirect to /login with a recoverable message instead.
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        org = Organization.objects.create(name="Test org")
+        invite = OrganizationInvite.objects.create(organization=org, target_email="joiner@gmail.com")
+        invite.created_at = datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
+        invite.save()
+
+        response = self._complete_sso_with_invite_id(mock_request, str(invite.id), "joiner@gmail.com")
+
+        self.assertRedirects(response, "/login?error_code=expired")
+        self.assertFalse(User.objects.filter(email="joiner@gmail.com").exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_first_time_sso_login_clears_password_and_passkeys_on_unverified_account(
         self, mock_sso_providers, mock_request
     ):

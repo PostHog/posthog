@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 import posixpath
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_network
@@ -33,6 +33,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import APIException, ValidationError
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -1230,6 +1231,11 @@ class SocialAuthExceptionMiddleware:
 
     _AUTH_FAILED_PREFIX = "Authentication failed: "
 
+    # Invite validation raises these DRF codes for legitimate rejections during the social-auth
+    # pipeline. They are not AuthException subclasses, so without the APIException branch below
+    # they escape to handler500 and the invitee sees the generic 500 page with no way to recover.
+    _INVITE_ERROR_CODES = frozenset({"expired", "invalid_recipient", "user_already_member", "existing_email_address"})
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -1265,7 +1271,28 @@ class SocialAuthExceptionMiddleware:
             separator = "&" if "?" in url else "?"
             return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
 
+        # Invite validation (and other pipeline steps) raise DRF exceptions that are not
+        # AuthException subclasses. Map the known invite rejection codes to a friendly login
+        # redirect, and fall back to the generic failure so nothing here becomes a 500.
+        if isinstance(exception, APIException):
+            invite_code = self._extract_invite_error_code(exception)
+            return redirect(sso_failure_redirect_url(request, invite_code or "social_login_failure"))
+
         return None
+
+    def _extract_invite_error_code(self, exception: APIException) -> str | None:
+        codes = exception.get_codes() if isinstance(exception, ValidationError) else exception.default_code
+        return next((code for code in self._flatten_codes(codes) if code in self._INVITE_ERROR_CODES), None)
+
+    def _flatten_codes(self, codes: object) -> Iterator[str]:
+        if isinstance(codes, str):
+            yield codes
+        elif isinstance(codes, dict):
+            for value in codes.values():
+                yield from self._flatten_codes(value)
+        elif isinstance(codes, list | tuple):
+            for value in codes:
+                yield from self._flatten_codes(value)
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()

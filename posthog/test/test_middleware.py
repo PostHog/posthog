@@ -20,6 +20,7 @@ import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
@@ -27,6 +28,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import InviteExpiredException
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
@@ -2001,6 +2003,38 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         response = self.middleware.process_exception(request, exception)
 
         self.assertIsNone(response)
+
+    @parameterized.expand(
+        [
+            ("expired_invite", InviteExpiredException(), "/login?error_code=expired"),
+            (
+                "wrong_recipient",
+                ValidationError("This invite is intended for another email address.", code="invalid_recipient"),
+                "/login?error_code=invalid_recipient",
+            ),
+            (
+                "already_member",
+                ValidationError("You already are a member of this organization.", code="user_already_member"),
+                "/login?error_code=user_already_member",
+            ),
+            (
+                "email_already_in_org",
+                ValidationError("Another user with this email address already belongs.", code="existing_email_address"),
+                "/login?error_code=existing_email_address",
+            ),
+            (
+                "unknown_api_exception_falls_back",
+                ValidationError("Something else went wrong.", code="something_else"),
+                "/login?error_code=social_login_failure",
+            ),
+        ]
+    )
+    def test_invite_validation_errors_redirect_instead_of_500(self, _name, exception, expected_url):
+        request = self.factory.get("/complete/saml/")
+        response = self.middleware.process_exception(request, exception)
+
+        assert isinstance(response, HttpResponseRedirect)
+        self.assertEqual(response.url, expected_url)
 
 
 @pytest.mark.parametrize(
