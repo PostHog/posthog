@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CyclotronJobInvocationHogFlow, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
@@ -34,6 +35,8 @@ export const counterHogflowRekeyWake = new Counter({
 })
 
 export class ConditionalBranchHandler implements ActionHandler {
+    constructor(private cohortMembershipRepository: CohortMembershipRepository) {}
+
     async execute({
         invocation,
         action,
@@ -82,8 +85,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
         }
 
-        const conditionResult = await checkConditions(
-            invocation,
+        const conditionalAction: Extract<HogFlowAction, { type: 'conditional_branch' }> =
             action.type === 'conditional_branch'
                 ? action
                 : {
@@ -97,7 +99,13 @@ export class ConditionalBranchHandler implements ActionHandler {
                           delay_duration: action.config.max_wait_duration,
                       },
                   }
-        )
+
+        // A lookup failure throws out of the handler on purpose: routing on a made-up "not a
+        // member" answer would silently send people down the wrong branch, whereas a thrown
+        // error is visible and follows the action's on_error setting.
+        const cohortMemberships = await this.fetchCohortMemberships(invocation, conditionalAction)
+
+        const conditionResult = await checkConditions(invocation, conditionalAction, cohortMemberships)
 
         const isWait = action.type === 'wait_until_condition'
 
@@ -127,11 +135,59 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
+
+    /**
+     * One point lookup per invocation covering every cohort any of the action's conditions
+     * references. Persons the pipeline never wrote a row for — and person-less invocations
+     * (warehouse rows, account audiences) — are non-members of everything.
+     */
+    private async fetchCohortMemberships(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    ): Promise<Map<number, boolean> | undefined> {
+        const cohortIds = [...new Set(action.config.conditions.flatMap(getConditionCohortIds))]
+        if (cohortIds.length === 0) {
+            return undefined
+        }
+
+        const personUuid = invocation.person?.id ?? invocation.state.personId
+        if (!personUuid) {
+            return new Map(cohortIds.map((id) => [id, false]))
+        }
+
+        return await this.cohortMembershipRepository.getMemberships(invocation.hogFlow.team_id, personUuid, cohortIds)
+    }
+}
+
+function getConditionCohortIds(condition: { filters?: unknown }): number[] {
+    const filters = condition.filters as HogFunctionFilters | null | undefined
+    return filters?.cohort_ids ?? []
+}
+
+// The VM runs synchronously (maxAsyncSteps: 0), so inCohort/notInCohort answer from the
+// prefetched membership map rather than doing I/O. An id the compile step didn't record in
+// cohort_ids was never prefetched — throw so it surfaces as a filtering error instead of
+// silently routing the person as a non-member.
+function buildCohortMembershipFunctions(
+    memberships: Map<number, boolean> | undefined
+): Record<string, (...args: any[]) => any> {
+    const isMember = (cohortId: unknown): boolean => {
+        const membership = memberships?.get(Number(cohortId))
+        if (membership === undefined) {
+            throw new Error(`Membership of cohort ${cohortId} was not prefetched for this invocation`)
+        }
+        return membership
+    }
+    return {
+        inCohort: (cohortId: unknown) => isMember(cohortId),
+        notInCohort: (cohortId: unknown) => !isMember(cohortId),
+    }
 }
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
-    action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    cohortMemberships?: Map<number, boolean>
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -143,6 +199,10 @@ export async function checkConditions(
             fn: invocation.hogFlow,
             filters: condition.filters,
             filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
+            functions:
+                getConditionCohortIds(condition).length > 0
+                    ? buildCohortMembershipFunctions(cohortMemberships)
+                    : undefined,
         })
 
         if (filterResults.match) {

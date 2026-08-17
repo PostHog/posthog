@@ -4,6 +4,10 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import {
+    CohortMembershipRepository,
+    NoOpCohortMembershipRepository,
+} from '~/cdp/services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -174,6 +178,83 @@ describe('action.conditional_branch', () => {
         })
     })
 
+    describe('cohort membership conditions', () => {
+        const COHORT_ID = 42
+
+        class FakeCohortMembershipRepository implements CohortMembershipRepository {
+            public calls: { teamId: number; personUuid: string; cohortIds: number[] }[] = []
+
+            constructor(
+                private memberships: Map<number, boolean>,
+                private error?: Error
+            ) {}
+
+            getMemberships(teamId: number, personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>> {
+                this.calls.push({ teamId, personUuid, cohortIds })
+                if (this.error) {
+                    return Promise.reject(this.error)
+                }
+                return Promise.resolve(new Map(cohortIds.map((id) => [id, this.memberships.get(id) ?? false])))
+            }
+        }
+
+        const cohortConditionFilters = (fn: 'inCohort' | 'notInCohort'): Record<string, any> => ({
+            // Same shape the Python compiler emits for `{type: 'cohort', value: 42}` filters
+            bytecode: ['_H', 1, 33, COHORT_ID, 2, fn, 1],
+            cohort_ids: [COHORT_ID],
+        })
+
+        const executeWithRepository = async (
+            repository: CohortMembershipRepository,
+            fn: 'inCohort' | 'notInCohort'
+        ): Promise<HogFlowAction | undefined> => {
+            action.config.conditions = [
+                { filters: cohortConditionFilters(fn) },
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }, // Always matches — the "not in branch" fallthrough
+            ]
+            const handler = new ConditionalBranchHandler(repository)
+            const result = await handler.execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+            return result.nextAction
+        }
+
+        it.each([
+            ['inCohort', true, 'condition_1'],
+            ['inCohort', false, 'condition_2'],
+            ['notInCohort', false, 'condition_1'],
+            ['notInCohort', true, 'condition_2'],
+        ] as const)('routes %s with membership=%s to %s', async (fn, isMember, expectedActionId) => {
+            const repository = new FakeCohortMembershipRepository(new Map([[COHORT_ID, isMember]]))
+
+            const nextAction = await executeWithRepository(repository, fn)
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, expectedActionId))
+            expect(repository.calls).toEqual([
+                { teamId: invocation.hogFlow.team_id, personUuid: invocation.person!.id, cohortIds: [COHORT_ID] },
+            ])
+        })
+
+        it('treats a person-less invocation as a non-member without querying', async () => {
+            const repository = new FakeCohortMembershipRepository(new Map([[COHORT_ID, true]]))
+            invocation.person = undefined
+            invocation.state.personId = undefined
+
+            const nextAction = await executeWithRepository(repository, 'inCohort')
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
+            expect(repository.calls).toEqual([])
+        })
+
+        it('propagates a lookup failure instead of routing on a made-up answer', async () => {
+            const repository = new FakeCohortMembershipRepository(new Map(), new Error('lookup timed out'))
+
+            await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
+        })
+    })
+
     describe('wait_until_condition eventMatched short-circuit', () => {
         let waitInvocation: CyclotronJobInvocationHogFlow
         let waitAction: Extract<HogFlowAction, { type: 'wait_until_condition' }>
@@ -214,7 +295,7 @@ describe('action.conditional_branch', () => {
                 id: waitAction.id,
                 startedAtTimestamp: DateTime.utc().toMillis(),
             }
-            handler = new ConditionalBranchHandler()
+            handler = new ConditionalBranchHandler(new NoOpCohortMembershipRepository())
             counterHogflowWaitPollOnlyAdvance.reset()
             counterHogflowRekeyWake.reset()
         })

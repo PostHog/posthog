@@ -26,6 +26,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { NoOpCohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -160,7 +161,8 @@ describe('Hogflow Executor', () => {
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
             recipientPreferencesService,
-            emailValidationService
+            emailValidationService,
+            new NoOpCohortMembershipRepository()
         )
     })
 
