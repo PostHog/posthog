@@ -435,6 +435,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return filters
 
         return_branch = self._first_time_role_branch(self.return_event, "return") or self.events_timestamp_filter()
+        # The OR below implies this flat name filter, but the planner's index analysis and
+        # PREWHERE staging work on top-level conjuncts. Without it, a property matcher inside
+        # the OR can force the fat properties column to be decompressed for every scanned row
+        # instead of only name-matching rows, multiplying bytes read. The legacy shape carries
+        # the same redundant conjunct.
+        name_filter = self.runner.event_name_filter([self.start_event, self.return_event])
+        if name_filter is not None:
+            filters.append(name_filter)
         filters.append(ast.Or(exprs=[start_branch, return_branch]))
         return filters
 
