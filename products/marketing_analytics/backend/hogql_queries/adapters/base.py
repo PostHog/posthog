@@ -758,7 +758,17 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         currency_with_fallback = ast.Call(
             name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
         )
-        stats_date = ast.Call(name="toDate", args=[ast.Field(chain=[table_name, self._stats_date_column])])
+        # Warehouse date columns read back nullable, and `convertCurrency` resolves the rate
+        # through `dictGetOrDefault`, which rejects a Nullable(Date) key outright rather than
+        # returning the default. Falling back to today() for a row with no date is the old
+        # behaviour, kept only for those rows.
+        stats_date = ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toDate", args=[ast.Field(chain=[table_name, self._stats_date_column])]),
+                ast.Call(name="today", args=[]),
+            ],
+        )
         converted = ast.Call(
             name="convertCurrency",
             args=[
