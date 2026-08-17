@@ -25435,26 +25435,13 @@ export namespace Schemas {
 
     export interface DigestChannel {
       readonly id: string;
-      /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
-         * @maxLength 255
-         */
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
       audience_key: string;
-      /**
-         * ID of the team's Slack integration used to post the digest.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** ID of the team's Slack integration used to post the digest. */
       slack_integration_id: number;
-      /**
-         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
-         * @maxLength 64
-         */
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
       slack_channel_id: string;
-      /**
-         * Human-readable Slack channel name, for display only.
-         * @maxLength 255
-         */
+      /** Human-readable Slack channel name, for display only. */
       slack_channel_name?: string;
       /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
        *
@@ -25464,11 +25451,30 @@ export namespace Schemas {
        * * `owners_contact` - OWNERS_CONTACT */
       readonly resolution_source: ResolutionSourceEnum;
       /** Whether this channel is included in the daily digest fan-out. */
-      enabled?: boolean;
-      /** @nullable */
+      enabled: boolean;
+      /**
+         * When a digest was last posted to this channel.
+         * @nullable
+         */
       readonly last_digest_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Input shape for creating/updating a digest channel (see the repo-config write serializer).
+     */
+    export interface DigestChannelWrite {
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
+      audience_key: string;
+      /** ID of the team's Slack integration used to post the digest. */
+      slack_integration_id: number;
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
+      slack_channel_id: string;
+      /** Human-readable Slack channel name, for display only. */
+      slack_channel_name?: string;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
     }
 
     /**
@@ -46282,6 +46288,222 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    export interface ManagedWarehouseMonitoringCoverage {
+      /**
+         * Number of control planes that contributed live data.
+         * @minimum 0
+         */
+      cp_responders: number;
+      /**
+         * Number of control planes queried for live data.
+         * @minimum 0
+         */
+      cp_total: number;
+      /** Whether one or more control planes failed to contribute live data. */
+      partial: boolean;
+    }
+
+    export interface ManagedWarehouseMonitoringErrorResponse {
+      /** Human-readable managed warehouse monitoring error. */
+      error?: string;
+      /** Machine-readable validation error type. */
+      type?: string;
+      /** Machine-readable validation error code. */
+      code?: string;
+      /** Human-readable validation error detail. */
+      detail?: string;
+      /**
+         * Query parameter associated with an error.
+         * @nullable
+         */
+      attr?: string | null;
+    }
+
+    export interface ManagedWarehouseMonitoringLimits {
+      /**
+         * Maximum concurrent workers for the organization. Zero means no organization-specific limit.
+         * @minimum 0
+         */
+      max_workers: number;
+      /**
+         * Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.
+         * @minimum 0
+         */
+      max_vcpus: number;
+      /** Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m. */
+      default_worker_cpu: string;
+      /** Default worker memory as a Kubernetes resource quantity, such as 8Gi. */
+      default_worker_memory: string;
+      /**
+         * Default number of seconds an idle worker remains available for reuse.
+         * @minimum 0
+         */
+      default_worker_ttl_seconds: number;
+      /**
+         * Minimum number of idle workers the organization keeps warm.
+         * @minimum 0
+         */
+      default_worker_min_hot_idle: number;
+    }
+
+    export interface ManagedWarehouseMonitoringPoint {
+      /** UTC timestamp of the sample. */
+      timestamp: string;
+      /** Metric value at the sample timestamp. */
+      value: number;
+    }
+
+    /**
+     * Allow-listed labels distinguishing this series, such as query outcome or acquisition source.
+     */
+    export type ManagedWarehouseMonitoringSeriesLabels = {[key: string]: string};
+
+    export interface ManagedWarehouseMonitoringSeries {
+      /** Allow-listed labels distinguishing this series, such as query outcome or acquisition source. */
+      labels: ManagedWarehouseMonitoringSeriesLabels;
+      /** Chronologically ordered metric samples. */
+      points: ManagedWarehouseMonitoringPoint[];
+    }
+
+    export interface ManagedWarehouseMonitoringSeriesResponse {
+      /**
+         * Version of the managed warehouse monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** Allow-listed metric returned by this response. */
+      metric: string;
+      /** Unit for every value in the response. */
+      unit: string;
+      /** Inclusive UTC start of the returned time window. */
+      start: string;
+      /** Inclusive UTC end of the returned time window. */
+      end: string;
+      /**
+         * Number of seconds between requested samples.
+         * @minimum 1
+         */
+      step_seconds: number;
+      /** Metric series grouped by their allow-listed labels. */
+      series: ManagedWarehouseMonitoringSeries[];
+    }
+
+    export interface ManagedWarehouseMonitoringWarehouse {
+      /** Current managed warehouse lifecycle state, such as ready, provisioning, or resharding. */
+      state: string;
+    }
+
+    export interface ManagedWarehouseMonitoringTotals {
+      /**
+         * Number of current non-terminal workers.
+         * @minimum 0
+         */
+      workers: number;
+      /**
+         * Total CPU cores allocated to current workers.
+         * @minimum 0
+         */
+      allocated_cpu_cores: number;
+      /**
+         * Total memory bytes allocated to current workers.
+         * @minimum 0
+         */
+      allocated_memory_bytes: number;
+      /**
+         * Number of active database sessions across the organization's control planes.
+         * @minimum 0
+         */
+      active_sessions: number;
+      /**
+         * Number of sessions currently executing a query.
+         * @minimum 0
+         */
+      running_queries: number;
+      /**
+         * Number of connections waiting for worker capacity.
+         * @minimum 0
+         */
+      queued_connections: number;
+    }
+
+    export interface ManagedWarehouseMonitoringWorkerSession {
+      /** Connection protocol, such as pg or flight. */
+      protocol: string;
+      /** Current database session state. */
+      state: string;
+      /**
+         * Milliseconds elapsed for the current query, or zero when the session is idle.
+         * @minimum 0
+         */
+      elapsed_ms: number;
+      /**
+         * Best-effort query progress percentage, or null when DuckDB cannot estimate progress.
+         * @minimum 0
+         * @nullable
+         */
+      percentage: number | null;
+      /**
+         * Rows processed by the current query.
+         * @minimum 0
+         */
+      rows: number;
+      /**
+         * Estimated total rows for the current query when available.
+         * @minimum 0
+         */
+      total_rows: number;
+      /** Whether the current query appears stalled. */
+      stalled: boolean;
+    }
+
+    export interface ManagedWarehouseMonitoringWorker {
+      /** Opaque identifier for the worker. */
+      id: string;
+      /** Current worker lifecycle state. */
+      state: string;
+      /** Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable. */
+      cpu: string;
+      /** Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable. */
+      memory: string;
+      /**
+         * Number of seconds the worker remains available while idle.
+         * @minimum 0
+         */
+      ttl_seconds: number;
+      /** UTC timestamp when the worker was created. */
+      created_at: string;
+      /** UTC timestamp of the worker's latest heartbeat. */
+      last_heartbeat_at: string;
+      /** Sanitized live session assigned to the worker, when one exists. */
+      session?: ManagedWarehouseMonitoringWorkerSession | null;
+    }
+
+    export interface ManagedWarehouseMonitoringSnapshotResponse {
+      /**
+         * Version of the managed warehouse monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** UTC timestamp when this snapshot was assembled. */
+      as_of: string;
+      /** Managed warehouse lifecycle details. */
+      warehouse: ManagedWarehouseMonitoringWarehouse;
+      /** Organization-level worker limits and defaults. */
+      limits: ManagedWarehouseMonitoringLimits;
+      /** Current organization-level activity totals. */
+      totals: ManagedWarehouseMonitoringTotals;
+      /** Current non-terminal workers with tenant-safe runtime details. */
+      workers: ManagedWarehouseMonitoringWorker[];
+      /** Completeness of the cross-control-plane live data. */
+      coverage: ManagedWarehouseMonitoringCoverage;
+    }
+
     /**
      * * `copy` - copy
      * * `register` - register
@@ -51120,7 +51342,7 @@ export namespace Schemas {
      *
      * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
      * and default-branch policy file contents — repository content a project member without repo access
-     * must never read over the API. Only these derived, content-free fields are exposed.
+     * must never read. Only these derived, content-free fields are exposed.
      */
     export interface _ReviewOutputSummary {
       /** Version of the stamphog engine that produced this review, if it reported one. */
@@ -52184,18 +52406,12 @@ export namespace Schemas {
 
     export interface StamphogRepoConfig {
       readonly id: string;
-      /**
-         * SCM provider this config talks to. Defaults to 'github'.
-         * @maxLength 32
-         */
+      /** SCM provider this config talks to. Defaults to 'github'. */
       provider?: string;
-      /**
-         * Repository full name, e.g. 'PostHog/posthog'.
-         * @maxLength 255
-         */
+      /** Repository full name, e.g. 'PostHog/posthog'. */
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
-      enabled?: boolean;
+      enabled: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
@@ -52204,11 +52420,8 @@ export namespace Schemas {
        *
        * * `all` - all
        * * `label` - label */
-      review_mode?: ReviewModeEnum;
-      /**
-         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
-         * @maxLength 100
-         */
+      readonly review_mode: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -56097,26 +56310,13 @@ export namespace Schemas {
 
     export interface PatchedDigestChannel {
       readonly id?: string;
-      /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
-         * @maxLength 255
-         */
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
       audience_key?: string;
-      /**
-         * ID of the team's Slack integration used to post the digest.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** ID of the team's Slack integration used to post the digest. */
       slack_integration_id?: number;
-      /**
-         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
-         * @maxLength 64
-         */
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
       slack_channel_id?: string;
-      /**
-         * Human-readable Slack channel name, for display only.
-         * @maxLength 255
-         */
+      /** Human-readable Slack channel name, for display only. */
       slack_channel_name?: string;
       /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
        *
@@ -56127,7 +56327,10 @@ export namespace Schemas {
       readonly resolution_source?: ResolutionSourceEnum;
       /** Whether this channel is included in the daily digest fan-out. */
       enabled?: boolean;
-      /** @nullable */
+      /**
+         * When a digest was last posted to this channel.
+         * @nullable
+         */
       readonly last_digest_at?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -60804,36 +61007,34 @@ export namespace Schemas {
       readonly status?: string | null;
     }
 
-    export interface PatchedStamphogRepoConfig {
-      readonly id?: string;
-      /**
-         * SCM provider this config talks to. Defaults to 'github'.
-         * @maxLength 32
-         */
+    /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface PatchedStamphogRepoConfigWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. */
       provider?: string;
-      /**
-         * Repository full name, e.g. 'PostHog/posthog'.
-         * @maxLength 255
-         */
+      /** Repository full name, e.g. 'PostHog/posthog'. */
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
-      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
-      readonly installation_id?: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
        * * `all` - all
        * * `label` - label */
       review_mode?: ReviewModeEnum;
-      /**
-         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
-         * @maxLength 100
-         */
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     /**
@@ -76233,6 +76434,36 @@ export namespace Schemas {
     }
 
     /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface StamphogRepoConfigWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. */
+      provider?: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. */
+      repository: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
+      trigger_label?: string;
+    }
+
+    /**
      * Request body for binding a GitHub App installation to the current team.
      *
      * Always requires the user-to-server OAuth ``code`` (the ownership proof) and the ``state`` token.
@@ -84799,6 +85030,61 @@ export namespace Schemas {
      */
     name: string;
     };
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed managed warehouse metric to retrieve.
+     *
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `sessions_active` - sessions_active
+     * * `acquire_p95` - acquire_p95
+     * * `acquire_by_source` - acquire_by_source
+     * * `storage_bytes` - storage_bytes
+     * * `worker_crash_rate` - worker_crash_rate
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric;
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow;
+    };
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric];
+
+
+    export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = {
+      QueryRate: 'query_rate',
+      ErrorRatio: 'error_ratio',
+      DurationP50: 'duration_p50',
+      DurationP95: 'duration_p95',
+      SessionsActive: 'sessions_active',
+      AcquireP95: 'acquire_p95',
+      AcquireBySource: 'acquire_by_source',
+      StorageBytes: 'storage_bytes',
+      WorkerCrashRate: 'worker_crash_rate',
+    } as const;
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow];
+
+
+    export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+      '30d': '30d',
+    } as const;
 
     export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**
