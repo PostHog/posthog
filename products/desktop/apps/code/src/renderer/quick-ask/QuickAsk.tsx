@@ -1,10 +1,18 @@
 import type { QuickAskEvent } from "@posthog/core/quick-ask/quick-ask";
-import { happyHog } from "@posthog/ui/assets/hedgehogs";
+import {
+  builderHog,
+  explorerHog,
+  happyHog,
+  loopHog,
+} from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnswerCard, ErrorCard, ThinkingCard } from "./components/AnswerCard";
 
 type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
+
+/** Double-clicking the hedgehog cycles through the crew. */
+const HEDGEHOGS = [happyHog, builderHog, explorerHog, loopHog];
 
 const PILL_MIN_WIDTH = 176;
 const PILL_MAX_WIDTH = 448;
@@ -48,6 +56,7 @@ export function QuickAsk(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = useState("");
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
   const [flip, setFlip] = useState(false);
+  const [hedgehog, setHedgehog] = useState(0);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const historyRef = useRef<string[]>([]);
   /** Position while walking history with the arrows; null = editing the draft. */
@@ -258,6 +267,10 @@ export function QuickAsk(): React.JSX.Element {
     window.quickAsk?.openInApp();
   }, []);
 
+  const nextHedgehog = useCallback((): void => {
+    setHedgehog((current) => (current + 1) % HEDGEHOGS.length);
+  }, []);
+
   const answerText = textParts.map((part) => part.content).join("\n\n");
 
   return (
@@ -267,9 +280,10 @@ export function QuickAsk(): React.JSX.Element {
           type="button"
           aria-label="Drag to move the panel"
           onMouseDown={startDrag}
+          onDoubleClick={nextHedgehog}
           className={phase === "thinking" ? "qa-hog qa-hog-thinking" : "qa-hog"}
         >
-          <img src={happyHog} alt="" draggable={false} />
+          <img src={HEDGEHOGS[hedgehog]} alt="" draggable={false} />
         </button>
         <div className="qa-pill" style={{ width: pillWidth }}>
           <input
@@ -284,6 +298,26 @@ export function QuickAsk(): React.JSX.Element {
             onInput={syncPillWidth}
           />
         </div>
+        <button
+          type="button"
+          aria-label="Close"
+          title="Close"
+          className="qa-close"
+          onClick={() => window.quickAsk?.hide()}
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" />
+          </svg>
+        </button>
         {/* Hidden mirror used to measure the typed text for the pill width. */}
         <span ref={measureRef} className="qa-measure" aria-hidden="true" />
       </div>

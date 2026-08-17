@@ -149,7 +149,7 @@ await page.addInitScript(`
   const listeners = [];
   window.__qaEmit = (event) => { for (const listener of listeners) listener(event); };
   window.quickAsk = {
-    hide: () => {},
+    hide: () => { window.__qaHides = (window.__qaHides ?? 0) + 1; },
     resize: () => {},
     openInApp: () => {},
     dragStart: () => {},
@@ -233,6 +233,32 @@ if (!stat) {
   fail("chart headline stat missing");
 }
 pass(`hogql block tag drew the compact chart (latest ${stat})`);
+
+// Hovering a chip mounts the live preview card.
+await page.hover(".qa-answer .qa-ref");
+await page.waitForSelector("[data-radix-popper-content-wrapper]", { timeout: 5_000 });
+pass("chip hover mounts the preview card");
+
+// The close button hides the panel; clicking elsewhere must not.
+await page.click(".qa-close");
+const hides = (await page.evaluate("window.__qaHides ?? 0")) as number;
+if (hides !== 1) {
+  fail(`close button did not hide the panel (hides: ${hides})`);
+}
+pass("close button hides the panel");
+
+// Double-clicking the hedgehog cycles the hedgehog.
+const hogBefore = (await page.evaluate(
+  'document.querySelector(".qa-hog img")?.getAttribute("src") ?? ""',
+)) as string;
+await page.dblclick(".qa-hog");
+const hogAfter = (await page.evaluate(
+  'document.querySelector(".qa-hog img")?.getAttribute("src") ?? ""',
+)) as string;
+if (!hogBefore || hogBefore === hogAfter) {
+  fail("double-clicking the hedgehog did not change it");
+}
+pass("hedgehog easter egg cycles");
 
 if (process.env.QUICK_ASK_E2E_METRICS) {
   const metrics = await page.evaluate(`(() => {

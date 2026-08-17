@@ -173,12 +173,6 @@ function createQuickAskWindow(): BrowserWindow {
   if (process.platform !== "darwin") {
     window.setVisibleOnAllWorkspaces(true);
   }
-  window.on("blur", () => {
-    // Keep the panel up while its devtools are focused.
-    if (window.webContents.isDevToolsFocused()) return;
-    hideQuickAsk();
-  });
-
   window.on("closed", () => {
     quickAskWindow = null;
   });

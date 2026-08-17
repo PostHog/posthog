@@ -1,15 +1,13 @@
-import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import {
   baseComponents,
   MarkdownRenderer,
 } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
 import {
   type EvidenceLinkTarget,
   parseEvidenceLink,
 } from "@posthog/ui/utils/evidenceLinks";
-import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import type React from "react";
 import {
   isValidElement,
@@ -24,8 +22,9 @@ import { PanelChartCard } from "./PanelChartCard";
 const AUTOSCROLL_SLACK_PX = 48;
 
 /**
- * Object references as plain click-to-open chips. Hover preview cards need
- * more room than a window whose bounds hug the content can give them.
+ * The shared reference chip with its live hover preview. The chip's own
+ * click-out is suppressed: in the panel the hover card is the destination,
+ * and its "open" affordance still links out.
  */
 function PanelChip({
   target,
@@ -34,21 +33,16 @@ function PanelChip({
   target: EvidenceLinkTarget;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const KindIcon = getObjectKind(target.kind).icon;
-  const url = useEvidenceUrl(target.kind, target.id);
   return (
-    <a
-      href={url ?? "#"}
+    <span
       className="qa-ref"
-      title="Open in PostHog"
-      onClick={(event) => {
+      onClickCapture={(event) => {
         event.preventDefault();
-        if (url) openExternalUrl(url);
+        event.stopPropagation();
       }}
     >
-      <KindIcon size={12} aria-hidden />
-      {children}
-    </a>
+      <EvidenceRefChip target={target}>{children}</EvidenceRefChip>
+    </span>
   );
 }
 

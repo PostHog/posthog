@@ -189,12 +189,15 @@ function BarPlot({
   );
 }
 
-/** Thins x-axis labels to at most MAX_X_TICKS, keeping first and last. */
+/**
+ * Thins x-axis labels to at most MAX_X_TICKS. Spaced backwards from the last
+ * label so the newest one always shows and kept labels never sit adjacent.
+ */
 function tickLabels(labels: string[]): string[] {
   if (labels.length <= MAX_X_TICKS) return labels;
   const step = Math.ceil(labels.length / MAX_X_TICKS);
   return labels.map((label, index) =>
-    index % step === 0 || index === labels.length - 1 ? label : "",
+    (labels.length - 1 - index) % step === 0 ? label : "",
   );
 }
 

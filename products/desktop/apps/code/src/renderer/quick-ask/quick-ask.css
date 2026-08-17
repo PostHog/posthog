@@ -165,6 +165,29 @@ html body {
 }
 
 /* Hidden mirror of the input text, used to size the pill. */
+.qa-close {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--qa-border);
+  border-radius: 50%;
+  background: var(--qa-surface);
+  color: var(--qa-fg-subtle);
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+
+.qa-close:hover {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
+}
+
 .qa-measure {
   position: absolute;
   visibility: hidden;
@@ -446,6 +469,9 @@ html body {
   color: var(--qa-fg-subtle);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
+  background: rgba(30, 31, 37, 0.75);
+  padding: 0 3px;
+  border-radius: 3px;
 }
 
 .qa-chart-crosshair {
@@ -535,10 +561,13 @@ html body {
 }
 
 .qa-chart-labels span {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 2px;
   text-align: center;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .qa-chart-legend {
@@ -613,24 +642,9 @@ html body {
   padding: 2px 0 4px;
 }
 
-/* Inline object reference: icon + label, click opens PostHog. */
+/* Wrapper for the shared reference chip; hover previews live inside it. */
 .qa-ref {
-  color: var(--qa-fg);
-  text-decoration: none;
-  border-bottom: 1px dotted rgba(255, 255, 255, 0.35);
-  padding-bottom: 1px;
-  cursor: pointer;
-}
-
-.qa-ref:hover {
-  border-bottom-style: solid;
-}
-
-.qa-ref svg {
-  display: inline-block;
-  vertical-align: -1px;
-  margin-right: 3px;
-  color: var(--qa-fg-subtle);
+  cursor: default;
 }
 
 /* The shared markdown components render at app sizes; tighten to the
