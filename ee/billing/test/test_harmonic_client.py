@@ -75,6 +75,23 @@ async def test_strict_falls_back_to_second_variation_after_error():
 
 @pytest.mark.asyncio
 @patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_clean_not_found_is_authoritative_when_the_other_variation_errored():
+    # One variation errored, the other returned a clean companyFound=false: that clean answer
+    # is an authoritative not-found. Raising here made a deterministically-failing variation
+    # exhaust the caller's retries and leave the org with no archive row at all.
+    client = _client_with_responses(_http_500(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_clean_not_found_first_then_error_is_also_not_found():
+    client = _client_with_responses(_not_found(), _http_500())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_get_company_by_urn_returns_parsed_json():
     client = _client_with_get_responses(
         _response(json_data={"name": "Salesforce", "website": {"domain": "salesforce.com"}})

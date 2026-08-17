@@ -103,17 +103,27 @@ class AsyncHarmonicClient:
     async def enrich_company_by_domain_strict(self, domain: str) -> Optional[dict[str, Any]]:
         """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
 
-        Returns None only for a genuine not-found (every domain variation returned a clean
-        GraphQL response with companyFound false). Operational failures (network errors, non-2xx
-        status, JSON decode, GraphQL errors) are re-raised so callers can retry and alert instead
-        of mistaking an outage for a missing company. Does not capture_exception — the caller owns
-        error handling.
+        Returns None for a genuine not-found: at least one domain variation returned a clean
+        GraphQL response with companyFound false, and no variation found the company. A clean
+        not-found is an authoritative Harmonic answer even when the other variation errored —
+        raising in that mixed case made one deterministically-failing variation (e.g. a GraphQL
+        error for the bare-domain URL) exhaust the caller's retries and fail the whole lookup
+        with no archive row, which is how orgs went permanently unmatched while fresh manual
+        pulls found them fine. Recovery for a possibly-pessimistic miss is the recheck and the
+        re-enrichment sweep, both of which read the archived miss; an activity failure feeds
+        neither.
+
+        Operational failures on EVERY variation (network errors, non-2xx status, JSON decode,
+        GraphQL errors) still re-raise, so callers retry and alert instead of mistaking an
+        outage for a missing company. Does not capture_exception — the caller owns error
+        handling.
         """
         await asyncio.sleep(0.2)
         domain = self._clean_domain(domain)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
 
         last_error: Optional[Exception] = None
+        saw_clean_not_found = False
         for domain_variation in domain_variations:
             try:
                 variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
@@ -135,11 +145,12 @@ class AsyncHarmonicClient:
                     result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
                     if result.get("companyFound"):
                         return result.get("company")
+                    saw_clean_not_found = True
             except Exception as e:
                 last_error = e
                 continue
 
-        if last_error is not None:
+        if last_error is not None and not saw_clean_not_found:
             raise last_error
         return None
 
