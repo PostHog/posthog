@@ -87,6 +87,26 @@ LOGS_TRANSFORMATIONS_FEATURE_FLAG = "logs-transformations"
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+
+def _subscribes_to_managed_alert_event(filters: Any) -> bool:
+    return any(
+        is_managed_alert_internal_event(event_filter.get("id"))
+        for event_filter in (filters or {}).get("events", [])
+        if isinstance(event_filter, dict)
+    )
+
+
+def _targets_a_specific_alert(filters: Any) -> bool:
+    # Alert-owned destinations carry the alert_id property the alerts backend writes and later
+    # matches on to manage them. A destination that subscribes to a managed alert event but names
+    # no alert is a forgery, not one of these.
+    return any(
+        property_filter.get("key") == "alert_id" and property_filter.get("value") not in (None, "")
+        for property_filter in (filters or {}).get("properties", [])
+        if isinstance(property_filter, dict)
+    )
+
+
 # The config of a function: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description, icon_url) and lifecycle (enabled, deleted, execution_order)
 # always apply to the live row. The draft blob is a full snapshot of these fields so publish is a
@@ -545,20 +565,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if not self.context.get("allow_managed_alert_destination"):
             current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
             proposed_filters = attrs.get("filters", current_filters)
-            current_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (current_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            proposed_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (proposed_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            if current_is_managed or proposed_is_managed:
-                raise serializers.ValidationError(
-                    {"filters": "Alert notification destinations are managed through the alert API."}
-                )
+            # The alerts backend creates these destinations through its own serializer path, which
+            # sets allow_managed_alert_destination. A generic caller (the insight alerts UI, the
+            # public API, MCP) may still create an alert-owned destination directly, so reject only
+            # a forged one: a subscription to a managed alert event that does not target an alert.
+            for filters in (current_filters, proposed_filters):
+                if _subscribes_to_managed_alert_event(filters) and not _targets_a_specific_alert(filters):
+                    raise serializers.ValidationError(
+                        {"filters": "Create alert notification destinations from the alert's notification settings."}
+                    )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
