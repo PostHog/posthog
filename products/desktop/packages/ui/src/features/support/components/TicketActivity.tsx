@@ -2,18 +2,25 @@ import {
   activityActorLabel,
   summarizeActivity,
 } from "@posthog/core/support/activitySummary";
-import { Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { Section } from "@posthog/ui/features/support/components/SidebarSection";
 import { useSupportTicketActivity } from "@posthog/ui/features/support/hooks/useSupportTicketActivity";
+import { useState } from "react";
+
+const COLLAPSED_COUNT = 5;
 
 export function TicketActivity({ ticketId }: { ticketId: string }) {
   const { data, isPending, isError } = useSupportTicketActivity(ticketId);
+  const [expanded, setExpanded] = useState(false);
   const entries = data ?? [];
 
   if (!isPending && !isError && entries.length === 0) {
     return null;
   }
+
+  const shown = expanded ? entries : entries.slice(0, COLLAPSED_COUNT);
+  const hidden = entries.length - shown.length;
 
   return (
     <Section title="Activity">
@@ -26,7 +33,7 @@ export function TicketActivity({ ticketId }: { ticketId: string }) {
             Could not load activity.
           </Text>
         )}
-        {entries.map((entry) => (
+        {shown.map((entry) => (
           <div key={entry.id} className="flex items-baseline gap-2">
             <Text className="min-w-0 flex-1 text-[12px] leading-snug">
               <span className="font-medium">{activityActorLabel(entry)}</span>{" "}
@@ -39,6 +46,26 @@ export function TicketActivity({ ticketId }: { ticketId: string }) {
             </Text>
           </div>
         ))}
+        {hidden > 0 && (
+          <Button
+            variant="default"
+            size="sm"
+            className="self-start px-0"
+            onClick={() => setExpanded(true)}
+          >
+            {`Show ${hidden} more`}
+          </Button>
+        )}
+        {expanded && entries.length > COLLAPSED_COUNT && (
+          <Button
+            variant="default"
+            size="sm"
+            className="self-start px-0"
+            onClick={() => setExpanded(false)}
+          >
+            Show less
+          </Button>
+        )}
       </div>
     </Section>
   );

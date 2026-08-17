@@ -1,4 +1,8 @@
-import { ArrowSquareOutIcon, CaretDownIcon } from "@phosphor-icons/react";
+import {
+  ArrowSquareOutIcon,
+  CaretDownIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
 import {
@@ -18,6 +22,8 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
+  InputGroup,
+  InputGroupInput,
   Text,
 } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
@@ -44,7 +50,7 @@ import {
 } from "@posthog/ui/features/support/ticketPresentation";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 const STATUS_OPTIONS = Object.keys(
   TICKET_STATUS_LABELS,
@@ -164,17 +170,16 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
 
         <TicketPullRequestRow taskId={readTicketTaskId(ticket.tags)} />
 
-        {labelTags.length > 0 && (
-          <Row label="Tags">
-            <div className="flex flex-wrap justify-end gap-1">
-              {labelTags.map((tag) => (
-                <Badge key={tag} variant="default">
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          </Row>
-        )}
+        <Row label="Tags">
+          <TicketTags
+            tags={labelTags}
+            onChange={(next) =>
+              write({
+                tags: [...(ticket.tags ?? []).filter(isTicketTaskTag), ...next],
+              })
+            }
+          />
+        </Row>
       </Section>
 
       <Section title="Requester">
@@ -186,15 +191,61 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
         <Row label="Channel">
           <ChannelValue ticket={ticket} />
         </Row>
-        <Row label="Messages">
-          <Text className="font-medium text-[12px] tabular-nums">
-            {ticket.message_count}
-          </Text>
-        </Row>
       </Section>
 
       <TicketActivity ticketId={ticket.id} />
       <TicketHistory ticket={ticket} />
+    </div>
+  );
+}
+
+function TicketTags({
+  tags,
+  onChange,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const add = () => {
+    const tag = draft.trim();
+    if (tag && !tags.includes(tag)) {
+      onChange([...tags, tag]);
+    }
+    setDraft("");
+  };
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+      {tags.map((tag) => (
+        <Badge key={tag} variant="default">
+          {tag}
+          <button
+            type="button"
+            aria-label={`Remove ${tag}`}
+            onClick={() => onChange(tags.filter((t) => t !== tag))}
+            className="cursor-default text-muted-foreground hover:text-foreground"
+          >
+            <XIcon size={9} weight="bold" />
+          </button>
+        </Badge>
+      ))}
+      <InputGroup className="h-6 w-24">
+        <InputGroupInput
+          value={draft}
+          placeholder="Add tag"
+          className="text-[12px]"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={add}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+        />
+      </InputGroup>
     </div>
   );
 }

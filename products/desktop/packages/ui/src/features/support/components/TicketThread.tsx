@@ -9,14 +9,9 @@ import {
   EmptyMedia,
   EmptyTitle,
   Text,
-  ThreadItem,
-  ThreadItemAuthor,
-  ThreadItemBody,
-  ThreadItemContent,
-  ThreadItemGroup,
-  ThreadItemHeader,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { messageAuthorLabel } from "@posthog/ui/features/support/ticketPresentation";
 import { useEffect, useRef } from "react";
 
@@ -53,11 +48,11 @@ export function TicketThread({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-      <ThreadItemGroup>
+      <div className="flex flex-col gap-3">
         {messages.map((message) => (
           <TicketMessageRow key={message.id} message={message} />
         ))}
-      </ThreadItemGroup>
+      </div>
       <div ref={bottomRef} />
     </div>
   );
@@ -65,40 +60,55 @@ export function TicketThread({
 
 function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
   const fromCustomer = message.author_type !== "support";
+  const isNote = message.is_private;
+  const fromUs = !fromCustomer && !isNote;
 
   return (
-    <ThreadItem>
-      <ThreadItemContent>
-        <ThreadItemHeader>
-          <ThreadItemAuthor className="text-[13px]">
+    <div className={cn("flex", fromUs ? "justify-end" : "justify-start")}>
+      <div className="flex min-w-0 max-w-[85%] flex-col gap-1">
+        <div
+          className={cn(
+            "flex items-baseline gap-2 px-1",
+            fromUs && "flex-row-reverse",
+          )}
+        >
+          <Text className="font-medium text-[12px]">
             {messageAuthorLabel(message)}
-          </ThreadItemAuthor>
+          </Text>
           {message.author_type === "AI" && (
             <Badge variant="default">
               <RobotIcon size={10} />
               AI
             </Badge>
           )}
-          {message.is_private && <Badge variant="warning">Internal note</Badge>}
-          {fromCustomer && !message.is_private && (
-            <Badge variant="info">Customer</Badge>
-          )}
-          <Text className="ml-auto shrink-0 text-[11px] text-gray-11 tabular-nums">
+          <Text className="shrink-0 text-[11px] text-gray-11 tabular-nums">
             {formatRelativeTimeShort(message.created_at)}
           </Text>
-        </ThreadItemHeader>
-        <ThreadItemBody
+        </div>
+
+        <div
           className={cn(
-            "mt-1.5 whitespace-pre-wrap break-words text-[13px]",
-            message.is_private && "text-warning-foreground",
+            "rounded-(--radius-3) border px-3 py-2",
+            isNote && "border-warning/40 bg-warning/10",
+            fromUs && !isNote && "border-transparent bg-fill-selected",
+            fromCustomer && !isNote && "border-border bg-card",
           )}
         >
-          {message.content}
-        </ThreadItemBody>
-        {message.version > 0 && (
-          <Text className="text-[10px] text-muted-foreground">Edited</Text>
-        )}
-      </ThreadItemContent>
-    </ThreadItem>
+          {isNote && (
+            <Text className="mb-1 block font-semibold text-[10px] text-warning-foreground uppercase tracking-wide">
+              Internal note
+            </Text>
+          )}
+          <div className="min-w-0 break-words text-[13px]">
+            <ChatMarkdown content={message.content} />
+          </div>
+          {message.version > 0 && (
+            <Text className="mt-1 block text-[10px] text-muted-foreground">
+              Edited
+            </Text>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

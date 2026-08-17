@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   buildTicketAgentPrompt,
+  isTicketTaskTag,
   readTicketTaskId,
   withTicketTaskId,
 } from "./ticketTaskLink";
@@ -17,15 +18,40 @@ describe("ticket task link", () => {
     ["a link among other tags", ["billing", "ai-task:xyz"], "xyz"],
     ["a differently cased prefix", ["AI-Task:abc"], "abc"],
     ["an empty link", ["ai-task:"], null],
+    ["a link written before the rename", ["code-task:legacy-1"], "legacy-1"],
+    [
+      "both prefixes, preferring the current one",
+      ["code-task:legacy-1", "ai-task:current-1"],
+      "current-1",
+    ],
   ])("reads the task id from %s", (_case, tags, expected) => {
     expect(readTicketTaskId(tags)).toBe(expected);
   });
 
-  it("replaces an existing link rather than adding a second", () => {
-    expect(withTicketTaskId(["ai-task:old", "billing"], "new")).toEqual([
-      "billing",
-      "ai-task:new",
-    ]);
+  it.each<[string, string]>([
+    ["the current prefix", "ai-task:abc"],
+    ["the pre-rename prefix", "code-task:abc"],
+    ["a conversation link", "max-conversation:abc"],
+  ])("hides %s from the ticket's own tags", (_case, tag) => {
+    expect(isTicketTaskTag(tag)).toBe(true);
+  });
+
+  it("keeps a tag someone typed", () => {
+    expect(isTicketTaskTag("billing")).toBe(false);
+  });
+
+  it("replaces every machine link rather than adding a second", () => {
+    expect(
+      withTicketTaskId(
+        [
+          "ai-task:old",
+          "code-task:older",
+          "max-conversation:oldest",
+          "billing",
+        ],
+        "new",
+      ),
+    ).toEqual(["billing", "ai-task:new"]);
   });
 
   it("briefs the agent with the ticket, the thread and the request", () => {

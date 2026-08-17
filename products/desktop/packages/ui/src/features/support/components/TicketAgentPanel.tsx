@@ -115,13 +115,13 @@ function StartThreadForm({
         </EmptyContent>
       </Empty>
 
-      <div className="shrink-0 border-border border-t p-2">
+      <div className="flex shrink-0 flex-col gap-1 border-border border-t px-4 py-2">
         <InputGroup className="h-auto bg-card">
           <InputGroupTextarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask the agent…"
-            className="max-h-[160px] min-h-[56px] resize-none text-[13px] [field-sizing:content]"
+            className="max-h-[160px] min-h-[64px] resize-none text-[13px] [field-sizing:content]"
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -132,7 +132,7 @@ function StartThreadForm({
             }}
           />
         </InputGroup>
-        <div className="mt-1 flex justify-end">
+        <div className="flex items-center justify-end">
           <Button
             variant="primary"
             size="sm"

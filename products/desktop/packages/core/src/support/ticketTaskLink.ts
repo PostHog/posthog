@@ -4,15 +4,22 @@ import type {
 } from "@posthog/api-client/posthog-client";
 
 const TASK_TAG_PREFIX = "ai-task:";
+const MACHINE_TAG_PREFIXES = [
+  TASK_TAG_PREFIX,
+  "code-task:",
+  "max-conversation:",
+];
 
 export function readTicketTaskId(
   tags: readonly string[] | undefined,
 ): string | null {
-  for (const tag of tags ?? []) {
-    if (tag.toLowerCase().startsWith(TASK_TAG_PREFIX)) {
-      const taskId = tag.slice(TASK_TAG_PREFIX.length).trim();
-      if (taskId) {
-        return taskId;
+  for (const prefix of [TASK_TAG_PREFIX, "code-task:"]) {
+    for (const tag of tags ?? []) {
+      if (tag.toLowerCase().startsWith(prefix)) {
+        const taskId = tag.slice(prefix.length).trim();
+        if (taskId) {
+          return taskId;
+        }
       }
     }
   }
@@ -20,7 +27,8 @@ export function readTicketTaskId(
 }
 
 export function isTicketTaskTag(tag: string): boolean {
-  return tag.toLowerCase().startsWith(TASK_TAG_PREFIX);
+  const lower = tag.toLowerCase();
+  return MACHINE_TAG_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
 export function withTicketTaskId(
