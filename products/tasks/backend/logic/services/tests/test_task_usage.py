@@ -1,12 +1,41 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
 from products.tasks.backend.logic.services import task_usage
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard
 from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
+
+
+class TestTaskUsageQueryTagging(SimpleTestCase):
+    def test_token_cost_query_is_attributed_to_posthog_code(self) -> None:
+        captured_tags: dict[str, object] = {}
+
+        def capture_query_tags(**kwargs: object) -> SimpleNamespace:
+            tags = get_query_tags()
+            captured_tags["product"] = tags.product
+            captured_tags["feature"] = tags.feature
+            return SimpleNamespace(results=[(0,)])
+
+        with (
+            self.settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=1),
+            patch.object(task_usage.Team.objects, "get", return_value=object()),
+            patch.object(task_usage, "execute_hogql_query", side_effect=capture_query_tags),
+        ):
+            task_usage.get_local_task_token_cost(
+                task_id=UUID("00000000-0000-0000-0000-000000000001"),
+                task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
+            )
+
+        assert captured_tags == {"product": Product.POSTHOG_CODE, "feature": Feature.QUERY}
 
 
 class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):

@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -105,15 +106,16 @@ def get_local_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> De
             )
         """
     )
-    result = execute_hogql_query(
-        query=query,
-        placeholders={
-            "task_created_at": ast.Constant(value=task_created_at),
-            "task_id": ast.Constant(value=str(task_id)),
-        },
-        team=Team.objects.get(pk=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID),
-        query_type="TaskUsageTokenCost",
-    )
+    with tags_context(product=Product.POSTHOG_CODE, feature=Feature.QUERY):
+        result = execute_hogql_query(
+            query=query,
+            placeholders={
+                "task_created_at": ast.Constant(value=task_created_at),
+                "task_id": ast.Constant(value=str(task_id)),
+            },
+            team=Team.objects.get(pk=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID),
+            query_type="TaskUsageTokenCost",
+        )
     value = (result.results or [(0,)])[0][0]
     return Decimal(str(value or 0))
 
