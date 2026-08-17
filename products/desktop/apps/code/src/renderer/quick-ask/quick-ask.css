@@ -306,9 +306,18 @@ html body {
 }
 
 .qa-attach-error {
+  flex: 1;
+  min-width: 0;
   padding: 2px 4px;
   font-size: 11.5px;
   color: var(--qa-down);
+  overflow-wrap: anywhere;
+}
+
+/* Controls keep their size; the message is what gives way. */
+.qa-attach .qa-attach-settings,
+.qa-attach button {
+  flex-shrink: 0;
 }
 
 .qa-attach .qa-attach-settings {
