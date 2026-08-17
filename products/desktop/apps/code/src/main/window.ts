@@ -110,6 +110,14 @@ export function saveWindowState(window: BrowserWindow): void {
 
 let mainWindow: BrowserWindow | null = null;
 
+const mainWindowClosedListeners = new Set<() => void>();
+
+/** Runs when the main window closes. Lets auxiliary windows (quick ask) tear
+ * down so `window-all-closed` app-quit behavior is preserved. */
+export function onMainWindowClosed(listener: () => void): void {
+  mainWindowClosedListeners.add(listener);
+}
+
 export function focusMainWindow(reason: string): void {
   if (mainWindow) {
     log.info("focusMainWindow called", {
@@ -376,5 +384,8 @@ export function createWindow(): void {
       saveTimeout = null;
     }
     mainWindow = null;
+    for (const listener of mainWindowClosedListeners) {
+      listener();
+    }
   });
 }

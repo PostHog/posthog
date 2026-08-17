@@ -1,0 +1,275 @@
+/* Quick-ask panel styles. Color values mirror the quill dark theme tokens
+ * (packages/quill/packages/tokens) so the panel matches the app; kept as plain
+ * CSS because this entry deliberately avoids booting the full renderer. */
+
+:root {
+  --qa-panel-bg: rgba(19, 20, 25, 0.92);
+  --qa-border: rgba(255, 255, 255, 0.09);
+  --qa-fg: #f2f2f5;
+  --qa-fg-muted: #a1a1aa;
+  --qa-fg-subtle: #77777e;
+  --qa-accent: #f1a82c; /* quill primary (dark) */
+  --qa-brand: #f54e00; /* PostHog brand orange */
+  --qa-hover: rgba(255, 255, 255, 0.07);
+  --qa-font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
+    Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--qa-font);
+  user-select: none;
+}
+
+/* Breathing room so the CSS shadow isn't clipped by the window bounds. */
+.qa-shell {
+  padding: 20px;
+}
+
+.qa-panel {
+  background: var(--qa-panel-bg);
+  border: 1px solid var(--qa-border);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 4px 18px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  animation: qa-peel 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  transform-origin: 24px 24px;
+}
+
+@keyframes qa-peel {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.qa-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 16px;
+  -webkit-app-region: drag;
+}
+
+.qa-avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--qa-brand), #c93c00);
+  box-shadow: 0 2px 8px rgba(245, 78, 0, 0.35);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.qa-avatar img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  transform: translateY(2px);
+}
+
+.qa-ask-row input {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: 500 15.5px var(--qa-font);
+  color: var(--qa-fg);
+  caret-color: var(--qa-accent);
+}
+
+.qa-ask-row input::placeholder {
+  color: var(--qa-fg-subtle);
+}
+
+.qa-esc {
+  -webkit-app-region: no-drag;
+  flex: none;
+  font-size: 11px;
+  color: var(--qa-fg-subtle);
+}
+
+kbd {
+  font-family: var(--qa-font);
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom-width: 2px;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+.qa-divider {
+  height: 1px;
+  background: var(--qa-border);
+  margin: 0 16px;
+}
+
+.qa-answer-area {
+  padding: 14px 16px 12px 57px;
+}
+
+.qa-thinking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--qa-fg-muted);
+  font-size: 13px;
+}
+
+.qa-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.qa-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--qa-accent);
+  animation: qa-bounce 1s infinite ease-in-out;
+}
+
+.qa-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.qa-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes qa-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.qa-answer {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #dcdce2;
+  user-select: text;
+  cursor: text;
+}
+
+.qa-answer p + p {
+  margin-top: 8px;
+}
+
+.qa-answer strong {
+  color: var(--qa-fg);
+  font-weight: 650;
+}
+
+.qa-answer .qa-num {
+  color: var(--qa-accent);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-spark {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--qa-border);
+  border-radius: 10px;
+}
+
+.qa-spark-label {
+  font-size: 11px;
+  color: var(--qa-fg-subtle);
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.qa-spark svg {
+  display: block;
+  width: 100%;
+  height: 36px;
+}
+
+.qa-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 13px 57px;
+}
+
+.qa-source {
+  font-size: 11px;
+  color: var(--qa-fg-subtle);
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qa-button {
+  font: 600 12.5px var(--qa-font);
+  border-radius: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--qa-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--qa-fg);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.12s;
+}
+
+.qa-button:hover {
+  background: var(--qa-hover);
+}
+
+.qa-button.qa-primary {
+  background: var(--qa-accent);
+  border-color: transparent;
+  color: #1d1f27;
+}
+
+.qa-button.qa-primary:hover {
+  filter: brightness(1.06);
+}
+
+.qa-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.qa-followup-hint {
+  padding: 0 16px 11px 57px;
+  font-size: 11px;
+  color: var(--qa-fg-subtle);
+}
+
+.qa-sparkle {
+  fill: var(--qa-accent);
+}

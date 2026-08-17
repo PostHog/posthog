@@ -6,6 +6,11 @@ import {
   ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+  QUICK_ASK_HIDE_CHANNEL,
+  QUICK_ASK_OPEN_IN_APP_CHANNEL,
+  QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SHOWN_CHANNEL,
+  QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
 import { trustedArtifactLink } from "./artifact-preview-link";
 import { parseSessionIdArg } from "./posthog-session-arg";
@@ -84,8 +89,24 @@ function setupApplicationPreload(argv: string[]): void {
   });
 }
 
+function setupQuickAskPreload(): void {
+  contextBridge.exposeInMainWorld("quickAsk", {
+    hide: () => ipcRenderer.send(QUICK_ASK_HIDE_CHANNEL),
+    resize: (height: number) =>
+      ipcRenderer.send(QUICK_ASK_RESIZE_CHANNEL, height),
+    openInApp: () => ipcRenderer.send(QUICK_ASK_OPEN_IN_APP_CHANNEL),
+    onShown: (callback: () => void): (() => void) => {
+      const listener = (): void => callback();
+      ipcRenderer.on(QUICK_ASK_SHOWN_CHANNEL, listener);
+      return () => ipcRenderer.off(QUICK_ASK_SHOWN_CHANNEL, listener);
+    },
+  });
+}
+
 export function setupPreload(argv: string[]): void {
-  if (argv.includes(APP_WINDOW_ARG)) {
+  if (argv.includes(QUICK_ASK_WINDOW_ARG)) {
+    setupQuickAskPreload();
+  } else if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
   } else {
     setupArtifactPreviewPreload();

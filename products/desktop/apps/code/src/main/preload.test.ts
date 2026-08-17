@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_WINDOW_ARG } from "../shared/constants";
+import { APP_WINDOW_ARG, QUICK_ASK_WINDOW_ARG } from "../shared/constants";
 
 const { contextBridge, ipcRenderer } = vi.hoisted(() => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
@@ -37,6 +37,16 @@ describe("preload mode selection", () => {
 
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       "electronUtils",
+      expect.any(Object),
+    );
+  });
+
+  it("exposes only the quickAsk bridge to a quick-ask window", () => {
+    setupPreload([QUICK_ASK_WINDOW_ARG]);
+
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
+      "quickAsk",
       expect.any(Object),
     );
   });

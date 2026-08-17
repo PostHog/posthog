@@ -245,7 +245,10 @@ export default defineConfig(({ mode }) => {
         outDir: path.join(__dirname, ".vite/renderer/main_window"),
         sourcemap: true,
         rollupOptions: {
-          input: path.resolve(__dirname, "index.html"),
+          input: {
+            main_window: path.resolve(__dirname, "index.html"),
+            quick_ask: path.resolve(__dirname, "quick-ask.html"),
+          },
         },
       },
     },
