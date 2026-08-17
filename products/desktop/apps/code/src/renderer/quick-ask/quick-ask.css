@@ -13,6 +13,10 @@
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
   --qa-accent: #f1a82c; /* quill primary (dark) */
+  /* Chart series 2 and 3 (series 1 is the accent). CVD-validated against
+   * --qa-surface with the dataviz palette checker. */
+  --qa-series-2: #5b86de;
+  --qa-series-3: #3aa658;
   --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
   --qa-hover: rgba(255, 255, 255, 0.08);
@@ -296,6 +300,37 @@ body {
   padding: 1px 4px;
 }
 
+.qa-answer table {
+  margin: 9px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-answer th,
+.qa-answer td {
+  padding: 4px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.qa-answer th {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--qa-fg-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.qa-answer td:not(:first-child),
+.qa-answer th:not(:first-child) {
+  text-align: right;
+}
+
+.qa-answer tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .qa-answer ul {
   margin: 7px 0;
   padding-left: 18px;
@@ -362,7 +397,7 @@ body {
 
 .qa-chart {
   margin-top: 12px;
-  padding: 10px 12px 8px;
+  padding: 11px 12px 9px;
   background: var(--qa-surface-raised);
   border: 1px solid var(--qa-border);
   border-radius: 10px;
@@ -371,22 +406,145 @@ body {
 .qa-chart-header {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 12px;
-  font-size: 11px;
-  color: var(--qa-fg-subtle);
-  margin-bottom: 8px;
+  margin-bottom: 9px;
 }
 
-.qa-chart-header span:first-child {
+.qa-chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--qa-fg-muted);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.qa-chart-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qa-chart-stat-value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-delta {
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-delta-up {
+  color: var(--qa-up);
+}
+
+.qa-delta-down {
+  color: var(--qa-down);
+}
+
+.qa-chart-plot {
+  position: relative;
+  /* Room for the tooltip; hover geometry maps onto this box. */
+  touch-action: none;
+}
+
 .qa-chart-svg {
   display: block;
   width: 100%;
-  height: 96px;
+  height: 104px;
+}
+
+.qa-chart-ytick {
+  position: absolute;
+  left: 0;
+  transform: translateY(-110%);
+  font-size: 9px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.qa-chart-crosshair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+
+.qa-chart-hover-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--qa-surface);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.qa-chart-tip {
+  position: absolute;
+  top: -4px;
+  transform: translateX(10px);
+  min-width: 92px;
+  max-width: 190px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #26272e;
+  border: 1px solid var(--qa-border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.qa-chart-tip-left {
+  transform: translateX(calc(-100% - 10px));
+}
+
+.qa-chart-tip-label {
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  margin-bottom: 3px;
+}
+
+.qa-chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-chart-tip-row + .qa-chart-tip-row {
+  margin-top: 2px;
+}
+
+.qa-chart-tip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-tip-value {
+  margin-left: auto;
+  color: var(--qa-fg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .qa-chart-labels {
@@ -403,6 +561,21 @@ body {
   text-align: center;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.qa-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+}
+
+.qa-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
 }
 
 /* ── Thinking skeleton ───────────────────────────────── */

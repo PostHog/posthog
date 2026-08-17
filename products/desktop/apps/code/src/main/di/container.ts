@@ -83,6 +83,7 @@ import {
 import { oauthModule } from "@posthog/core/oauth/oauth.module";
 import { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import { ProvisioningService } from "@posthog/core/provisioning/provisioning";
+import { QUICK_ASK_FETCH } from "@posthog/core/quick-ask/quick-ask";
 import { quickAskCoreModule } from "@posthog/core/quick-ask/quick-ask.module";
 import { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import { SleepService } from "@posthog/core/sleep/sleep";
@@ -248,6 +249,7 @@ import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
+import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -818,6 +820,9 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
 container.load(quickAskCoreModule);
+// Chromium's network stack, not Node's undici: it honors system proxies and
+// VPN routing, which undici intermittently fails against ("fetch failed").
+container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

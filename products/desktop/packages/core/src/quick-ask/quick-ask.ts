@@ -1,8 +1,14 @@
-import { inject, injectable } from "inversify";
-import type { AuthService } from "../auth/auth";
+import { inject, injectable, optional } from "inversify";
+import type { AuthService, FetchLike } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
 
 export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
+/**
+ * Fetch implementation for quick-ask HTTP. Hosts may bind a transport that is
+ * more reliable than Node's global fetch (the Electron main process binds
+ * Chromium's `net.fetch`, which honors system proxies/VPNs undici trips over).
+ */
+export const QUICK_ASK_FETCH = Symbol.for("posthog.core.quickAsk.fetch");
 
 /** A compact chart the panel can draw: series over shared x-axis labels. */
 export interface QuickAskChart {
@@ -72,6 +78,16 @@ const CHARTABLE_QUERY_KINDS = new Set([
 ]);
 const MAX_CHART_SERIES = 3;
 const MAX_CHARTS = 2;
+
+/**
+ * Appended to every question. PostHog AI defaults to markdown tables for
+ * numeric answers, which read poorly in a cursor-sized card; a created
+ * visualization streams back as a query the panel draws as a real chart.
+ */
+const PANEL_STEERING =
+  "\n\n(Asked from a compact quick-ask panel. For numeric or time-series " +
+  "answers, create a visualization instead of a markdown table so it " +
+  "renders as a chart. Keep the text answer short.)";
 
 /** Minimal SSE parser: collects `event:`/`data:` lines per blank-line-delimited block. */
 export function* parseSseChunk(
@@ -197,6 +213,15 @@ function toEvents(
   }
 }
 
+/** Surfaces `error.cause` too: undici hides the real network error there. */
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "chart query failed";
+  }
+  const cause = error.cause instanceof Error ? ` (${error.cause.message})` : "";
+  return `${error.message}${cause}`;
+}
+
 function seriesName(result: QueryResponseSeries, index: number): string {
   return result.label ?? result.action?.name ?? `Series ${index + 1}`;
 }
@@ -251,15 +276,42 @@ export function toChart(
 @injectable()
 export class QuickAskService {
   private controller: AbortController | null = null;
+  private readonly fetchImpl: FetchLike;
 
   constructor(
     @inject(AUTH_SERVICE)
     private readonly authService: AuthService,
-  ) {}
+    @inject(QUICK_ASK_FETCH) @optional() fetchImpl?: FetchLike,
+  ) {
+    this.fetchImpl = fetchImpl ?? fetch;
+  }
 
   cancel(): void {
     this.controller?.abort();
     this.controller = null;
+  }
+
+  /**
+   * One retry on network-level failures ("fetch failed" has no HTTP status):
+   * the chart query runs right after a long SSE read, where a flaky
+   * connection is the common failure mode.
+   */
+  private async runQueryToChartWithRetry(
+    apiHost: string,
+    projectId: number,
+    entry: { query: unknown; title?: string },
+    signal: AbortSignal,
+  ): Promise<QuickAskChart | null> {
+    try {
+      return await this.runQueryToChart(apiHost, projectId, entry, signal);
+    } catch (error) {
+      if (signal.aborted || !(error instanceof TypeError)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      if (signal.aborted) throw error;
+      return await this.runQueryToChart(apiHost, projectId, entry, signal);
+    }
   }
 
   private async runQueryToChart(
@@ -274,7 +326,7 @@ export class QuickAskService {
       throw new Error(`query kind ${kind} is not drawable`);
     }
     const response = await this.authService.authenticatedFetch(
-      fetch,
+      this.fetchImpl,
       `${apiHost}/api/environments/${projectId}/query/`,
       {
         method: "POST",
@@ -313,13 +365,13 @@ export class QuickAskService {
     yield { type: "conversation", conversationId };
 
     const response = await this.authService.authenticatedFetch(
-      fetch,
+      this.fetchImpl,
       `${apiHost}/api/environments/${projectId}/conversations/`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: input.question,
+          content: `${input.question}${PANEL_STEERING}`,
           conversation: conversationId,
           trace_id: globalThis.crypto.randomUUID(),
         }),
@@ -375,7 +427,7 @@ export class QuickAskService {
       let chartFailure: string | null = null;
       for (const entry of collector.vizQueries.slice(0, MAX_CHARTS)) {
         try {
-          const chart = await this.runQueryToChart(
+          const chart = await this.runQueryToChartWithRetry(
             apiHost,
             projectId,
             entry,
@@ -388,8 +440,7 @@ export class QuickAskService {
             chartFailure ??= `results for ${(entry.query as AssistantQuery).kind ?? "unknown"} had no drawable series`;
           }
         } catch (error) {
-          chartFailure ??=
-            error instanceof Error ? error.message : "chart query failed";
+          chartFailure ??= describeError(error);
         }
       }
       if (collector.vizQueries.length > 0 && !chartRendered) {

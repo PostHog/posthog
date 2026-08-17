@@ -1,4 +1,4 @@
-import type { AuthService } from "@posthog/core/auth/auth";
+import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
@@ -83,6 +83,7 @@ import type {
 import type { OAuthService } from "@posthog/core/oauth/oauth";
 import type { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import type { ProvisioningService } from "@posthog/core/provisioning/provisioning";
+import type { QUICK_ASK_FETCH } from "@posthog/core/quick-ask/quick-ask";
 import type { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import type { SleepService } from "@posthog/core/sleep/sleep";
 import type { UI_AUTH, UI_SERVICE } from "@posthog/core/ui/identifiers";
@@ -377,6 +378,7 @@ export interface MainBindings {
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
+  [QUICK_ASK_FETCH]: FetchLike;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;

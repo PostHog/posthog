@@ -1,57 +1,128 @@
 import type { QuickAskChart } from "@posthog/core/quick-ask/quick-ask";
 import type React from "react";
+import { useCallback, useMemo, useState } from "react";
 
+/** Normalized plot space; the SVG stretches to fill the card. */
 const WIDTH = 100;
-const HEIGHT = 40;
-const TOP_PAD = 4;
+const HEIGHT = 48;
+const TOP_PAD = 5;
 const MAX_X_TICKS = 7;
-/** First series gets the accent; the rest stay quiet. */
-const SERIES_OPACITY = [1, 0.55, 0.3];
+/** Fixed categorical order, CVD-validated against the dark surface. */
+const SERIES_COLORS = [
+  "var(--qa-accent)",
+  "var(--qa-series-2)",
+  "var(--qa-series-3)",
+];
 
-function scaleAll(series: { points: number[] }[]): number[][][] {
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** "8/14" (the axis short form) reads as "Aug 14" in the tooltip. */
+function tooltipLabel(label: string): string {
+  const match = label.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!match) return label;
+  const month = MONTHS[Number(match[1]) - 1];
+  return month ? `${month} ${Number(match[2])}` : label;
+}
+
+/** 87342 -> "87.3K"; keeps small numbers plain. */
+function compactValue(value: number): string {
+  const abs = Math.abs(value);
+  const format = (scaled: number, suffix: string): string => {
+    const rounded =
+      scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1));
+    return `${rounded}${suffix}`;
+  };
+  if (abs >= 1e9) return format(value / 1e9, "B");
+  if (abs >= 1e6) return format(value / 1e6, "M");
+  if (abs >= 1e3) return format(value / 1e3, "K");
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/** Rounds up to 1/1.5/2/2.5/3/4/5/6/8 × 10^k so gridlines land on round values. */
+function niceCeil(value: number): number {
+  if (value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  for (const factor of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) {
+    if (factor * magnitude >= value) return factor * magnitude;
+  }
+  return 10 * magnitude;
+}
+
+interface PlotScale {
+  lo: number;
+  hi: number;
+  /** Round values, bottom to top, for gridlines and their labels. */
+  ticks: number[];
+  x: (index: number, count: number) => number;
+  y: (value: number) => number;
+}
+
+function buildScale(series: { points: number[] }[]): PlotScale {
   const all = series.flatMap((entry) => entry.points);
-  const max = Math.max(...all);
-  const min = Math.min(...all, 0);
-  const range = max - min || 1;
-  return series.map((entry) =>
-    entry.points.map((point, index) => [
-      entry.points.length > 1
-        ? (index / (entry.points.length - 1)) * WIDTH
-        : WIDTH / 2,
-      HEIGHT - ((point - min) / range) * (HEIGHT - TOP_PAD),
-    ]),
+  const hi = niceCeil(Math.max(...all));
+  const lo = Math.min(0, ...all);
+  const range = hi - lo || 1;
+  return {
+    lo,
+    hi,
+    ticks: [lo, (lo + hi) / 2, hi],
+    x: (index, count) =>
+      count > 1 ? (index / (count - 1)) * WIDTH : WIDTH / 2,
+    y: (value) => HEIGHT - ((value - lo) / range) * (HEIGHT - TOP_PAD),
+  };
+}
+
+function Gridlines({ scale }: { scale: PlotScale }): React.JSX.Element {
+  return (
+    <g>
+      {scale.ticks.map((tick) => (
+        <line
+          key={tick}
+          x1={0}
+          x2={WIDTH}
+          y1={scale.y(tick)}
+          y2={scale.y(tick)}
+          stroke="rgba(255, 255, 255, 0.07)"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </g>
   );
 }
 
-function LineChart({ chart }: { chart: QuickAskChart }): React.JSX.Element {
-  const scaled = scaleAll(chart.series);
+function LinePlot({
+  chart,
+  scale,
+}: {
+  chart: QuickAskChart;
+  scale: PlotScale;
+}): React.JSX.Element {
   return (
-    <svg
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-      preserveAspectRatio="none"
-      className="qa-chart-svg"
-      role="img"
-      aria-label="Line chart"
-    >
-      <defs>
-        <linearGradient id="qa-line-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--qa-accent)" stopOpacity={0.24} />
-          <stop offset="100%" stopColor="var(--qa-accent)" stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      {scaled.map((coords, seriesIndex) => {
-        const line = coords
+    <>
+      {chart.series.map((series, seriesIndex) => {
+        const line = series.points
           .map(
-            ([x, y], index) =>
-              `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
+            (point, index) =>
+              `${index === 0 ? "M" : "L"}${scale.x(index, series.points.length).toFixed(1)} ${scale.y(point).toFixed(1)}`,
           )
           .join(" ");
-        const [lastX, lastY] = coords[coords.length - 1];
+        const color = SERIES_COLORS[seriesIndex] ?? SERIES_COLORS[0];
         return (
-          <g
-            key={chart.series[seriesIndex].name}
-            opacity={SERIES_OPACITY[seriesIndex] ?? 0.3}
-          >
+          <g key={series.name}>
             {seriesIndex === 0 && (
               <path
                 d={`${line} L${WIDTH} ${HEIGHT} L0 ${HEIGHT} Z`}
@@ -61,51 +132,53 @@ function LineChart({ chart }: { chart: QuickAskChart }): React.JSX.Element {
             <path
               d={line}
               fill="none"
-              stroke="var(--qa-accent)"
-              strokeWidth={1.8}
+              stroke={color}
+              strokeWidth={2}
               strokeLinejoin="round"
+              strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
             />
-            <circle cx={lastX} cy={lastY} r={2.2} fill="var(--qa-accent)" />
           </g>
         );
       })}
-    </svg>
+    </>
   );
 }
 
-function BarChart({ chart }: { chart: QuickAskChart }): React.JSX.Element {
+function BarPlot({
+  chart,
+  scale,
+  hoverIndex,
+}: {
+  chart: QuickAskChart;
+  scale: PlotScale;
+  hoverIndex: number | null;
+}): React.JSX.Element {
   // Bars draw the first series only; extra series read better as lines.
   const points = chart.series[0].points;
-  const max = Math.max(...points);
-  const min = Math.min(...points, 0);
-  const range = max - min || 1;
   const slot = WIDTH / points.length;
   const barWidth = slot * 0.62;
+  const baseline = scale.y(Math.max(scale.lo, 0));
   return (
-    <svg
-      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-      preserveAspectRatio="none"
-      className="qa-chart-svg"
-      role="img"
-      aria-label="Bar chart"
-    >
+    <>
       {points.map((point, index) => {
-        const barHeight = ((point - min) / range) * (HEIGHT - TOP_PAD);
+        const top = scale.y(point);
         return (
           <rect
             key={`${index}:${point}`}
             x={(index * slot + (slot - barWidth) / 2).toFixed(1)}
-            y={(HEIGHT - barHeight).toFixed(1)}
+            y={Math.min(top, baseline).toFixed(1)}
             width={barWidth.toFixed(1)}
-            height={Math.max(barHeight, 0.5).toFixed(1)}
+            height={Math.max(Math.abs(baseline - top), 0.5).toFixed(1)}
             rx={1.2}
             fill="var(--qa-accent)"
-            opacity={index === points.length - 1 ? 1 : 0.45}
+            opacity={
+              hoverIndex === null ? 0.82 : hoverIndex === index ? 1 : 0.4
+            }
           />
         );
       })}
-    </svg>
+    </>
   );
 }
 
@@ -118,22 +191,213 @@ function tickLabels(labels: string[]): string[] {
   );
 }
 
+/** Latest value plus its change from the previous point, for the header. */
+function LatestStat({ chart }: { chart: QuickAskChart }): React.JSX.Element {
+  const points = chart.series[0].points;
+  const last = points[points.length - 1];
+  const previous = points.length > 1 ? points[points.length - 2] : null;
+  const deltaPct =
+    previous != null && previous !== 0
+      ? ((last - previous) / Math.abs(previous)) * 100
+      : null;
+  return (
+    <span className="qa-chart-stat">
+      <span className="qa-chart-stat-value">{compactValue(last)}</span>
+      {deltaPct != null && Math.abs(deltaPct) >= 0.5 && (
+        <span
+          className={
+            deltaPct >= 0
+              ? "qa-chart-delta qa-delta-up"
+              : "qa-chart-delta qa-delta-down"
+          }
+        >
+          {deltaPct >= 0 ? "▲" : "▼"}
+          {Math.abs(deltaPct) >= 10
+            ? Math.round(Math.abs(deltaPct))
+            : Math.abs(deltaPct).toFixed(1)}
+          %
+        </span>
+      )}
+    </span>
+  );
+}
+
+interface HoverState {
+  index: number;
+  /** Fraction across the plot, 0..1, for positioning the crosshair/tooltip. */
+  frac: number;
+}
+
 export function Chart({ chart }: { chart: QuickAskChart }): React.JSX.Element {
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const scale = useMemo(() => buildScale(chart.series), [chart.series]);
+  const pointCount = chart.series[0].points.length;
+
+  const onPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (rect.width === 0 || pointCount === 0) return;
+      const frac = Math.min(
+        Math.max((event.clientX - rect.left) / rect.width, 0),
+        1,
+      );
+      const index =
+        chart.kind === "bar"
+          ? Math.min(Math.floor(frac * pointCount), pointCount - 1)
+          : Math.round(frac * (pointCount - 1));
+      setHover({
+        index,
+        frac: pointCount > 1 ? index / (pointCount - 1) : 0.5,
+      });
+    },
+    [chart.kind, pointCount],
+  );
+
+  const onPointerLeave = useCallback((): void => setHover(null), []);
+
+  const hoverRows =
+    hover === null
+      ? []
+      : chart.series
+          .map((series, seriesIndex) => ({
+            name: series.name,
+            color: SERIES_COLORS[seriesIndex] ?? SERIES_COLORS[0],
+            value: series.points[hover.index],
+          }))
+          .filter((row) => row.value != null);
+
   return (
     <div className="qa-chart">
       <div className="qa-chart-header">
-        <span>{chart.title}</span>
-        <span>via PostHog</span>
+        <span className="qa-chart-title">{chart.title}</span>
+        <LatestStat chart={chart} />
       </div>
-      {chart.kind === "line" ? (
-        <LineChart chart={chart} />
-      ) : (
-        <BarChart chart={chart} />
-      )}
+
+      <div
+        className="qa-chart-plot"
+        onPointerMove={onPointerMove}
+        onPointerLeave={onPointerLeave}
+      >
+        <svg
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          className="qa-chart-svg"
+          role="img"
+          aria-label={chart.kind === "line" ? "Line chart" : "Bar chart"}
+        >
+          <defs>
+            <linearGradient id="qa-line-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop
+                offset="0%"
+                stopColor="var(--qa-accent)"
+                stopOpacity={0.22}
+              />
+              <stop
+                offset="100%"
+                stopColor="var(--qa-accent)"
+                stopOpacity={0.02}
+              />
+            </linearGradient>
+          </defs>
+          <Gridlines scale={scale} />
+          {chart.kind === "line" ? (
+            <LinePlot chart={chart} scale={scale} />
+          ) : (
+            <BarPlot
+              chart={chart}
+              scale={scale}
+              hoverIndex={hover?.index ?? null}
+            />
+          )}
+        </svg>
+
+        {/* Round-value tick labels sit over the gridlines, out of the SVG so
+            they keep their aspect under preserveAspectRatio="none". */}
+        {scale.ticks
+          .filter((tick) => tick !== scale.lo)
+          .map((tick) => (
+            <span
+              key={tick}
+              className="qa-chart-ytick"
+              style={{ top: `${(scale.y(tick) / HEIGHT) * 100}%` }}
+            >
+              {compactValue(tick)}
+            </span>
+          ))}
+
+        {hover !== null && (
+          <>
+            <div
+              className="qa-chart-crosshair"
+              style={{ left: `${hover.frac * 100}%` }}
+            />
+            {chart.kind === "line" &&
+              chart.series.map((series, seriesIndex) => {
+                const value = series.points[hover.index];
+                if (value == null) return null;
+                return (
+                  <div
+                    key={series.name}
+                    className="qa-chart-hover-dot"
+                    style={{
+                      left: `${hover.frac * 100}%`,
+                      top: `${(scale.y(value) / HEIGHT) * 100}%`,
+                      background:
+                        SERIES_COLORS[seriesIndex] ?? SERIES_COLORS[0],
+                    }}
+                  />
+                );
+              })}
+            <div
+              className={
+                hover.frac > 0.55
+                  ? "qa-chart-tip qa-chart-tip-left"
+                  : "qa-chart-tip"
+              }
+              style={{ left: `${hover.frac * 100}%` }}
+            >
+              {chart.labels[hover.index] != null && (
+                <div className="qa-chart-tip-label">
+                  {tooltipLabel(chart.labels[hover.index])}
+                </div>
+              )}
+              {hoverRows.map((row) => (
+                <div key={row.name} className="qa-chart-tip-row">
+                  <span
+                    className="qa-chart-dot"
+                    style={{ background: row.color }}
+                  />
+                  <span className="qa-chart-tip-name">{row.name}</span>
+                  <span className="qa-chart-tip-value">
+                    {compactValue(row.value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
       {chart.labels.length > 0 && (
         <div className="qa-chart-labels">
           {tickLabels(chart.labels).map((label, index) => (
             <span key={`${index}:${label}`}>{label}</span>
+          ))}
+        </div>
+      )}
+
+      {chart.series.length > 1 && (
+        <div className="qa-chart-legend">
+          {chart.series.map((series, seriesIndex) => (
+            <span key={series.name} className="qa-chart-legend-item">
+              <span
+                className="qa-chart-dot"
+                style={{
+                  background: SERIES_COLORS[seriesIndex] ?? SERIES_COLORS[0],
+                }}
+              />
+              {series.name}
+            </span>
           ))}
         </div>
       )}

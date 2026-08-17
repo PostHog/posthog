@@ -94,7 +94,8 @@ describe("QuickAskService", () => {
     ).authService.authenticatedFetch;
     const body = JSON.parse(fetchMock.mock.calls[0][2].body as string);
     expect(body.conversation).toMatch(/^[0-9a-f-]{36}$/);
-    expect(body.content).toBe("how many signups?");
+    // The question leads; the panel's steering note rides along after it.
+    expect(body.content).toMatch(/^how many signups\?\n\n\(/);
   });
 
   it("maps a viz message and a failure message", async () => {

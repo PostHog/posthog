@@ -2,8 +2,8 @@ import React from "react";
 
 /**
  * Minimal markdown for streamed PostHog AI answers: paragraphs, bullet lists,
- * headings (rendered bold), `code`, **bold**. Deliberately not a full parser;
- * anything unrecognized renders as plain text.
+ * headings (rendered bold), pipe tables, `code`, **bold**. Deliberately not a
+ * full parser; anything unrecognized renders as plain text.
  */
 
 function InlineRuns({ text }: { text: string }): React.JSX.Element {
@@ -27,7 +27,7 @@ function InlineRuns({ text }: { text: string }): React.JSX.Element {
 }
 
 interface Block {
-  kind: "paragraph" | "heading" | "list";
+  kind: "paragraph" | "heading" | "list" | "table";
   lines: string[];
 }
 
@@ -44,11 +44,29 @@ function toBlocks(markdown: string): Block[] {
         kind: "heading",
         lines: [lines[0].replace(/^#{1,6} /, "")],
       });
+    } else if (
+      lines.length >= 2 &&
+      lines.every((line) => line.startsWith("|"))
+    ) {
+      blocks.push({ kind: "table", lines });
     } else {
       blocks.push({ kind: "paragraph", lines });
     }
   }
   return blocks;
+}
+
+/** Splits pipe-table lines into cell rows, dropping the |---|---| separator. */
+function tableRows(lines: string[]): string[][] {
+  return lines
+    .filter((line) => !/^\|[\s\-:|]+\|?$/.test(line))
+    .map((line) =>
+      line
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => cell.trim()),
+    );
 }
 
 export function Markdown({ text }: { text: string }): React.JSX.Element {
@@ -66,6 +84,34 @@ export function Markdown({ text }: { text: string }): React.JSX.Element {
                 </li>
               ))}
             </ul>
+          );
+        }
+        if (block.kind === "table") {
+          const [header, ...rows] = tableRows(block.lines);
+          if (!header) return null;
+          return (
+            <table key={key}>
+              <thead>
+                <tr>
+                  {header.map((cell, cellIndex) => (
+                    <th key={`${cellIndex}:${cell}`}>
+                      <InlineRuns text={cell} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr key={`${rowIndex}:${row[0] ?? ""}`}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={`${cellIndex}:${cell}`}>
+                        <InlineRuns text={cell} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           );
         }
         if (block.kind === "heading") {
