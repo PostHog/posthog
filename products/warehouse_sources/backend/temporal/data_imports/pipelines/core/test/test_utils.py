@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     apply_enabled_columns_projection,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
+    is_safe_numeric_widening,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
@@ -784,8 +785,42 @@ def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
         pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
     )
 
-    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed") as excinfo:
         evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    # The structured fields drive automatic widening recovery (auto_widen_resync); dropping them
+    # silently disables it.
+    assert excinfo.value.column_name == "val"
+    assert excinfo.value.stored_type == delta_type
+    assert excinfo.value.incoming_type == incoming_type
+
+
+@pytest.mark.parametrize(
+    "stored_type, incoming_type, expected",
+    [
+        (pa.int32(), pa.int64(), True),
+        (pa.int16(), pa.int64(), True),
+        (pa.int64(), pa.float64(), True),
+        (pa.int8(), pa.uint8(), True),
+        (pa.uint8(), pa.int16(), True),
+        (pa.uint32(), pa.uint64(), True),
+        (pa.float32(), pa.float64(), True),
+        (pa.float64(), pa.int64(), True),
+        (pa.int64(), pa.int64(), False),
+        (pa.float64(), pa.float64(), False),
+        (pa.int64(), pa.string(), False),
+        (pa.float64(), pa.string(), False),
+        (pa.string(), pa.int64(), False),
+        (pa.int64(), pa.decimal128(10, 2), False),
+        (pa.decimal128(10, 2), pa.float64(), False),
+        (pa.bool_(), pa.int64(), False),
+        (pa.int64(), pa.bool_(), False),
+        (pa.timestamp("us"), pa.int64(), False),
+        (pa.int64(), pa.binary(), False),
+    ],
+)
+def test_is_safe_numeric_widening(stored_type: pa.DataType, incoming_type: pa.DataType, expected: bool):
+    assert is_safe_numeric_widening(stored_type, incoming_type) is expected
 
 
 def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
@@ -914,8 +949,14 @@ def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
     ]
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
-    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls") as excinfo:
         raise_on_nullability_drift(pa_table, delta_schema)
+
+    # Nullability drift must stay a manual reset: leaving the structured fields unset keeps it out
+    # of automatic widening recovery (auto_widen_resync) by construction.
+    assert excinfo.value.column_name is None
+    assert excinfo.value.stored_type is None
+    assert excinfo.value.incoming_type is None
 
 
 @pytest.mark.parametrize(
@@ -1173,9 +1214,8 @@ def test_append_partition_key_numerical_handles_null_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
 def test_append_partition_key_numerical_handles_non_int_key():
@@ -1196,9 +1236,8 @@ def test_append_partition_key_numerical_handles_non_int_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1542,9 +1581,8 @@ def test_append_partition_key_datetime_string_column(value, expected):
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "datetime"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+    assert result.partition_mode == "datetime"
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected]
 
 
 @pytest.mark.parametrize(
@@ -1591,8 +1629,14 @@ def test_align_incoming_decimals_to_delta_raises_when_integer_overflows():
     delta_fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("amount", pa.decimal128(38, 32))]
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
-    with pytest.raises(SchemaColumnTypeChangedException):
+    with pytest.raises(SchemaColumnTypeChangedException) as excinfo:
         align_incoming_decimals_to_delta(arrow_table, delta_schema)
+
+    # Decimal overflow must stay a manual reset: leaving the structured fields unset keeps it out
+    # of automatic widening recovery (auto_widen_resync) by construction.
+    assert excinfo.value.column_name is None
+    assert excinfo.value.stored_type is None
+    assert excinfo.value.incoming_type is None
 
 
 @pytest.mark.parametrize(
@@ -1624,9 +1668,8 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     )
 
     assert result is not None
-    partitioned_table, resolved_mode, _, _ = result
-    assert resolved_mode == mode
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+    assert result.partition_mode == mode
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
 def test_billing_limit_exception_is_non_reportable_error():

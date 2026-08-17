@@ -10,9 +10,10 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.utils import hash_key_value
+from posthog.user_permissions import UserPermissions
 
 from .models import MCPServiceAccount
 
@@ -158,12 +159,55 @@ def get_built_in_agent(team_id: int, agent_key: str) -> MCPServiceAccount | None
     return next(account for account in sync_built_in_agents(team) if account.handle == spec.handle)
 
 
-def create_gateway_agent_token(account: MCPServiceAccount) -> str:
-    payload = {"service_account_id": str(account.id), "team_id": account.team_id}
+@dataclass(frozen=True, kw_only=True)
+class GatewayAgentPrincipal:
+    """Who a gateway agent token authenticates as: the agent, plus the person
+    whose MCP grants the run may use.
+
+    `credential_owner_id` is None for a run nobody owns (an autonomous support
+    reply, any scout run). Such a principal reaches team-scoped grants
+    only, never a member's personal grant.
+    """
+
+    account: MCPServiceAccount
+    credential_owner_id: int | None
+
+
+def credential_owner_eligible(credential_owner_id: int, team_id: int) -> bool:
+    """Fresh check that the person whose MCP grants an agent run borrows is
+    still an active user with effective access to the team (org membership
+    plus any project access control).
+
+    Grant rows and the owner's User row both outlive offboarding, so
+    eligibility is re-read wherever grants are resolved instead of being
+    trusted from when the grant was created. No row locks are taken, unlike
+    the loop-run token mint in products/tasks: gateway agent tokens are
+    stateless and re-validated on every proxied call, so a revocation takes
+    effect on the next request rather than racing a persisted credential.
+    """
+    owner = User.objects.filter(id=credential_owner_id, is_active=True).first()
+    if owner is None:
+        return False
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
+
+
+def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int | None) -> str:
+    payload: dict[str, str | int] = {
+        "service_account_id": str(account.id),
+        "team_id": account.team_id,
+    }
+    # Omitted rather than set to null so the claim's presence alone means "this
+    # run has an owner", which is what the resolver keys off.
+    if credential_owner_id is not None:
+        payload["user_id"] = credential_owner_id
     return GATEWAY_AGENT_TOKEN_PREFIX + signing.dumps(payload, salt=GATEWAY_AGENT_TOKEN_SALT)
 
 
-def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
+def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
     if not token.startswith(GATEWAY_AGENT_TOKEN_PREFIX):
         return None
     signed_value = token.removeprefix(GATEWAY_AGENT_TOKEN_PREFIX)
@@ -179,14 +223,27 @@ def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
         return None
     account_id = payload.get("service_account_id")
     team_id = payload.get("team_id")
+    credential_owner_id = payload.get("user_id")
     if not account_id or not isinstance(team_id, int):
+        return None
+    # A token with no owner claim runs in the team lane: it reaches team-scoped
+    # grants and nothing else. A claim that is present but not an int is
+    # malformed rather than absent, so it fails closed instead of being widened
+    # into the team lane.
+    if credential_owner_id is not None and not isinstance(credential_owner_id, int):
         return None
     try:
         # TeamScopeError: the token can outlive its team — treat a deleted team
         # like any other invalid token instead of erroring at the auth layer.
-        return MCPServiceAccount.objects.for_team(team_id).get(
+        account = MCPServiceAccount.objects.for_team(team_id).get(
             id=account_id,
             handle__in=built_in_agent_handles(),
         )
     except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
         return None
+    # A token outlives offboarding (its max age is hours), so the owner's
+    # eligibility is re-checked on every resolution, not just at mint time.
+    # A personless token names nobody, so there is no owner to re-check.
+    if credential_owner_id is not None and not credential_owner_eligible(credential_owner_id, team_id):
+        return None
+    return GatewayAgentPrincipal(account=account, credential_owner_id=credential_owner_id)

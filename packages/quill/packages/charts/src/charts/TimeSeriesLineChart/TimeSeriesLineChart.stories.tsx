@@ -235,6 +235,23 @@ export const StartAtZero: Story = {
     ),
 }
 
+/** `min` / `max` pin either end of the axis. Either may be omitted to keep the automatic bound, so
+ *  a lone `min` reads as "only show me above this". */
+export const YAxisRange: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24 }}>
+            <YFormatCell title="automatic" series={OFFSET_SERIES} config={{ suffix: ' ms' }} />
+            <YFormatCell title="min: 800" series={OFFSET_SERIES} config={{ suffix: ' ms', min: 800 }} />
+            <YFormatCell
+                title="min: 800, max: 1000"
+                series={OFFSET_SERIES}
+                config={{ suffix: ' ms', min: 800, max: 1000 }}
+            />
+        </div>
+    ),
+}
+
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },

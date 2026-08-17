@@ -1,7 +1,12 @@
+import { PropertyType } from '~/types'
+
 import {
     accountCustomPropertyChangedFilters,
     accountCustomPropertyFrequencyOptions,
     accountTagAddedFilters,
+    customPropertyDisplayTypeToPropertyType,
+    getAccountCustomPropertyChangedConditions,
+    getAccountCustomPropertyValueFilters,
     getSelectedPropertyNames,
     getSelectedTags,
 } from './customer_analytics'
@@ -82,11 +87,89 @@ describe('customer analytics triggers', () => {
         expect(getSelectedPropertyNames(config)).toEqual(expected)
     })
 
-    it('omits the property filter when no properties are selected', () => {
-        expect(accountCustomPropertyChangedFilters([]).properties).toEqual([])
-        expect(accountCustomPropertyChangedFilters(['Plan']).properties).toEqual([
-            { key: 'property_name', value: ['Plan'], operator: 'exact', type: 'event' },
+    it('builds one nested event-filter group per selected property', () => {
+        expect(accountCustomPropertyChangedFilters([])).toMatchObject({
+            events: [{ id: '$account_custom_property_changed' }],
+            properties: [],
+        })
+        expect(accountCustomPropertyChangedFilters(['Plan'])).toMatchObject({
+            events: [
+                {
+                    id: '$account_custom_property_changed',
+                    properties: [{ key: 'property_name', value: 'Plan', operator: 'exact', type: 'event' }],
+                },
+            ],
+            properties: [],
+        })
+    })
+
+    it('exposes current value filters separately from the managed property picker filter', () => {
+        const currentValueFilter = { key: 'current_value', value: 'enterprise', operator: 'exact', type: 'event' }
+        const config: EventTriggerConfig = {
+            type: 'event',
+            filters: {
+                properties: [
+                    { key: 'property_name', value: ['Plan'], operator: 'exact', type: 'event' },
+                    currentValueFilter,
+                ],
+            },
+        }
+
+        expect(getAccountCustomPropertyValueFilters(config)).toEqual([currentValueFilter])
+    })
+
+    it('upgrades legacy top-level filters without losing the selected property condition', () => {
+        const currentValueFilter = { key: 'current_value', value: 'enterprise', operator: 'exact', type: 'event' }
+        const filters = accountCustomPropertyChangedFilters(['Plan', 'Seats'], {
+            properties: [
+                { key: 'property_name', value: ['Plan'], operator: 'exact', type: 'event' },
+                currentValueFilter,
+            ],
+            filter_test_accounts: true,
+        })
+
+        expect(filters.properties).toEqual([])
+        expect(filters.events).toMatchObject([
+            {
+                properties: [
+                    { key: 'property_name', value: 'Plan', operator: 'exact', type: 'event' },
+                    currentValueFilter,
+                ],
+            },
+            {
+                properties: [{ key: 'property_name', value: 'Seats', operator: 'exact', type: 'event' }],
+            },
         ])
+        expect(filters.filter_test_accounts).toBe(true)
+    })
+
+    it('round-trips independently typed OR groups', () => {
+        const planFilter = { key: 'current_value', value: 'enterprise', operator: 'exact', type: 'event' }
+        const seatsFilter = { key: 'current_value', value: 5, operator: 'gt', type: 'event' }
+        const filters = accountCustomPropertyChangedFilters(['Plan', 'Seats'], {}, [
+            { propertyName: 'Plan', valueFilters: [planFilter] },
+            { propertyName: 'Seats', valueFilters: [seatsFilter] },
+        ])
+        const config: EventTriggerConfig = { type: 'event', filters }
+
+        expect(getSelectedPropertyNames(config)).toEqual(['Plan', 'Seats'])
+        expect(getAccountCustomPropertyChangedConditions(config)).toEqual([
+            { propertyName: 'Plan', valueFilters: [planFilter] },
+            { propertyName: 'Seats', valueFilters: [seatsFilter] },
+        ])
+    })
+
+    it.each([
+        ['text', PropertyType.String],
+        ['select', PropertyType.String],
+        ['number', PropertyType.Numeric],
+        ['currency', PropertyType.Numeric],
+        ['percent', PropertyType.Numeric],
+        ['boolean', PropertyType.Boolean],
+        ['date', PropertyType.DateTime],
+        ['datetime', PropertyType.DateTime],
+    ] as const)('maps the %s custom property display type to %s operators', (displayType, expected) => {
+        expect(customPropertyDisplayTypeToPropertyType(displayType)).toBe(expected)
     })
 
     // The hash templates are evaluated as Hog against the trigger event at runtime — a typo'd

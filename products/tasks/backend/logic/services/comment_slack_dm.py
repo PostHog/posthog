@@ -11,6 +11,7 @@ a per-recipient sent marker to store.
 """
 
 from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -100,6 +101,12 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     users = User.objects.in_bulk(list(wanted))
     integration_by_workspace = {integration.integration_id: integration for integration in integrations}
     slack_clients: dict[int, SlackIntegration] = {}
+
+    def slack_for(integration: Integration) -> SlackIntegration:
+        if integration.id not in slack_clients:
+            slack_clients[integration.id] = SlackIntegration(integration)
+        return slack_clients[integration.id]
+
     mention_cache: dict[tuple[int, str], str | None] = {}
     mention_lookup_allowances = {
         integration.id: _MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE for integration in integrations
@@ -130,23 +137,46 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
         try:
-            integration = _integration_for_recipient(
-                user_id=user_id, integrations=integrations, integration_by_workspace=integration_by_workspace
+            integration = _linked_integration_for_recipient(
+                user_id=user_id, integration_by_workspace=integration_by_workspace
             )
-            if integration is None:
-                _skip(comment_id, "ambiguous_slack_workspace", user_id=user_id)
-                continue
-            if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
-                _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
-                continue
-            slack = slack_clients.setdefault(integration.id, SlackIntegration(integration))
-            slack_user_id = _resolve_slack_user_id(
-                user_id=user_id, email=recipient.email or "", integration=integration, slack=slack
-            )
-            if not slack_user_id:
+            slack_user_id: str | None = None
+            if integration is not None:
+                if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
+                    _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
+                    continue
+                slack = slack_for(integration)
+                slack_user_id = _linked_slack_user_id(user_id=user_id, integration=integration)
+            else:
+                email_destination_integration: Integration | None = None
+                email_destination_slack: SlackIntegration | None = None
+                ambiguous_email_destination = False
+                for candidate in integrations:
+                    if not settings.DEBUG and not is_slack_app_oauth_enabled(candidate, candidate.integration_id):
+                        continue
+                    candidate_slack = slack_for(candidate)
+                    candidate_user_id = _slack_user_id_by_email(
+                        email=recipient.email or "", integration=candidate, slack=candidate_slack
+                    )
+                    if not candidate_user_id:
+                        continue
+                    if email_destination_integration is not None:
+                        ambiguous_email_destination = True
+                        break
+                    email_destination_integration = candidate
+                    email_destination_slack = candidate_slack
+                    slack_user_id = candidate_user_id
+                if ambiguous_email_destination:
+                    _skip(comment_id, "ambiguous_slack_workspace", user_id=user_id)
+                    continue
+                if email_destination_integration is not None and email_destination_slack is not None:
+                    integration = email_destination_integration
+                    slack = email_destination_slack
+
+            if integration is None or not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(
+            heading, blocks = _message(
                 kind=kind,
                 comment=comment,
                 task=task,
@@ -161,8 +191,8 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             )
             slack.client.chat_postMessage(
                 channel=slack_user_id,
-                text=fallback,
-                attachments=[{"color": _ACCENT, "blocks": blocks}],
+                text=heading,
+                attachments=[{"color": _ACCENT, "blocks": blocks}] if blocks else None,
                 unfurl_links=False,
             )
         except Exception as exc:
@@ -223,10 +253,7 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     return wanted
 
 
-def _resolve_slack_user_id(
-    *, user_id: int, email: str, integration: Integration, slack: SlackIntegration
-) -> str | None:
-    """Who to DM, preferring the identity the user authenticated over the one we inferred."""
+def _linked_slack_user_id(*, user_id: int, integration: Integration) -> str | None:
     link = (
         UserIntegration.objects.filter(
             user_id=user_id,
@@ -236,24 +263,21 @@ def _resolve_slack_user_id(
         .order_by("-created_at")
         .first()
     )
-    if link:
-        return link.integration_id
-    return _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+    return link.integration_id if link else None
 
 
-def _integration_for_recipient(
-    *, user_id: int, integrations: list[Integration], integration_by_workspace: Mapping[str | None, Integration]
+def _linked_integration_for_recipient(
+    *, user_id: int, integration_by_workspace: Mapping[str | None, Integration]
 ) -> Integration | None:
-    """Use a recipient's linked workspace; email lookup is safe only with one destination."""
-    linked_workspace = (
+    linked_workspaces = (
         UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK)
         .order_by("-created_at")
         .values_list("config__slack_team_id", flat=True)
-        .first()
     )
-    if isinstance(linked_workspace, str):
-        return integration_by_workspace.get(linked_workspace)
-    return integrations[0] if len(integrations) == 1 else None
+    for linked_workspace in linked_workspaces:
+        if isinstance(linked_workspace, str) and (integration := integration_by_workspace.get(linked_workspace)):
+            return integration
+    return None
 
 
 def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
@@ -334,6 +358,14 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
+def _bridge_url(*, comment: Comment, task: Task) -> str:
+    params = {"comment": str(comment.source_comment_id or comment.id)}
+    if comment.scope in _LOCATIONS and comment.item_id:
+        params["scope"] = comment.scope
+        params["item"] = comment.item_id
+    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+
+
 def _message(
     *,
     kind: str,
@@ -342,15 +374,13 @@ def _message(
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+    url = _bridge_url(comment=comment, task=task)
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
     # A pipe in the title would end the link label early, so it can't survive into the label.
     label = escape_slack_mrkdwn(title).replace("|", "-")
     heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
-    # Plain-text twin for the notification preview and older clients.
-    fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
         comment.rich_content,
@@ -360,10 +390,11 @@ def _message(
         slack_user_id_by_email=slack_user_id_by_email,
     )
     body = _truncate_body(body.strip())
-    text = f"{heading}\n\n{body}" if body else heading
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    blocks: list[dict] = []
+    if body:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
     # Three canvases in one task otherwise produce three identical headings.
     location = _LOCATIONS.get(comment.scope)
     if location:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})
-    return fallback, blocks
+    return heading, blocks

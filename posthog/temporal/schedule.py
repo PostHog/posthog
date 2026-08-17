@@ -64,11 +64,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
-from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.summarization_sweep.reconciler import (
-    create_summarization_sweep_reconciler_schedule,
-)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
     create_surfacing_score_export_sweep_schedule,
 )
@@ -114,6 +110,9 @@ from products.web_analytics.backend.temporal.weekly_digest.types import WAWeekly
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
+
+# The retired summarization sweep created one schedule per team under this prefix.
+LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
 
 async def cleanup_sync_vectors_schedule(client: Client):
@@ -636,10 +635,23 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     legacy_schedule_ids = [
         "video-segment-clustering-coordinator-schedule",
         "session-summarization-sweep-schedule",
+        "session-summarization-sweep-reconciler-schedule",
+        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
+        "session-summary-cleanup-sweep-schedule",
     ]
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
             await a_delete_schedule(client, schedule_id)
+
+    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
+    # Left alone they fire every few minutes forever against a workflow type no worker registers.
+    try:
+        async for schedule in await client.list_schedules():
+            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
+                await a_delete_schedule(client, schedule.id)
+    except Exception:
+        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
+        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
 
 
 async def cleanup_cohort_calculation_schedules(client: Client):
@@ -851,7 +863,6 @@ schedules = [
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
-    create_summarization_sweep_reconciler_schedule,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
@@ -891,7 +902,6 @@ schedules = [
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
-    schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)

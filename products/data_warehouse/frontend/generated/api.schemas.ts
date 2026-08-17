@@ -25,11 +25,28 @@ export const DataModelingJobStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+/**
+ * * `full_refresh` - Full refresh
+ * * `incremental` - Incremental
+ */
+export type DataModelingJobRunModeEnumApi =
+    (typeof DataModelingJobRunModeEnumApi)[keyof typeof DataModelingJobRunModeEnumApi]
+
+export const DataModelingJobRunModeEnumApi = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+} as const
+
 export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
     readonly status: DataModelingJobStatusEnumApi
+    /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+     *
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental */
+    readonly run_mode: DataModelingJobRunModeEnumApi | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null
@@ -1049,6 +1066,61 @@ export interface SavedQuerySuspensionApi {
 export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
+ * How a view updates its materialized table in place rather than rebuilding it.
+ */
+export interface IncrementalConfigApi {
+    /** Whether runs update the table incrementally instead of rebuilding it. */
+    enabled?: boolean
+    /** Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full. */
+    incremental_key: string
+    /** Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null. */
+    unique_key: string[]
+    /**
+     * How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * * `incremental` - incremental
+ * * `full_refresh` - full_refresh
+ */
+export type LastRunModeEnumApi = (typeof LastRunModeEnumApi)[keyof typeof LastRunModeEnumApi]
+
+export const LastRunModeEnumApi = {
+    Incremental: 'incremental',
+    FullRefresh: 'full_refresh',
+} as const
+
+/**
+ * Read-only progress written by the materialization run.
+ */
+export interface IncrementalStateApi {
+    /**
+     * Highest incremental key value written so far. The next run starts here.
+     * @nullable
+     */
+    watermark?: string | null
+    /**
+     * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
+     * @nullable
+     */
+    definition_fingerprint?: string | null
+    /**
+     * When the table was last rebuilt from scratch.
+     * @nullable
+     */
+    last_full_refresh_at?: string | null
+    /** Whether the last run updated the table or rebuilt it.
+     *
+     * * `incremental` - incremental
+     * * `full_refresh` - full_refresh */
+    last_run_mode?: LastRunModeEnumApi | null
+}
+
+/**
  * * `never` - never
  * * `15min` - 15min
  * * `30min` - 30min
@@ -1075,6 +1147,120 @@ export const SavedQuerySyncFrequencyEnumApi = {
 } as const
 
 /**
+ * * `tiered` - tiered
+ * * `dag_schedule` - dag_schedule
+ * * `managed_viewset` - managed_viewset
+ * * `legacy` - legacy
+ * * `no_node` - no_node
+ */
+export type FrequencyModeEnumApi = (typeof FrequencyModeEnumApi)[keyof typeof FrequencyModeEnumApi]
+
+export const FrequencyModeEnumApi = {
+    Tiered: 'tiered',
+    DagSchedule: 'dag_schedule',
+    ManagedViewset: 'managed_viewset',
+    Legacy: 'legacy',
+    NoNode: 'no_node',
+} as const
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type MaterializeSyncFrequencyEnumApi =
+    (typeof MaterializeSyncFrequencyEnumApi)[keyof typeof MaterializeSyncFrequencyEnumApi]
+
+export const MaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
+ * * `source` - source
+ * * `consumer` - consumer
+ */
+export type SyncFrequencyBlockedByEnumApi =
+    (typeof SyncFrequencyBlockedByEnumApi)[keyof typeof SyncFrequencyBlockedByEnumApi]
+
+export const SyncFrequencyBlockedByEnumApi = {
+    Source: 'source',
+    Consumer: 'consumer',
+} as const
+
+/**
+ * The node holding a cadence back, named so a refusal points at something a person can open.
+ */
+export interface SyncFrequencyBlockerApi {
+    /** Data modeling node ID of the source or view. */
+    id: string
+    /** Node name, as it appears in the data modeling graph. */
+    name: string
+}
+
+export interface SyncFrequencyOptionApi {
+    /** A `sync_frequency` value.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: MaterializeSyncFrequencyEnumApi
+    /** False when writing this cadence would be rejected. */
+    allowed: boolean
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+     *
+     * * `source` - source
+     * * `consumer` - consumer */
+    blocked_by: SyncFrequencyBlockedByEnumApi | null
+    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundApi {
+    /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
+    label: string
+    /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundsApi {
+    /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+     *
+     * * `tiered` - tiered
+     * * `dag_schedule` - dag_schedule
+     * * `managed_viewset` - managed_viewset
+     * * `legacy` - legacy
+     * * `no_node` - no_node */
+    frequency_mode: FrequencyModeEnumApi
+    /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
+    options: SyncFrequencyOptionApi[]
+    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    floor: SyncFrequencyBoundApi | null
+    /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
+    ceiling: SyncFrequencyBoundApi | null
+    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
+    best_effort_sources: SyncFrequencyBlockerApi[]
+    /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+    best_effort_sources_withheld: boolean
+}
+
+/**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
  * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -1090,6 +1276,10 @@ export interface DataWarehouseSavedQueryApi {
     name: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state: IncrementalStateApi | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     /**
@@ -1111,6 +1301,8 @@ export interface DataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1215,6 +1407,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
     name?: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state?: IncrementalStateApi | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /**
@@ -1236,6 +1432,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1303,30 +1501,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
 }
 
 /**
- * * `15min` - 15min
- * * `30min` - 30min
- * * `1hour` - 1hour
- * * `6hour` - 6hour
- * * `12hour` - 12hour
- * * `24hour` - 24hour
- * * `7day` - 7day
- * * `30day` - 30day
- */
-export type SavedQueryMaterializeSyncFrequencyEnumApi =
-    (typeof SavedQueryMaterializeSyncFrequencyEnumApi)[keyof typeof SavedQueryMaterializeSyncFrequencyEnumApi]
-
-export const SavedQueryMaterializeSyncFrequencyEnumApi = {
-    '15min': '15min',
-    '30min': '30min',
-    '1hour': '1hour',
-    '6hour': '6hour',
-    '12hour': '12hour',
-    '24hour': '24hour',
-    '7day': '7day',
-    '30day': '30day',
-} as const
-
-/**
  * Body of the `materialize` action: which cadence to enable materialization at.
  */
 export interface SavedQueryMaterializeApi {
@@ -1340,12 +1514,70 @@ export interface SavedQueryMaterializeApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: SavedQueryMaterializeSyncFrequencyEnumApi
+    sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
+}
+
+/**
+ * Body of the `run` action.
+ */
+export interface SavedQueryRunApi {
+    /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
+    full_refresh?: boolean
+}
+
+/**
+ * Body of the `check_incremental` action: a query and an optional config to check it against.
+ */
+export interface CheckIncrementalApi {
+    /**
+     * The HogQL query to check.
+     * @maxLength 65536
+     */
+    query: string
+    /**
+     * Output column whose advancing value marks rows as new. Omit to only list candidates.
+     * @nullable
+     */
+    incremental_key?: string | null
+    /**
+     * Output columns that identify a row. Must include every GROUP BY column.
+     * @nullable
+     */
+    unique_key?: string[] | null
+    /**
+     * How far back before the watermark to re-read each run, to pick up late-arriving data.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+ */
+export type IncrementalEligibilityApiKeyCandidateTypes = { [key: string]: string }
+
+/**
+ * Whether a query can be materialized incrementally, and what stands in the way.
+ */
+export interface IncrementalEligibilityApi {
+    /** True when nothing blocks incremental materialization. */
+    eligible: boolean
+    /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
+    key_candidates: string[]
+    /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+    unique_key_candidates: string[]
+    /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+    key_candidate_types: IncrementalEligibilityApiKeyCandidateTypes
+    /** Reasons this query cannot be incremental. Each names the construct responsible. */
+    blockers: string[]
+    /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -2760,6 +2992,8 @@ export interface CredentialApi {
  * * `Depot` - Depot
  * * `Schematic` - Schematic
  * * `Dokploy` - Dokploy
+ * * `Hootsuite` - Hootsuite
+ * * `WisprFlow` - WisprFlow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4060,6 +4294,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Depot: 'Depot',
     Schematic: 'Schematic',
     Dokploy: 'Dokploy',
+    Hootsuite: 'Hootsuite',
+    WisprFlow: 'WisprFlow',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
