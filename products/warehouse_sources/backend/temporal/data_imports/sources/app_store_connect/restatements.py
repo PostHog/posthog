@@ -58,13 +58,14 @@ _MEASURE_COLUMNS: frozenset[str] = frozenset(
 # supersede whole report dates within an app.
 _REPORT_DATE_COLUMN = "date"
 
-# Mirrors `pipelines.helpers.build_table_name` for a source created without a table prefix.
-# The prefix a user sets is on the source, which is not in scope here, so the queries name the
-# unprefixed table and say so. Getting this wrong is silent rather than loud: a second App Store
-# Connect source is forced to take a prefix, and the unprefixed name then resolves to the first
-# source's table instead of failing.
+# Mirrors `pipelines.helpers.build_table_name`, whose physical name is the source's optional
+# user-set table prefix followed by this one. Naming the table wrongly fails silently rather than
+# loudly: a second App Store Connect source is forced to take a prefix, so the unprefixed name
+# resolves to the first source's table instead of erroring.
 _TABLE_NAME_PREFIX = f"{ExternalDataSourceType.APPSTORECONNECT.value}_".lower()
 
+# Shown only where the guidance is built without a source in hand (the public docs endpoint and the
+# source caption), so the prefix is unknowable rather than known to be empty.
 _TABLE_PREFIX_NOTE = (
     "This query names the table as connected without a table name prefix; if you set one, add it "
     "wherever the table name appears."
@@ -137,13 +138,18 @@ def _latest_vintage_sql(table_name: str, identity_keys: list[str], vintage_colum
     return f"SELECT raw.*\n{_latest_vintage_join(table_name, identity_keys, vintage_column)}"
 
 
-def restatement_recipe(config: AppStoreConnectEndpointConfig, columns: Mapping[str, str]) -> RestatementRecipe | None:
+def restatement_recipe(
+    config: AppStoreConnectEndpointConfig, columns: Mapping[str, str], table_prefix: str = ""
+) -> RestatementRecipe | None:
     """Build the stream's deduplicating query from its catalog entry and documented columns.
 
     Prefers the argMax form (one row per report date and dimension tuple, each measure taken
     from the latest vintage). Falls back to the latest-vintage join (the newest restatement of
     each report date, whole) when the documented columns can't be split into dimensions and
     measures. ``None`` for streams whose catalog entry carries no vintage key to dedup on.
+
+    ``table_prefix`` is the connected source's user-set table prefix, so the query names the
+    table the reader actually has.
     """
     if config.kind != _ANALYTICS_KIND:
         return None
@@ -151,7 +157,7 @@ def restatement_recipe(config: AppStoreConnectEndpointConfig, columns: Mapping[s
     if vintage_column is None:
         return None
 
-    table_name = f"{_TABLE_NAME_PREFIX}{config.name}"
+    table_name = f"{table_prefix}{_TABLE_NAME_PREFIX}{config.name}"
     excluded = {vintage_column, *(key for key in config.primary_keys if key.startswith("_"))}
     names = [name for name in columns if name not in excluded]
     measures = tuple(name for name in names if name in _MEASURE_COLUMNS)
@@ -187,7 +193,7 @@ def restatement_recipe(config: AppStoreConnectEndpointConfig, columns: Mapping[s
     )
 
 
-def _table_guidance(recipe: RestatementRecipe) -> str:
+def _table_guidance(recipe: RestatementRecipe, prefix_known: bool) -> str:
     warning = (
         f"Apple restates each report date for about six days, and every restatement is kept as new "
         f"rows with a later {recipe.vintage_column}, so summing raw rows overcounts."
@@ -196,7 +202,8 @@ def _table_guidance(recipe: RestatementRecipe) -> str:
         resolution = "Get one row per report date and dimension combination with"
     else:
         resolution = "Keep only the latest restatement of each report date with"
-    return f"{warning} {resolution}: {recipe.sql_single_line} {_TABLE_PREFIX_NOTE}"
+    guidance = f"{warning} {resolution}: {recipe.sql_single_line}"
+    return guidance if prefix_known else f"{guidance} {_TABLE_PREFIX_NOTE}"
 
 
 def _vintage_column_guidance(vintage_column: str) -> str:
@@ -209,6 +216,7 @@ def _vintage_column_guidance(vintage_column: str) -> str:
 def with_restatement_guidance(
     descriptions: Mapping[str, CanonicalEndpoint],
     endpoints: Mapping[str, AppStoreConnectEndpointConfig] = APP_STORE_CONNECT_ENDPOINTS,
+    table_prefix: str | None = None,
 ) -> CanonicalDescriptions:
     """A copy of ``descriptions`` where every analytics stream in the catalog documents its dedup.
 
@@ -216,17 +224,21 @@ def with_restatement_guidance(
     into the ``CANONICAL_DESCRIPTIONS`` literal, so entries other code derives from stay pristine
     and streams are covered regardless of where in the module their entry is added. Idempotent:
     guidance already present is never appended twice.
+
+    ``table_prefix`` is the connected source's user-set prefix, so the queries name the reader's
+    own table. ``None`` means no source was in hand (the public docs endpoint, which describes the
+    source generically); the queries then name the unprefixed table and say so.
     """
     result: CanonicalDescriptions = dict(descriptions)
     for name in analytics_stream_names(endpoints):
         existing = result.get(name)
         entry: CanonicalEndpoint = existing.copy() if existing is not None else {}
         columns = dict(entry.get("columns") or {})
-        recipe = restatement_recipe(endpoints[name], columns)
+        recipe = restatement_recipe(endpoints[name], columns, table_prefix or "")
         if recipe is None:
             continue
 
-        guidance = _table_guidance(recipe)
+        guidance = _table_guidance(recipe, prefix_known=table_prefix is not None)
         description = (entry.get("description") or "").strip()
         if guidance not in description:
             entry["description"] = f"{description} {guidance}".strip()

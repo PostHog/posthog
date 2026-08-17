@@ -126,6 +126,17 @@ Sales and subscription reports also need your vendor number (App Store Connect â
         # dedup query, wherever in the module its entry was added.
         return with_restatement_guidance(CANONICAL_DESCRIPTIONS)
 
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.restatements import (
+            with_restatement_guidance,
+        )
+
+        # The dedup queries name a physical table, so they are rebuilt for this source's prefix.
+        return with_restatement_guidance(CANONICAL_DESCRIPTIONS, table_prefix=table_prefix)
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Match the stable status text plus the base host, not the per-request path and cursor.
         return {

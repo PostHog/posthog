@@ -1,6 +1,24 @@
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    _BaseSource,
+    error_message_matches,
+)
+
+
+class _DescriptionsOnlySource:
+    def get_canonical_descriptions(self):
+        return {"widgets": {"description": "A widget."}}
+
+
+def test_table_prefix_hook_defaults_to_the_plain_descriptions() -> None:
+    # Almost no source overrides this, so a default that dropped or emptied the descriptions
+    # would silently strip curated docs from every one of them on the enrichment path.
+    source = _DescriptionsOnlySource()
+
+    result = _BaseSource.get_canonical_descriptions_for_table_prefix(source, "acme_")
+
+    assert result == {"widgets": {"description": "A widget."}}
 
 
 @parameterized.expand(

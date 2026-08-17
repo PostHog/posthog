@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 import duckdb
 
 from posthog.hogql.parser import parse_select
@@ -175,3 +177,31 @@ class TestAppStoreConnectRestatements:
         first_analytics = analytics_stream_names(APP_STORE_CONNECT_ENDPOINTS)[0]
 
         assert f"appstoreconnect_{first_analytics}" in caption
+
+    @pytest.mark.parametrize(
+        "table_prefix,expected_table_prefix,expects_caveat",
+        [
+            # No source in hand (the public docs endpoint): the prefix is unknowable, so the query
+            # names the unprefixed table and the description says as much.
+            (None, "", True),
+            # A connected source that set no prefix — the caveat would only be noise.
+            ("", "", False),
+            ("acme_", "acme_", False),
+        ],
+    )
+    def test_recipe_names_the_table_the_connected_source_has(
+        self, table_prefix: str | None, expected_table_prefix: str, expects_caveat: bool
+    ) -> None:
+        descriptions = with_restatement_guidance(CANONICAL_DESCRIPTIONS, table_prefix=table_prefix)
+        name = analytics_stream_names(APP_STORE_CONNECT_ENDPOINTS)[0]
+        description = descriptions[name].get("description") or ""
+
+        assert f"FROM {expected_table_prefix}appstoreconnect_{name} AS raw" in description
+        assert ("table name prefix" in description) is expects_caveat
+
+    def test_source_rebuilds_its_descriptions_for_a_table_prefix(self) -> None:
+        # Guards the wiring: a recipe that honours a prefix is useless if the source never passes one.
+        name = analytics_stream_names(APP_STORE_CONNECT_ENDPOINTS)[0]
+        descriptions = AppStoreConnectSource().get_canonical_descriptions_for_table_prefix("acme_")
+
+        assert f"FROM acme_appstoreconnect_{name} AS raw" in (descriptions[name].get("description") or "")
