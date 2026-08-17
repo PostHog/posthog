@@ -85,6 +85,9 @@ pub enum CaptureError {
     #[error("payload empty after filtering invalid event types")]
     EmptyPayloadFiltered,
 
+    #[error("event {0} is not an AI event; send it to the analytics endpoint")]
+    NonAiEventOnAiLane(String),
+
     #[error("service unavailable: {0}")]
     ServiceUnavailable(String),
 
@@ -127,6 +130,7 @@ impl CaptureError {
             CaptureError::RateLimited => "rate_limited",
             CaptureError::GlobalRateLimitExceeded() => "global_rate_limit",
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
+            CaptureError::NonAiEventOnAiLane(_) => "non_ai_event_on_ai_lane",
             CaptureError::ServiceUnavailable(_) => "service_unavailable",
             CaptureError::BodyReadTimeout => "body_read_timeout",
             CaptureError::InternalError(_) => "internal_error",
@@ -151,6 +155,7 @@ impl IntoResponse for CaptureError {
             | CaptureError::MissingWindowId
             | CaptureError::InvalidSessionId
             | CaptureError::EmptyPayloadFiltered
+            | CaptureError::NonAiEventOnAiLane(_)
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
 
             CaptureError::EventTooBig(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),

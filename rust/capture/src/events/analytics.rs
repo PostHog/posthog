@@ -360,6 +360,28 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
+    // capture-ai serves only the AI paths and loads only AI restrictions (see
+    // `Pipeline::for_capture_mode`), so an event on any other lane would run
+    // ungoverned there. Reject the batch rather than dropping the offender: a
+    // client sending non-AI events to an AI endpoint is misconfigured, and a
+    // silent drop would hide that until someone went looking for the data. The
+    // abort path emits an `invalid_ai_event` ingestion warning alongside the
+    // 400, so the project owner sees it too.
+    //
+    // Lane membership is the `AI_EVENT_NAMES` allowlist, not an `$ai_` prefix,
+    // so a prefixed-but-unlisted name is rejected here too — the Node AI
+    // pipeline would DLQ it anyway.
+    if context.capture_mode == crate::config::CaptureMode::Ai {
+        if let Some(offender) = events
+            .iter()
+            .find(|e| e.metadata.data_type != DataType::AiEvents)
+        {
+            return Err(CaptureError::NonAiEventOnAiLane(
+                offender.metadata.event_name.clone(),
+            ));
+        }
+    }
+
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
             report_dropped_events("token_dropper", 1);
@@ -1423,6 +1445,114 @@ mod tests {
         assert_eq!(
             records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
+        );
+    }
+
+    /// capture-ai loads only AI restrictions, so anything off the AI lane must
+    /// not reach the pipeline there. Each case sends a two-event batch whose
+    /// second event is the one under test.
+    struct AiLaneGateCase {
+        second_event: &'static str,
+        rejected: bool,
+    }
+
+    #[rstest]
+    #[case::analytics_event_is_rejected(AiLaneGateCase {
+        second_event: "$pageview",
+        rejected: true,
+    })]
+    // Lane membership is the AI_EVENT_NAMES allowlist, not an `$ai_` prefix.
+    // A prefixed-but-unlisted name resolves to AnalyticsMain, so it must be
+    // rejected too -- the Node AI pipeline would DLQ it downstream anyway.
+    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+        second_event: "$ai_call",
+        rejected: true,
+    })]
+    #[case::exception_is_rejected(AiLaneGateCase {
+        second_event: "$exception",
+        rejected: true,
+    })]
+    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+        second_event: "$ai_span",
+        rejected: false,
+    })]
+    #[tokio::test]
+    async fn ai_mode_rejects_a_batch_carrying_anything_off_the_ai_lane(
+        #[case] case: AiLaneGateCase,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.capture_mode = crate::config::CaptureMode::Ai;
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name(case.second_event, None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let collector = Arc::new(CollectingEmitter::new());
+        let result = run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
+        )
+        .await;
+
+        if !case.rejected {
+            result.expect("an all-AI batch must be accepted");
+            assert_eq!(sink.get_events().len(), 2);
+            assert!(collector.emitted().is_empty());
+            return;
+        }
+
+        let err = result.expect_err("the batch must be rejected");
+        assert!(
+            matches!(&err, CaptureError::NonAiEventOnAiLane(name) if name == case.second_event),
+            "the error must name the offending event, got {err:?}"
+        );
+        // Rejecting the request means the whole batch is refused, including the
+        // valid AI event ahead of the offender.
+        assert!(sink.get_events().is_empty());
+
+        // The 400 reaches the caller; the warning reaches the project owner.
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+    }
+
+    /// The gate is scoped to capture-ai. On capture-analytics the same mixed
+    /// batch is ordinary traffic: both events are accepted, each on its lane.
+    #[tokio::test]
+    async fn events_mode_accepts_a_batch_the_ai_lane_would_reject() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let events = vec![
+            create_test_event_with_name("$ai_generation", None, None, None),
+            create_test_event_with_name("$pageview", None, None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        run_pipeline(sink.clone(), events, &context, PipelineOptions::default())
+            .await
+            .expect("capture-analytics must accept a mixed batch");
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(
+            captured
+                .iter()
+                .filter(|e| e.metadata.data_type == DataType::AiEvents)
+                .count(),
+            1
         );
     }
 

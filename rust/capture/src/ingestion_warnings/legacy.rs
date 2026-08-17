@@ -94,6 +94,11 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         | CaptureError::ServiceUnavailable(_)
         | CaptureError::BodyReadTimeout
         | CaptureError::InternalError(_) => None,
+
+        // A non-AI event sent to an AI endpoint. The 400 tells whoever made the
+        // call; the warning tells whoever owns the project, who is usually not
+        // the same person and cannot see the response.
+        CaptureError::NonAiEventOnAiLane(_) => Some(WarningType::InvalidAiEvent),
     }
 }
 

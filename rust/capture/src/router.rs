@@ -250,8 +250,15 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
-        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+
+    // AI events: the same batch handler as `/batch`, on a dedicated path so the
+    // ingress can route them to the capture-ai deployment and keep AI and
+    // analytics workloads isolated. Its own router rather than a member of
+    // `batch_router` so capture-ai can serve this path without also serving the
+    // analytics batch and event routes, and rather than a member of `ai_router`
+    // so it keeps the batch body limit instead of the larger multipart one.
+    let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
             post(v0_endpoint::event)
@@ -264,7 +271,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
     let event_router = Router::new()
         .route(
@@ -387,22 +394,34 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
+        CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)
+            .merge(ai_batch_router)
+            .merge(ai_router)
+            .merge(otel_router),
+        // Ai serves only the AI paths. The analytics batch and event routes are
+        // never reached there -- the ingress routes only `/i/v0/ai*` to this
+        // deployment -- and registering them would accept analytics traffic that
+        // `Pipeline::for_capture_mode(Ai)` no longer loads restrictions for.
+        // `process_events` rejects a non-AI event name on the batch path, so the
+        // only events this deployment produces are `DataType::AiEvents`.
+        CaptureMode::Ai => Router::new()
+            .merge(ai_batch_router)
             .merge(ai_router)
             .merge(otel_router),
         // Import must not register ai_router/otel_router: those handlers build
         // their own ProcessingContext with historical_migration: false, so they
         // sidestep both Import gates (historical-only drop and GRL bypass) and
         // would return a false 200 for events this deployment silently discards.
-        // The /i/v0/ai/batch path stays reachable via batch_router, which
+        // The /i/v0/ai/batch path stays reachable via ai_batch_router, which
         // dispatches to the gated v0_endpoint::event handler.
         CaptureMode::Import => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router),
+            .merge(test_router)
+            .merge(ai_batch_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
@@ -431,8 +450,11 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // mode must declare whether it serves the v1 analytics endpoint instead of
     // silently defaulting to "no v1 routes" and 404ing its traffic.
     let serves_v1_analytics = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => true,
-        CaptureMode::Recordings => false,
+        CaptureMode::Events | CaptureMode::Import => true,
+        // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
+        // event name and its traffic is governed by analytics restrictions,
+        // which capture-ai no longer loads.
+        CaptureMode::Ai | CaptureMode::Recordings => false,
     };
     if serves_v1_analytics && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {

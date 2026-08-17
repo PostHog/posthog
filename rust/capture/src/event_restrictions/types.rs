@@ -54,10 +54,15 @@ impl Pipeline {
     /// slice, which returns an empty `RestrictionSet` — silently unrestricted.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events | CaptureMode::Import | CaptureMode::Ai => {
+            CaptureMode::Events | CaptureMode::Import => {
                 vec![Self::Analytics, Self::ErrorTracking, Self::Ai]
             }
             CaptureMode::Recordings => vec![Self::SessionRecordings],
+            // capture-ai registers only the AI routes, and `process_events`
+            // rejects a batch carrying anything off the AI lane, so no event
+            // there ever resolves to another pipeline. Loading the analytics
+            // and error-tracking slices would only cost memory.
+            CaptureMode::Ai => vec![Self::Ai],
         }
     }
 }
@@ -400,12 +405,13 @@ mod tests {
             Pipeline::for_capture_mode(CaptureMode::Recordings),
             vec![Pipeline::SessionRecordings]
         );
-        // Ai serves the same set: its batch route accepts any event name, so a
-        // non-$ai_* event lands on the analytics lane there and must be
-        // governed rather than matching an unloaded, always-empty slice.
+        // Ai serves only the AI lane: its routes are AI-only and its batch path
+        // rejects anything off the allowlist, so every event it processes
+        // resolves to Pipeline::Ai. Widening this would load slices nothing
+        // looks up; narrowing it below is only safe while both of those hold.
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Ai),
-            Pipeline::for_capture_mode(CaptureMode::Events)
+            vec![Pipeline::Ai]
         );
     }
 
