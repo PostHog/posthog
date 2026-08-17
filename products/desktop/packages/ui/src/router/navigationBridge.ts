@@ -19,6 +19,10 @@ export function navigateToCode(): void {
   void getRouterOrNull()?.navigate({ to: "/code" });
 }
 
+export function navigateToZoomCanvas(): void {
+  void getRouterOrNull()?.navigate({ to: "/zoom" });
+}
+
 export function navigateToTaskDetail(taskId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/code/tasks/$taskId",

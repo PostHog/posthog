@@ -24,12 +24,16 @@ import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOr
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useFocusWorkspace } from "@posthog/ui/features/workspace/useFocusWorkspace";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
+import { useZoomCanvasStore } from "@posthog/ui/features/zoom-canvas/zoomCanvasStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToCode,
   navigateToFolderSettings,
   navigateToInbox,
+  navigateToTaskDetail,
+  navigateToZoomCanvas,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -37,6 +41,7 @@ import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
+import { useRouterState } from "@tanstack/react-router";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -56,6 +61,9 @@ export function GlobalEventHandlers({
     PI_SESSION_CONTROLLER,
   );
   const commandMenuOpen = useCommandMenuStore((s) => s.isOpen);
+  const onZoomCanvas = useRouterState({
+    select: (s) => s.location.pathname === "/zoom",
+  });
   const openSettingsDialog = openSettings;
   const view = useAppView();
   const goBack = goBackInHistory;
@@ -222,6 +230,22 @@ export function GlobalEventHandlers({
   });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
   useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
+
+  // Leaving the canvas lands on whatever the camera was looking at, so the
+  // selection survives the trip in both directions.
+  const handleToggleZoomCanvas = useCallback(() => {
+    if (!onZoomCanvas) {
+      navigateToZoomCanvas();
+      return;
+    }
+    const anchorTaskId = useZoomCanvasStore.getState().anchorTaskId;
+    if (anchorTaskId) navigateToTaskDetail(anchorTaskId);
+    else navigateToCode();
+  }, [onZoomCanvas]);
+
+  useHotkeys(SHORTCUTS.ZOOM_CANVAS, handleToggleZoomCanvas, globalOptions, [
+    handleToggleZoomCanvas,
+  ]);
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [
     handlePrevTask,
   ]);

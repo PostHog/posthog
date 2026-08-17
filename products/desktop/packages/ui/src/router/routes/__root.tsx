@@ -286,6 +286,13 @@ function RootLayout() {
     select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
   });
 
+  // The zoom canvas is its own navigation surface — the camera replaces the
+  // left nav, and each cell carries its own header — so the shell keeps only
+  // the title bar around it.
+  const isZoomRoute = useRouterState({
+    select: (s) => s.location.pathname === "/zoom",
+  });
+
   // The Bluebird chrome is the app shell for every non-settings route now. The
   // /website (Channels) routes own their own in-pane header (WebsiteLayout), so
   // the shared ContentHeader is mounted only outside that space.
@@ -374,7 +381,8 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              width: sidebarOpen ? channelsSidebarWidth : undefined,
+              width:
+                sidebarOpen && !isZoomRoute ? channelsSidebarWidth : undefined,
               // Same curve/duration as ResizableSidebar's SLIDE_EASING so the
               // title bar tracks the sidebar edge.
               transition: sidebarIsResizing
@@ -386,20 +394,22 @@ function RootLayout() {
               <Box className="h-[14px] w-[30px] overflow-hidden [&>svg]:h-[14px] [&>svg]:w-auto">
                 <LogosLandscape code={false} />
               </Box>
-              <Button
-                size="icon-sm"
-                aria-label="Toggle sidebar"
-                onClick={handleToggleSidebar}
-                onMouseEnter={() => {
-                  if (!sidebarOpen) beginSidebarPeek();
-                }}
-              >
-                {sidebarOpen ? (
-                  <SidebarClose size={10} className="text-muted-foreground" />
-                ) : (
-                  <SidebarOpen size={10} className="text-muted-foreground" />
-                )}
-              </Button>
+              {!isZoomRoute && (
+                <Button
+                  size="icon-sm"
+                  aria-label="Toggle sidebar"
+                  onClick={handleToggleSidebar}
+                  onMouseEnter={() => {
+                    if (!sidebarOpen) beginSidebarPeek();
+                  }}
+                >
+                  {sidebarOpen ? (
+                    <SidebarClose size={10} className="text-muted-foreground" />
+                  ) : (
+                    <SidebarOpen size={10} className="text-muted-foreground" />
+                  )}
+                </Button>
+              )}
             </Flex>
             {localWorkspaces && (
               <ButtonGroup className="no-drag">
@@ -461,7 +471,7 @@ function RootLayout() {
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
               panel's slide — same 200ms ease-out — so they read as one unit. */}
-          {!sidebarOpen && (
+          {!sidebarOpen && !isZoomRoute && (
             <Box
               aria-hidden
               // The radix preset replaces Tailwind's palette, so plain
@@ -472,13 +482,13 @@ function RootLayout() {
               }`}
             />
           )}
-          <ChannelsSidebar />
+          {!isZoomRoute && <ChannelsSidebar />}
           {/* Content sits in a bordered, rounded card inset from the window
               edges — the framed pane from the design. */}
           <Box flexGrow="1" className="overflow-hidden">
             <Box
               className={`h-full overflow-hidden border-border border-t border-l bg-background ${
-                sidebarOpen ? "rounded-tl-sm" : ""
+                sidebarOpen && !isZoomRoute ? "rounded-tl-sm" : ""
               }`}
             >
               <Flex direction="column" height="100%">
@@ -488,7 +498,7 @@ function RootLayout() {
                 {/* The /website space renders its own header (WebsiteLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
-                {!onWebsitePath && <ContentHeader />}
+                {!onWebsitePath && !isZoomRoute && <ContentHeader />}
                 <Box flexGrow="1" overflow="hidden">
                   {showBlankTab ? <BlankTabView /> : <Outlet />}
                 </Box>
@@ -510,17 +520,21 @@ function RootLayout() {
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
         <ChannelHotkeys />
-        {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
-        <SpaceSwitcher
-          tasks={visualTaskOrder}
-          activeTaskId={activeTaskId}
-          allTasks={tasks ?? []}
-          isOnNewTask={
-            view.type === "task-input" || view.type === "task-pending"
-          }
-          onNavigateToTask={openTask}
-          onNewTask={openTaskInput}
-        />
+        {/* Renders nothing — wires the ⌘↑/⌘↓ task-cycling shortcuts. On the
+            zoom canvas those keys move the camera between rows instead, and a
+            router navigation underneath would strand the camera. */}
+        {!isZoomRoute && (
+          <SpaceSwitcher
+            tasks={visualTaskOrder}
+            activeTaskId={activeTaskId}
+            allTasks={tasks ?? []}
+            isOnNewTask={
+              view.type === "task-input" || view.type === "task-pending"
+            }
+            onNavigateToTask={openTask}
+            onNewTask={openTaskInput}
+          />
+        )}
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
         <AnnouncementsHost />

@@ -107,8 +107,7 @@ export interface PromptInputProps {
   onCancel?: () => void;
   /**
    * Whether the composer is currently editing a queued message in place. When
-   * true, Escape abandons the edit (via {@link onCancelEdit}) instead of
-   * stopping the running turn.
+   * true, Escape abandons the edit (via {@link onCancelEdit}).
    */
   isEditingQueued?: boolean;
   onCancelEdit?: () => void;
@@ -299,30 +298,25 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       };
     }, [sessionId, enableCommands, skills]);
 
+    // Escape abandons an in-place edit of a queued message. Stopping a running
+    // turn is deliberately not on this key: Escape is the zoom canvas's way
+    // back out, and a key that sometimes kills a run is not one anyone can
+    // press to navigate. The Stop button in the composer is how you stop a run.
     useHotkeys(
       "escape",
       (e) => {
         if (hasOpenOverlay()) return;
         if (!isActiveSession) return;
-        // Editing a queued message: Escape abandons the edit. It takes priority
-        // over stopping a running turn — while editing, Escape just cancels.
-        if (isEditingQueued && onCancelEdit) {
-          e.preventDefault();
-          onCancelEdit();
-          return;
-        }
-        if (isLoading && onCancel) {
-          e.preventDefault();
-          onCancel();
-        }
+        if (!isEditingQueued || !onCancelEdit) return;
+        e.preventDefault();
+        onCancelEdit();
       },
       {
         enableOnFormTags: true,
         enableOnContentEditable: true,
-        enabled:
-          (isEditingQueued && !!onCancelEdit) || (isLoading && !!onCancel),
+        enabled: isEditingQueued && !!onCancelEdit,
       },
-      [isActiveSession, isLoading, onCancel, isEditingQueued, onCancelEdit],
+      [isActiveSession, isEditingQueued, onCancelEdit],
     );
 
     useHotkeys(

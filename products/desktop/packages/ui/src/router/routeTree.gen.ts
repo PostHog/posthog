@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ZoomRouteImport } from './routes/zoom'
 import { Route as WebsiteRouteImport } from './routes/website'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SkillsRouteImport } from './routes/skills'
@@ -80,6 +81,11 @@ import { Route as CodeAgentsApplicationsIdOrSlugApprovalsRouteImport } from './r
 import { Route as CodeAgentsApplicationsIdOrSlugSessionsIndexRouteImport } from './routes/code/agents/applications/$idOrSlug/sessions.index'
 import { Route as CodeAgentsApplicationsIdOrSlugSessionsSessionIdRouteImport } from './routes/code/agents/applications/$idOrSlug/sessions.$sessionId'
 
+const ZoomRoute = ZoomRouteImport.update({
+  id: '/zoom',
+  path: '/zoom',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WebsiteRoute = WebsiteRouteImport.update({
   id: '/website',
   path: '/website',
@@ -460,6 +466,7 @@ export interface FileRoutesByFullPath {
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/website': typeof WebsiteRouteWithChildren
+  '/zoom': typeof ZoomRoute
   '/code/agents': typeof CodeAgentsRouteWithChildren
   '/code/archived': typeof CodeArchivedRoute
   '/code/inbox': typeof CodeInboxRouteWithChildren
@@ -531,6 +538,7 @@ export interface FileRoutesByTo {
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
+  '/zoom': typeof ZoomRoute
   '/code/archived': typeof CodeArchivedRoute
   '/code/pr': typeof CodePrRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
@@ -593,6 +601,7 @@ export interface FileRoutesById {
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/website': typeof WebsiteRouteWithChildren
+  '/zoom': typeof ZoomRoute
   '/code/agents': typeof CodeAgentsRouteWithChildren
   '/code/archived': typeof CodeArchivedRoute
   '/code/inbox': typeof CodeInboxRouteWithChildren
@@ -667,6 +676,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/usage'
     | '/website'
+    | '/zoom'
     | '/code/agents'
     | '/code/archived'
     | '/code/inbox'
@@ -738,6 +748,7 @@ export interface FileRouteTypes {
     | '/mcp-servers'
     | '/skills'
     | '/usage'
+    | '/zoom'
     | '/code/archived'
     | '/code/pr'
     | '/folders/$folderId'
@@ -799,6 +810,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/usage'
     | '/website'
+    | '/zoom'
     | '/code/agents'
     | '/code/archived'
     | '/code/inbox'
@@ -872,6 +884,7 @@ export interface RootRouteChildren {
   SkillsRoute: typeof SkillsRoute
   UsageRoute: typeof UsageRoute
   WebsiteRoute: typeof WebsiteRouteWithChildren
+  ZoomRoute: typeof ZoomRoute
   CodeAgentsRoute: typeof CodeAgentsRouteWithChildren
   CodeArchivedRoute: typeof CodeArchivedRoute
   CodeInboxRoute: typeof CodeInboxRouteWithChildren
@@ -889,6 +902,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/zoom': {
+      id: '/zoom'
+      path: '/zoom'
+      fullPath: '/zoom'
+      preLoaderRoute: typeof ZoomRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/website': {
       id: '/website'
       path: '/website'
@@ -1624,6 +1644,7 @@ const rootRouteChildren: RootRouteChildren = {
   SkillsRoute: SkillsRoute,
   UsageRoute: UsageRoute,
   WebsiteRoute: WebsiteRouteWithChildren,
+  ZoomRoute: ZoomRoute,
   CodeAgentsRoute: CodeAgentsRouteWithChildren,
   CodeArchivedRoute: CodeArchivedRoute,
   CodeInboxRoute: CodeInboxRouteWithChildren,

@@ -155,30 +155,21 @@ describe("PromptInput escape handling", () => {
     expect(onCancelEdit).toHaveBeenCalledOnce();
   });
 
-  it("prioritizes cancelling the edit over stopping the run on Escape", async () => {
+  // Escape belongs to the zoom canvas, which uses it to pull the camera back
+  // out of a task. A key that also kills whatever run is in flight is not one
+  // anyone can press to navigate, so stopping a run is the Stop button's job.
+  it.each([
+    { name: "while editing a queued message", isEditingQueued: true },
+    { name: "while not editing", isEditingQueued: false },
+  ])("never stops the run on Escape $name", async ({ isEditingQueued }) => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
     const onCancelEdit = vi.fn();
 
-    renderInput({
-      isLoading: true,
-      onCancel,
-      isEditingQueued: true,
-      onCancelEdit,
-    });
+    renderInput({ isLoading: true, onCancel, isEditingQueued, onCancelEdit });
 
     await user.keyboard("{Escape}");
-    expect(onCancelEdit).toHaveBeenCalledOnce();
     expect(onCancel).not.toHaveBeenCalled();
-  });
-
-  it("still stops the run on Escape when not editing", async () => {
-    const user = userEvent.setup();
-    const onCancel = vi.fn();
-
-    renderInput({ isLoading: true, onCancel, isEditingQueued: false });
-
-    await user.keyboard("{Escape}");
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCancelEdit).toHaveBeenCalledTimes(isEditingQueued ? 1 : 0);
   });
 });
