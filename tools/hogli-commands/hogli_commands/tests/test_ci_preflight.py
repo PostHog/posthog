@@ -216,9 +216,6 @@ class TestWorkspaceScopedLockfile:
 
 
 class TestShadowDriftCompanion:
-    """The depot shadow gate is a CI hard-fail that costs a full round-trip to learn about.
-    Preflight has to reach the same verdict from the diff alone."""
-
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
@@ -252,8 +249,6 @@ class TestShadowDriftCompanion:
             assert "shadow-drift" not in result.output
 
     def test_pair_matches_workflow(self) -> None:
-        """The pair is declared here and in the workflow. If they drift, the local gate
-        silently stops matching CI — which is the failure this whole check exists to stop."""
         import yaml
         from hogli.manifest import REPO_ROOT
 

@@ -204,8 +204,6 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
-# Mirrors the house `@frozen` defaults; hogli can't import posthog.dataclasses, since
-# it has to run on a bare checkout. kw_only earns its place here — every field is a str.
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CompanionCheck:
     """Two files a CI gate requires to move together. Unlike a ``DiffCheck`` there is
@@ -218,10 +216,8 @@ class CompanionCheck:
     guidance: str
 
 
-# Mirrors .github/workflows/ci-backend-shadow-drift.yml, which fails a PR that touches
-# canonical without the depot shadow. The pair is declared here as well so the failure
-# lands pre-push instead of a CI round-trip; ``test_shadow_drift_pair_matches_workflow``
-# binds the two declarations so they cannot drift apart.
+# Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
+# pre-push instead of a CI round-trip. A test binds the two so they cannot drift.
 COMPANION_CHECKS: list[CompanionCheck] = [
     CompanionCheck(
         key="shadow-drift",
