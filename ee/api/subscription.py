@@ -952,13 +952,7 @@ def _blocked_target_ids(user_access_control: UserAccessControl, queryset: QueryS
 
 
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
-    """Hide subscriptions that would render a restricted insight or dashboard.
-
-    Applied to the viewset querysets, so list and every detail route share it. An empty
-    dashboard_export_insights selection renders every live tile, so it is gated on the tiles.
-    Keep the multi-valued conditions under the negation: Django compiles them to NOT EXISTS
-    there, while a positive M2M lookup joins the through table and duplicates rows.
-    """
+    """Match only subscriptions whose rendered targets the caller can view."""
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
@@ -967,17 +961,22 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
 
     blocked_insights = _blocked_target_ids(user_access_control, Insight.objects.filter(team_id=team_id))
     blocked_dashboards = _blocked_target_ids(user_access_control, Dashboard.objects.filter(team_id=team_id))
-    blocked_tile_dashboards = DashboardTile.objects.filter(
+    dashboards_with_blocked_tiles = DashboardTile.objects.filter(
         dashboard__team_id=team_id, insight_id__in=blocked_insights
     ).values("dashboard_id")
+
+    targets_a_blocked_insight = Q(**{f"{prefix}insight_id__in": blocked_insights})
+    targets_a_blocked_dashboard = Q(**{f"{prefix}dashboard_id__in": blocked_dashboards})
+    exports_a_blocked_insight = Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights})
+    # An empty selection means the delivery renders every live tile of the dashboard.
+    renders_a_blocked_tile = Q(**{f"{prefix}dashboard_export_insights__isnull": True}) & Q(
+        **{f"{prefix}dashboard_id__in": dashboards_with_blocked_tiles}
+    )
+
+    # Negating here compiles the M2M lookups to NOT EXISTS; positive ones would join the
+    # through table and return one row per selected insight.
     return ~(
-        Q(**{f"{prefix}insight_id__in": blocked_insights})
-        | Q(**{f"{prefix}dashboard_id__in": blocked_dashboards})
-        | Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights})
-        | (
-            Q(**{f"{prefix}dashboard_export_insights__isnull": True})
-            & Q(**{f"{prefix}dashboard_id__in": blocked_tile_dashboards})
-        )
+        targets_a_blocked_insight | targets_a_blocked_dashboard | exports_a_blocked_insight | renders_a_blocked_tile
     )
 
 
