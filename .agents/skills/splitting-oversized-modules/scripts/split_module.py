@@ -26,7 +26,6 @@ It does NOT reformat or fix imports. Run afterwards:
 from __future__ import annotations
 
 import io
-import re
 import ast
 import json
 import argparse
@@ -47,10 +46,19 @@ def names_of(node: ast.stmt) -> list[str]:
     return []
 
 
-def segment(tree: ast.Module, lines: list[str]) -> tuple[dict[str, tuple[int, int]], int]:
+def segment(tree: ast.Module, lines: list[str]) -> tuple[dict[str, tuple[int, int]], int, list[int]]:
+    """Symbol -> (first_line, last_line), the header boundary, and any unsupported statements.
+
+    Only statements *before* the first definition extend the header. A bare statement after
+    one (a module-level `if`, an `assert`, a registration call) cannot be attributed to a
+    concern, and copying it into every module would run its side effect N times, so it is
+    reported and the caller refuses to split.
+    """
     segments: dict[str, tuple[int, int]] = {}
     header_end = 0
     prev_end = 0
+    late: list[int] = []
+    seen_definition = False
     for node in tree.body:
         start = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
         j = start - 2
@@ -59,21 +67,36 @@ def segment(tree: ast.Module, lines: list[str]) -> tuple[dict[str, tuple[int, in
         found = names_of(node)
         for name in found:
             segments[name] = (j + 2, node.end_lineno or start)
-        if not found:
+        if found:
+            seen_definition = True
+        elif seen_definition:
+            late.append(node.lineno)
+        else:
             header_end = node.end_lineno or start
         prev_end = node.end_lineno or start
-    return segments, header_end
+    return segments, header_end, late
 
 
 def deepen_relative_imports(text: str) -> str:
     """Add one dot to every relative import: the modules now sit a level deeper.
 
-    Matches any depth and both forms (``from .x import y``, ``from . import x``), and has
-    to run over function bodies as well as the header — a deferred import inside a function
-    is the one that fails at call time rather than at import, so nothing catches it early.
+    Locates the statements with the AST rather than by matching raw lines, so a docstring or
+    string literal whose line happens to read ``from .models import Thing`` is left alone.
+    Covers deferred imports inside function bodies too — those fail at call time rather than
+    at import, so nothing catches a missed one early.
     """
-    # [ \t] not \s: \s matches newlines, so ^\s* can span a blank line and swallow it.
-    return re.sub(r"(?m)^([ \t]*)from (\.+)", r"\1from .\2", text)
+    lines = text.splitlines(keepends=True)
+    # Right-to-left so an earlier edit cannot shift a later column on the same line.
+    spots = sorted(
+        (node.lineno, node.col_offset)
+        for node in ast.walk(ast.parse(text))
+        if isinstance(node, ast.ImportFrom) and node.level > 0
+    )
+    for lineno, col in reversed(spots):
+        line = lines[lineno - 1]
+        dot = line.index(".", col)
+        lines[lineno - 1] = line[:dot] + "." + line[dot:]
+    return "".join(lines)
 
 
 def requalify(body: str, self_module: str, owner: dict[str, str]) -> tuple[str, set[str], set[str]]:
@@ -138,7 +161,7 @@ def main() -> int:
     source = args.source.read_text()
     lines = source.splitlines(keepends=True)
     tree = ast.parse(source)
-    segments, header_end = segment(tree, lines)
+    segments, header_end, late = segment(tree, lines)
 
     if args.skeleton:
         ordered = sorted(segments, key=lambda n: segments[n][0])
@@ -147,12 +170,36 @@ def main() -> int:
     if args.layout is None:
         parser.error("a layout is required unless --skeleton is given")
 
+    if late:
+        print(f"{args.source} has top-level statements after its first definition, on lines:")
+        print(f"  {late}")
+        print("Those cannot be attributed to a concern, and copying them into every module")
+        print("would run their side effects once per module. Move them into a function or")
+        print("above the first definition, then split.")
+        return 1
+
     raw: dict[str, dict] = json.loads(args.layout.read_text())
     # State every module needs its own copy of (a logger) goes under "__shared__", so no
     # module has to import a sibling just to log. Kept out of `modules` so the coverage
     # check and the write loop read a dict nothing has mutated.
     shared_names = raw.get(SHARED, {}).get("symbols", [])
     modules = {name: spec for name, spec in raw.items() if name != SHARED}
+
+    # A symbol listed twice would be emitted into both modules, and the verifier would read
+    # the identical copies as shared state and still say "pure move" — so catch it here.
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    for mod, spec in [*modules.items(), (SHARED, raw.get(SHARED, {"symbols": []}))]:
+        for sym in spec["symbols"]:
+            if sym in seen:
+                duplicates.append(f"{sym} (in {seen[sym]} and {mod})")
+            seen[sym] = mod
+    if duplicates:
+        print("layout assigns a symbol to more than one destination:")
+        for entry in duplicates:
+            print(f"  {entry}")
+        return 1
+
     owner = {sym: mod for mod, spec in modules.items() for sym in spec["symbols"]}
 
     unassigned = sorted(set(segments) - set(owner) - set(shared_names))
@@ -191,6 +238,12 @@ def main() -> int:
 
     init_doc = args.init_doc or f"{package.name} for {package.parent.name}. One module per concern."
     (package / "__init__.py").write_text(f'"""{init_doc}"""\n')
+    if package.name == "models":
+        print()
+        print("This is a models package, so the empty __init__.py is not enough: Django imports")
+        print("an app's `models` package but does not recurse into it, so the classes would be")
+        print("missing from the app registry. Add aggregation imports to __init__.py — the one")
+        print("case where re-exporting is right, and why no-init-reexports.yaml exempts models/.")
     args.source.unlink()
     print(f"\nwrote {len(modules)} modules to {package}/ and removed {args.source}")
     if shared_names:

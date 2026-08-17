@@ -39,7 +39,7 @@ def definitions(source: str) -> dict[str, ast.stmt]:
     return out
 
 
-def canonical(node: ast.stmt, modules: list[str]) -> str:
+def canonical(node: ast.stmt, modules: list[str], deepen: bool = False) -> str:
     """Unparse, then collapse module qualification so both sides compare equal.
 
     Do this textually on the unparsed form, not with a NodeTransformer: a transformer
@@ -47,9 +47,12 @@ def canonical(node: ast.stmt, modules: list[str]) -> str:
     reports differences that are not there. Text canonicalization is symmetric.
     """
     text = ast.unparse(node)
-    # The split adds a dot to every relative import, since the modules sit a level deeper.
-    # That is mechanical, so collapse the depth on both sides rather than reporting it.
-    text = re.sub(r"\bfrom \.+", "from .", text)
+    # The split adds exactly one dot to every relative import, since the modules sit a level
+    # deeper. Apply that same transformation to the before side rather than collapsing depth
+    # on both: collapsing would accept an import deepened by two levels, which imports from
+    # somewhere else entirely and only fails when the enclosing function runs.
+    if deepen:
+        text = re.sub(r"\bfrom (\.+)", r"from .\1", text)
     if modules:
         alternation = "|".join(sorted(modules, key=len, reverse=True))
         text = re.sub(rf"\b({alternation})\.", "", text)
@@ -81,7 +84,7 @@ def main() -> int:
     if args.strip_package:
         strip += [p.stem for p in sorted(args.strip_package.glob("*.py")) if p.stem != "__init__"]
 
-    before = {name: canonical(node, strip) for name, node in definitions(args.before.read_text()).items()}
+    before = {name: canonical(node, strip, deepen=True) for name, node in definitions(args.before.read_text()).items()}
 
     forms: dict[str, set[str]] = {}
     where: dict[str, list[str]] = {}

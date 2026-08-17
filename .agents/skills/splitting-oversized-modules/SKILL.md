@@ -148,6 +148,15 @@ function bodies fail at call time, so only running the tests catches a mistake t
   `uv run --no-project --with semgrep semgrep --config .semgrep/rules/devex <package>/`.
 - **Relative imports break one level down.** The script deepens them, including inside
   function bodies. A missed one is invisible until the function runs.
+- **A `models.py` split is the one case that needs re-exports.** Django imports an app's
+  `models` package but does not recurse into it, so model classes in submodules never reach
+  the app registry and every `from ..models import Model` caller breaks. Add aggregation
+  imports to `models/__init__.py`; `no-init-reexports.yaml` exempts `**/models/**` for
+  exactly this reason. The script warns when it writes a `models/` package.
+- **A top-level statement after the first definition stops the split.** A module-level `if`,
+  an `assert`, or a registration call cannot be attributed to a concern, and copying it into
+  every module would run its side effect once per module. Move it into a function or above
+  the definitions first.
 
 ## Left for you
 
