@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
@@ -29,7 +29,6 @@ export const manifest: ProductManifest = {
             iconType: 'cohort' as FileSystemIconType,
             href: (ref: string) => urls.cohort(ref),
             filterKey: 'cohort',
-            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -38,7 +37,6 @@ export const manifest: ProductManifest = {
             type: 'cohort',
             href: urls.cohort('new'),
             iconType: 'cohort' as FileSystemIconType,
-            iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
             sceneKeys: ['Cohorts', 'Cohort'],
         },
     ],

@@ -214,7 +214,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     workflows: {
         icon: <IconDecisionTree />,
-        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+        iconColor: ['var(--color-product-workflows-light)'],
     },
     notebook: {
         icon: <IconNotebook />,
@@ -283,7 +283,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     team_activity: {
         icon: <IconNotification />,
-        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
     tools: {
         icon: <IconApps />,
