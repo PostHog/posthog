@@ -73,6 +73,7 @@ export function InsightEmptyState({
     detail,
     icon: iconProp,
     sampleDataVariant,
+    insightProps,
 }: {
     heading?: string
     detail?: string | JSX.Element
@@ -83,6 +84,7 @@ export function InsightEmptyState({
      * `null` to opt this call site out entirely.
      */
     sampleDataVariant?: SampleDataVariant | null
+    insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
 
@@ -91,7 +93,23 @@ export function InsightEmptyState({
     // hover how to get real data. Call sites with purposeful custom copy keep their empty state
     // unless they explicitly opted in with a variant.
     const hasCustomCopy = heading !== undefined || detail !== undefined
-    if (shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)) {
+    const showingSampleData =
+        shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)
+
+    // This empty state used to fire no telemetry at all, so a broken query and a genuinely empty
+    // result were indistinguishable. Capture it so both are measurable.
+    useOnMountEffect(() => {
+        if (showingSampleData) {
+            return
+        }
+        posthog.capture('insight empty state shown', {
+            has_custom_copy: hasCustomCopy,
+            dashboard_id: insightProps?.dashboardId ?? null,
+            insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+        })
+    })
+
+    if (showingSampleData) {
         return <SampleDataState variant={sampleDataVariant ?? 'line'} />
     }
 
