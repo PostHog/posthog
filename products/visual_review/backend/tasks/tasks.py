@@ -29,7 +29,7 @@ TRACER = trace.get_tracer(__name__)
 )
 @with_team_scope()
 def emit_run_processing_metrics(team_id: int, run_id: str, outcome: str, diffed_count: int) -> None:
-    from ..logic import runs
+    from ..logic import runs  # noqa: PLC0415 — avoids the logic/tasks circular import
 
     runs.capture_run_processing_metrics(UUID(run_id), outcome=outcome, diffed_count=diffed_count)
 
