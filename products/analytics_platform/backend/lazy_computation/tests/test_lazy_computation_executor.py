@@ -78,6 +78,35 @@ class TestComputationJob(BaseTest):
         assert retrieved.id == job.id
         assert retrieved.query_hash == query_hash
 
+    @parameterized.expand(
+        [
+            ("pending_blocks", PreaggregationJob.Status.PENDING, False),
+            ("ready_does_not_block", PreaggregationJob.Status.READY, True),
+        ]
+    )
+    def test_create_job_conflicts_only_with_pending_rows(self, _name, seeded_status, expect_created):
+        query_hash = "abc123def456"
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 2, tzinfo=UTC)
+        PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=start,
+            time_range_end=end,
+            status=seeded_status,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        job = create_lazy_computation_job(self.team, query_hash, start, end)
+
+        row_count = PreaggregationJob.objects.filter(team=self.team, query_hash=query_hash).count()
+        if expect_created:
+            assert job is not None
+            assert row_count == 2
+        else:
+            assert job is None
+            assert row_count == 1
+
 
 class TestComputeQueryHash(BaseTest):
     @parameterized.expand(
@@ -1436,7 +1465,7 @@ class TestRaceConditionHandling(BaseTest):
         assert isinstance(s, ast.SelectQuery)
         return s
 
-    def test_integrity_error_on_create_loops_back_and_picks_up_pending_job(self):
+    def test_lost_create_race_loops_back_and_picks_up_pending_job(self):
         query = self._make_computation_query()
         query_info = LazyComputationQuery(
             query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
@@ -1464,13 +1493,13 @@ class TestRaceConditionHandling(BaseTest):
         with (
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
-                side_effect=IntegrityError("duplicate key"),
+                return_value=None,
             ),
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
                 side_effect=[
                     [],  # First call: miss the job (race window)
-                    [existing_pending],  # Second call: find it as PENDING after IntegrityError loops back
+                    [existing_pending],  # Second call: find it as PENDING after losing the create race
                     [existing_pending],  # Third call (in loop): find it as READY, no pending → break
                     [existing_pending],  # Fourth call: final collection after loop
                 ],
@@ -2129,7 +2158,7 @@ class TestComputationExecutorExecute(BaseTest):
             poll_interval_seconds=0.05,
         )
 
-        # Simulate: our create hits IntegrityError (another executor got there first),
+        # Simulate: our create loses the race (another executor got there first),
         # then on the next loop we find their PENDING job, then it completes.
         other_pending = PreaggregationJob.objects.create(
             team=self.team,
@@ -2900,22 +2929,24 @@ class TestJobLifecycleCounters(BaseTest):
             == 1.0
         )
 
-    def test_integrity_error_on_create_does_not_increment_created(self):
-        """Two executors racing on the same range produce one row in PG, not two —
-        the loser's IntegrityError path must not double-count creates."""
+    def test_lost_create_race_increments_conflicts_not_created(self):
+        """Two executors racing on the same range produce one row in PG, not two:
+        the loser must count a conflict, never a create."""
         from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL,
             LAZY_COMPUTATION_JOBS_CREATED_TOTAL,
         )
 
         miss_before = LAZY_COMPUTATION_JOBS_CREATED_TOTAL.labels(cache_state="miss", table=str(self.TABLE))._value.get()
+        conflicts_before = LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(self.TABLE))._value.get()
 
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
-        # always raise IntegrityError simulates losing the partial-unique-index
-        # race on every attempt; the executor times out shortly after.
+        # always return None simulates losing the partial-unique-index race on
+        # every attempt; the executor times out shortly after.
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
-            side_effect=IntegrityError("partial unique index race"),
+            return_value=None,
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -2934,6 +2965,14 @@ class TestJobLifecycleCounters(BaseTest):
                 miss_before,
             )
             == 0.0
+        )
+        assert (
+            self._delta(
+                LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL,
+                {"table": str(self.TABLE)},
+                conflicts_before,
+            )
+            > 0
         )
 
     def test_stale_mark_increments_finished_stale(self):

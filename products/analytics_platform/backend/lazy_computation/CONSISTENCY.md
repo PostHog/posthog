@@ -336,7 +336,7 @@ Not applicable to PostHog (fully self-hosted), but for reference:
 
 ## Concurrent first-readers: redundant INSERTs (by design)
 
-The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer raises `IntegrityError`. This is intentional: a stale READY job past its TTL should be replaceable.
+The partial unique index `unique_pending_job_per_range` (migration `0004_unique_pending_job_index.py`) is `WHERE status='pending'`. Once a job transitions PENDING → READY the row is no longer in the index, so a second CREATE for the same `(team_id, query_hash, range)` no longer collides. This is intentional: a stale READY job past its TTL should be replaceable.
 
 Combined with the executor's `for range in ttl_ranges` loop, this produces a wasted-INSERT pattern under concurrent first-readers on the **shortest-TTL** ranges (today / yesterday in `LAZY_TTL_SECONDS`):
 
@@ -345,8 +345,8 @@ T=0.000  N threads enter executor. All call find_existing_jobs → []. All compu
          the same stale ttl_ranges = [today, yesterday, 7-day].
 
 T=0.005  3 threads each WIN a different range (one PENDING per range via the
-         partial unique index). The other (N-3) threads hit IntegrityError on
-         all 3 ranges and loop back to wait on pubsub.
+         partial unique index). The other (N-3) threads lose the create race on
+         all 3 ranges (ON CONFLICT DO NOTHING) and loop back to wait on pubsub.
 
 T~0.5    The 3 winners each finish their CH INSERT (~470ms) and mark READY
          within a few ms of each other.

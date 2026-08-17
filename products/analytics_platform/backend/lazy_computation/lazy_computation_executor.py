@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
 
@@ -149,6 +148,17 @@ LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
     "lazy_computation_jobs_finished_total",
     "PreaggregationJob rows that reached a terminal status, labeled by outcome and table.",
     ["outcome", "table"],
+)
+
+# Lost create races are otherwise invisible outside Postgres logs. A steady
+# background rate is expected (the baseline warmer, the dimensional DAG, and SWR
+# revalidation race on the same windows by design); a sustained elevated rate
+# means either writers piling onto the same windows or a PENDING row past its
+# own expires_at blocking a window it no longer serves.
+LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
+    "lazy_computation_job_create_conflicts_total",
+    "PENDING job inserts skipped because a PENDING row already covers that (team, query_hash, range).",
+    ["table"],
 )
 
 
@@ -723,17 +733,28 @@ def create_lazy_computation_job(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-) -> PreaggregationJob:
-    """Create a new computation job in PENDING status with expiry time."""
-    expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
-    return PreaggregationJob.objects.create(
+) -> PreaggregationJob | None:
+    """Create a new PENDING job with expiry time, or return None when another
+    PENDING row already holds the `unique_pending_job_per_range` slot.
+
+    Uses INSERT .. ON CONFLICT DO NOTHING (`ignore_conflicts`) so losing the
+    race is a silent no-op rather than a logged Postgres error with a rolled-back
+    transaction; executors race on these windows by design.
+    """
+    job = PreaggregationJob(
         team=team,
         query_hash=query_hash,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         status=PreaggregationJob.Status.PENDING,
-        expires_at=expires_at,
+        expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
     )
+    PreaggregationJob.objects.bulk_create([job], ignore_conflicts=True)
+    # ignore_conflicts suppresses RETURNING and the UUID pk is generated
+    # client-side, so probe by pk to learn whether the row actually landed.
+    if not PreaggregationJob.objects.filter(id=job.id).exists():
+        return None
+    return job
 
 
 def build_lazy_computation_insert_sql(
@@ -1050,6 +1071,7 @@ class LazyComputationExecutor:
 
                 # Step 3: Insert missing ranges
                 did_work = False
+                lost_create_race = False
                 if ttl_ranges and failures <= self.max_retries:
                     for range_start, range_end, ttl in ttl_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
@@ -1065,12 +1087,12 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        try:
-                            with transaction.atomic():
-                                new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
-                        except IntegrityError:
-                            # Another executor created a PENDING job for this range — loop will pick it up
-                            did_work = True
+                        new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
+                        if new_job is None:
+                            # Another executor created a PENDING job for this range; the
+                            # rescan at the top of the loop will pick it up
+                            LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(query_info.table)).inc()
+                            lost_create_race = True
                             continue
 
                         # `had_ready_at_start` is set above before the create loop runs and
@@ -1170,7 +1192,16 @@ class LazyComputationExecutor:
                     _log_execution("max_retries_exceeded", result)
                     return result
 
-                if did_work:
+                if did_work or lost_create_race:
+                    if lost_create_race and not did_work:
+                        # Normally the rescan finds the winner's PENDING row and moves to
+                        # the wait branch. A PENDING row past its own expires_at is
+                        # invisible to find_existing_jobs yet still holds the unique-index
+                        # slot, which would otherwise make this loop hot-spin failed
+                        # inserts until the wait budget runs out, so pace the retry.
+                        remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
+                        if remaining > 0:
+                            time.sleep(min(self.poll_interval_seconds, remaining))
                     interval = self.poll_interval_seconds
                     continue
 
