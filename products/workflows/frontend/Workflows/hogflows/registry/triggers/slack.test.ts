@@ -1,6 +1,8 @@
+import './slack'
+
 import { PropertyOperator } from '~/types'
 
-import { channelId } from './slack'
+import { SlackPosterMode, decodeSlackFilters, encodeSlackFilters } from './slackTriggerFilters'
 import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 describe('slack message trigger', () => {
@@ -12,62 +14,107 @@ describe('slack message trigger', () => {
         return triggerType
     }
 
-    describe('validate', () => {
-        it.each([
-            {
-                name: 'no channel filter',
-                config: { type: 'slack-message', filters: { properties: [] } },
-                expected: { valid: false, errors: { channel: 'Please pick a Slack channel' } },
-            },
-            {
-                name: 'channel filter present',
-                config: {
-                    type: 'slack-message',
-                    filters: { properties: [{ key: 'channel', value: ['C0ALERTS'] }] },
-                },
-                expected: { valid: true, errors: {} },
-            },
-            {
-                name: 'other filters do not stand in for a channel',
-                config: { type: 'slack-message', filters: { properties: [{ key: 'text', value: ['fire'] }] } },
-                expected: { valid: false, errors: { channel: 'Please pick a Slack channel' } },
-            },
-            {
-                name: 'non slack-message config returns null',
-                config: { type: 'event', filters: {} },
-                expected: null,
-            },
-        ])('returns $expected for $name', ({ config, expected }) => {
-            expect(getTriggerType().validate!(config as any)).toEqual(expected)
+    describe('filters round-trip', () => {
+        it.each<{ name: string; mode: SlackPosterMode; ids: string[] }>([
+            { name: 'anyone', mode: 'anyone', ids: [] },
+            { name: 'people only', mode: 'people', ids: [] },
+            { name: 'apps and bots only', mode: 'apps', ids: [] },
+            { name: 'specific people', mode: 'specific_people', ids: ['U01ABCDEF'] },
+            { name: 'specific apps', mode: 'specific_apps', ids: ['A01ABCDEF'] },
+        ])('survives a save and reload for $name', ({ mode, ids }) => {
+            // The editor reads its controls back out of the stored filters, so a mode that encodes
+            // to something decode can't recognize silently resets the control on reopen.
+            const filters = {
+                channel: 'C0ALERTS',
+                posterMode: mode,
+                posterIds: ids,
+                topLevelOnly: true,
+                additional: [],
+            }
+            expect(decodeSlackFilters(encodeSlackFilters(filters))).toEqual(filters)
+        })
+
+        it('keeps filters the native controls do not own', () => {
+            const custom = { key: 'text', value: ['fire'], operator: PropertyOperator.IContains, type: 'event' }
+            const encoded = encodeSlackFilters({
+                channel: 'C0ALERTS',
+                posterMode: 'people',
+                posterIds: [],
+                topLevelOnly: false,
+                additional: [custom],
+            })
+
+            expect(encoded).toContainEqual(custom)
+            expect(decodeSlackFilters(encoded).additional).toEqual([custom])
+        })
+
+        it('reduces the picker composite to a channel id', () => {
+            // The picker round-trips `C123|#name`; the event carries `C123`, so storing the
+            // composite compiles a filter that matches nothing.
+            const encoded = encodeSlackFilters({
+                channel: 'C0ALERTS|#alerts',
+                posterMode: 'anyone',
+                posterIds: [],
+                topLevelOnly: false,
+                additional: [],
+            })
+            expect(decodeSlackFilters(encoded).channel).toBe('C0ALERTS')
+        })
+
+        it('separates top-level posts on thread_ts, not the boolean', () => {
+            // is_thread_reply is a real boolean on the event, and comparing it against a string
+            // would never match. Absence of thread_ts is what marks a top-level post.
+            const encoded = encodeSlackFilters({
+                channel: null,
+                posterMode: 'anyone',
+                posterIds: [],
+                topLevelOnly: true,
+                additional: [],
+            })
+            expect(encoded).toContainEqual(
+                expect.objectContaining({ key: 'thread_ts', operator: PropertyOperator.IsNotSet })
+            )
+        })
+
+        it('drops an empty id list rather than storing a filter that matches nothing', () => {
+            const encoded = encodeSlackFilters({
+                channel: null,
+                posterMode: 'specific_people',
+                posterIds: [],
+                topLevelOnly: false,
+                additional: [],
+            })
+            expect(encoded).toEqual([])
         })
     })
 
-    it('is gated behind the slack-workflow-triggers feature flag', () => {
-        expect(getTriggerType().featureFlag).toBe('slack-workflow-triggers')
-    })
+    describe('registry entry', () => {
+        it.each([
+            { name: 'no channel filter', properties: [], valid: false },
+            { name: 'channel filter present', properties: [{ key: 'channel', value: ['C0ALERTS'] }], valid: true },
+            { name: 'other filters alone', properties: [{ key: 'text', value: ['fire'] }], valid: false },
+        ])('validate returns valid=$valid for $name', ({ properties, valid }) => {
+            const result = getTriggerType().validate!({ type: 'slack-message', filters: { properties } } as any)
+            expect(result?.valid).toBe(valid)
+        })
 
-    it('buildConfig produces a config recognized by matchConfig', () => {
-        // A mismatch here leaves the editor unable to identify its own trigger, so it silently falls
-        // back to the raw filter editor.
-        const triggerType = getTriggerType()
-        const config = triggerType.buildConfig()
-        expect(config.type).toBe('slack-message')
-        expect(triggerType.matchConfig!(config)).toBe(true)
-    })
+        it('validate returns null for a non slack-message config', () => {
+            expect(getTriggerType().validate!({ type: 'event', filters: {} } as any)).toBeNull()
+        })
 
-    it.each([
-        ['C0ALERTS|#alerts', 'C0ALERTS'],
-        ['C0ALERTS', 'C0ALERTS'],
-    ])('reduces picker value %s to channel id %s', (pickerValue, expected) => {
-        // The picker round-trips `C123|#name`. A Slack message event carries `channel: 'C123'`, so
-        // storing the composite compiles a filter that matches nothing.
-        expect(channelId(pickerValue)).toBe(expected)
-    })
+        it('is gated behind the slack-workflow-triggers feature flag', () => {
+            expect(getTriggerType().featureFlag).toBe('slack-workflow-triggers')
+        })
 
-    it('excludes bot posts by default so a workflow cannot retrigger on its own message', () => {
-        const properties = getTriggerType().buildConfig().filters.properties
-        expect(properties).toContainEqual(
-            expect.objectContaining({ key: 'bot_id', operator: PropertyOperator.IsNotSet })
-        )
+        it('buildConfig produces a config recognized by matchConfig', () => {
+            const triggerType = getTriggerType()
+            const config = triggerType.buildConfig()
+            expect(config.type).toBe('slack-message')
+            expect(triggerType.matchConfig!(config)).toBe(true)
+        })
+
+        it('defaults to people only so a workflow cannot retrigger on its own message', () => {
+            expect(decodeSlackFilters(getTriggerType().buildConfig().filters.properties).posterMode).toBe('people')
+        })
     })
 })
