@@ -15,6 +15,11 @@ MARKETING_FEATURE_FLAGS = (
     "marketing-analytics-multi-touch-attribution",
     "marketing-analytics-ai",
     "advance-marketing-analytics-settings",
+    # Gate the Setup tab and the ROAS / cost-per-customer columns. Without these the
+    # seeded world renders as if none of this work existed, which is the opposite of
+    # what a seeder is for.
+    "marketing-analytics-setup",
+    "marketing-analytics-return-metrics",
 )
 
 _DEFAULT_SCHEMA_MAP = {
