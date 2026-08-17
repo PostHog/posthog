@@ -72,7 +72,8 @@ import {
 import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
-import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { PosthogJwtAudience } from './utils/jwt-utils'
+import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -144,9 +145,9 @@ export class CdpApi {
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
     // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
-    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
+    // middleware): Django mints per-call JWTs pinned to a team + workflow. Disabled when the key
     // isn't provisioned — the route then fails closed.
-    private rescheduleJwt: JWT | null
+    private rescheduleJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -198,9 +199,10 @@ export class CdpApi {
             this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
-        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
-            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
-            : null
+        this.rescheduleJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+        )
     }
 
     public get service(): PluginServerService {
@@ -1035,7 +1037,7 @@ export class CdpApi {
                     error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
                 })
             }
-            if (!this.rescheduleJwt) {
+            if (!this.rescheduleJwt.enabled) {
                 return res.status(503).json({
                     error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
                 })
@@ -1046,11 +1048,12 @@ export class CdpApi {
             const authHeader = req.headers['authorization']
             const token =
                 typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            const claims = token
-                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
-                      ignoreVerificationErrors: true,
-                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
-                : undefined
+            let claims: { team_id?: number; hog_flow_id?: string } | undefined
+            try {
+                claims = token ? (this.rescheduleJwt.verify(token) as typeof claims) : undefined
+            } catch {
+                claims = undefined
+            }
             // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
             if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
                 return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })

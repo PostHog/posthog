@@ -269,13 +269,17 @@ class TaskItem:
     """One row on the Tasks card."""
 
     title: str
-    posthog_url: str
+    # Both task links are `None` for a viewer without PostHog Code access, matching the
+    # reply footer: a task page they can't open is as much a dead end as the desktop app.
+    # Stated at every construction rather than defaulted, so a row can't lose its links
+    # by omission and render as plain text.
+    posthog_url: str | None
+    desktop_url: str | None
     status: str | None  # TaskRun.Status value or None when there's no run yet
     repository: str | None
     pr_url: str | None
     thread_url: str | None
     updated_at_label: str
-    desktop_url: str | None = None  # omitted for viewers without PostHog Code access
     error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
 
 
@@ -1882,7 +1886,7 @@ def _resolve_tasks_state(
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import DESKTOP_URL_SCHEME, viewer_has_code_access
+    from products.slack_app.backend.services.slack_messages import viewer_has_code_access
     from products.tasks.backend.facade import api as tasks_facade
 
     slack_team_id = integration.integration_id
@@ -1916,9 +1920,10 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
-    # The desktop link only resolves for someone who has the app, so it is offered
-    # alongside the web one rather than instead of it.
-    show_desktop = viewer_has_code_access(integration, slack_user_id)
+    # Both task links answer to the reader, the same check the reply footer's links use.
+    # The desktop one goes through the `/code/task` web bridge, which opens the app when
+    # installed and offers a download when not, so it rides alongside the web one.
+    can_open_code_links = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -1929,17 +1934,21 @@ def _resolve_tasks_state(
             continue
         run = runs_by_task.get(str(t.id))
         mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
+        posthog_url = desktop_url = None
+        if can_open_code_links:
+            posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
+            desktop_url = f"{site_url}/code/task/{t.id}"
         all_items.append(
             TaskItem(
                 title=t.title,
-                posthog_url=f"{site_url}/project/{t.team_id}/tasks/{t.id}",
+                posthog_url=posthog_url,
+                desktop_url=desktop_url,
                 status=run.status if run else None,
                 repository=t.repository,
                 pr_url=pr_urls_by_task.get(str(t.id)),
                 thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
                 updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
                 error_message=run.error_message if run else None,
-                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if show_desktop else None,
             )
         )
         if t.repository and t.repository not in seen_repo_set:

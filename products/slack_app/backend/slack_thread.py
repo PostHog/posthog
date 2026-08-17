@@ -172,26 +172,44 @@ class SlackThreadHandler:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
 
+    def reader_footer(self) -> RunFooter:
+        """`run_footer` as this reply's reader may see it, links withheld where they can't
+        open them.
+
+        The one place that answers this, so a card's buttons and the footer's links can't
+        disagree about the same reader. A footer carrying no links asks nothing, which
+        keeps a plain answer off the identity lookup behind the access check.
+        """
+        if not (self.run_footer.task_url or self.run_footer.desktop_url):
+            return self.run_footer
+        if self.viewer_can_open_code_links():
+            return self.run_footer
+        return replace(self.run_footer, task_url=None, desktop_url=None)
+
+    def reader_task_url(self) -> str | None:
+        """The task page this reply's reader may open, or `None` where they may not."""
+        return self.reader_footer().task_url
+
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
         """This handler's footer, or `None` when the workspace isn't in the rollout.
 
         "Configure" points at the Home tab, so it only appears where that tab exists — a
         workspace outside the Home rollout would land on an empty one. The Home flag is
-        only consulted once there is actually a link to gate.
+        only consulted once there is actually something to gate.
         """
         # A handler with nothing to describe can't produce a footer, so it never pays for
-        # the flag lookups. Configure alone, under a reply, isn't worth a line.
+        # the flag lookups.
         if not self.run_footer.has_content():
             return None
         if not self.footer_enabled():
             return None
+        footer = self.reader_footer()
+        if not include_task_url:
+            footer = replace(footer, task_url=None)
         integration = self._get_integration()
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
-        if not self.viewer_can_open_code_links():
-            footer = replace(footer, task_url=None, desktop_url=None)
         return reply_footer_block(footer, configure_url)
 
     def _get_bot_user_id(self) -> str | None:

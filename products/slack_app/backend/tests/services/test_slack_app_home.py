@@ -453,6 +453,7 @@ class TestRenderHomeView:
                     TaskItem(
                         title="Fix flaky retention test",
                         posthog_url="https://app/project/1/tasks/abc",
+                        desktop_url=None,
                         status="in_progress",
                         repository="posthog/posthog",
                         pr_url=None,
@@ -593,9 +594,10 @@ class TestTasksCard:
         return base
 
     def _item(self, **overrides) -> TaskItem:
-        defaults = {
+        defaults: dict[str, Any] = {
             "title": "Fix flaky retention test",
             "posthog_url": "https://app/project/1/tasks/abc",
+            "desktop_url": None,
             "status": "in_progress",
             "repository": "posthog/posthog",
             "pr_url": "https://github.com/posthog/posthog/pull/123",
@@ -693,18 +695,11 @@ class TestTasksCard:
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
 
-    @pytest.mark.parametrize(
-        "desktop_url,expected",
-        [
-            ("posthog-code://task/abc", "<posthog-code://task/abc|View on desktop>"),
-            (None, None),
-        ],
-    )
-    def test_desktop_link_appears_only_for_a_viewer_who_can_open_it(self, desktop_url, expected):
-        # A `posthog-code://` link dead-ends for anyone without the app, so it rides
-        # alongside the web link rather than replacing it.
+    def test_both_task_links_render_for_a_viewer_who_can_open_them(self):
+        # The desktop link dead-ends for anyone without the app, so it rides alongside the
+        # web one rather than replacing it.
         state = TasksState(
-            items=(self._item(desktop_url=desktop_url),),
+            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
             has_any_tasks=True,
             page=0,
             total_pages=1,
@@ -714,10 +709,39 @@ class TestTasksCard:
         _, sub = self._task_items(view, expected_count=1)[0]
 
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        if expected:
-            assert expected in sub
-        else:
-            assert "View on desktop" not in sub
+        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
+
+    def test_both_task_links_are_withheld_from_a_viewer_without_code_access(self):
+        # A task page is as much a dead end for them as the desktop app, so the pair goes
+        # together — the same rule the reply footer's links follow.
+        state = TasksState(
+            items=(self._item(posthog_url=None, desktop_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "View on web" not in sub
+        assert "View on desktop" not in sub
+
+    def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
+        # A row with no Slack permalink normally falls back to the task page. Withhold
+        # that too and the title has nowhere to point, so it must not render a link.
+        state = TasksState(
+            items=(self._item(thread_url=None, posthog_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        text = _all_text(view)
+
+        assert "*Fix flaky retention test*" in text
+        assert "|Fix flaky retention test>" not in text
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(
