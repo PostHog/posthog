@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Numeric user id of the agent whose availability is being set.",
+            "type": "number"
+        },
+        "is_available": {
+            "description": "False stops new tickets being assigned to this agent. True makes them assignable again. Tickets they already hold are left alone either way.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id", "is_available"],
+    "type": "object"
+}

@@ -1705,6 +1705,34 @@
             "readOnlyHint": true
         }
     },
+    "conversations-availability-list": {
+        "description": "List the support agents in the organization whose availability has been set, and whether each one is currently taking tickets. Agents with no entry are available; absence from this list is not an error. Check this before assigning a ticket, because assigning to an unavailable agent is rejected.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "List support agent availability",
+        "title": "List support agent availability",
+        "required_scopes": ["ticket:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-availability-update": {
+        "description": "Set whether a support agent is taking tickets. The id is the agent's numeric user id. Setting is_available=false only stops new tickets being assigned to them — the tickets they already hold are left alone, and moving those is a routing decision that belongs in a workflow. You can only change your own availability unless you are an organization admin.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Set support agent availability",
+        "title": "Set support agent availability",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-list": {
         "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
         "category": "Conversations",

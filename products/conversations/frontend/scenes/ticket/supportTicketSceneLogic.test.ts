@@ -362,7 +362,8 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     })
 
     // "Send and set status" must persist through the same PATCH as the "Save changes" button,
-    // and must never change who the ticket is assigned to.
+    // and must never change who the ticket is assigned to. An unchanged assignee is left out of the
+    // payload entirely, so the save can't be read as a reassignment request.
     test.each<[string, TicketAssignee, TicketStatus]>([
         ['leaves an unassigned ticket unassigned', null, 'resolved'],
         ['keeps a role assignee', { type: 'role', id: 'role-1' }, 'on_hold'],
@@ -377,10 +378,14 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
             logic.actions.sendMessage('hello', null, false, undefined, statusAfterSend)
         }).toDispatchActions(['updateTicket', 'setTicket'])
 
-        expect(ticketUpdateMock).toHaveBeenCalledWith(
-            '42',
-            expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
-        )
+        const [ticketId, payload] = ticketUpdateMock.mock.calls[0]
+        expect(ticketId).toBe('42')
+        expect(payload.status).toBe(statusAfterSend)
+        if (presetAssignee) {
+            expect(payload.assignee).toEqual(presetAssignee)
+        } else {
+            expect(payload).not.toHaveProperty('assignee')
+        }
         expect(logic.values.status).toBe(statusAfterSend)
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })

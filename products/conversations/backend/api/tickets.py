@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
@@ -64,13 +65,11 @@ from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECOND
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.availability import is_available
 
 from ee.models.rbac.role import Role
 
 from .. import reply_dedupe
-
-if TYPE_CHECKING:
-    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -487,7 +486,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         # Hide tickets the user has been explicitly denied object-level access to (list action only).
         queryset = self._filter_queryset_by_access_level(queryset)
 
-        user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
+        user = cast(User, self.request.user) if self.request.user and self.request.user.is_authenticated else None
         return apply_ticket_filters(queryset, filters, team=self.team, user=user)
 
     def _get_view_filters(self, short_id: str) -> dict[str, Any]:
@@ -831,18 +830,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     instance.status = Status.OPEN
                     instance.save(update_fields=["status"])
 
-        # Handle assignee update if provided (not ... sentinel)
-        if assignee is not ...:
-            assign_ticket(
-                instance,
-                assignee,
-                self.organization,
-                request.user,
-                self.team_id,
-                is_impersonated(request),
-            )
-            # Refresh instance to get updated assignment
-            instance.refresh_from_db()
+            # Assignment shares the transaction with the field writes above: a rejected assignee
+            # (not a member, or unavailable) must not leave the rest of the form saved behind a 400.
+            if assignee is not ...:
+                assign_ticket(
+                    instance,
+                    assignee,
+                    self.organization,
+                    request.user,
+                    self.team_id,
+                    is_impersonated(request),
+                )
+                # Refresh instance to get updated assignment
+                instance.refresh_from_db()
 
         # Invalidate unread count cache if status changed to/from resolved
         new_status = instance.status
@@ -1584,6 +1584,40 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
+def validate_assignee_available(assignee, organization, actor, trigger: Trigger | None) -> None:
+    """Reject handing a ticket to an agent who is marked unavailable.
+
+    This is a guardrail on the person choosing in the UI, not a rule about the data, so
+    programmatic callers pass straight through: a workflow assigning by rule (``trigger``) and the
+    external ticket API (no ``actor``) both have nobody to show a warning to, and rejecting them
+    would quietly drop assignments that used to work. You can also always take a ticket yourself
+    while unavailable, since that's you choosing to pick it up.
+
+    Assigning to a role isn't checked. A role is a group, and the ticket is for whoever in it
+    responds, so one member being away doesn't make it the wrong destination.
+    """
+    if assignee is None or assignee["type"] != "user" or trigger is not None or actor is None:
+        return
+    if actor.id == assignee["id"]:
+        return
+    if is_available(str(organization.id), assignee["id"]):
+        return
+
+    assignee_user = User.objects.filter(id=assignee["id"]).only("first_name", "last_name", "email").first()
+    name = (assignee_user.get_full_name() or assignee_user.email) if assignee_user else "This person"
+    raise serializers.ValidationError(
+        {"assignee": f"{name} is marked unavailable. Assign this ticket to someone else, or to yourself."}
+    )
+
+
+def _is_same_assignee(assignment_before: TicketAssignment | None, assignee) -> bool:
+    if assignment_before is None or assignee is None:
+        return assignment_before is None and assignee is None
+    if assignee["type"] == "user":
+        return assignment_before.user_id == assignee["id"]
+    return str(assignment_before.role_id) == str(assignee["id"])
+
+
 def assign_ticket(
     ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
 ):
@@ -1606,6 +1640,13 @@ def assign_ticket(
         # Lock the ticket to prevent concurrent modifications
         Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)
         assignment_before = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
+
+        # Only a *change* of assignee is checked for availability. The ticket UI sends the whole
+        # form on every save, so re-sending the assignee a ticket already has must not block
+        # editing its priority or status once that person goes unavailable.
+        if not _is_same_assignee(assignment_before, assignee):
+            validate_assignee_available(assignee, organization, user, trigger)
+
         serialized_assignment_before = TicketAssignmentSerializer(assignment_before).data if assignment_before else None
 
         if assignee:

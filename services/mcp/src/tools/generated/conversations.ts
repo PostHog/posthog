@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ConversationsAvailabilityUpdateBody,
+    ConversationsAvailabilityUpdateParams,
     ConversationsTicketsListQueryParams,
     ConversationsTicketsMessagesListParams,
     ConversationsTicketsMessagesListQueryParams,
@@ -24,6 +26,50 @@ import {
     type WithAgentNote,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ConversationsAvailabilityListSchema = z.object({})
+
+const conversationsAvailabilityList = (): ToolBase<
+    typeof ConversationsAvailabilityListSchema,
+    WithPostHogUrl<Schemas.AgentAvailability[]>
+> => ({
+    name: 'conversations-availability-list',
+    schema: ConversationsAvailabilityListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ConversationsAvailabilityListSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.AgentAvailability[]>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/conversations/availability/`,
+        })
+        return await withPostHogUrl(context, result, '/support/tickets')
+    },
+})
+
+const ConversationsAvailabilityUpdateSchema = ConversationsAvailabilityUpdateParams.omit({
+    organization_id: true,
+}).extend(ConversationsAvailabilityUpdateBody.shape)
+
+const conversationsAvailabilityUpdate = (): ToolBase<
+    typeof ConversationsAvailabilityUpdateSchema,
+    Schemas.AgentAvailabilityState
+> => ({
+    name: 'conversations-availability-update',
+    schema: ConversationsAvailabilityUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsAvailabilityUpdateSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.is_available !== undefined) {
+            body['is_available'] = params.is_available
+        }
+        const result = await context.api.request<Schemas.AgentAvailabilityState>({
+            method: 'PUT',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/conversations/availability/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
 
@@ -290,6 +336,8 @@ const conversationsViewsList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'conversations-availability-list': conversationsAvailabilityList,
+    'conversations-availability-update': conversationsAvailabilityUpdate,
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
     'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,

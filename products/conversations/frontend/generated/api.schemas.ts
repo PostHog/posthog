@@ -8,44 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `idle` - Idle
- * * `in_progress` - In progress
- * * `canceling` - Canceling
- */
-export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
-
-export const ConversationStatusApi = {
-    Idle: 'idle',
-    InProgress: 'in_progress',
-    Canceling: 'canceling',
-} as const
-
-/**
- * * `web_analytics` - Web analytics
- * * `product_analytics` - Product analytics
- * * `session_replay` - Session replay
- * * `surveys` - Surveys
- * * `feature_flags` - Feature flags
- * * `experiments` - Experiments
- * * `error_tracking` - Error tracking
- * * `data_warehouse` - Data warehouse
- * * `other` - Other
- */
-export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
-
-export const TopicEnumApi = {
-    WebAnalytics: 'web_analytics',
-    ProductAnalytics: 'product_analytics',
-    SessionReplay: 'session_replay',
-    Surveys: 'surveys',
-    FeatureFlags: 'feature_flags',
-    Experiments: 'experiments',
-    ErrorTracking: 'error_tracking',
-    DataWarehouse: 'data_warehouse',
-    Other: 'other',
-} as const
-
-/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -101,6 +63,76 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
+
+/**
+ * One agent's availability for support tickets.
+ */
+export interface AgentAvailabilityApi {
+    /** The agent this availability belongs to. */
+    readonly user: UserBasicApi
+    /** Whether the agent is currently taking tickets. */
+    readonly is_available: boolean
+    /** Who last changed it: the agent themselves, or an organization admin. Null when a workflow or API token changed it, or if that account has since been deleted. */
+    readonly changed_by: UserBasicApi | null
+    /** When it last changed. */
+    readonly updated_at: string
+}
+
+/**
+ * Payload for changing one agent's availability.
+ */
+export interface SetAgentAvailabilityApi {
+    /** False stops new tickets being assigned to this agent. True makes them assignable again. Tickets they already hold are left alone either way. */
+    is_available: boolean
+}
+
+/**
+ * One agent's availability after a change.
+ */
+export interface AgentAvailabilityStateApi {
+    /** The agent this state belongs to. */
+    readonly user_id: number
+    /** Whether the agent is now taking tickets. */
+    readonly is_available: boolean
+}
+
+/**
+ * * `idle` - Idle
+ * * `in_progress` - In progress
+ * * `canceling` - Canceling
+ */
+export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
+
+export const ConversationStatusApi = {
+    Idle: 'idle',
+    InProgress: 'in_progress',
+    Canceling: 'canceling',
+} as const
+
+/**
+ * * `web_analytics` - Web analytics
+ * * `product_analytics` - Product analytics
+ * * `session_replay` - Session replay
+ * * `surveys` - Surveys
+ * * `feature_flags` - Feature flags
+ * * `experiments` - Experiments
+ * * `error_tracking` - Error tracking
+ * * `data_warehouse` - Data warehouse
+ * * `other` - Other
+ */
+export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+
+export const TopicEnumApi = {
+    WebAnalytics: 'web_analytics',
+    ProductAnalytics: 'product_analytics',
+    SessionReplay: 'session_replay',
+    Surveys: 'surveys',
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    ErrorTracking: 'error_tracking',
+    DataWarehouse: 'data_warehouse',
+    Other: 'other',
+} as const
 
 /**
  * * `assistant` - Assistant

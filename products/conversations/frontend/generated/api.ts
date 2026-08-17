@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentAvailabilityApi,
+    AgentAvailabilityStateApi,
     AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
@@ -33,6 +35,7 @@ import type {
     PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
+    SetAgentAvailabilityApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
@@ -57,6 +60,38 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsAvailabilityListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/conversations/availability/`
+}
+
+export const conversationsAvailabilityList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<AgentAvailabilityApi[]> => {
+    return apiMutator<AgentAvailabilityApi[]>(getConversationsAvailabilityListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsAvailabilityUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/conversations/availability/${id}/`
+}
+
+export const conversationsAvailabilityUpdate = async (
+    organizationId: string,
+    id: number,
+    setAgentAvailabilityApi: SetAgentAvailabilityApi,
+    options?: RequestInit
+): Promise<AgentAvailabilityStateApi> => {
+    return apiMutator<AgentAvailabilityStateApi>(getConversationsAvailabilityUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setAgentAvailabilityApi),
+    })
+}
 
 export const getConversationsListUrl = (projectId: string, params?: ConversationsListParams) => {
     const normalizedParams = new URLSearchParams()

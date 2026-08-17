@@ -1,6 +1,11 @@
 from posthog.api.routing import RouterRegistry
 
-from products.conversations.backend.api import TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
+from products.conversations.backend.api import (
+    AgentAvailabilityViewSet,
+    TicketViewSet,
+    TicketViewViewSet,
+    ZendeskImportViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -22,4 +27,12 @@ def register_routes(routers: RouterRegistry) -> None:
         TicketViewViewSet,
         "project_conversations_views",
         ["team_id"],
+    )
+    # Organization-nested: assignees are validated against organization membership, so agent
+    # availability applies across every project in the org.
+    routers.organizations.register(
+        r"conversations/availability",
+        AgentAvailabilityViewSet,
+        "organization_conversations_availability",
+        ["organization_id"],
     )

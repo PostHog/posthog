@@ -8768,6 +8768,30 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    /**
+     * One agent's availability for support tickets.
+     */
+    export interface AgentAvailability {
+      /** The agent this availability belongs to. */
+      readonly user: UserBasic;
+      /** Whether the agent is currently taking tickets. */
+      readonly is_available: boolean;
+      /** Who last changed it: the agent themselves, or an organization admin. Null when a workflow or API token changed it, or if that account has since been deleted. */
+      readonly changed_by: UserBasic | null;
+      /** When it last changed. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * One agent's availability after a change.
+     */
+    export interface AgentAvailabilityState {
+      /** The agent this state belongs to. */
+      readonly user_id: number;
+      /** Whether the agent is now taking tickets. */
+      readonly is_available: boolean;
+    }
+
     export type AgentKeyEnum = typeof AgentKeyEnum[keyof typeof AgentKeyEnum];
 
 
@@ -70190,6 +70214,14 @@ export namespace Schemas {
     export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
+
+    /**
+     * Payload for changing one agent's availability.
+     */
+    export interface SetAgentAvailability {
+      /** False stops new tickets being assigned to this agent. True makes them assignable again. Tickets they already hold are left alone either way. */
+      is_available: boolean;
+    }
 
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */

@@ -9,6 +9,36 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
+    conversations-availability-list:
+        operation: conversations_availability_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List support agent availability
+        description: >
+            List the support agents in the organization whose availability has been set, and whether each one is
+            currently taking tickets. Agents with no entry are available; absence from this list is not an error. Check
+            this before assigning a ticket, because assigning to an unavailable agent is rejected.
+    conversations-availability-update:
+        operation: conversations_availability_update
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set support agent availability
+        description: >
+            Set whether a support agent is taking tickets. The id is the agent's numeric user id. Setting
+            is_available=false only stops new tickets being assigned to them — the tickets they already hold are left
+            alone, and moving those is a routing decision that belongs in a workflow. You can only change your own
+            availability unless you are an organization admin.
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false

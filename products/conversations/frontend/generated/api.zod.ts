@@ -9,6 +9,16 @@
  */
 import * as zod from 'zod'
 
+export const ConversationsAvailabilityUpdateBody = /* @__PURE__ */ zod
+    .object({
+        is_available: zod
+            .boolean()
+            .describe(
+                'False stops new tickets being assigned to this agent. True makes them assignable again. Tickets they already hold are left alone either way.'
+            ),
+    })
+    .describe("Payload for changing one agent's availability.")
+
 /**
  * Unified endpoint that handles both conversation creation and streaming.
  *

@@ -1226,7 +1226,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.priority && values.priority !== values.ticket?.priority) {
                 data.priority = values.priority
             }
-            data.assignee = values.assignee
+            // Only when it actually changed, matching status and priority above. Sending the
+            // assignee the page loaded turns any later save into a reassignment request, which the
+            // API rejects once that person is unavailable or has left the organization — and takes
+            // the rest of the edit down with it.
+            if (JSON.stringify(values.assignee) !== JSON.stringify(values.ticket?.assignee ?? null)) {
+                data.assignee = values.assignee
+            }
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
@@ -1247,7 +1253,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                // Surface the API's reason when it gave one — "this person is unavailable" is
+                // actionable, "Failed to update ticket" is not.
+                lemonToast.error(error?.detail || 'Failed to update ticket')
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
