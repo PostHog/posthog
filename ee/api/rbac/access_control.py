@@ -39,28 +39,18 @@ else:
 
 
 def _rule_scope_for_resource(team: Team, resource: str) -> Q:
-    """The AccessControl rows that govern `resource` objects addressed through `team`.
-
-    Project-level resources are resolved project-wide (see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES),
-    so the surface that lists and edits their rules must see the same rows the resolver consults -
-    a rule stored against a sibling environment would otherwise be enforced here yet invisible,
-    and a write from a sibling environment would duplicate it instead of updating it.
-    """
+    """The AccessControl rows that govern `resource` objects addressed through `team`: the whole
+    project's for PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES, this environment's for the rest.
+    Anything narrower hides rules the resolver still enforces."""
     if resource in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES:
         return Q(team__project_id=team.project_id)
     return Q(team=team)
 
 
 def rule_rows_for_team(team: Team, *extra_filters: Q, **filters: Any) -> list[AccessControl]:
-    """AccessControl rows spanning several resources that govern anything addressed through
-    `team`: its own rows, plus the sibling environments' rows for the project-level resources.
-
-    Two queries combined with UNION rather than one OR-ed WHERE, for the same reason as
-    UserAccessControl._cached_access_controls: an OR spanning this table's team_id and the
-    joined team's project_id has no single usable index. Single-resource lookups don't need
-    this - filtered by `resource` (the unique index's leading column), a plain
-    `_rule_scope_for_resource` filter plans fine.
-    """
+    """AccessControl rows across several resources addressed through `team`, including the
+    sibling environments' rows for PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES. A UNION of two
+    queries so each keeps its index, like `_cached_access_controls`."""
     team_rows = AccessControl.objects.filter(*extra_filters, team=team, **filters)
     project_rows = AccessControl.objects.filter(
         *extra_filters,
@@ -72,12 +62,8 @@ def rule_rows_for_team(team: Team, *extra_filters: Q, **filters: Any) -> list[Ac
 
 
 def collapse_cross_environment_rows(rows: list[AccessControl]) -> list[AccessControl]:
-    """One row per (resource, resource_id, subject), keeping the loosest level.
-
-    The per-environment unique constraint allows one row per environment for the same subject of
-    a project-level resource, and resolution takes the loosest across them - so the loosest is
-    the one in force, and the one a rules listing must show.
-    """
+    """One row per (resource, resource_id, subject), keeping the loosest level. Resolution takes
+    the loosest across per-environment duplicates, so that is the row in force."""
     in_force: dict[tuple, AccessControl] = {}
     for row in rows:
         key = (row.resource, row.resource_id, row.organization_member_id, row.role_id)
@@ -275,12 +261,8 @@ def upsert_access_control(
 
     with transaction.atomic():
         if instance:
-            # The per-environment unique constraint allows one row per environment for the same
-            # subject of a project-level resource; the resolver takes the loosest across them, so
-            # any row left behind here would outrank the level being written. Atomic so a failed
-            # save can't leave the siblings deleted with the new level unwritten. Two concurrent
-            # writers from different environments can still each insert their own row - the
-            # constraint doesn't span environments - and the next write collapses them.
+            # Delete the subject's other environments' rows before saving. Resolution takes the
+            # loosest row, so any row left behind would outrank the level being written.
             matching.exclude(pk=instance.pk).delete()
             serializer = build_serializer(instance)
             serializer.is_valid(raise_exception=True)
@@ -383,9 +365,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
         resource_id = obj.id
 
         if is_resource_level:
-            # If resource level then we are getting all controls for the project that aren't specific
-            # to a resource. Rows for the project-level resources are matched project-wide, so pick
-            # them up from every environment - the same scope the resolver's preload uses.
+            # If resource level then we are getting all controls for the project that aren't
+            # specific to a resource, including every environment's rows for the project-level
+            # resources.
             access_controls = collapse_cross_environment_rows(rule_rows_for_team(team, resource_id=None))
         else:
             # Otherwise we are getting all controls for the specific resource

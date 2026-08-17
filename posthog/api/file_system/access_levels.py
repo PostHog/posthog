@@ -343,13 +343,11 @@ def entries_missing_access_level(
 def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[tuple[str, int], list[str]]:
     """Refs denied by a 'none' grant, for the file system types not keyed by primary key.
 
-    AccessControl rows always store the object's pk in `resource_id`, so for types whose file
-    system `ref` is a short_id the grant has to be translated into refs before it can be matched
-    against the tree. The tree lists rows from every environment in the project, so denials are
-    resolved per environment (a project-level resource's rule surfaces in every environment's
-    resolution - see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES), while the pk-to-ref translation
-    stays within each team: keyed by (type, team_id) so the caller excludes a denied ref only in
-    the team that owns the object, never a same-valued ref in a different team.
+    AccessControl rows store the object's pk in `resource_id`, so for types whose file system
+    `ref` is a short_id the grant has to be translated into refs before it can be matched
+    against the tree. The result is keyed by (type, team_id): the pk-to-ref translation stays
+    within the team that owns the object, so a denial never hides a same-valued ref in a
+    different team.
 
     Costs one `Team` query per request plus one access-control preload per environment; the
     per-team instances are memoized on `user_access_control`, so the serializer's own resolution

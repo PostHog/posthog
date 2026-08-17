@@ -141,19 +141,10 @@ RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
     "warehouse_table": "external_data_source",
 }
 
-# Resources that belong to a project rather than to one of its environments. Their viewsets are
-# mounted under an environment id, but list and retrieve span every environment in the project
-# (`team__project_id`), so one object is reachable through as many urls as the project has
-# environments. Access control rows for them are therefore matched across the whole project: a
-# rule stored against one environment governs the object through all of them.
-#
-# Matching such a rule on the request's own environment instead is a bypass, in both directions.
-# The environment named in the url decides which rows are consulted, while the object it reaches
-# is not confined to that environment - so a member denied a dashboard can address it through a
-# sibling environment, find no rule there, and fall through to `default_access_level` ("editor").
-# And a rule written from a sibling environment (the write path stores `view.team`, which for
-# these resources is likewise whichever environment the url named) would never be consulted from
-# the object's own environment.
+# Resources that belong to a project rather than to one of its environments. Their viewsets
+# mount under an environment id, but their querysets span the whole project, so one object is
+# reachable through every environment. Their rules are matched project-wide: a rule that only
+# applied in the environment that stored it could be bypassed through a sibling.
 PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = ("dashboard", "insight")
 
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
@@ -255,8 +246,7 @@ def access_level_satisfied_for_resource(
 
 
 def highest_access_level_from(resource: APIScopeObject, levels: Sequence[AccessControlLevel]) -> AccessControlLevel:
-    """The loosest of `levels` for `resource` - the one resolution puts in force when several
-    rows apply to the same check."""
+    """The loosest of `levels` for `resource`, which is the one resolution puts in force."""
     return max(levels, key=ordered_access_levels(resource).index)
 
 
@@ -642,18 +632,14 @@ class UserAccessControl:
         Covers both resource-level (resource_id IS NULL) and object-level (resource_id set)
         rows, so all resolvers (object, resource, queryset) share one query instead of N narrow ones.
 
-        Team-scoped, plus the whole project's rows for the project-level resources (see
-        PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES), which are matched project-wide. Org-scoped
-        lookups (the `project` queryset, matched via `team__organization_id` across the org's
-        teams) are not in this set, so `_get_access_controls` falls back to a targeted query
-        for those.
+        Team-scoped, plus the whole project's rows for PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES.
+        Org-scoped lookups (the `project` queryset, via `team__organization_id`) are not in this
+        set, so `_get_access_controls` falls back to a targeted query for those.
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # One round-trip, but as a UNION rather than one OR-ed WHERE: an OR spanning this
-        # table's `team_id` and the joined team's `project_id` has no single usable index, so it
-        # degrades into a scan of every dashboard/insight rule in the instance. Each UNION branch
-        # plans on its own index (`team_id`, resp. the team join driven by `project_id`).
+        # A UNION instead of one OR-ed WHERE: the OR would span two tables and defeat both
+        # indexes, while each UNION branch plans on its own.
         team_rows = self._annotated_access_controls().filter(self._filter_options({"team_id": self._team.id}))
         project_rows = self._annotated_access_controls().filter(
             self._filter_options(
@@ -674,10 +660,7 @@ class UserAccessControl:
     @staticmethod
     def _annotated_access_controls() -> QuerySet:
         """AccessControl rows carrying the team columns `_row_matches` compares against.
-
-        Annotated rather than joined through `team` — avoids fetching the full ~150-column
-        posthog_team row for every rule.
-        """
+        Annotated rather than joined, to avoid fetching the full ~150-column posthog_team row."""
         return AccessControl.objects.annotate(
             _team_organization_id=F("team__organization_id"),
             _team_project_id=F("team__project_id"),
@@ -744,15 +727,13 @@ class UserAccessControl:
         )
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
-        """The preloaded set holds this team's rows plus the whole project's rows for the
-        project-level resources, so it can answer both team filters `_team_filters_for_resource`
-        produces. The org-scoped `project` queryset filter (via `team__organization_id`) must hit
-        the DB directly."""
+        """Whether `filters` can be answered from `_cached_access_controls`. The org-scoped
+        `project` queryset filter (via `team__organization_id`) can't; it must hit the DB."""
         if self._team is None:
             return False
         if filters.get("team__project_id") == self._team.project_id:
-            # The preload only carries the project's rows for these resources; answering any other
-            # resource from it would find no rows and fall through to the default level.
+            # The preload only holds project-wide rows for these resources. Answering any other
+            # resource from it would wrongly fall through to the default level.
             return filters.get("resource") in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES
         return filters.get("team_id") == self._team.id
 
@@ -795,9 +776,8 @@ class UserAccessControl:
         return self._cache[key]
 
     def _team_filters_for_resource(self, resource: APIScopeObject) -> dict:
-        """The team half of an access control lookup: every environment in the project for the
-        project-level resources (see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES for why anything
-        narrower is a bypass), this environment only for the rest."""
+        """The team half of an access control lookup: the whole project for
+        PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES, this environment for the rest."""
         if resource in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES:
             return {"team__project_id": self._team.project_id}  # type: ignore[union-attr]
         return {"team_id": self._team.id}  # type: ignore[union-attr]
@@ -1484,12 +1464,9 @@ class UserAccessControl:
             .values("pk")[:1]
         )
 
-        # A rule on a project-level resource governs the object from every environment in the
-        # project, so match those project-wide - see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES. The
-        # tree only ever lists one project's rows, so the environment ids come from this
-        # instance's own team rather than from an OuterRef. Unlike the preload, this OR is safe
-        # to plan: the subquery stays anchored on (resource, resource_id), the unique index's
-        # leading columns, via the OuterRefs below.
+        # Rules for PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES match project-wide, and the tree
+        # only ever lists one project's rows. Unlike the preload's, this OR plans fine, because
+        # the OuterRefs below keep the subquery anchored on the unique index.
         team_match = Q(team_id=OuterRef("team_id"))
         if self._team is not None:
             team_match |= Q(

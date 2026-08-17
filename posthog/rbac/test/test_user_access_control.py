@@ -2247,9 +2247,8 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         assert UserAccessControl(self.user, self.sibling_team).access_level_for_resource("dashboard") == "none"
 
     def test_conflicting_rules_across_environments_resolve_to_the_loosest(self):
-        # One row per environment can exist for the same subject (the unique constraint is
-        # per-team); resolution takes the highest level across them, like it does across
-        # member and role rows.
+        # The unique constraint allows one row per environment for the same subject.
+        # Resolution takes the loosest, as it does across member and role rows.
         dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
         self._deny("dashboard", str(dashboard.id), self.team)
         self._create_access_control(
@@ -2279,7 +2278,7 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
 
     def test_denied_object_is_filtered_out_of_a_sibling_environments_file_tree(self):
         # Pins the SQL copy of the project-wide match in filter_and_annotate_file_system_queryset
-        # to the resolver's rule, so the two encodings cannot drift apart silently.
+        # to the resolver's rule.
         dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
         entry = FileSystem.objects.create(
             team=self.sibling_team,

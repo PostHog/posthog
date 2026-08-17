@@ -2581,9 +2581,8 @@ class TestAccessControlAcrossEnvironments(BaseAccessControlTest):
         res = self.client.patch(f"/api/projects/{self.sibling_team.id}/{resource}/{object_id}/", {"name": "renamed"})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
-    # The rules that govern an object have to be visible and editable from every environment the
-    # object is reachable through - the mixin's access_controls actions share one code path for
-    # both resources, so dashboards stand in for both.
+    # The access_controls actions share one code path for both resources, so dashboards
+    # stand in for both.
 
     def test_access_control_rules_are_listed_through_a_sibling_environment(self):
         object_id = self._restrict("dashboards")
