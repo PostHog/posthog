@@ -77,6 +77,7 @@ PRODUCTS_APPS = [
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.billing_alerts.backend.apps.BillingAlertsConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
@@ -611,6 +612,8 @@ SPECTACULAR_SETTINGS = {
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
+        "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
+        "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).

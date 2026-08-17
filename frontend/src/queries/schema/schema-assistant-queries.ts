@@ -1793,7 +1793,10 @@ export interface AssistantDataVisualizationYAxisSettings {
 }
 
 export interface AssistantDataVisualizationChartSettings {
-    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    /**
+     * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
+     * plots two measures against each other, so it needs a numeric column here too.
+     */
     xAxis?: AssistantDataVisualizationAxis
     /** Label rendered under the X axis. */
     xAxisLabel?: string
@@ -1805,7 +1808,8 @@ export interface AssistantDataVisualizationChartSettings {
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
-     * a line chart by `country`. Set to `null` or omit to disable.
+     * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
+     * x value, so it is ignored when `display` is `ScatterPlot`.
      */
     seriesBreakdownColumn?: string | null
     /** Horizontal goal lines drawn across the chart. */
@@ -1852,6 +1856,7 @@ export interface AssistantDataVisualizationNode {
      * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType
