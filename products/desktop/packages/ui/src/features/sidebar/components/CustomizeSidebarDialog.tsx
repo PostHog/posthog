@@ -3,7 +3,6 @@ import { useSortable } from "@dnd-kit/react/sortable";
 import {
   Bell,
   DotsSixVertical,
-  EnvelopeSimple,
   SlidersHorizontal,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -28,7 +27,6 @@ const ITEM_ICONS: Record<
   CustomizableNavItemId,
   React.ComponentType<{ size?: number | string }>
 > = {
-  inbox: EnvelopeSimple,
   "command-center": SquaresFourIcon,
   activity: Bell,
   configure: SlidersHorizontal,
