@@ -60,8 +60,10 @@ from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
+    AWSRedshiftIntegration,
+    AWSRedshiftRoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -76,13 +78,14 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    IntegrationError,
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    RedshiftIntegration,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
@@ -742,101 +745,91 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "aws-s3":
             config = validated_data.get("config", {})
 
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
+
             get_organization = self.context.get("get_organization")
             if get_organization is None:
                 raise ValidationError("Organization context is missing")
             organization_id = str(get_organization().id)
 
-            integration = AwsS3RoleBasedIntegration if "aws_role_arn" in config else AwsS3Integration
+            s3_integration = AWSS3RoleBasedIntegration if "aws_role_arn" in config else AWSS3Integration
 
             try:
-                instance = integration.integration_from_config(
+                instance = s3_integration.integration_from_config(
                     team_id=team_id,
                     created_by=request.user,
                     organization_id=organization_id,
                     **config,
                 )
-            except S3CredentialIntegrationError as e:
+            except IntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "aws-redshift":
+            config = validated_data.get("config", {})
+
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            if "aws_role_arn" in config:
+                redshift_integration: (
+                    type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
+                ) = AWSRedshiftRoleBasedIntegration
+            elif any(required in config for required in ("host", "port", "user", "password")):
+                redshift_integration = RedshiftIntegration
+            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
+                redshift_integration = AWSRedshiftIntegration
+            else:
+                raise ValidationError("Missing required inputs")
+
+            try:
+                instance = redshift_integration.integration_from_config(
+                    team_id=team_id,
+                    created_by=request.user,
+                    organization_id=organization_id,
+                    **config,
+                )
+            except IntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "s3-compatible":
             config = validated_data.get("config", {})
-            name = config.get("name")
-            endpoint_url = config.get("endpoint_url")
-            aws_access_key_id = config.get("aws_access_key_id")
-            aws_secret_access_key = config.get("aws_secret_access_key")
 
-            if not (name and endpoint_url and aws_access_key_id and aws_secret_access_key):
-                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be provided")
-            if not all(
-                isinstance(value, str) for value in (name, endpoint_url, aws_access_key_id, aws_secret_access_key)
-            ):
-                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be strings")
+            for key in ("team_id", "created_by"):
+                _ = config.pop(key, None)
 
             try:
                 # SSRF validation of `endpoint_url` happens inside `integration_from_config`.
                 instance = S3CompatibleIntegration.integration_from_config(
                     team_id=team_id,
-                    name=name,
-                    endpoint_url=endpoint_url,
-                    aws_access_key_id=aws_access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
                     created_by=request.user,
+                    **config,
                 )
-            except S3CredentialIntegrationError as e:
+            except IntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "postgresql":
             config = validated_data.get("config", {})
-            host = config.get("host")
-            port = config.get("port", 5432)
-            user = config.get("user")
-            password = config.get("password")
-            ssl_mode = config.get("ssl_mode", "require")
-            ssl_root_cert = config.get("ssl_root_cert")
 
-            if not (host and port and user and password):
-                raise ValidationError("Host, port, user, and password must be provided")
-
-            if not all(isinstance(value, str) for value in (host, user, password)):
-                raise ValidationError("Host, user, and password must be strings")
-
-            from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
 
             try:
-                resolve_and_validate_host(host)
-            except ValueError:
-                raise ValidationError(f"Invalid host: '{host}'")
-
-            try:
-                port = int(port)
-            except (TypeError, ValueError):
-                raise ValidationError("Port must be an integer")
-
-            if port < 0 or port > 65535:
-                raise ValidationError("Port must be between 0 and 65535")
-
-            if ssl_mode not in ("require", "verify-ca", "verify-full"):
-                raise ValidationError("SSL mode must be one of: require, verify-ca, verify-full")
-
-            if ssl_mode in ("verify-ca", "verify-full"):
-                if not ssl_root_cert:
-                    raise ValidationError("Root certificate must be provided when verifying server certificates")
-                if not isinstance(ssl_root_cert, str):
-                    raise ValidationError("Root certificate must be a string")
-
-            instance = PostgreSQLIntegration.integration_from_config(
-                team_id=team_id,
-                host=host,
-                port=port,
-                user=user,
-                password=password,
-                ssl_mode=ssl_mode,
-                ssl_root_cert=ssl_root_cert,
-                created_by=request.user,
-            )
+                instance = PostgreSQLIntegration.integration_from_config(
+                    team_id=team_id,
+                    created_by=request.user,
+                    **config,
+                )
+            except IntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
@@ -1742,6 +1735,7 @@ class IntegrationViewSet(
                 "reason_length": len(serializer.validated_data["reason"]),
             },
             team=self.team,
+            request=request,
         )
         return Response({"success": True})
 

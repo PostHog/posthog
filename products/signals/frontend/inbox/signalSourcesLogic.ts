@@ -235,6 +235,7 @@ export interface signalSourcesLogicValues {
     linearIssuesConfig: SignalSourceConfig | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sourceConfigs: SignalSourceConfig[] | null
+    sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
@@ -338,6 +339,9 @@ export interface signalSourcesLogicActions {
     }
     openSourcesModal: () => {
         value: true
+    }
+    replaceSourceConfig: (config: SignalSourceConfig) => {
+        config: SignalSourceConfig
     }
     setAllScannerSignals: (enabled: boolean) => {
         enabled: boolean
@@ -501,6 +505,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
+        replaceSourceConfig: (config: SignalSourceConfig) => ({ config }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
@@ -636,7 +641,19 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 loadToolDataEventsFailure: () => true,
             },
         ],
+        sourceConfigsLoadFailed: [
+            false,
+            {
+                loadSourceConfigs: () => false,
+                loadSourceConfigsSuccess: () => false,
+                loadSourceConfigsFailure: () => true,
+            },
+        ],
         sourceConfigs: {
+            // A save endpoint returned the row: reflect it immediately so consumers don't read
+            // stale config while the follow-up list reload is in flight (or after it failed).
+            replaceSourceConfig: (state: SignalSourceConfig[] | null, { config }: { config: SignalSourceConfig }) =>
+                state ? state.map((c) => (c.id === config.id ? config : c)) : state,
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
             toggleEvalReports: (state: SignalSourceConfig[] | null) =>
@@ -1083,6 +1100,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleSignalSourceSuccess(params)
+                    if (
+                        sourceProduct === SignalSourceProduct.LlmAnalytics &&
+                        sourceType === SignalSourceType.EvaluationReport
+                    ) {
+                        lemonToast.success(`AI observability signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    } else if (
+                        sourceProduct === SignalSourceProduct.Analytics &&
+                        sourceType === SignalSourceType.AnomalyInvestigation
+                    ) {
+                        lemonToast.success(`Product analytics signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    }
                     // Only a successful enable counts as a connection. First-time when there was no
                     // persisted (non-placeholder) config for this product/type before the toggle.
                     if (enabled) {

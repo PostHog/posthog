@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from posthog.models.integration import GitHubIntegration
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import (
     TrigramSearchField,
@@ -46,6 +47,7 @@ from posthog.ph_client import ph_scoped_capture
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
 from .diff_metadata import DiffMetadata
+from .facade.contracts import CreateRunInput, UpdateRepoInput
 from .facade.enums import (
     ChangeKind,
     ReviewDecision,
@@ -157,17 +159,12 @@ def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> Rep
     )
 
 
-def update_repo(
-    repo_id: UUID,
-    team_id: int,
-    baseline_file_paths: dict[str, str] | None = None,
-    enable_pr_comments: bool | None = None,
-) -> Repo:
-    repo = get_repo(repo_id, team_id)
-    if baseline_file_paths is not None:
-        repo.baseline_file_paths = baseline_file_paths
-    if enable_pr_comments is not None:
-        repo.enable_pr_comments = enable_pr_comments
+def update_repo(input: UpdateRepoInput, team_id: int) -> Repo:
+    repo = get_repo(input.repo_id, team_id)
+    if input.baseline_file_paths is not None:
+        repo.baseline_file_paths = input.baseline_file_paths
+    if input.enable_pr_comments is not None:
+        repo.enable_pr_comments = input.enable_pr_comments
     repo.save()
     return repo
 
@@ -710,63 +707,28 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str, source_pr_nu
     )
 
 
-def create_run(
-    repo_id: UUID,
-    team_id: int,
-    run_type: str,
-    commit_sha: str,
-    branch: str,
-    pr_number: int | None,
-    snapshots: list[dict],
-    baseline_hashes: dict[str, str] | None = None,
-    unchanged_count: int = 0,
-    removed_identifiers: list[str] | None = None,
-    purpose: str = RunPurpose.REVIEW,
-    metadata: dict | None = None,
-    is_partial: bool = False,
-) -> tuple[Run, list[dict]]:
+def create_run(input: CreateRunInput, team_id: int) -> tuple[Run, list[dict]]:
     """
     Create a new run with its snapshots.
 
     Returns the run and list of upload targets for missing artifacts.
     Each upload target has: content_hash, url, fields
 
-    baseline_hashes, unchanged_count, removed_identifiers are deprecated —
-    the backend fetches baselines from GitHub and computes everything.
-    Params kept for backward compat with older CLI versions.
+    input.baseline_hashes, input.unchanged_count and input.removed_identifiers
+    are deprecated and ignored: the backend fetches baselines from GitHub and
+    computes everything. The fields are kept for backward compat with older
+    CLI versions.
 
-    is_partial tags the run as a subset; the classifier then leaves baseline
+    input.is_partial tags the run as a subset; the classifier then leaves baseline
     identifiers we didn't touch alone instead of marking them as removed.
     """
-    repo = get_repo(repo_id, team_id)
+    repo = get_repo(input.repo_id, team_id)
 
-    return _create_run_inner(
-        repo,
-        team_id,
-        run_type,
-        commit_sha,
-        branch,
-        pr_number,
-        snapshots,
-        purpose,
-        metadata,
-        is_partial,
-    )
+    return _create_run_inner(repo, team_id, input)
 
 
 @transaction.atomic(using=WRITER_DB)
-def _create_run_inner(
-    repo,
-    team_id,
-    run_type,
-    commit_sha,
-    branch,
-    pr_number,
-    snapshots,
-    purpose,
-    metadata,
-    is_partial: bool = False,
-) -> tuple[Run, list[dict]]:
+def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[Run, list[dict]]:
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
     # requires the slot to be free before the insert. A new CI push always
@@ -774,8 +736,8 @@ def _create_run_inner(
     # their respective UI filters via REVIEW_STATE_FILTERS.
     supersede_filter = Run.objects.using(WRITER_DB).filter(
         repo_id=repo.id,
-        branch=branch,
-        run_type=run_type,
+        branch=input.branch,
+        run_type=input.run_type,
         superseded_by__isnull=True,
     )
     # Collect IDs before mutating, then self-reference to clear the slot
@@ -788,20 +750,30 @@ def _create_run_inner(
     run = Run.objects.create(
         repo=repo,
         team_id=repo.team_id,
-        run_type=run_type,
-        commit_sha=commit_sha,
-        branch=branch,
-        pr_number=pr_number,
-        purpose=purpose,
-        total_snapshots=len(snapshots),
-        metadata=metadata or {},
-        is_partial=is_partial,
+        run_type=input.run_type,
+        commit_sha=input.commit_sha,
+        branch=input.branch,
+        pr_number=input.pr_number,
+        purpose=input.purpose,
+        total_snapshots=len(input.snapshots),
+        metadata=input.metadata or {},
+        is_partial=input.is_partial,
     )
 
     # Fix up the sentinel pointers to reference the actual new run
     if superseded_ids:
         Run.objects.using(WRITER_DB).filter(id__in=superseded_ids, team_id=team_id).update(superseded_by=run)
 
+    snapshots = [
+        {
+            "identifier": s.identifier,
+            "content_hash": s.content_hash,
+            "width": s.width,
+            "height": s.height,
+            "metadata": dict(s.metadata) if s.metadata else {},
+        }
+        for s in input.snapshots
+    ]
     _added, uploads = _register_snapshots(run, repo, snapshots)
     _update_run_counts(run, using=WRITER_DB)
 
@@ -2841,7 +2813,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     )
 
 
-@dataclass
+@frozen
 class _BaselineOverviewRaw:
     """Internal raw shape — the facade layer reshapes this into the public DTOs.
 

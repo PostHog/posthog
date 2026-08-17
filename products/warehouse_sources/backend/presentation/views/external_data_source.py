@@ -350,10 +350,16 @@ def restore_declared_field_names(data: dict, hyphenated: set[str]) -> dict:
     return result
 
 
-def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+@frozen
+class FieldSensitivitySplit:
+    nonsensitive: set[str]
+    sensitive: set[str]
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> FieldSensitivitySplit:
     """Classify source config field names as nonsensitive or sensitive.
 
-    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    Returns the field-name sets flattened across all nesting levels.
     """
     nonsensitive: set[str] = set()
     sensitive: set[str] = set()
@@ -370,14 +376,14 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             for option in field.options:
                 if option.fields:
-                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
-                    nonsensitive.update(ns)
-                    sensitive.update(s)
+                    nested = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(nested.nonsensitive)
+                    sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             _add_name_variants(nonsensitive, field.name)
-            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
-            nonsensitive.update(ns)
-            sensitive.update(s)
+            nested = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(nested.nonsensitive)
+            sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
             # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
             # GSC site_url), not a secret — keep it so the form can prefill on edit.
@@ -389,7 +395,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
-    return nonsensitive, sensitive
+    return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)
 
 
 # Config metadata keys that are always safe to include in nested dicts
@@ -990,9 +996,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
-            nonsensitive = nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
+            nonsensitive = split.nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
         except (ValueError, KeyError):
             representation["job_inputs"] = {}
             return representation
@@ -1012,7 +1018,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        stripped = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        stripped = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         declared = get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = restore_declared_field_names(stripped, declared.hyphenated)
         return representation
@@ -2226,13 +2232,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
-        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
-        # Upgrade that machine-injected value when the transport identifies one of them, so their
-        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        # The setup wizard and PostHog's agent surfaces drive creation through the MCP tools, which
+        # inject `created_via=mcp` before the request reaches us — the agent can't set the field
+        # itself. Upgrade that machine-injected value when the transport identifies one of them, so
+        # their runs are distinguishable from other MCP clients. Explicit `web`/`api` values are
+        # left alone. The PostHog apps and the headless agents all map to `self_driving`: the
+        # distinction between them is an analytics one, and splitting it here would need a new
+        # stored value.
         if created_via == ExternalDataSource.CreatedVia.MCP:
             transport_created_via = {
                 EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)

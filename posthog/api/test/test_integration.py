@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -613,23 +613,34 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
-class TestAwsS3Integration:
+class TestAWSIntegration:
+    @pytest.fixture(
+        params=[
+            (Integration.IntegrationKind.AWS_S3),
+            (Integration.IntegrationKind.AWS_REDSHIFT),
+        ],
+        ids=lambda kind: kind.value,
+    )
+    def aws_integration_kind(self, request):
+        return request.param
+
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
+    def setup_integration(self, db, aws_integration_kind):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
+        self.integration_kind = aws_integration_kind
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
@@ -640,10 +651,10 @@ class TestAwsS3Integration:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["kind"] == "aws-s3"
+        assert response.json()["kind"] == self.integration_kind
 
         integration = Integration.objects.get(id=response.json()["id"])
-        assert integration.kind == "aws-s3"
+        assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
@@ -658,17 +669,17 @@ class TestAwsS3Integration:
         assert "aws_secret_access_key" not in response_body
         assert "AKIAEXAMPLE" not in response_body
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials")
+    @patch("posthog.models.integration.validate_aws_credentials")
     def test_create_rejects_invalid_credentials(self, mock_validate, client: HttpClient):
-        from posthog.models.integration import S3CredentialIntegrationError
+        from posthog.models.integration import IntegrationError
 
-        mock_validate.side_effect = S3CredentialIntegrationError("AWS credentials are not valid: nope")
+        mock_validate.side_effect = IntegrationError("AWS credentials are not valid: nope")
         client.force_login(self.user)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
@@ -681,11 +692,11 @@ class TestAwsS3Integration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "AWS credentials are not valid" in response.json()["detail"]
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
         }
 
@@ -702,20 +713,20 @@ class TestAwsS3Integration:
         [
             (
                 {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "A name is required for an AWS S3 integration",
+                "A name is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_secret_access_key": "s"},
-                "Access key ID is required for an AWS S3 integration",
+                "Access key ID is required for AWS integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k"},
-                "Secret access key is required for an AWS S3 integration",
+                "Secret access key is required for AWS integration",
             ),
-            ({}, "A name is required for an AWS S3 integration"),
+            ({}, "A name is required for AWS integration"),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
-                "Secret access key is required for an AWS S3 integration",
+                "Secret access key is required for AWS integration",
             ),
         ],
     )
@@ -724,22 +735,38 @@ class TestAwsS3Integration:
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
-            {"kind": "aws-s3", "config": invalid_config},
+            {"kind": self.integration_kind, "config": invalid_config},
             content_type="application/json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == expected_error_message
+        assert (
+            response.json()["detail"] == expected_error_message
+            # Default Redshift error message on {}
+            or response.json()["detail"] == "Missing required inputs"
+        )
 
 
-class TestAwsS3RoleBasedIntegration:
+class TestAWSRoleBasedIntegration:
+    @pytest.fixture(
+        params=[
+            (Integration.IntegrationKind.AWS_S3),
+            (Integration.IntegrationKind.AWS_REDSHIFT),
+        ],
+        ids=lambda kind: kind.value,
+    )
+    def aws_integration_kind(self, request):
+        return request.param
+
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
+    def setup_integration(self, db, aws_integration_kind):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
+
+        self.integration_kind = aws_integration_kind
 
     def test_create_with_valid_config(self, client: HttpClient):
         client.force_login(self.user)
@@ -748,7 +775,7 @@ class TestAwsS3RoleBasedIntegration:
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
-                "kind": "aws-s3",
+                "kind": self.integration_kind,
                 "config": {
                     "name": "prod-aws",
                     "aws_role_arn": role,
@@ -758,10 +785,10 @@ class TestAwsS3RoleBasedIntegration:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["kind"] == "aws-s3"
+        assert response.json()["kind"] == self.integration_kind
 
         integration = Integration.objects.get(id=response.json()["id"])
-        assert integration.kind == "aws-s3"
+        assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
@@ -775,7 +802,7 @@ class TestAwsS3RoleBasedIntegration:
         )
         client.force_login(another_user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_role_arn": "something"},
         }
 
@@ -787,12 +814,12 @@ class TestAwsS3RoleBasedIntegration:
         client.force_login(self.user)
         second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
         assert second.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot create AWS S3 integration: Invalid role" in second.json()["detail"]
+        assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
 
     def test_create_rejects_duplicate_name(self, client: HttpClient):
         client.force_login(self.user)
         payload = {
-            "kind": "aws-s3",
+            "kind": self.integration_kind,
             "config": {"name": "prod-aws", "aws_role_arn": "something"},
         }
 
@@ -891,13 +918,13 @@ class TestS3CompatibleIntegration:
         [
             (
                 {"endpoint_url": "https://e.com", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, endpoint URL, access key ID, and secret access key must be provided",
+                "A name is required for S3-compatible integration",
             ),
             (
                 {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
-                "Name, endpoint URL, access key ID, and secret access key must be provided",
+                "Endpoint URL is required for S3-compatible integration",
             ),
-            ({}, "Name, endpoint URL, access key ID, and secret access key must be provided"),
+            ({}, "A name is required for S3-compatible integration"),
         ],
     )
     def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
@@ -5535,6 +5562,7 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
                 "reason_length": len("We need Slack alerts"),
             },
             team=self.team,
+            request=ANY,
         )
 
     @parameterized.expand(
@@ -5617,7 +5645,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_member_can_create_integration(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/integrations",

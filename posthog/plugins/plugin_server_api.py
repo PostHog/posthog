@@ -1,15 +1,14 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Optional, Union
 
-from django.conf import settings
-
-import jwt
 import requests
 import structlog
 
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.security.outbound_proxy import internal_requests
 from posthog.settings import CDP_API_URL, INTERNAL_API_SECRET, PLUGINS_RELOAD_REDIS_URL
 
@@ -122,24 +121,21 @@ def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Res
     )
 
 
+WORKFLOWS_RESCHEDULE_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
 def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
     """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
     one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
     JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the sweep fails closed.
     Verified in the plugin server's CdpApi.postHogFlowRescheduleParked."""
-    secrets = settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS
-    if not secrets:
+    if not WORKFLOWS_RESCHEDULE_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot call reschedule_parked")
-    return jwt.encode(
-        {
-            "team_id": team_id,
-            "hog_flow_id": hog_flow_id,
-            "aud": "posthog:workflows:reschedule_parked",
-            "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
-        },
-        secrets[0],
-        algorithm="HS256",
-    )
+    return WORKFLOWS_RESCHEDULE_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
 def reschedule_hog_flow_parked_jobs(

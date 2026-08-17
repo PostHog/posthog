@@ -365,9 +365,9 @@ export const FEATURE_FLAGS = {
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
     LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
-    LOGS_PATTERNS_VIEW: 'logs-patterns-view', // owner: #team-logs
     LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
+    LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
     LOGS_SETTINGS: 'logs-settings', // owner: #team-logs
     LOGS_SETTINGS_DROP_RULES: 'logs-settings-drop-rules', // owner: #team-logs
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
@@ -399,7 +399,6 @@ export const FEATURE_FLAGS = {
     MCP_ANALYTICS: 'mcp-analytics', // owner: #project-mcp-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-self-driving — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
-    MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux

@@ -246,6 +246,15 @@ class ArtifactAPI:
         return _to_artifact(instance)
 ```
 
+### Contracts inside the product
+
+A product's own `logic.py` may take its contracts as arguments, as `logic.create_artifact(params)` above does; internals importing `facade.contracts` and `facade.enums` is expected, not a layering violation.
+Keep the wire in mind: a contract that also backs a `DataclassSerializer` request body is the HTTP shape shipped clients send.
+Pass it through while its fields are one-to-one with what logic needs, and split off an internal parameter object at the first real divergence — dead or deprecated wire fields, values logic needs that the wire must not accept, invariants the wire can't promise.
+That split lives in the facade, the only in-process caller.
+Never widen a type on the way in: if logic needs a `str`, don't accept a contract with `str | None` and add a runtime guard.
+See `/writing-dataclasses` for the general rule.
+
 ### Why explicit mappers?
 
 Facades convert ORM models to frozen dataclasses via mapper functions. These look repetitive when fields align 1:1:
