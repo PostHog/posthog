@@ -83,6 +83,12 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
+// `sessionId` is what the posthog-js / posthog-react-native SDKs emit and what the docs
+// tell backends to send, so it is the one that matters in practice. `posthogSessionId` is
+// NOT emitted by any SDK — it was the team-config default between #70414 and this list's
+// correction, so a customer who configured their pipeline from the settings UI in that
+// window may be emitting it. It stays here permanently for those customers; do not remove
+// it on the grounds that nothing emits it.
 const SESSION_ID_KEYS = [
     'session.id',
     'session_id',

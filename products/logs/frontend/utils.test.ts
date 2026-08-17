@@ -165,9 +165,9 @@ describe('logs utils', () => {
 
     describe('buildLogsSessionFilters', () => {
         it.each([
-            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
+            ['defaults to the key the SDKs emit', undefined, ['sessionId']],
             ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
-            ['empty configured list falls back to default', [], ['posthogSessionId']],
+            ['empty configured list falls back to default', [], ['sessionId']],
         ])('%s', (_, configuredKeys, expectedKeys) => {
             const filters = buildLogsSessionFilters('sess-1', configuredKeys)
 
