@@ -477,6 +477,27 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
 
+        // The endpoint rejects breakdowns and unsupported intervals with a DRF `detail` body. If the
+        // error extraction stopped preferring `detail`, those two guards would reach the user as a
+        // generic failure instead of telling them what to change.
+        it('surfaces the reason from a rejected simulation', async () => {
+            const rejection = await ApiError.fromResponse(
+                new Response(JSON.stringify({ detail: "Forecast alerts don't support breakdowns yet" }), {
+                    status: 400,
+                })
+            )
+            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(rejection)
+            const logic = mountForecastForm()
+
+            await expectLogic(logic, () => {
+                logic.actions.simulateForecast()
+            }).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith(
+                "Simulation failed: Forecast alerts don't support breakdowns yet"
+            )
+        })
+
         it('clearSimulation resets the forecast simulation result', async () => {
             const mockResponse = {
                 data: [1, 2, 3],
