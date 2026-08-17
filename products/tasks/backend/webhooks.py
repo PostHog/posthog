@@ -1,8 +1,11 @@
 import hmac
 import uuid
 import hashlib
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 
-from django.db import transaction
+from django.conf import settings
+from django.db import OperationalError, connections, transaction
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
@@ -18,6 +21,7 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
+from products.tasks.backend.metrics import observe_github_webhook_attribution, observe_github_webhook_pr_event_dropped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
@@ -491,16 +495,59 @@ def _pr_payload_properties(payload: dict) -> dict:
     }
 
 
+# Cap the org-member lookup that attributes the merger (and reviewer). GitHub gives a
+# pull_request delivery one short window and never retries it, and the merged branch runs
+# functional side effects (merge bookkeeping, signal-report resolution, wizard wind-down)
+# right after capture. A slow lookup on the request path can therefore cost the whole
+# delivery, not just the analytics event. Bounding it degrades to no attribution instead.
+_ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
+
+# The lookup reads org/auth models that a ReplicaRouter can route to the read replica, so
+# bound every connection it might touch, not just the default writer.
+_ATTRIBUTION_DB_ALIASES = ("default", "replica")
+
+
+@contextmanager
+def _bounded_attribution_lookup() -> Iterator[None]:
+    """Run a block under a per-statement timeout on each configured DB the lookup may use.
+
+    A read routed to an alias joins that alias's open transaction, so ``SET LOCAL
+    statement_timeout`` there caps the query regardless of read-replica routing.
+    """
+    with ExitStack() as stack:
+        for alias in _ATTRIBUTION_DB_ALIASES:
+            if alias not in settings.DATABASES:
+                continue
+            stack.enter_context(transaction.atomic(using=alias))
+            with connections[alias].cursor() as cursor:
+                cursor.execute(f"SET LOCAL statement_timeout = {int(_ATTRIBUTION_STATEMENT_TIMEOUT_MS)}")
+        yield
+
+
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
-    """Distinct id of the org member matching a GitHub login, or None when unresolvable."""
+    """Distinct id of the org member matching a GitHub login, or None when unresolvable.
+
+    Runs under a per-statement timeout so a slow member lookup cannot hold the webhook
+    open past GitHub's delivery timeout (see ``_ATTRIBUTION_STATEMENT_TIMEOUT_MS``).
+    """
     if not login:
         return None
     try:
-        resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+        with _bounded_attribution_lookup():
+            resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+    except OperationalError:
+        observe_github_webhook_attribution(outcome="timeout")
+        logger.warning("github_webhook_login_resolution_timed_out", login=login, team_id=team_id)
+        return None
     except Exception as e:
+        observe_github_webhook_attribution(outcome="error")
         logger.warning("github_webhook_login_resolution_failed", login=login, team_id=team_id, error=str(e))
         return None
-    return str(resolved.distinct_id) if resolved is not None else None
+    if resolved is None:
+        observe_github_webhook_attribution(outcome="unresolved")
+        return None
+    observe_github_webhook_attribution(outcome="resolved")
+    return str(resolved.distinct_id)
 
 
 def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | None]:
@@ -548,6 +595,7 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
 
     team = _resolve_external_team(payload)
     if team is None:
+        observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="unresolved_installation")
         logger.debug("github_pr_review_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
 
@@ -573,6 +621,7 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
             uuid=event_uuid,
         )
     except Exception as e:
+        observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="capture_exception")
         logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
 
 
@@ -594,6 +643,7 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
 
     team = _resolve_external_team(payload)
     if team is None:
+        observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="unresolved_installation")
         logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
 
@@ -621,6 +671,7 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
             uuid=event_uuid,
         )
     except Exception as e:
+        observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="capture_exception")
         logger.warning("github_pr_webhook_capture_failed", analytics_event=analytics_event, error=str(e))
 
 

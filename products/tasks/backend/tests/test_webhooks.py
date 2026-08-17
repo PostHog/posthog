@@ -6,9 +6,11 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
@@ -37,6 +39,10 @@ class TestAccountType(TestCase):
     )
     def test_account_type(self, _name, payload, expected):
         self.assertEqual(_account_type(payload), expected)
+
+
+def _sample_value(name: str, labels: dict[str, str]) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
 def generate_github_signature(payload: bytes, secret: str) -> str:
@@ -182,6 +188,40 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["distinct_id"], "user-123")
         self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
         self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
+
+    @patch(
+        "products.tasks.backend.webhooks.resolve_org_github_login_to_users",
+        side_effect=OperationalError("canceling statement due to statement timeout"),
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attribution_timeout_keeps_webhook_successful(self, mock_capture, mock_get_secret, _mock_resolve):
+        # A slow member lookup must degrade to no attribution, never cost the delivery:
+        # GitHub does not retry pull_request events and the merge side effects run after.
+        mock_get_secret.return_value = self.webhook_secret
+        before = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
+        self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), before + 1
+        )
+        self.task_run.refresh_from_db()
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -1101,6 +1141,34 @@ class TestExternalPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_unresolved_installation_increments_drop_counter(self, mock_capture, mock_get_secret):
+        # The silent drop is now a counter, so a webhook-side event loss shows up as an
+        # error rate instead of only a dip in the downstream capture ratio.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_merged", "reason": "unresolved_installation"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+        payload = self._external_payload("closed", merged=True)
+        payload["installation"]["id"] = 999999
+
+        self.assertEqual(self._post(payload).status_code, 200)
+
+        mock_capture.assert_not_called()
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
+    def test_external_pr_capture_exception_increments_drop_counter(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"analytics_event": "pr_created", "reason": "capture_exception"}
+        before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
+
+        response = self._post(self._external_payload("opened", merged=False))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
