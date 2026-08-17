@@ -123,12 +123,17 @@ let currentShortcut: string = QUICK_ASK_DEFAULT_SHORTCUT;
 let shortcutRegistered = false;
 
 function registerShortcut(accelerator: string): boolean {
-  if (shortcutRegistered) {
-    globalShortcut.unregister(currentShortcut);
-    shortcutRegistered = false;
+  // Re-recording the accelerator that is already live is a no-op, not a change.
+  if (shortcutRegistered && accelerator === currentShortcut) {
+    return true;
   }
+  // Register the replacement before releasing the old one, so a rejected
+  // accelerator (owned by another app) leaves the working shortcut intact.
   const registered = globalShortcut.register(accelerator, toggleQuickAsk);
   if (registered) {
+    if (shortcutRegistered) {
+      globalShortcut.unregister(currentShortcut);
+    }
     currentShortcut = accelerator;
     shortcutRegistered = true;
     log.info("Quick ask shortcut registered", { shortcut: accelerator });
@@ -207,8 +212,9 @@ export function setQuickAskShortcut(accelerator: string): QuickAskState {
   if (registered) {
     quickAskStore.set("shortcut", accelerator);
   }
-  // On failure `currentShortcut` keeps the last working accelerator; report
-  // the requested one so the settings UI can show it is taken.
+  // On failure the old accelerator stays registered and `currentShortcut`
+  // keeps its name; report the requested one so the settings UI can show it
+  // is taken.
   return { ...getQuickAskState(), shortcut: accelerator, registered };
 }
 
