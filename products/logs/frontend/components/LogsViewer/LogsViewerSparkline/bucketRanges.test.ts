@@ -5,8 +5,6 @@ const BUCKET_TIMES = BUCKETS.map((ms) => new Date(ms).toISOString())
 
 describe('bucketRanges', () => {
     it('ends a drag selection at the next bucket, so its last bucket is included', () => {
-        // Ending at the selected bucket's own start would cut it out of the results the user just
-        // dragged over.
         expect(selectedDateRange(BUCKET_TIMES, 1, 2)).toEqual({
             date_from: BUCKET_TIMES[1],
             date_to: BUCKET_TIMES[3],
@@ -14,8 +12,6 @@ describe('bucketRanges', () => {
     })
 
     it('leaves a drag selection open-ended when it runs to the final bucket', () => {
-        // Null, not undefined: `utcDateRange` normalizes with `dayjs(date_to)`, which reads undefined
-        // as the current time and would pin the end instead of leaving the range open at "now".
         expect(selectedDateRange(BUCKET_TIMES, 2, 3)).toEqual({ date_from: BUCKET_TIMES[2], date_to: null })
     })
 
@@ -24,7 +20,6 @@ describe('bucketRanges', () => {
     })
 
     it.each([
-        // The highlight covers whole bars, so a window starting mid-bucket still includes that bucket.
         ['a window starting mid-bucket', 90_000, 150_000, { startIndex: 1, endIndex: 2 }],
         ['a window on exact bucket starts', 60_000, 120_000, { startIndex: 1, endIndex: 2 }],
         ['a window inside one bucket', 70_000, 80_000, { startIndex: 1, endIndex: 1 }],

@@ -202,10 +202,6 @@ describe('logsViewerDataLogic', () => {
                     { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
-                // Raw bucket times, not display strings: the chart's time axis formats the ticks and
-                // the tooltip header itself. Series sort alphabetically ('error' before 'info') and
-                // each is zero-padded to `dates.length`, so 'info' (no rows in the second bucket) is
-                // `[5, 0]`, not the ragged `[5]`.
                 {
                     dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'],
                     data: [

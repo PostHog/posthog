@@ -10,7 +10,6 @@ const BUCKET_SECONDS = 90
 const BUCKETS = 48
 const FIRST_BUCKET = Date.parse('2026-08-06T09:00:00Z')
 
-/** Deterministic per-severity shape, so the stack reads like a real log volume chart. */
 const SEVERITY_PROFILES: { name: string; color: string; baseline: number }[] = [
     { name: 'info', color: 'brand-blue', baseline: 320 },
     { name: 'warn', color: 'warning', baseline: 90 },
@@ -27,7 +26,6 @@ function buildSparklineData(): LogsSparklineData {
         data: SEVERITY_PROFILES.map(({ name, color, baseline }) => ({
             name,
             color,
-            // A slow sine keeps the bars uneven without a random source.
             values: dates.map((_, bucket) => Math.round(baseline * (1 + 0.4 * Math.sin(bucket / 5)))),
         })),
     }
@@ -64,14 +62,12 @@ type Story = StoryObj<typeof LogsSparkline>
 
 export const VolumeBySeverity: Story = {}
 
-/** The trailing buckets past the ingestion checkpoint hatch, so a partial bar does not read as a drop. */
 export const WithIncompleteBuckets: Story = {
     args: {
         incompleteBarIndices: [45, 46, 47],
     },
 }
 
-/** Scrolling the row list marks which buckets those rows came from. */
 export const WithVisibleRowRange: Story = {
     args: {
         visibleRowDateRange: {

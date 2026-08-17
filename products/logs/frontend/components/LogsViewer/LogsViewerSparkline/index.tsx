@@ -38,7 +38,6 @@ interface LogsViewerSparklineProps {
     collapsed?: boolean
     onToggleCollapse?: () => void
     incompleteBarIndices?: number[]
-    /** Time span of the log rows currently scrolled into view, mirrored onto the chart. */
     visibleRowDateRange?: VisibleLogsTimeRange | null
 }
 
@@ -62,9 +61,8 @@ export function LogsSparkline({
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
     const theme = useChartTheme()
 
-    // Buckets target ~50 across the queried range, so an hour of logs buckets at around a minute and
-    // a shorter range goes below that. Quill's automatic date axis has no seconds mode, hence the
-    // explicit formats.
+    // Quill's automatic date axis has no seconds mode, and buckets target ~50 across the queried
+    // range, so an hour of logs lands under a minute per bucket and needs explicit formats.
     const tickFormat = useMemo(() => {
         if (!sparklineData.dates.length) {
             return 'HH:mm:ss'
@@ -93,8 +91,7 @@ export function LogsSparkline({
                 // The logic hands back vars.scss color names ('danger', 'data-color-1'); a canvas
                 // fill needs a real color. `theme` is a dep so a light/dark flip re-resolves them.
                 color: getColorVar(timeseries.color || 'muted'),
-                // Buckets past the ingestion checkpoint are always a trailing run, so one index
-                // hatches the rest of the series.
+                // Buckets past the ingestion checkpoint are always a trailing run.
                 ...(incompleteBarIndices?.length
                     ? { stroke: { partial: { fromIndex: Math.min(...incompleteBarIndices) } } }
                     : {}),
@@ -118,8 +115,7 @@ export function LogsSparkline({
             xAxis: { tickFormatter: (value: string) => dayjs(value).tz(displayTimezone).format(tickFormat) },
             yAxis: { tickFormatter: humanFriendlyNumber },
             barCornerRadius: 2,
-            // A service breakdown reaches 13 rows, which overflows the tooltip's max height, so the
-            // pointer has to be able to reach it and scroll.
+            // A service breakdown reaches 13 rows, overflowing the tooltip, so it has to be scrollable.
             tooltip: {
                 pinnable: true,
                 hideZeroRows: true,
@@ -136,8 +132,8 @@ export function LogsSparkline({
         [displayTimezone, tickFormat]
     )
 
-    // Wired straight through rather than via `useDateRangeZoom()`, whose flag would take this drag
-    // away from anyone the rollout has not reached — it already ships to everyone here.
+    // Wired straight through rather than via `useDateRangeZoom()`, because that hook's flag would
+    // take this drag away from anyone the rollout has not reached, and it already ships to everyone.
     const onDateRangeZoom = useCallback(
         ({ startIndex, endIndex }: DateRangeZoomData): void => {
             const dateRange = selectedDateRange(sparklineData.dates, startIndex, endIndex)

@@ -887,11 +887,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
-                // A key with no rows in the newest buckets stops accumulating early, so its array is
-                // shorter than `dates`. Quill's `Series.data` contract requires `data.length ===
-                // labels.length` — a ragged array desyncs bar positions and, worse, throws off
-                // `stroke.partial.fromIndex`'s clamp against `series.data.length` (the last *complete*
-                // bar for that key can get clamped onto and rendered as still-ingesting).
+                // A key with no rows in the newest buckets stops accumulating early, leaving an array
+                // shorter than `dates`. Quill requires `data.length === labels.length`: a ragged array
+                // desyncs bar positions and clamps `stroke.partial.fromIndex` onto a complete bar,
+                // rendering it as still-ingesting.
                 const padToDatesLength = (values: number[]): number[] => {
                     while (values.length < dates.length) {
                         values.push(0)
