@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-14 10:21:15 UTC
+// Generated at: 2026-08-17 20:04:50 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -32,6 +32,7 @@ export type CanonicalProvider =
     | 'azure-eu'
     | 'azure-global'
     | 'azure-swedencentral'
+    | 'azure-us'
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fast'
@@ -97,7 +98,7 @@ export type CanonicalProvider =
     | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream-fp4'
-    | 'liquid-fp8'
+    | 'liquid-fp16'
     | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
@@ -183,7 +184,6 @@ export type CanonicalProvider =
     | 'venice-int4'
     | 'wafer'
     | 'wafer-fast'
-    | 'wafer-fp4'
     | 'xai'
     | 'xai-priority'
     | 'xai-zdr'
