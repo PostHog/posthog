@@ -45,6 +45,23 @@ impl<'a> GlobalRateLimitKey<'a> {
     }
 }
 
+/// The per-instance knobs that distinguish one capture limiter from another.
+/// Named fields rather than positional arguments: several are same-typed (two
+/// `&str`, two `bool`) and a swap would silently misconfigure a limiter.
+struct LimiterSpec<'a> {
+    /// Default budget per window for keys with no custom override.
+    threshold: u64,
+    /// Static `key=value` CSV seeding the custom-key map.
+    custom_keys_csv: Option<&'a String>,
+    local_cache_max_entries: u64,
+    redis_key_prefix: &'a str,
+    metrics_scope: &'a str,
+    /// Whether to wire the Redis-backed dynamic threshold source.
+    enable_dynamic_source: bool,
+    /// Evaluate and report, but never enforce.
+    dry_run: bool,
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
@@ -77,14 +94,18 @@ impl GlobalRateLimiter {
         Self::build(
             config,
             redis_instances,
-            config.global_rate_limit_token_distinctid_threshold,
-            config
-                .global_rate_limit_token_distinctid_overrides_csv
-                .as_ref(),
-            config.global_rate_limit_token_distinctid_local_cache_max_entries,
-            &prefix,
-            &metrics_scope,
-            config.global_rate_limit_custom_threshold_key.is_some(),
+            LimiterSpec {
+                threshold: config.global_rate_limit_token_distinctid_threshold,
+                custom_keys_csv: config
+                    .global_rate_limit_token_distinctid_overrides_csv
+                    .as_ref(),
+                local_cache_max_entries: config
+                    .global_rate_limit_token_distinctid_local_cache_max_entries,
+                redis_key_prefix: &prefix,
+                metrics_scope: &metrics_scope,
+                enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
+                dry_run: config.global_rate_limit_dry_run,
+            },
         )
     }
 
@@ -99,15 +120,18 @@ impl GlobalRateLimiter {
         Self::build(
             config,
             redis_instances,
-            config.global_rate_limit_token_threshold,
-            config.global_rate_limit_token_overrides_csv.as_ref(),
-            config.global_rate_limit_token_local_cache_max_entries,
-            &prefix,
-            &metrics_scope,
-            // The token-only limiter is not wired to the dynamic refresh source.
-            // (The hierarchical resolver is still set but is a no-op for bare
-            // token keys, which have no `:distinct_id` suffix.)
-            false,
+            LimiterSpec {
+                threshold: config.global_rate_limit_token_threshold,
+                custom_keys_csv: config.global_rate_limit_token_overrides_csv.as_ref(),
+                local_cache_max_entries: config.global_rate_limit_token_local_cache_max_entries,
+                redis_key_prefix: &prefix,
+                metrics_scope: &metrics_scope,
+                // The token-only limiter is not wired to the dynamic refresh
+                // source. (The hierarchical resolver is still set but is a no-op
+                // for bare token keys, which have no `:distinct_id` suffix.)
+                enable_dynamic_source: false,
+                dry_run: config.global_rate_limit_dry_run,
+            },
         )
     }
 
@@ -129,28 +153,23 @@ impl GlobalRateLimiter {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn build(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
-        threshold: u64,
-        custom_keys_csv: Option<&String>,
-        local_cache_max_entries: u64,
-        redis_key_prefix: &str,
-        metrics_scope: &str,
-        enable_dynamic_source: bool,
+        spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
         // Seed the (swappable) custom-key map from the static CSV overrides. When a
         // dynamic source is enabled, the common refresh loop replaces this map only
         // from an explicit Redis blob; an absent key or an unreachable Redis is
         // fail-static, so the CSV seed keeps applying until a blob is written.
-        let seed = Self::format_custom_keys(custom_keys_csv);
+        let seed = Self::format_custom_keys(spec.custom_keys_csv);
 
         // Build the dynamic source when enabled and its Redis key + URL are set.
         // The source reads the JSON blob from the event-restrictions Redis (a
         // separate store from the traffic-count Redis in `redis_instances`) and
         // owns its own connection/reconnect; the common limiter runs the loop.
-        let custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>> = if enable_dynamic_source
+        let custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>> = if spec
+            .enable_dynamic_source
         {
             match (
                 config.global_rate_limit_custom_threshold_key.as_ref(),
@@ -180,11 +199,11 @@ impl GlobalRateLimiter {
         };
 
         let grl_config = GlobalRateLimiterConfig {
-            global_threshold: threshold,
+            global_threshold: spec.threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
             sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
-            redis_key_prefix: redis_key_prefix.to_string(),
+            redis_key_prefix: spec.redis_key_prefix.to_string(),
             custom_keys: Arc::new(ArcSwap::from_pointee(seed)),
             // Capture keys are always `token` or `token:distinct_id`, so the
             // hierarchical resolver is always the correct policy — a token-level
@@ -195,12 +214,12 @@ impl GlobalRateLimiter {
             custom_key_refresh_interval: Duration::from_secs(
                 config.global_rate_limit_custom_threshold_refresh_secs,
             ),
-            local_cache_max_entries,
-            metrics_scope: metrics_scope.to_string(),
+            local_cache_max_entries: spec.local_cache_max_entries,
+            metrics_scope: spec.metrics_scope.to_string(),
             ..Default::default()
         };
 
-        let dry_run = config.global_rate_limit_dry_run;
+        let dry_run = spec.dry_run;
 
         let limiter = match CommonGlobalRateLimiterImpl::new(grl_config, redis_instances) {
             Ok(l) => l,
@@ -211,7 +230,10 @@ impl GlobalRateLimiter {
         };
 
         if dry_run {
-            info!("GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)");
+            info!(
+                scope = spec.metrics_scope,
+                "GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)"
+            );
         }
 
         Ok(Self {
