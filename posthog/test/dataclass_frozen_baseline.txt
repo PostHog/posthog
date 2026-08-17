@@ -1602,6 +1602,7 @@
 6 posthog/hogql/base.py
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
+6 posthog/temporal/ai/slack_app/types.py
 6 posthog/temporal/ai/sync_vectors.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
@@ -1620,7 +1621,6 @@
 7 products/web_analytics/backend/temporal/digest_notification/types.py
 7 products/web_analytics/backend/temporal/weekly_digest/types.py
 8 ee/vercel/integration.py
-8 posthog/temporal/ai/slack_app/types.py
 8 posthog/temporal/ai_observability/evaluation_clustering/activities.py
 8 posthog/temporal/delete_teams/types.py
 8 products/signals/backend/temporal/signal_queries.py

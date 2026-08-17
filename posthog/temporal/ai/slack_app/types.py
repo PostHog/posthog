@@ -10,13 +10,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
 
 @dataclass
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
-@dataclass(frozen=True)
+@frozen
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
@@ -147,7 +149,7 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     command_prefix: str = "@PostHog"
 
 
-@dataclass
+@frozen
 class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
