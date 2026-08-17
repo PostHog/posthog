@@ -90,10 +90,10 @@ pub struct EagerFlush {
     pub sub_batch: SubBatch,
 }
 
-/// Event-count bands for splitting a batch into several sub-batches ("chunks")
-/// rather than one per worker. A key-group is never split across chunks — that
-/// is what keeps per-key ordering intact — so a group larger than `max_events`
-/// becomes an over-sized chunk of its own.
+/// Event-count bands for splitting a worker's share of a batch into several
+/// sub-batches ("chunks") rather than one. A key-group is never split across
+/// chunks — that is what keeps per-key ordering intact — so a group larger than
+/// `max_events` becomes an over-sized chunk of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ChunkConfig {
     /// Cap on events per chunk, honored except by a single over-sized

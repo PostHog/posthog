@@ -211,25 +211,28 @@ pub struct Config {
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
 
-    /// Cap on the number of events in one sub-batch. A Kafka batch's key-groups
-    /// are packed into chunks of at most this many events, each sent as its own
-    /// request, so one batch can be worked by several workers in parallel
-    /// instead of landing on one worker as a single request. A key-group is
-    /// never split, so a single group larger than this stays whole (the
-    /// transport's byte cap still bounds the wire size).
+    /// Cap on the number of events in one sub-batch. A worker's share of a
+    /// Kafka batch is split into requests of at most this many events, so a
+    /// batch that lands concentrated on few workers is worked in parallel
+    /// rather than as one large request each. A key-group is never split, so a
+    /// single group larger than this stays whole (the transport's byte cap
+    /// still bounds the wire size).
+    ///
+    /// A worker whose share is already under the cap still gets one request, so
+    /// this only splits where a batch is actually concentrated.
     ///
     /// `0` (the default) disables chunking: each worker receives exactly one
     /// sub-batch per Kafka batch. Enabling is a charts-side, per-lane opt-in.
     #[envconfig(from = "INGESTION_SUB_BATCH_MAX_EVENTS", default = "0")]
     pub sub_batch_max_events: usize,
 
-    /// Soft target that suppresses runt chunks: an open chunk still under this
+    /// Soft target that suppresses runt requests: a sub-batch still under this
     /// many events is not closed just because the next key-group doesn't fit —
-    /// that group gets a chunk of its own and the under-filled one keeps taking
-    /// later groups. It is not a lower bound and never holds messages back:
-    /// chunks below it still ship (a batch's tail, a batch smaller than this,
-    /// or the group shipped on its own). Only the max is a real cap. `0` (the
-    /// default) means no target; values above
+    /// that group gets a sub-batch of its own and the under-filled one keeps
+    /// taking later groups. It is not a lower bound and never holds messages
+    /// back: sub-batches below it still ship (a worker's tail, a share smaller
+    /// than this, or the group shipped on its own). Only the max is a real cap.
+    /// `0` (the default) means no target; values above
     /// `INGESTION_SUB_BATCH_MAX_EVENTS` are clamped to it.
     #[envconfig(from = "INGESTION_SUB_BATCH_MIN_EVENTS", default = "0")]
     pub sub_batch_min_events: usize,
