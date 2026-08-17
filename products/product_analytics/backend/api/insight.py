@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -1421,10 +1421,6 @@ class InsightSerializer(InsightBasicSerializer):
                         )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-                # A bad query degrades this insight in place (200 with the error on query_status)
-                # instead of 400ing the whole response. On a dashboard that turned one broken tile
-                # into an all-or-nothing failure of the request, and a deterministic 400 was retried
-                # by the refresh loop even though it could never succeed.
                 return self._degraded_insight_result(
                     insight,
                     dashboard,
@@ -1461,7 +1457,7 @@ class InsightSerializer(InsightBasicSerializer):
         *,
         error_message: str,
         error_code: str | None,
-        last_refresh: Any,
+        last_refresh: datetime | None,
     ) -> InsightResult:
         """A 200 response carrying the failure on query_status, so a failing insight degrades in
         place rather than failing the whole request. `error_code` lets the client tell a

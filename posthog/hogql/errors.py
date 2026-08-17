@@ -35,7 +35,9 @@ class BaseHogQLError(Exception, ABC):
 class ExposedHogQLError(BaseHogQLError):
     """An exception that can be exposed to the user."""
 
-    # Fallback error code for exposed HogQL failures; subclasses override with a more specific one.
+    # Surfaced as the error code on API responses so clients can tell a deterministic query
+    # failure from a transient blip without matching on the message. Subclasses override this
+    # fallback with a more specific value.
     code_name = "hogql_error"
 
 
@@ -51,16 +53,12 @@ class InternalHogQLError(BaseHogQLError):
 class SyntaxError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
-    # Surfaces as the error code on API responses so clients can tell a deterministic query
-    # failure from a transient blip without matching on the message.
     code_name = "hogql_syntax_error"
 
 
 class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
-    # Surfaces as the error code on API responses so clients can tell a deterministic query
-    # failure from a transient blip without matching on the message.
     code_name = "hogql_query_error"
 
 

@@ -5121,8 +5121,8 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
 
-        # A bad query degrades this insight in place instead of 400ing the whole response, so a
-        # dashboard tile can render an error rather than failing (and being retried) as an HTTP 400.
+        # The failure must ride on query_status so a dashboard tile renders its own error state
+        # while the response as a whole succeeds.
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         query_status = response.json()["query_status"]
         self.assertTrue(query_status["error"])

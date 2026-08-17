@@ -12,7 +12,7 @@ export function isTimedOutRequest(error: any): boolean {
 }
 
 /**
- * A 4xx (except 408 timeout and 429 rate limit) means the request is deterministically bad —
+ * A 4xx (except 408 timeout and 429 rate limit) means the request is deterministically bad, so
  * retrying it can't succeed and only delays the error reaching the user. Used to short-circuit
  * retry loops so a broken query isn't hammered several times before failing.
  */
