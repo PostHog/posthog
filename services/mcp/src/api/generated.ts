@@ -330,6 +330,94 @@ export namespace Schemas {
     }
 
     /**
+     * * `internal` - Internal
+     * * `customer` - Customer
+     */
+    export type EmailThreadParticipantKindEnum = typeof EmailThreadParticipantKindEnum[keyof typeof EmailThreadParticipantKindEnum];
+
+
+    export const EmailThreadParticipantKindEnum = {
+      Internal: 'internal',
+      Customer: 'customer',
+    } as const;
+
+    export interface AccountEmailThreadParticipant {
+      /** Email address of the thread participant. */
+      readonly email: string;
+      /** Display name from the captured email headers. */
+      readonly display_name: string;
+      /** Whether the participant belongs to the PostHog organization or the customer.
+       *
+       * * `internal` - Internal
+       * * `customer` - Customer */
+      readonly kind: EmailThreadParticipantKindEnum;
+    }
+
+    export interface AccountEmailThread {
+      /** UUID of the captured email thread. */
+      readonly id: string;
+      /** Email thread subject. */
+      readonly subject: string;
+      /** Plain-text preview of the latest captured message. */
+      readonly preview: string;
+      /**
+         * Source timestamp of the first captured message.
+         * @nullable
+         */
+      readonly first_message_at: string | null;
+      /**
+         * Source timestamp of the latest captured message.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /** Number of captured messages in the thread. */
+      readonly message_count: number;
+      /** Participants included in the email thread. */
+      readonly participants: readonly AccountEmailThreadParticipant[];
+    }
+
+    export interface AccountEmailThreadAddress {
+      /** Name from the email header. */
+      readonly name: string;
+      /** Email address from the email header. */
+      readonly email: string;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface AccountEmailThreadMessage {
+      /** UUID of the captured email message. */
+      readonly id: string;
+      /** Timestamp from the source email. */
+      readonly sent_at: string;
+      /** Sender from the email From header. */
+      readonly sender: AccountEmailThreadAddress;
+      /** Recipients from the email To header. */
+      readonly to_recipients: readonly AccountEmailThreadAddress[];
+      /** Recipients from the email Cc header. */
+      readonly cc_recipients: readonly AccountEmailThreadAddress[];
+      /** Whether Mailgun authentication verified the sender domain. */
+      readonly sender_authenticated: boolean;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Plain-text email content. */
+      readonly content: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -14392,6 +14480,48 @@ export namespace Schemas {
     }
 
     /**
+     * A viewer-approved request for the canvas's authoring agent.
+     */
+    export interface CanvasAgentRequest {
+      /**
+         * Exact change request the viewer reviewed and approved in the trusted host dialog.
+         * @maxLength 10000
+         */
+      prompt: string;
+    }
+
+    /**
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     * * `reported` - reported
+     */
+    export type RequestOutcomeEnum = typeof RequestOutcomeEnum[keyof typeof RequestOutcomeEnum];
+
+
+    export const RequestOutcomeEnum = {
+      Signaled: 'signaled',
+      NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
+      Reported: 'reported',
+    } as const;
+
+    /**
+     * Outcome of routing a canvas change request.
+     */
+    export interface CanvasAgentRequestResult {
+      /** signaled: the live run received the request. new_run: a fresh run started. already_queued: an identical run was already starting. reported: a non-creator's request was filed in the task thread for the creator.
+       *
+       * * `signaled` - signaled
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued
+       * * `reported` - reported */
+      request_outcome: RequestOutcomeEnum;
+      /** Authoring task that received the request or report. */
+      task_id: string;
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -14572,6 +14702,7 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       actions?: string[];
+      agentRequests?: boolean;
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14600,6 +14731,8 @@ export namespace Schemas {
       capture_events_added: string[];
       /** True when the draft enables inline queries and the current head does not. */
       inline_queries_enabled: boolean;
+      /** True when the draft enables requests to the canvas's authoring agent and the current head does not. */
+      agent_requests_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
       /** State scopes (user, shared) the draft newly declares for ph.state. */
@@ -14842,7 +14975,7 @@ export namespace Schemas {
     export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
 
     /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     * Exact-version dependencies, restricted to the platform-supported set at its pinned versions.
      */
     export type CanvasSourceProjectDependencies = {[key: string]: string};
 
@@ -14858,11 +14991,11 @@ export namespace Schemas {
       assets?: CanvasSourceProjectAssets;
       /** The project's entry HTML file. Currently always "index.html". */
       entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      /** Exact-version dependencies, restricted to the platform-supported set at its pinned versions. */
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
 
@@ -32113,6 +32246,8 @@ export namespace Schemas {
       min_arm_persons: number;
       /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
       max_card_recordings: number;
+      /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
+      dropped_duplicate_cards: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -48229,6 +48364,24 @@ export namespace Schemas {
       results: AccountChannelSummary[];
     }
 
+    export interface PaginatedAccountEmailThreadList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThread[];
+    }
+
+    export interface PaginatedAccountEmailThreadMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThreadMessage[];
+    }
+
     export interface PaginatedAccountList {
       count: number;
       /** @nullable */
@@ -51471,12 +51624,18 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
     } as const;
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type SignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceConfigSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
       /** @nullable */
@@ -51641,7 +51800,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
@@ -60105,12 +60264,18 @@ export namespace Schemas {
       mcp_gateway_server_ids?: string[];
     }
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceConfigSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
       /** @nullable */
@@ -60133,7 +60298,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id?: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
@@ -79973,7 +80138,7 @@ export namespace Schemas {
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
     export interface _LogPatternExample {
-      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
       body: string;
       /** Severity of the sampled line, e.g. "info", "error". */
       severity_text: string;
@@ -80009,7 +80174,7 @@ export namespace Schemas {
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
       /**
-         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
          * @nullable
          */
       match_regex: string | null;
@@ -82154,6 +82319,28 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsEmailThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsMeetingsListParams = {

@@ -107,6 +107,7 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemM
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -152,7 +153,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -196,6 +197,9 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
                         }),
                         network: zod.object({
                             origins: zod
@@ -207,7 +211,7 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -311,6 +315,7 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -358,7 +363,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -402,6 +407,9 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
                         }),
                         network: zod.object({
                             origins: zod
@@ -415,7 +423,7 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -469,6 +477,20 @@ export const CanvasesReportErrorCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Payload for reporting a runtime error observed while rendering a canvas build.')
+
+/**
+ * Route a viewer-approved change request to the canvas's authoring task.
+ */
+export const canvasesRequestAgentCreateBodyPromptMax = 10000
+
+export const CanvasesRequestAgentCreateBody = /* @__PURE__ */ zod
+    .object({
+        prompt: zod
+            .string()
+            .max(canvasesRequestAgentCreateBodyPromptMax)
+            .describe('Exact change request the viewer reviewed and approved in the trusted host dialog.'),
+    })
+    .describe("A viewer-approved request for the canvas's authoring agent.")
 
 /**
  * Wake the canvas's authoring agent to fix a failing build or runtime error.
@@ -547,6 +569,7 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -592,7 +615,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe(
-                        'Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog\/quill, recharts, lucide-react, dayjs) at their pinned versions.'
+                        'Exact-version dependencies, restricted to the platform-supported set at its pinned versions.'
                     ),
                 canvasSdkVersion: zod
                     .string()
@@ -636,6 +659,11 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            agentRequests: zod
+                                .boolean()
+                                .default(
+                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -649,7 +677,7 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")

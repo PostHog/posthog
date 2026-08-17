@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -5535,6 +5535,7 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
                 "reason_length": len("We need Slack alerts"),
             },
             team=self.team,
+            request=ANY,
         )
 
     @parameterized.expand(

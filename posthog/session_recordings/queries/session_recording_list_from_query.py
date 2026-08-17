@@ -227,6 +227,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_experiment_exposure()
         query = self.get_query()
 
+        settings_args: dict[str, int] = {}
+        if self._max_execution_time is not None:
+            settings_args["max_execution_time"] = self._max_execution_time
+        linkage = self._experiment_exposure_linkage
+        if linkage is not None and linkage.live_scan_max_memory_bytes is not None:
+            # Deliberately no exposure-specific rendering of the resulting memory kill: the
+            # ceiling bounds the whole listing query (event filters, blocklist, aggregation),
+            # not just the exposure scan, so only the platform's standard memory-limit error,
+            # with its status, machine code, and narrow-your-filters guidance, is honest for
+            # every cause.
+            settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
+
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
             paginated_response = self._paginator.execute_hogql_query(
                 # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -235,11 +247,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 user=self._user,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(
-                    **(
-                        {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
-                    ),
-                ),
+                settings=HogQLGlobalSettings(**settings_args),
             )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,

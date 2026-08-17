@@ -11,15 +11,19 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
+from products.logs.backend.temporal.volume_tick.aggregation import RollupPreview, preview_rollup
 from products.logs.backend.temporal.volume_tick.constants import (
     BUCKET_MINUTES,
     BUCKET_SECONDS,
     FINALIZATION_ALLOWANCE,
+    TEAM_ALLOWLIST,
     TEAMS_WITH_LOGS_WINDOW,
 )
 from products.logs.backend.temporal.volume_tick.metrics import (
     increment_tick_runs,
     record_clickhouse_duration,
+    record_rollup_duration,
+    record_rollup_preview,
     record_teams_with_logs,
 )
 
@@ -51,6 +55,12 @@ class VolumeTickOutput:
     teams_due_in_shard: int
     due_bucket_start: str
     due_bucket_end: str
+    # None when the allowlist is empty and the rollup query therefore did not run.
+    rollup_rows: int | None = None
+    source_rows: int | None = None
+    distinct_services: int | None = None
+    rows_without_namespace: int | None = None
+    rows_without_environment: int | None = None
 
 
 @frozen
@@ -98,13 +108,31 @@ def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWi
 
 
 _count_teams_with_logs_async = database_sync_to_async_pool(count_teams_with_logs)
+_preview_rollup_async = database_sync_to_async_pool(preview_rollup)
+
+
+@frozen
+class TimedRollupPreview:
+    preview: RollupPreview
+    duration_ms: int
+
+
+async def _preview_due_bucket(due: DueBucket) -> TimedRollupPreview | None:
+    """Measure the due bucket's rollup for the allowlisted teams, or nothing if
+    the allowlist is empty. Once the commit protocol lands this becomes the write."""
+    if not TEAM_ALLOWLIST:
+        return None
+    started = time.monotonic()
+    preview = await _preview_rollup_async(team_ids=TEAM_ALLOWLIST, start=due.start, end=due.end)
+    return TimedRollupPreview(preview=preview, duration_ms=int((time.monotonic() - started) * 1000))
 
 
 @temporalio.activity.defn
 async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOutput:
-    # Skeleton for the log volume rollup tick: proves the schedule and the
-    # worker's path to the logs ClickHouse cluster, and observes (never writes)
-    # what the real tick would do. The rollup writer replaces this body.
+    # The log volume rollup tick, observing rather than writing: it runs the same
+    # scan and grouping the rollup writer will run, and publishes what that write
+    # would contain. The write itself needs the commit protocol to make its rows
+    # visible, so it lands with that.
     ticked_at = datetime.now(UTC)
     due = due_bucket_bounds(ticked_at)
     # One team cohort per minute of the bucket: the every-minute schedule smears
@@ -114,6 +142,7 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     started = time.monotonic()
     try:
         counts = await _count_teams_with_logs_async(ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard)
+        timed = await _preview_due_bucket(due)
     except Exception:
         increment_tick_runs("error")
         raise
@@ -121,7 +150,11 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
 
     record_clickhouse_duration(duration_ms)
     record_teams_with_logs(counts.total)
+    if timed is not None:
+        record_rollup_duration(timed.duration_ms)
+        record_rollup_preview(timed.preview)
     increment_tick_runs("ok")
+    preview = timed.preview if timed else None
     output = VolumeTickOutput(
         ticked_at=ticked_at.isoformat(),
         teams_with_logs=counts.total,
@@ -129,6 +162,11 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
         teams_due_in_shard=counts.due_in_shard,
         due_bucket_start=due.start.isoformat(),
         due_bucket_end=due.end.isoformat(),
+        rollup_rows=preview.rollup_rows if preview else None,
+        source_rows=preview.source_rows if preview else None,
+        distinct_services=preview.distinct_services if preview else None,
+        rows_without_namespace=preview.rows_without_namespace if preview else None,
+        rows_without_environment=preview.rows_without_environment if preview else None,
     )
     logger.info("logs_volume_tick_heartbeat", clickhouse_duration_ms=duration_ms, **dataclasses.asdict(output))
     return output

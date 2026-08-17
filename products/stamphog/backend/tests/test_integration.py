@@ -1165,33 +1165,25 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
 
 
 @pytest.mark.parametrize(
-    "review_enabled,approved_at_sha,expected_audience_key",
+    "approved_at_sha,expected_audience_key",
     [
-        (True, "sha-merged", "team-devex"),
-        (True, None, ""),
-        (True, "sha-earlier", ""),
-        # Digest-only mode (review off, digest on): approvals can't exist by construction, so
-        # every merge is digest-eligible — gating on approval would keep these repos out of
-        # Slack forever.
-        (False, None, "team-devex"),
+        ("sha-merged", "team-devex"),
+        (None, ""),
+        ("sha-earlier", ""),
     ],
-    ids=["approved_at_merged_head", "never_approved", "approved_at_earlier_head", "digest_only_needs_no_approval"],
+    ids=["approved_at_merged_head", "never_approved", "approved_at_earlier_head"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_merged_pr_digest_eligibility_gate(
     team,
     stamphog_chain: StamphogChain,
-    review_enabled: bool,
     approved_at_sha: str | None,
     expected_audience_key: str,
 ) -> None:
     # Regression guard: the approved-head_sha eligibility gate plus the author -> GitHub-team
     # audience cascade. Merge facts are always recorded, but audience_key is stamped (via the
-    # cascade) only when a stamphog-approved run exists at the exact merged head SHA — or the
-    # repo is digest-only, where no approval can exist.
+    # cascade) only when a stamphog-approved run exists at the exact merged head SHA.
     repo_config = _repo_config(team.id)
-    if not review_enabled:
-        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(enabled=False)
     author, merged_head = "devex-dev", "sha-merged"
     stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=approved_at_sha)

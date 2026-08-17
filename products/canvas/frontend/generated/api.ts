@@ -12,6 +12,8 @@ import type {
     CanvasActionInvokeApi,
     CanvasActionResultApi,
     CanvasActionsResponseApi,
+    CanvasAgentRequestApi,
+    CanvasAgentRequestResultApi,
     CanvasApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
@@ -419,6 +421,27 @@ export const canvasesReportErrorCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasReportErrorApi),
+    })
+}
+
+export const getCanvasesRequestAgentCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/request_agent/`
+}
+
+/**
+ * Route a viewer-approved change request to the canvas's authoring task.
+ */
+export const canvasesRequestAgentCreate = async (
+    projectId: string,
+    id: string,
+    canvasAgentRequestApi: CanvasAgentRequestApi,
+    options?: RequestInit
+): Promise<CanvasAgentRequestResultApi> => {
+    return apiMutator<CanvasAgentRequestResultApi>(getCanvasesRequestAgentCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasAgentRequestApi),
     })
 }
 

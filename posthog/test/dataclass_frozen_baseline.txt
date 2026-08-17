@@ -13,7 +13,6 @@
 1 posthog/api/oauth/toolbar_service.py
 1 posthog/api/test/test_event_definition.py
 1 posthog/cache_utils.py
-1 posthog/clickhouse/client/limit.py
 1 posthog/clickhouse/custom_metrics.py
 1 posthog/clickhouse/explain.py
 1 posthog/clickhouse/property_groups.py
@@ -1448,7 +1447,6 @@
 2 products/experiments/stats/shared/cuped.py
 2 products/growth/backend/product_push/service.py
 2 products/growth/dags/user_product_list.py
-2 products/logs/backend/log_patterns.py
 2 products/managed_warehouse/backend/facade/contracts.py
 2 products/managed_warehouse/backend/temporal/types.py
 2 products/marketing_analytics/backend/demo/events.py

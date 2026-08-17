@@ -2299,6 +2299,7 @@ class SignalReportViewSet(
             },
             team=self.team,
             organization=self.organization,
+            request=request,
         )
 
         return self._refund_response(refund)

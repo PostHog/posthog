@@ -17,6 +17,7 @@ from typing import Any
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.contract import (
     allowed_import_specifiers,
+    canonical_network_origin,
     canvas_sdk_version,
     contract_limits,
     platform_dependencies,
@@ -85,6 +86,7 @@ _PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
 _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -175,6 +177,19 @@ def _line_of(code: str, position: int) -> int:
     return code.count("\n", 0, position) + 1
 
 
+def _validate_network_origin(origin: Any) -> str | None:
+    if not isinstance(origin, str):
+        return "network origins must be strings"
+    canonical = canonical_network_origin(origin)
+    if canonical is None:
+        return (
+            "network origins must be exact HTTPS origins without paths, credentials, queries, fragments, or wildcards"
+        )
+    if origin.rstrip("/") != canonical:
+        return f'network origin must use its canonical form: "{canonical}"'
+    return None
+
+
 def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
 
@@ -213,6 +228,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_insights = set(posthog_capabilities.get("insights") or [])
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
+    agent_requests = bool(posthog_capabilities.get("agentRequests"))
 
     declared_state = set(posthog_capabilities.get("state") or [])
     if not declared_state:
@@ -352,6 +368,20 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                 )
             )
 
+    if not agent_requests:
+        request_match = _PH_AGENT_REQUEST_RE.search(code)
+        if request_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_agent_requests",
+                    "ph.agent.request() requires capabilities.posthog.agentRequests: true — "
+                    "the host rejects undeclared agent requests at runtime",
+                    path=path,
+                    line=_line_of(code, request_match.start()),
+                )
+            )
+
     return diagnostics
 
 
@@ -384,10 +414,10 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
     if project.get("entryHtml") not in files:
         diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
     network_origins = ((project.get("capabilities") or {}).get("network") or {}).get("origins") or []
-    if network_origins:
-        diagnostics.append(
-            diagnostic("error", "network_origins_not_supported", "capabilities.network.origins must be empty")
-        )
+    for origin in network_origins:
+        problem = _validate_network_origin(origin)
+        if problem is not None:
+            diagnostics.append(diagnostic("error", "invalid_network_origin", problem))
     declared_verbs = ((project.get("capabilities") or {}).get("posthog") or {}).get("actions") or []
     unregistered = sorted(set(declared_verbs) - set(CANVAS_ACTIONS))
     if unregistered:
