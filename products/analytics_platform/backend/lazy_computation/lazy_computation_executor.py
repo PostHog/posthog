@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Q
 from django.utils import timezone as django_timezone
 
@@ -739,7 +740,9 @@ def create_lazy_computation_job(
 
     Uses INSERT .. ON CONFLICT DO NOTHING (`ignore_conflicts`) so losing the
     race is a silent no-op rather than a logged Postgres error with a rolled-back
-    transaction; executors race on these windows by design.
+    transaction; executors race on these windows by design. Only unique
+    conflicts are suppressed: FK and check-constraint violations still raise
+    IntegrityError to the caller.
     """
     job = PreaggregationJob(
         team=team,
@@ -749,10 +752,16 @@ def create_lazy_computation_job(
         status=PreaggregationJob.Status.PENDING,
         expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
     )
+    # ignore_conflicts emits a bare ON CONFLICT DO NOTHING, which relies on the
+    # partial unique index being the only realistic unique conflict on this
+    # table; a future unique constraint would have its violations misreported
+    # as lost races.
     PreaggregationJob.objects.bulk_create([job], ignore_conflicts=True)
     # ignore_conflicts suppresses RETURNING and the UUID pk is generated
     # client-side, so probe by pk to learn whether the row actually landed.
-    if not PreaggregationJob.objects.filter(id=job.id).exists():
+    # Pinned to the writer: a replica-routed read here would misclassify the
+    # winner as a loser and orphan its own PENDING row.
+    if not PreaggregationJob.objects.using(DEFAULT_DB_ALIAS).filter(id=job.id).exists():
         return None
     return job
 
@@ -977,6 +986,7 @@ class LazyComputationExecutor:
         pubsub: redis_lib.client.PubSub | None = None
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
+        conflict_passes = 0
 
         had_ready_at_start: bool | None = None
 
@@ -1204,19 +1214,29 @@ class LazyComputationExecutor:
 
                 if did_work or lost_create_race:
                     if lost_create_race and not did_work:
-                        # Normally the rescan finds the winner's PENDING row and moves to
-                        # the wait branch. A PENDING row past its own expires_at is
-                        # invisible to find_existing_jobs yet still holds the unique-index
-                        # slot, which would otherwise make this loop hot-spin failed
-                        # inserts until the wait budget runs out, so pace the retry.
-                        remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
-                        if remaining > 0:
-                            time.sleep(min(self.poll_interval_seconds, remaining))
-                    interval = self.poll_interval_seconds
+                        # In the healthy race the loser's next rescan sees the winner's
+                        # committed PENDING row and moves to the wait branch, so the
+                        # first conflict pass retries immediately. A conflict that
+                        # repeats with the window still missing means the blocking row
+                        # is PENDING but past its expires_at: invisible to
+                        # find_existing_jobs yet still holding the unique-index slot,
+                        # which would otherwise hot-spin no-op inserts until the wait
+                        # budget runs out. Pace those retries with the same backoff the
+                        # wait branch uses.
+                        conflict_passes += 1
+                        if conflict_passes > 1:
+                            remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
+                            if remaining > 0:
+                                time.sleep(min(interval, remaining))
+                            interval = min(interval * 2, self.max_poll_interval_seconds)
+                    else:
+                        conflict_passes = 0
+                        interval = self.poll_interval_seconds
                     continue
 
                 # Step 4: Wait for pending jobs
                 if pending_jobs:
+                    conflict_passes = 0
                     waited_job_ids.update(j.id for j in pending_jobs)
 
                     if pubsub is None:

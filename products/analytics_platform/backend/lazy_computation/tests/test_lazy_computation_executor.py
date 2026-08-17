@@ -1505,6 +1505,9 @@ class TestRaceConditionHandling(BaseTest):
                 ],
             ),
             patch.object(executor, "_wait_for_notification", side_effect=mock_wait),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
         ):
             result = executor.execute(
                 team=self.team,
@@ -1516,6 +1519,9 @@ class TestRaceConditionHandling(BaseTest):
 
         assert result.ready is True
         assert existing_pending.id in result.job_ids
+        # A single lost race must not pace: the rescan finds the winner's row,
+        # so any sleep here is pure added latency on the fan-out path.
+        mock_sleep.assert_not_called()
 
     def test_for_loop_creates_duplicate_after_peer_completes_mid_loop(self):
         """Wasted-INSERT pattern under concurrent first-readers — documented in CONSISTENCY.md.
@@ -2944,9 +2950,14 @@ class TestJobLifecycleCounters(BaseTest):
         # on every loop iteration. Patching `create_lazy_computation_job` to
         # always return None simulates losing the partial-unique-index race on
         # every attempt; the executor times out shortly after.
-        with patch(
-            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
-            return_value=None,
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
+                return_value=None,
+            ),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
+            ) as mock_sleep,
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -2957,6 +2968,9 @@ class TestJobLifecycleCounters(BaseTest):
                 run_insert=lambda t, j: None,
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
+        # Repeated conflicts on a still-missing window must pace instead of
+        # hot-spinning no-op inserts for the whole wait budget.
+        assert mock_sleep.call_count >= 1
 
         assert (
             self._delta(

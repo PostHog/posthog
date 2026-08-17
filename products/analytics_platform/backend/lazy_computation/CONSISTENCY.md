@@ -370,7 +370,7 @@ Observed in a 10-concurrent-first-readers stress test of the `web_overview_query
 
 `find_existing_jobs` filters on `expires_at >= now`, but the `unique_pending_job_per_range` index only keys on `status='pending'`. A PENDING row whose `expires_at` has passed is therefore invisible to readers while still holding the create slot for its window. Rows land in that state when the owning executor dies without a terminal update and the TTL then lapses, or when an INSERT outlives the TTL stamped at creation (short today-bands are most exposed).
 
-**Consequences:** the window looks uncovered, every create for it loses the race, and the step-4 stale reaper never sees the row (it only reaps jobs `find_existing_jobs` returned). Writers pace these retries at one poll interval per pass and give up at `wait_timeout_seconds`; check-only reads are unaffected and fall back to the live query.
+**Consequences:** the window looks uncovered, every create for it loses the race, and the step-4 stale reaper never sees the row (it only reaps jobs `find_existing_jobs` returned). Writers retry immediately once (the healthy-race case, where the rescan finds the winner's row), then back off exponentially like the wait branch, giving up at `wait_timeout_seconds`; check-only reads are unaffected and fall back to the live query.
 
 **Detection:** a sustained `lazy_computation_job_create_conflicts_total` rate for a table with no matching `lazy_computation_jobs_created_total` / `lazy_computation_jobs_finished_total` progress. The steady background conflict rate from warmers and SWR revalidation racing on shared windows does not show this signature.
 
