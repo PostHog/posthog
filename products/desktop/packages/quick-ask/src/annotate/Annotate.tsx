@@ -314,31 +314,39 @@ export function Annotate(): React.JSX.Element {
     setSelected(null);
   }, [selected, commit]);
 
+  // Builds the shape for the open text draft, or null when there is no draft
+  // or its value is blank. Shared by commitText and the synchronous export in
+  // finish, so the exported PNG and the committed shape can never diverge.
+  const buildTextShape = useCallback((): Shape | null => {
+    const at = textDraft;
+    const value = textRef.current?.value ?? "";
+    if (!at || !value.trim()) return null;
+    const text = value.trimEnd();
+    const cap = crop ? textWrapCap(at.x, crop, textBg) : undefined;
+    const wraps = cap !== undefined && textNaturalWidth(text, textSize) > cap;
+    return {
+      kind: "text",
+      at,
+      text,
+      color,
+      bg: textBg,
+      size: textSize,
+      ...(wraps ? { width: cap } : {}),
+    };
+  }, [textDraft, crop, color, textBg, textSize]);
+
   const commitText = useCallback(
     (keep: boolean): void => {
-      const at = textDraft;
-      const value = textRef.current?.value ?? "";
+      const shape = keep ? buildTextShape() : null;
       setTextDraft(null);
-      if (keep && at && value.trim()) {
-        const text = value.trimEnd();
-        const cap = crop ? textWrapCap(at.x, crop, textBg) : undefined;
-        const wraps =
-          cap !== undefined && textNaturalWidth(text, textSize) > cap;
-        pushShape({
-          kind: "text",
-          at,
-          text,
-          color,
-          bg: textBg,
-          size: textSize,
-          ...(wraps ? { width: cap } : {}),
-        });
+      if (shape) {
+        pushShape(shape);
         // The usual next step is placing the label, so hand over the
         // select tool with the fresh label already selected.
         setTool("select");
       }
     },
-    [textDraft, crop, color, textBg, textSize, pushShape],
+    [buildTextShape, pushShape],
   );
 
   const undo = useCallback((): void => {
@@ -437,7 +445,13 @@ export function Annotate(): React.JSX.Element {
 
   const finish = useCallback((): void => {
     if (!shot) return;
+    // Build the open draft synchronously: commitText only schedules a state
+    // update, so `shapes` in this same tick would not yet hold the new label
+    // and the export would drop it (e.g. clicking Attach without pressing
+    // Enter first).
+    const pending = textDraft ? buildTextShape() : null;
     if (textDraft) commitText(true);
+    const exportShapes = pending ? [...shapes, pending] : shapes;
     const region = crop ?? {
       x: 0,
       y: 0,
@@ -468,11 +482,20 @@ export function Annotate(): React.JSX.Element {
     ctx.scale(scaleX * out, scaleY * out);
     ctx.translate(-region.x, -region.y);
     const env = { image: shot, sx: scaleX, sy: scaleY };
-    for (const shape of shapes) {
+    for (const shape of exportShapes) {
       drawShape(ctx, shape, env);
     }
     annotateHost().done(canvas.toDataURL("image/png"));
-  }, [shot, crop, shapes, scaleX, scaleY, textDraft, commitText]);
+  }, [
+    shot,
+    crop,
+    shapes,
+    scaleX,
+    scaleY,
+    textDraft,
+    buildTextShape,
+    commitText,
+  ]);
 
   // Keyboard: tools, undo/redo, delete, nudge and resize, finish.
   useEffect(() => {
