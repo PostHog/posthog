@@ -9,7 +9,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1300_identityproviderconfig_saml_relay_state_unique"),
-        ("signals", "0090_signal_scout_run_recent_idx"),
+        ("signals", "0094_delete_session_analysis_source_configs"),
     ]
 
     operations = [
