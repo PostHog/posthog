@@ -93,7 +93,7 @@ function EditableTags({
                 onChange={setDraft}
                 onPressEnter={addDraft}
                 onBlur={addDraft}
-                placeholder="Add tag…"
+                placeholder="Add category…"
                 className="w-24 [&_input]:placeholder:text-tertiary [&_input]:placeholder:text-xs"
             />
         </div>

@@ -90,6 +90,11 @@ class _LlmDraft(BaseModel):
     length: Literal["short", "medium", "long"] = Field(
         default="medium", description="Summarizer only: how long each summary should be."
     )
+    filter_event: str | None = Field(
+        default=None,
+        description="The one event name, copied EXACTLY from the briefing's most-active-events list, that a "
+        "session must contain to be relevant to the goal; null when no listed event clearly maps to it.",
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,6 +106,7 @@ class ScannerDraft:
     scanner_type: str
     scanner_config: dict[str, Any]
     rationale: str
+    query: dict[str, Any] | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -193,6 +199,10 @@ Pick the single type that best fits the goal, then draft the scanner:
 - rationale: one or two sentences, addressed to the user, explaining why the chosen type and settings fit
   their goal (e.g. why a classifier rather than a scorer, or what the scale's endpoints capture). It is
   shown next to the draft in the creation wizard; plain language, and don't restate the config itself.
+- filter_event: when the goal targets a specific flow AND one event in the briefing's "most active custom
+  events" list clearly marks that flow (e.g. a checkout goal and a checkout_started event), set it to that
+  event name copied EXACTLY as listed, so only sessions containing it get scanned. When the goal is broad,
+  or no listed event clearly maps to it, leave it null. Never invent or reword an event name.
 
 The briefing may include the company's name, its business context, and the team's existing scanners:
 - Use the business context to make the name, description, and prompt specific to THIS company's product,
@@ -270,10 +280,15 @@ def draft_scanner_from_goal(
     then synthesize one scanner draft. Raises DraftError on model failure.
 
     `include_business_context` must be False for scoped-token requests: core memory's own API is
-    INTERNAL (session-only), so its content must not flow out through this endpoint's response.
+    INTERNAL (session-only), and the org/project names sit behind their own read scopes, so neither
+    may flow out through this endpoint's response (the model can echo them into the draft).
     """
     taxonomy = _product_taxonomy(team)
-    company = " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
+    company = (
+        " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
+        if include_business_context
+        else ""
+    )
     user_content = _build_user_content(
         goal,
         taxonomy.events,
@@ -283,7 +298,7 @@ def draft_scanner_from_goal(
         company=company,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
-    return _finalize(parsed)
+    return _finalize(parsed, offered_events=taxonomy.events)
 
 
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft:
@@ -337,7 +352,7 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft
         raise DraftError("invalid response") from e
 
 
-def _finalize(parsed: _LlmDraft) -> ScannerDraft:
+def _finalize(parsed: _LlmDraft, offered_events: list[str] | None = None) -> ScannerDraft:
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     prompt = parsed.prompt.strip()[:_MAX_PROMPT_LENGTH]
@@ -373,10 +388,20 @@ def _finalize(parsed: _LlmDraft) -> ScannerDraft:
     if error:
         raise DraftError(f"draft config invalid: {error}")
 
+    # Only an event that exists in the offered taxonomy may become a filter: anything else is a
+    # hallucinated name that would silently match no recordings.
+    query: dict[str, Any] | None = None
+    if parsed.filter_event and parsed.filter_event in (offered_events or []):
+        query = {
+            "kind": "RecordingsQuery",
+            "events": [{"type": "events", "id": parsed.filter_event, "name": parsed.filter_event, "order": 0}],
+        }
+
     return ScannerDraft(
         name=name,
         description=parsed.description.strip()[:_MAX_DESCRIPTION_LENGTH],
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
+        query=query,
     )

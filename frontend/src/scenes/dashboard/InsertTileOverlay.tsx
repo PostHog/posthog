@@ -5,7 +5,7 @@ import { Layout } from 'react-grid-layout'
 import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { computeBoundaries, InsertZone, LineSegment, TileRect } from 'scenes/dashboard/insertTileGeometry'
 
 interface InsertTileOverlayProps {
@@ -19,7 +19,7 @@ interface InsertTileOverlayProps {
     canEditDashboard: boolean
     isMobileView: boolean
     disabled?: boolean
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
 }
 
 export function InsertTileOverlay({
@@ -148,7 +148,7 @@ function InsertionStrip({
     cols: number
     segments: LineSegment[]
     zones: InsertZone[]
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)

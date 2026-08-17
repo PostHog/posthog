@@ -181,49 +181,51 @@ export function ActivityTimeline({
     return byId;
   }, [timeline]);
 
-  const rows = useMemo(
-    () =>
-      buildActivityTimeline({
-        task: {
-          id: task.id,
-          createdAt: task.created_at,
-          updatedAt: task.updated_at,
-          latestRunId: task.latest_run?.id ?? null,
-          latestRunStatus: task.latest_run?.status ?? null,
-          latestRunPrUrl:
-            typeof task.latest_run?.output?.pr_url === "string"
-              ? task.latest_run.output.pr_url
-              : null,
-        },
-        messages,
-        commentThreads: commentThreads.map((thread) => ({
-          id: thread.id,
-          lastActivityAt: thread.last_activity_at,
-          mentionedUserIds: thread.mentioned_user_ids ?? [],
-          resolved: thread.resolved,
-          stateEvent: thread.state_event
-            ? {
-                state: thread.state_event.state,
-                createdAt: thread.state_event.created_at,
-              }
+  const rows = useMemo(() => {
+    const taskCreatedTimestamp = Date.parse(task.created_at);
+    return buildActivityTimeline({
+      task: {
+        id: task.id,
+        createdAt: task.created_at,
+        updatedAt: task.updated_at,
+        latestRunId: task.latest_run?.id ?? null,
+        latestRunStatus: task.latest_run?.status ?? null,
+        latestRunPrUrl:
+          typeof task.latest_run?.output?.pr_url === "string"
+            ? task.latest_run.output.pr_url
             : null,
-        })),
-        userMessages: conversationItems.reduce<UserMessageLike[]>(
-          (items, item) => {
-            if (item.type === "user_message") {
-              items.push({
-                id: item.id,
-                content: item.content,
-                timestamp: item.timestamp,
-              });
+      },
+      messages,
+      commentThreads: commentThreads.map((thread) => ({
+        id: thread.id,
+        lastActivityAt: thread.last_activity_at,
+        mentionedUserIds: thread.mentioned_user_ids ?? [],
+        resolved: thread.resolved,
+        stateEvent: thread.state_event
+          ? {
+              state: thread.state_event.state,
+              createdAt: thread.state_event.created_at,
             }
-            return items;
-          },
-          [],
-        ),
-      }),
-    [task, messages, commentThreads, conversationItems],
-  );
+          : null,
+      })),
+      userMessages: conversationItems.reduce<UserMessageLike[]>(
+        (items, item) => {
+          if (item.type === "user_message") {
+            items.push({
+              id: item.id,
+              content: item.content,
+              timestamp:
+                item.pinToTop === true && Number.isFinite(taskCreatedTimestamp)
+                  ? taskCreatedTimestamp
+                  : item.timestamp,
+            });
+          }
+          return items;
+        },
+        [],
+      ),
+    });
+  }, [task, messages, commentThreads, conversationItems]);
 
   // Numbering a run and deciding whether to number it at all have to come from the same
   // population, or a task with three runs and one row labels that row "run 1".

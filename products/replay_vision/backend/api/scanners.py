@@ -9,7 +9,6 @@ from django.utils import timezone
 
 import structlog
 import django_filters
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -34,7 +33,6 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import (
@@ -265,7 +263,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         max_length=_MAX_TAGS,
         help_text=(
-            "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. "
+            "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. "
             "Tags cannot contain commas."
         ),
     )
@@ -1186,7 +1184,7 @@ class SuggestTagsRequestSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=200,
-        help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
+        help_text="The categories already configured, so suggestions never duplicate one the user has.",
     )
     multi_label = serializers.BooleanField(
         required=False,
@@ -1256,6 +1254,11 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     rationale = serializers.CharField(
         allow_blank=True,
         help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
+    )
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter "
+        "picked from the team's real events; null when no event clearly matched the goal.",
     )
 
 
@@ -1352,20 +1355,6 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     window_days = serializers.IntegerField(
         read_only=True,
         help_text="Trailing window the cohort was drawn from, in days.",
-    )
-
-
-def _is_goal_draft_enabled(user: User, team: Team) -> bool:
-    """Server-side half of the REPLAY_VISION_GOAL_DRAFT rollout flag; the client hides the box when it's off."""
-    return bool(
-        posthoganalytics.feature_enabled(
-            "replay-vision-goal-draft",
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
     )
 
 
@@ -1906,7 +1895,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
         # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting classifier tags requires session_recording read access.")
+            raise PermissionDenied("Suggesting categories requires session_recording read access.")
 
         body = SuggestTagsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1971,8 +1960,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # The draft feeds a scanner that will expose recording contents, so mirror the config actions' gate.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Drafting a Replay Vision scanner requires session_recording read access.")
-        if not _is_goal_draft_enabled(cast(User, request.user), self.team):
-            raise PermissionDenied("This feature is not available.")
         # Same consent requirement as scanner creation: the goal and the team's taxonomy go to the model.
         if not self.team.organization.is_ai_data_processing_approved:
             raise ValidationError(
@@ -1982,21 +1969,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = DraftScannerRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
+        goal = body.validated_data["goal"]
+        # The goal is customer text, so only its length goes into telemetry.
+        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+
         try:
             drafted = draft_scanner_from_goal(
                 team=self.team,
                 user=cast(User, request.user),
-                goal=body.validated_data["goal"],
+                goal=goal,
                 user_access_control=self.user_access_control,
                 # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
                 # receive its content through the draft either.
                 include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
+            # Report failures too, so model errors don't read as user abandonment.
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_scanner_drafted",
+                {**draft_properties, "success": False},
+                team=self.team,
+                request=request,
+            )
             return Response(
                 {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_drafted",
+            {
+                **draft_properties,
+                "success": True,
+                "scanner_type": drafted.scanner_type,
+                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                "has_query": bool(drafted.query),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             DraftScannerResponseSerializer(
@@ -2006,6 +2019,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_type": drafted.scanner_type,
                     "scanner_config": drafted.scanner_config,
                     "rationale": drafted.rationale,
+                    "query": drafted.query,
                 }
             ).data
         )

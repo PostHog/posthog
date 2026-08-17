@@ -64,7 +64,6 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
-from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
 from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
     create_surfacing_score_export_sweep_schedule,
@@ -637,6 +636,8 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
         "video-segment-clustering-coordinator-schedule",
         "session-summarization-sweep-schedule",
         "session-summarization-sweep-reconciler-schedule",
+        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
+        "session-summary-cleanup-sweep-schedule",
     ]
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -901,7 +902,6 @@ schedules = [
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
-    schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)

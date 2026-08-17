@@ -734,9 +734,9 @@ const AgentProse = memo(function AgentProse({
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
               {isStreaming ? (
-                <ChatStreamingMarkdown content={smoothed} />
+                <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
-                <ChatMarkdown content={text} />
+                <ChatMarkdown content={text} renderObjectTags />
               )}
             </ChatBubbleContent>
           </ChatBubble>
