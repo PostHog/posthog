@@ -693,6 +693,41 @@ class SignalReport(UUIDModel):
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
 
 
+class SignalReportCanvas(TeamScopedRootMixin, UUIDModel):
+    class GenerationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATING = "generating", "Generating"
+        READY = "ready", "Ready"
+        FAILED = "failed", "Failed"
+
+    class CollaborationMode(models.TextChoices):
+        MANAGED = "managed", "Managed"
+        COLLABORATIVE = "collaborative", "Collaborative"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="canvas_session")
+    canvas_id = models.UUIDField(unique=True)
+    discussion_task_id = models.UUIDField(unique=True)
+    generation_task_id = models.UUIDField(null=True, blank=True)
+    generated_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    generation_status = models.CharField(
+        max_length=16,
+        choices=GenerationStatus,
+        default=GenerationStatus.PENDING,
+    )
+    collaboration_mode = models.CharField(
+        max_length=16,
+        choices=CollaborationMode,
+        default=CollaborationMode.MANAGED,
+    )
+    failure_reason = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["team", "generation_status"], name="signals_rpt_canvas_status_idx")]
+
+
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 

@@ -6941,6 +6941,14 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
+def _activity_target(task: Task) -> tuple[str | None, str | None]:
+    target = (task.state or {}).get("activity_target")
+    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
+        return None, None
+    target_id = target.get("id")
+    return ("desktop_canvas", target_id) if isinstance(target_id, str) and target_id else (None, None)
+
+
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -7000,6 +7008,8 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
+                target_scope=_activity_target(row.task)[0],
+                target_id=_activity_target(row.task)[1],
                 is_unread=row.read_at is None,
             )
             for row in rows
