@@ -1415,6 +1415,11 @@ export interface surveyLogicMeta {
         ) => (questionIndex: number) => SurveyQuestionDescriptionContentType | undefined
         surveyRepeatedActivationAvailable: (survey: NewSurvey | Survey) => boolean
         hasTargetingSet: (survey: NewSurvey | Survey) => boolean
+        targetingCohortLaunchError: (
+            survey: NewSurvey | Survey,
+            cohortsById: Partial<Record<number | string, CohortType>>,
+            enabledFlags: FeatureFlagsSet
+        ) => string | null
         breadcrumbs: (survey: NewSurvey | Survey) => Breadcrumb[]
         sidePanelContext: (survey: NewSurvey | Survey) => SidePanelSceneContext | null
         projectTreeRef: (arg: string) => ProjectTreeRef
