@@ -1339,6 +1339,7 @@ class ExternalDataSourceType(models.TextChoices):
     DOKPLOY = "Dokploy", "Dokploy"
     HOOTSUITE = "Hootsuite", "Hootsuite"
     WISPRFLOW = "WisprFlow", "WisprFlow"
+    SAMCART = "SamCart", "SamCart"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
