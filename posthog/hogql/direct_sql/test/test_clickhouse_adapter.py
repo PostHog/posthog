@@ -209,10 +209,10 @@ class TestClickHouseRowCap(SimpleTestCase):
 
     def test_returns_rows_and_types_under_cap(self):
         client = self._stream_client([[(1,), (2,)], [(3,)]])
-        rows, column_names, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
-        self.assertEqual(rows, [(1,), (2,), (3,)])
-        self.assertEqual(column_names, ["n"])
-        self.assertEqual(column_types, ["Int64"])
+        fetch_result = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
+        self.assertEqual(fetch_result.rows, [(1,), (2,), (3,)])
+        self.assertEqual(fetch_result.column_names, ["n"])
+        self.assertEqual(fetch_result.column_types, ["Int64"])
 
     def test_raises_when_result_exceeds_cap(self):
         # The streaming guard trips one row past the cap — the memory-exhaustion path a raw

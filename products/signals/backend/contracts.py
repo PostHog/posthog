@@ -139,6 +139,13 @@ class GithubIssueSignalExtra(SignalExtraBase):
     updated_at: str
     locked: bool
     state: str
+    # Defaulted, unlike the fields above: payloads emitted before these columns existed carry
+    # neither key, and an author is context for triage rather than something a signal needs.
+    author_login: str | None = None
+    # GitHub's own enum — OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+    # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
+    # taxonomy instead of failing validation and dropping the signal.
+    author_association: str | None = None
 
 
 class GithubIssueSignalInput(SignalInputBase):
