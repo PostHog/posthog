@@ -117,7 +117,15 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        currentTeam: () => actions.checkSetup(),
+        // kea-subscriptions fires once at mount for any value that isn't `undefined`, and
+        // `currentTeam` defaults to `null`, so without this guard every mount checked twice:
+        // once here and once from `afterMount`. Still fires on the null-to-team transition,
+        // which is the case this subscription exists for.
+        currentTeam: (_, previousTeam) => {
+            if (previousTeam !== undefined) {
+                actions.checkSetup()
+            }
+        },
     })),
     afterMount(({ actions, cache }) => {
         actions.checkSetup()
