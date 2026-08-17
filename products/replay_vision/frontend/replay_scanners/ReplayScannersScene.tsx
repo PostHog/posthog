@@ -56,8 +56,7 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
 }))
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
-    const { togglingIds, deletingIds } = useValues(replayScannersLogic)
-    const { toggleScannerEnabled, deleteScanner } = useActions(replayScannersLogic)
+    const { deleteScanner } = useActions(replayScannersLogic)
 
     return (
         <More
@@ -72,31 +71,11 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
                     >
                         Edit
                     </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        onClick={() => toggleScannerEnabled(scanner.id)}
-                        loading={togglingIds.includes(scanner.id)}
-                        disabledReason={
-                            togglingIds.includes(scanner.id)
-                                ? 'Updating…'
-                                : getReplayVisionEditDisabledReason(scanner.user_access_level)
-                        }
-                        data-attr="vision-scanner-toggle-enabled-menu"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                    >
-                        {scanner.enabled ? 'Disable' : 'Enable'}
-                    </LemonButton>
                     <LemonDivider />
                     <LemonButton
                         fullWidth
                         status="danger"
-                        loading={deletingIds.includes(scanner.id)}
-                        disabledReason={
-                            deletingIds.includes(scanner.id)
-                                ? 'Deleting…'
-                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
-                        }
+                        disabledReason={getReplayVisionDeleteDisabledReason(scanner.user_access_level)}
                         onClick={() =>
                             LemonDialog.open({
                                 title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
