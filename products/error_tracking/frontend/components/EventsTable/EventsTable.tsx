@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -108,8 +110,19 @@ function EventRow({
     lastEventUuid?: string
     onSelect: (event: ErrorEventType) => void
 }): JSX.Element {
+    const rowRef = useRef<HTMLTableRowElement>(null)
+
+    // Scroll only when this row becomes the selected one. Depending on the list's loading state
+    // would re-fire on every pagination request and yank the list back to the selection.
+    useEffect(() => {
+        if (selected) {
+            rowRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [selected])
+
     return (
         <TableRow
+            ref={rowRef}
             data-state={selected ? 'selected' : undefined}
             className={cn(
                 'cursor-pointer',

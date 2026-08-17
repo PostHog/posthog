@@ -905,6 +905,22 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
 
+    def test_error_tracking_issue_severity(self):
+        ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="high_severity_issue",
+            status=ErrorTrackingIssue.Status.ACTIVE,
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
+
+        response = execute_hogql_query(
+            "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("high",)]
+
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
     """`is_live_queryable` is how an agent finds the sources it can pass as a query's connection id."""

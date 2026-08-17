@@ -35,6 +35,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsWorkflow,
+    build_register_data_imports_workflow_id,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -840,8 +841,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=inputs.external_data_schema_id,
                             prepared_queryable_folder=prepared_queryable_folder,
                         ),
-                        id=(
-                            f"ducklake-register-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}-{job_id}"
+                        id=build_register_data_imports_workflow_id(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
                         ),
                         task_queue=settings.DUCKLAKE_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,

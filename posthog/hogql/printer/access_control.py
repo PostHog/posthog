@@ -75,7 +75,7 @@ def build_access_control_guard(
             type=ast.BooleanType(),
         )
     else:
-        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, set())
+        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
         if not blocked_ids:
             return None
         guard = ast.CompareOperation(

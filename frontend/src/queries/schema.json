@@ -245,6 +245,7 @@
                 "external_id",
                 "created_at",
                 "updated_at",
+                "churned_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -552,6 +553,10 @@
                         "$ref": "#/definitions/AccountsTableFilter"
                     },
                     "type": "array"
+                },
+                "includeChurned": {
+                    "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "AccountsTableQuery",
@@ -2224,7 +2229,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
@@ -2233,7 +2238,8 @@
                 "ActionsPie",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
-                "TwoDimensionalHeatmap"
+                "TwoDimensionalHeatmap",
+                "ScatterPlot"
             ],
             "type": "string"
         },
@@ -5084,6 +5090,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ScatterPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -5182,7 +5192,8 @@
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "ScatterPlot"
                     ],
                     "type": "string"
                 },
@@ -15265,7 +15276,8 @@
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
-                "SlopeGraph"
+                "SlopeGraph",
+                "ScatterPlot"
             ],
             "type": "string"
         },
@@ -15300,6 +15312,9 @@
                 },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
+                },
+                "scatter": {
+                    "$ref": "#/definitions/ScatterChartSettings"
                 },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
@@ -25668,7 +25683,9 @@
                 "Dokploy",
                 "RakutenAdvertising",
                 "Zitadel",
-                "DeelFlows"
+                "DeelFlows",
+                "Hootsuite",
+                "WisprFlow"
             ],
             "type": "string"
         },
@@ -47696,6 +47713,25 @@
             "required": ["kind", "shortId"],
             "type": "object"
         },
+        "ScatterChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showBestFit": {
+                    "description": "Whether to draw a least-squares fit line through each series' points.",
+                    "type": "boolean"
+                },
+                "xScale": {
+                    "description": "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "xStartAtZero": {
+                    "description": "Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "SchemaMap": {
             "additionalProperties": {
                 "anyOf": [
@@ -48339,9 +48375,6 @@
                         "$ref": "#/definitions/SessionRecordingExternalReference"
                     },
                     "type": "array"
-                },
-                "has_summary": {
-                    "type": "boolean"
                 },
                 "id": {
                     "type": "string"
@@ -52224,9 +52257,22 @@
                     "description": "Custom label rendered alongside the Y axis.",
                     "type": "string"
                 },
+                "yAxisMax": {
+                    "description": "Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it.",
+                    "type": "number"
+                },
+                "yAxisMin": {
+                    "description": "Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`.",
+                    "type": "number"
+                },
                 "yAxisScaleType": {
                     "enum": ["log10", "linear"],
                     "type": "string"
+                },
+                "yAxisStartAtZero": {
+                    "default": true,
+                    "description": "Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages.",
+                    "type": "boolean"
                 }
             },
             "type": "object"
