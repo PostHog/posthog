@@ -507,6 +507,7 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    db_backfill_floor_value: typing.Any = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -584,11 +585,16 @@ def google_ads_source(
         # and the refresh then replaces the whole table with that same first slice of history:
         # silent data loss that reports Completed.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
-            start = (
-                _incremental_value_as_date(db_incremental_field_last_value)
-                if db_incremental_field_last_value is not None
-                else dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
-            )
+            if db_incremental_field_last_value is not None:
+                start = _incremental_value_as_date(db_incremental_field_last_value)
+            elif db_backfill_floor_value is not None:
+                # Re-import of a table that already held history: the cursor is gone but the range
+                # it covered is known, so walk from there. Without this the backfill bound below
+                # would silently drop everything older than it, which a re-import was never asked
+                # to do.
+                start = _incremental_value_as_date(db_backfill_floor_value)
+            else:
+                start = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
             windows_with_data = 0

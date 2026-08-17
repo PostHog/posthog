@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
@@ -908,6 +908,45 @@ def test_update_xmin_state_writes_all_keys() -> None:
     schema = ExternalDataSchema(sync_type_config={})
     schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1, save=False)
     assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == (100, 4294967396, 1)
+
+
+@parameterized.expand(
+    [
+        # The synced column often isn't spelled like the incremental field: Google Ads reports
+        # `segments.date` and lands `segments_date`. Querying the unnormalized name finds no column,
+        # which would leave no floor and send the re-import back to the connector's default window.
+        ("normalized_column", "segments.date", {"segments_date": {}}, "2020-02-08"),
+        ("exact_column", "updated_at", {"updated_at": {}}, "2020-02-08"),
+        # Neither spelling is present, so there is nothing trustworthy to record.
+        ("no_matching_column", "segments.date", {"campaign_id": {}}, None),
+    ]
+)
+def test_delete_table_records_the_backfill_floor(
+    _name: str, incremental_field: str, columns: dict[str, Any], expected_floor: str | None
+) -> None:
+    schema = ExternalDataSchema(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={
+            "incremental_field": incremental_field,
+            "incremental_field_type": "Date",
+            "incremental_field_last_value": "2026-08-16",
+        },
+    )
+    table = MagicMock(columns=columns, deleted=True)
+    table.get_min_value_for_column.return_value = date(2020, 2, 8)
+
+    with (
+        patch.object(ExternalDataSchema, "table", table),
+        patch.object(schema, "save"),
+        patch.object(schema, "folder_path", return_value="folder"),
+        patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+    ):
+        schema.delete_table()
+
+    assert schema.backfill_floor_value == expected_floor
+    # The cursor is what a reset must clear; the floor is what tells the next run how far back the
+    # data went, so it has to outlive the same reset.
+    assert "incremental_field_last_value" not in schema.sync_type_config
 
 
 def test_reset_pipeline_clears_xmin_state() -> None:

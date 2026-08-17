@@ -95,6 +95,9 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    # Where this schema's data started before it was last deleted. Sources that bound a first sync
+    # read this so a re-import resumes at the old range instead of their own default window.
+    db_backfill_floor_value: Optional[Any] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.

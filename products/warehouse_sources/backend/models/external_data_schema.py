@@ -188,7 +188,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "backfill_floor": { "field": str, "value": any }, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -863,6 +863,22 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
     ) -> None:
+        last_value_json = self._incremental_value_as_json(last_value)
+
+        if last_value_json is None:
+            return
+
+        if type == "last":
+            self.sync_type_config["incremental_field_last_value"] = last_value_json
+        elif type == "earliest":
+            self.sync_type_config["incremental_field_earliest_value"] = last_value_json
+        else:
+            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
+
+        if save:
+            self.save(skip_activity_log=True)
+
+    def _incremental_value_as_json(self, last_value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         # a numpy scalar can only arrive here if numpy is already imported (the import-pipeline
@@ -876,7 +892,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         last_value_json: Any
 
         if last_value_py is None:
-            return
+            return None
 
         if (
             incremental_field_type == IncrementalFieldType.Integer
@@ -901,15 +917,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         else:
             last_value_json = str(last_value_py)
 
-        if type == "last":
-            self.sync_type_config["incremental_field_last_value"] = last_value_json
-        elif type == "earliest":
-            self.sync_type_config["incremental_field_earliest_value"] = last_value_json
-        else:
-            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
-
-        if save:
-            self.save(skip_activity_log=True)
+        return last_value_json
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
@@ -931,6 +939,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
         if self.table is not None:
+            # Must run before the S3 delete below, because it reads the synced data to find where
+            # the table's history started.
+            self._stash_backfill_floor()
+
             try:
                 client = get_s3_client()
                 client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
@@ -946,6 +958,49 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save()
 
             self.update_sync_type_config_for_reset_pipeline()
+
+    def _stash_backfill_floor(self) -> None:
+        # Deleting the data clears incremental_field_last_value, so the next run looks like a first
+        # sync. A source that bounds a first sync (Google Ads windows back from a default number of
+        # days) would then restart from that default instead of the range this table already
+        # covered, dropping everything older than it without saying so. Recording the floor lets
+        # such a source resume the walk where the old data started.
+        incremental_field = self.incremental_field
+        if self.table is None or not incremental_field:
+            return
+
+        column = self._resolve_synced_column(incremental_field)
+        if column is None:
+            return
+
+        floor = self.table.get_min_value_for_column(column)
+        floor_json = self._incremental_value_as_json(floor)
+        if floor_json is None:
+            return
+
+        # Keyed by field so a later incremental_field change can't hand a source a floor that was
+        # measured against a different column.
+        self.sync_type_config["backfill_floor"] = {"field": incremental_field, "value": floor_json}
+
+    def _resolve_synced_column(self, incremental_field: str) -> str | None:
+        # An incremental field names the field as the source's API exposes it, which is not always
+        # the synced column: Google Ads reports `segments.date` but lands it as `segments_date`.
+        # Resolve against the columns actually present rather than assuming either spelling, and
+        # give up instead of guessing when neither is there.
+        columns = (self.table.columns if self.table else None) or {}
+        for candidate in (incremental_field, incremental_field.replace(".", "_")):
+            if candidate in columns:
+                return candidate
+
+        return None
+
+    @property
+    def backfill_floor_value(self) -> IncrementalFieldValue:
+        floor = self.sync_type_config.get("backfill_floor") if self.sync_type_config else None
+        if not isinstance(floor, dict) or floor.get("field") != self.incremental_field:
+            return None
+
+        return floor.get("value")
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated

@@ -1508,6 +1508,29 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert all("1970-01-01" not in q for q in queries)
 
+    def test_re_import_with_a_recorded_floor_resumes_at_the_old_history_start(self):
+        # Deleting a schema's data clears the cursor, so the next run looks like a first sync and
+        # takes the bounded backfill above. On a table that already held years of history that
+        # silently drops everything older than the bound, and no later run goes back for it: the
+        # cursor only moves forward. Given the floor the old data started at, the drain must resume
+        # there instead.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                db_backfill_floor_value="2020-02-08",
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2020-02-08' AND segments.date < '2020-02-15' "
+            "ORDER BY segments.date ASC"
+        )
+        assert all("2024-07-17" not in q for q in queries)
+
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
         # the same backfill date every run and the refresh replaces the whole table with that same

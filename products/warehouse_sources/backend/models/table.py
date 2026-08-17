@@ -4,7 +4,7 @@ import time
 import subprocess
 from collections.abc import Iterable
 from io import StringIO
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -567,6 +567,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return columns
 
     def get_max_value_for_column(self, column: str) -> Any | None:
+        return self._get_aggregate_value_for_column(column, "max")
+
+    def get_min_value_for_column(self, column: str) -> Any | None:
+        return self._get_aggregate_value_for_column(column, "min")
+
+    def _get_aggregate_value_for_column(self, column: str, aggregate: Literal["max", "min"]) -> Any | None:
         try:
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
@@ -583,12 +589,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 team_id=self.team.pk,
                 table_id=self.id,
                 warehouse_query=True,
-                name="get_max_value_for_column",
+                name=f"get_{aggregate}_value_for_column",
                 product=Product.WAREHOUSE,
                 feature=Feature.QUERY,
             )
             result = sync_execute(
-                f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
+                f"SELECT {aggregate}({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
                 settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
             )
