@@ -15,6 +15,17 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/**
+ * A transient gateway failure (502/503/504) rather than anything the caller did wrong. These
+ * often arrive with an empty body (so `detail` is null) and usually succeed on retry, so a
+ * listener that has already shown a toast should stop here instead of rethrowing into
+ * unhandled-rejection tracking. A plain 500 is excluded on purpose: it signals an application
+ * bug, so it should keep surfacing its `detail` and reach error tracking.
+ */
+export function isTransientServerError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === 502 || error.status === 503 || error.status === 504)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

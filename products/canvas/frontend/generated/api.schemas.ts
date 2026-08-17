@@ -144,6 +144,39 @@ export interface PatchedCanvasUpdateApi {
 }
 
 /**
+ * Verb-specific arguments, validated against the verb's payload schema.
+ */
+export type CanvasActionInvokeApiPayload = { [key: string]: unknown }
+
+/**
+ * Payload for invoking one action verb.
+ */
+export interface CanvasActionInvokeApi {
+    /**
+     * Registered verb to invoke, e.g. 'tasks.create'.
+     * @maxLength 64
+     */
+    verb: string
+    /** Verb-specific arguments, validated against the verb's payload schema. */
+    payload?: CanvasActionInvokeApiPayload
+}
+
+/**
+ * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+ */
+export type CanvasActionResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one action invocation.
+ */
+export interface CanvasActionResultApi {
+    /** The verb that executed. */
+    verb: string
+    /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+    result: CanvasActionResultApiResult
+}
+
+/**
  * * `queued` - queued
  * * `building` - building
  * * `ready` - ready
@@ -359,6 +392,17 @@ export interface CanvasSourceAssetApi {
     content: string
 }
 
+/**
+ * * `user` - user
+ * * `shared` - shared
+ */
+export type CanvasStateScopeEnumApi = (typeof CanvasStateScopeEnumApi)[keyof typeof CanvasStateScopeEnumApi]
+
+export const CanvasStateScopeEnumApi = {
+    User: 'user',
+    Shared: 'shared',
+} as const
+
 export interface CanvasPostHogCapabilitiesApi {
     /**
      * @maxItems 100
@@ -371,6 +415,18 @@ export interface CanvasPostHogCapabilitiesApi {
      * @items.maxLength 200
      */
     captureEvents: string[]
+    /**
+     * State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).
+     * @maxItems 2
+     */
+    state?: CanvasStateScopeEnumApi[]
+    /**
+     * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 64
+     */
+    actions?: string[]
+    agentRequests?: boolean
 }
 
 export interface CanvasNetworkCapabilitiesApi {
@@ -397,7 +453,7 @@ export type CanvasSourceProjectApiFiles = { [key: string]: string }
 export type CanvasSourceProjectApiAssets = { [key: string]: CanvasSourceAssetApi }
 
 /**
- * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+ * Exact-version dependencies, restricted to the platform-supported set at its pinned versions.
  */
 export type CanvasSourceProjectApiDependencies = { [key: string]: string }
 
@@ -413,11 +469,11 @@ export interface CanvasSourceProjectApi {
     assets?: CanvasSourceProjectApiAssets
     /** The project's entry HTML file. Currently always "index.html". */
     entryHtml: string
-    /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+    /** Exact-version dependencies, restricted to the platform-supported set at its pinned versions. */
     dependencies?: CanvasSourceProjectApiDependencies
     /** Version of the host-injected `ph` canvas SDK the project targets. */
     canvasSdkVersion?: string
-    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
     capabilities?: CanvasCapabilitiesApi
 }
 
@@ -444,8 +500,14 @@ export interface CanvasCapabilityWideningApi {
     capture_events_added: string[]
     /** True when the draft enables inline queries and the current head does not. */
     inline_queries_enabled: boolean
+    /** True when the draft enables requests to the canvas's authoring agent and the current head does not. */
+    agent_requests_enabled: boolean
     /** Network origins the draft newly declares it may reach. */
     network_origins_added: string[]
+    /** State scopes (user, shared) the draft newly declares for ph.state. */
+    state_scopes_added: string[]
+    /** Action verbs the draft newly declares it may invoke via ph.actions. */
+    actions_added: string[]
 }
 
 /**
@@ -679,6 +741,47 @@ export interface CanvasErrorReportResultApi {
 }
 
 /**
+ * A viewer-approved request for the canvas's authoring agent.
+ */
+export interface CanvasAgentRequestApi {
+    /**
+     * Exact change request the viewer reviewed and approved in the trusted host dialog.
+     * @maxLength 10000
+     */
+    prompt: string
+}
+
+/**
+ * * `signaled` - signaled
+ * * `new_run` - new_run
+ * * `already_queued` - already_queued
+ * * `reported` - reported
+ */
+export type RequestOutcomeEnumApi = (typeof RequestOutcomeEnumApi)[keyof typeof RequestOutcomeEnumApi]
+
+export const RequestOutcomeEnumApi = {
+    Signaled: 'signaled',
+    NewRun: 'new_run',
+    AlreadyQueued: 'already_queued',
+    Reported: 'reported',
+} as const
+
+/**
+ * Outcome of routing a canvas change request.
+ */
+export interface CanvasAgentRequestResultApi {
+    /** signaled: the live run received the request. new_run: a fresh run started. already_queued: an identical run was already starting. reported: a non-creator's request was filed in the task thread for the creator.
+     *
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     * * `reported` - reported */
+    request_outcome: RequestOutcomeEnumApi
+    /** Authoring task that received the request or report. */
+    task_id: string
+}
+
+/**
  * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
  */
 export interface CanvasRequestFixApi {
@@ -747,6 +850,52 @@ export interface CanvasSourceResponseApi {
 }
 
 /**
+ * One key of a canvas's runtime key-value state (the ph.state store).
+ */
+export interface CanvasStateEntryApi {
+    /** user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /**
+     * The entry's key, unique within its scope.
+     * @maxLength 200
+     */
+    key: string
+    /** The stored JSON value. */
+    value: unknown
+    /** When the entry was last written. */
+    updated_at: string
+}
+
+/**
+ * The canvas state readable by the caller.
+ */
+export interface CanvasStateResponseApi {
+    /** The canvas's shared entries plus the caller's own user-scoped entries. */
+    entries: CanvasStateEntryApi[]
+}
+
+/**
+ * Payload for writing (or deleting) one key of a canvas's runtime state.
+ */
+export interface CanvasStateSetApi {
+    /** Scope to write into; the canvas must declare it in capabilities.posthog.state.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /**
+     * Key to write, unique within its scope.
+     * @maxLength 200
+     */
+    key: string
+    /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
+    value: unknown
+}
+
+/**
  * Payload for validating a candidate source project without publishing it.
  */
 export interface CanvasValidateRequestApi {
@@ -802,6 +951,28 @@ export interface PaginatedCanvasVersionListApi {
     results: CanvasVersionApi[]
 }
 
+/**
+ * One registered action verb, as the host renders it before invoking.
+ */
+export interface CanvasActionDefinitionApi {
+    /** The verb's registry name, e.g. 'annotations.create'. */
+    verb: string
+    /** One line naming what invoking the verb does. */
+    summary: string
+    /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+    destructive: boolean
+    /** Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants. */
+    usage: string
+}
+
+/**
+ * The action registry: every verb a canvas may declare and invoke.
+ */
+export interface CanvasActionsResponseApi {
+    /** Registered verbs, sorted by name. */
+    actions: CanvasActionDefinitionApi[]
+}
+
 export type CanvasesListParams = {
     /**
      * Only return canvases in this channel.
@@ -841,6 +1012,20 @@ export type CanvasesSourceRetrieveParams = {
      */
     version_id?: string
 }
+
+export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries in this scope.
+     */
+    scope?: CanvasesStateRetrieveScope
+}
+
+export type CanvasesStateRetrieveScope = (typeof CanvasesStateRetrieveScope)[keyof typeof CanvasesStateRetrieveScope]
+
+export const CanvasesStateRetrieveScope = {
+    Shared: 'shared',
+    User: 'user',
+} as const
 
 export type CanvasesVersionsRetrieveParams = {
     /**

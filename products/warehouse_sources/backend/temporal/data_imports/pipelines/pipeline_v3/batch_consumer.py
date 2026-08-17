@@ -103,6 +103,15 @@ def _is_connect_timeout_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.ConnectionTimeout)
 
 
+# SQLSTATE 57P01: the queue DB itself terminated the connection via an administrator
+# command — a managed-Postgres failover, a maintenance restart, or an explicit
+# pg_terminate_backend(). Same self-healing shape as the guards above: the connection
+# is simply gone, _ensure_poll_conn/_ensure_recovery_conn redial on the next cycle, and
+# the caller's existing retry/backoff already covers the gap.
+def _is_admin_shutdown_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.AdminShutdown)
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -489,6 +498,8 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_starting_up"), error=str(e))
                     elif _is_connect_timeout_error(e):
                         logger.warning(self._event("poll_failed_queue_db_connect_timeout"), error=str(e))
+                    elif _is_admin_shutdown_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_admin_shutdown"), error=str(e))
                     else:
                         logger.exception(self._event("poll_failed_queue_db_unreachable"))
                         capture_exception(e)
@@ -1088,6 +1099,8 @@ class BatchConsumer:
                     logger.warning(self._event("recovery_sweep_db_starting_up"), error=str(e))
                 elif _is_connect_timeout_error(e):
                     logger.warning(self._event("recovery_sweep_connect_timeout"), error=str(e))
+                elif _is_admin_shutdown_error(e):
+                    logger.warning(self._event("recovery_sweep_admin_shutdown"), error=str(e))
                 else:
                     logger.exception(self._event("recovery_sweep_error"))
                     capture_exception(e)
@@ -1114,6 +1127,8 @@ class BatchConsumer:
                         logger.warning(self._event("reconcile_sweep_db_starting_up"), error=str(e))
                     elif _is_connect_timeout_error(e):
                         logger.warning(self._event("reconcile_sweep_connect_timeout"), error=str(e))
+                    elif _is_admin_shutdown_error(e):
+                        logger.warning(self._event("reconcile_sweep_admin_shutdown"), error=str(e))
                     else:
                         logger.exception(self._event("reconcile_sweep_error"))
                         capture_exception(e)

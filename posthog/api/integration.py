@@ -1742,6 +1742,7 @@ class IntegrationViewSet(
                 "reason_length": len(serializer.validated_data["reason"]),
             },
             team=self.team,
+            request=request,
         )
         return Response({"success": True})
 

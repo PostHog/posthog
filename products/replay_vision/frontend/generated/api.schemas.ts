@@ -751,14 +751,14 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.6-flash` - Gemini 3.6 Flash
+ * * `gemini-3.7-flash` - Gemini 3.7 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini36Flash: 'gemini-3.6-flash',
+    Gemini37Flash: 'gemini-3.7-flash',
 } as const
 
 /**
@@ -823,7 +823,7 @@ export interface ReplayScannerApi {
      */
     description?: string
     /**
-     * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+     * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
      * @maxItems 32
      * @items.maxLength 255
      */
@@ -866,7 +866,7 @@ export interface ReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -936,7 +936,7 @@ export interface PatchedReplayScannerApi {
      */
     description?: string
     /**
-     * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+     * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
      * @maxItems 32
      * @items.maxLength 255
      */
@@ -979,7 +979,7 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -1629,6 +1629,8 @@ export interface DraftScannerResponseApi {
     scanner_config: unknown
     /** Why the draft picked this scanner type and configuration, addressed to the user. */
     rationale: string
+    /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+    query: unknown
 }
 
 /**
@@ -1658,7 +1660,7 @@ export interface EstimateRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -1712,7 +1714,7 @@ export interface InlineScanRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -1773,7 +1775,7 @@ export interface SuggestTagsRequestApi {
      */
     prompt: string
     /**
-     * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+     * The categories already configured, so suggestions never duplicate one the user has.
      * @maxItems 200
      * @items.maxLength 200
      */

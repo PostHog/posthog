@@ -850,6 +850,116 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("traversal", "../../2/recordings/other-session"),
+            ("slash", "abc/def"),
+            ("backslash", "abc\\def"),
+            ("percent_encoded", "%2e%2e%2f2"),
+            ("not_a_string", 12345),
+            ("dot_segment", ".."),
+            ("trailing_newline", "abc\n"),
+        ]
+    )
+    def test_cannot_create_export_with_unsafe_session_recording_id(self, _name, session_recording_id) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {"session_recording_id": session_recording_id},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("session_recording_id", str(response.json()))
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_pairing_allowed_dashboard_with_denied_insight(self, _name, url_template) -> None:
+        other_user = User.objects.create_and_join(self.organization, "rbac-pairing@posthog.com", "password")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        # The dashboard stays reachable, so only checking it would authorize the private insight.
+        AccessControl.objects.create(
+            resource="insight",
+            resource_id=str(self.insight.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_export_pairing_allowed_dashboard_with_denied_recording(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        other_user = User.objects.create_and_join(self.organization, "rbac-mixed@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="mixed-asset-recording")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            export_context={"session_recording_id": recording.session_id},
+            created_by=other_user,
+        )
+
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(other_user)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_create_session_recording_export_without_recording_access(self) -> None:
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            team=self.team,
+            access_level="none",
+        )
+
+        member = User.objects.create_and_join(self.organization, "rbac-no-replay@posthog.com", "password")
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {"session_recording_id": "some-session-id"},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
             ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]

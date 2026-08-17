@@ -25,11 +25,28 @@ export const DataModelingJobStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+/**
+ * * `full_refresh` - Full refresh
+ * * `incremental` - Incremental
+ */
+export type DataModelingJobRunModeEnumApi =
+    (typeof DataModelingJobRunModeEnumApi)[keyof typeof DataModelingJobRunModeEnumApi]
+
+export const DataModelingJobRunModeEnumApi = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+} as const
+
 export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
     readonly status: DataModelingJobStatusEnumApi
+    /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+     *
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental */
+    readonly run_mode: DataModelingJobRunModeEnumApi | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null
@@ -1049,6 +1066,61 @@ export interface SavedQuerySuspensionApi {
 export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
+ * How a view updates its materialized table in place rather than rebuilding it.
+ */
+export interface IncrementalConfigApi {
+    /** Whether runs update the table incrementally instead of rebuilding it. */
+    enabled?: boolean
+    /** Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full. */
+    incremental_key: string
+    /** Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null. */
+    unique_key: string[]
+    /**
+     * How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * * `incremental` - incremental
+ * * `full_refresh` - full_refresh
+ */
+export type LastRunModeEnumApi = (typeof LastRunModeEnumApi)[keyof typeof LastRunModeEnumApi]
+
+export const LastRunModeEnumApi = {
+    Incremental: 'incremental',
+    FullRefresh: 'full_refresh',
+} as const
+
+/**
+ * Read-only progress written by the materialization run.
+ */
+export interface IncrementalStateApi {
+    /**
+     * Highest incremental key value written so far. The next run starts here.
+     * @nullable
+     */
+    watermark?: string | null
+    /**
+     * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
+     * @nullable
+     */
+    definition_fingerprint?: string | null
+    /**
+     * When the table was last rebuilt from scratch.
+     * @nullable
+     */
+    last_full_refresh_at?: string | null
+    /** Whether the last run updated the table or rebuilt it.
+     *
+     * * `incremental` - incremental
+     * * `full_refresh` - full_refresh */
+    last_run_mode?: LastRunModeEnumApi | null
+}
+
+/**
  * * `never` - never
  * * `15min` - 15min
  * * `30min` - 30min
@@ -1204,6 +1276,10 @@ export interface DataWarehouseSavedQueryApi {
     name: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state: IncrementalStateApi | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     /**
@@ -1331,6 +1407,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
     name?: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
+    /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+    incremental?: IncrementalConfigApi | null
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state?: IncrementalStateApi | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /**
@@ -1440,6 +1520,64 @@ export interface SavedQueryMaterializeApi {
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
+}
+
+/**
+ * Body of the `run` action.
+ */
+export interface SavedQueryRunApi {
+    /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
+    full_refresh?: boolean
+}
+
+/**
+ * Body of the `check_incremental` action: a query and an optional config to check it against.
+ */
+export interface CheckIncrementalApi {
+    /**
+     * The HogQL query to check.
+     * @maxLength 65536
+     */
+    query: string
+    /**
+     * Output column whose advancing value marks rows as new. Omit to only list candidates.
+     * @nullable
+     */
+    incremental_key?: string | null
+    /**
+     * Output columns that identify a row. Must include every GROUP BY column.
+     * @nullable
+     */
+    unique_key?: string[] | null
+    /**
+     * How far back before the watermark to re-read each run, to pick up late-arriving data.
+     * @minimum 0
+     * @maximum 2592000
+     */
+    lookback_seconds?: number
+}
+
+/**
+ * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+ */
+export type IncrementalEligibilityApiKeyCandidateTypes = { [key: string]: string }
+
+/**
+ * Whether a query can be materialized incrementally, and what stands in the way.
+ */
+export interface IncrementalEligibilityApi {
+    /** True when nothing blocks incremental materialization. */
+    eligible: boolean
+    /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
+    key_candidates: string[]
+    /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+    unique_key_candidates: string[]
+    /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+    key_candidate_types: IncrementalEligibilityApiKeyCandidateTypes
+    /** Reasons this query cannot be incremental. Each names the construct responsible. */
+    blockers: string[]
+    /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryDraftApi {
@@ -2854,6 +2992,8 @@ export interface CredentialApi {
  * * `Depot` - Depot
  * * `Schematic` - Schematic
  * * `Dokploy` - Dokploy
+ * * `Hootsuite` - Hootsuite
+ * * `WisprFlow` - WisprFlow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4154,6 +4294,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Depot: 'Depot',
     Schematic: 'Schematic',
     Dokploy: 'Dokploy',
+    Hootsuite: 'Hootsuite',
+    WisprFlow: 'WisprFlow',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -23,7 +23,6 @@ from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_memory_disabled"
-_GOAL_DRAFT_FLAG_PATH = "products.replay_vision.backend.api.scanners.posthoganalytics.feature_enabled"
 
 
 def _access_control(*, allow: bool) -> MagicMock:
@@ -143,6 +142,28 @@ class TestFinalize:
         result = _finalize(_draft(scanner_type="summarizer", length="short"))
 
         assert result.scanner_config == {"prompt": _draft().prompt, "length": "short"}
+
+    def test_offered_filter_event_becomes_a_recordings_query(self):
+        result = _finalize(_draft(filter_event="checkout_started"), offered_events=["checkout_started", "signup"])
+
+        assert result.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"type": "events", "id": "checkout_started", "name": "checkout_started", "order": 0}],
+        }
+
+    @pytest.mark.parametrize(
+        "filter_event,offered_events",
+        [
+            ("checkout started", ["checkout_started"]),  # reworded, would match nothing
+            ("made_up_event", ["checkout_started"]),  # hallucinated
+            ("checkout_started", []),  # nothing offered to ground it
+            (None, ["checkout_started"]),  # model declined
+        ],
+    )
+    def test_ungrounded_filter_event_yields_no_query(self, filter_event, offered_events):
+        result = _finalize(_draft(filter_event=filter_event), offered_events=offered_events)
+
+        assert result.query is None
 
     def test_rationale_is_trimmed_and_capped(self):
         result = _finalize(_draft(rationale="  why " + "x" * 600))
@@ -271,13 +292,6 @@ class TestGenerate:
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        # The endpoint is flag-gated server-side; default it open so every test isn't about the flag.
-        flag_patcher = patch(_GOAL_DRAFT_FLAG_PATH, return_value=True)
-        flag_patcher.start()
-        self.addCleanup(flag_patcher.stop)
-
     @property
     def draft_url(self) -> str:
         return f"{self.scanners_url}draft/"
@@ -317,6 +331,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "multi_label": False,
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
+            "query": None,
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
@@ -372,9 +387,12 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
     @patch(_GENERATE_PATH)
     def test_scoped_token_requests_exclude_business_context(self, mock_generate, _flag):
-        # Core memory's own API is INTERNAL (session-only); a scoped key must not read it through here.
+        # Core memory's own API is INTERNAL (session-only), and org/project names sit behind their
+        # own read scopes; a scoped key must not recover either through the model's output.
         mock_generate.return_value = _draft()
         CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+        self.organization.name = "Acme Corp"
+        self.organization.save()
         value = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
 
         resp = self.client.post(
@@ -382,7 +400,9 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         )
 
         assert resp.status_code == status.HTTP_200_OK, resp.json()
-        assert "Acme sells anvils to coyotes." not in mock_generate.call_args.kwargs["user_content"]
+        user_content = mock_generate.call_args.kwargs["user_content"]
+        assert "Acme sells anvils to coyotes." not in user_content
+        assert "Acme Corp" not in user_content
 
     @patch(_GENERATE_PATH)
     def test_scope_enforcement_for_personal_api_keys(self, mock_generate):
@@ -415,18 +435,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
 
         assert resp.status_code == status.HTTP_403_FORBIDDEN, resp.json()
-        mock_generate.assert_not_called()
-
-    @patch(_GENERATE_PATH)
-    def test_flag_off_is_a_clean_403(self, mock_generate):
-        # The frontend hides the box when the flag is off; the endpoint must not stay reachable regardless.
-        mock_generate.return_value = _draft()
-
-        with patch(_GOAL_DRAFT_FLAG_PATH, return_value=False):
-            resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
-
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-        assert "not available" in resp.content.decode()
         mock_generate.assert_not_called()
 
     def test_is_gated_by_the_shared_ai_throttles(self):
