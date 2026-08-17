@@ -519,25 +519,32 @@ export class QuickAskService {
   /**
    * Warm runs boot in the "default" permission mode, which holds every tool
    * call for an approval the panel has no surface for; switch the agent to
-   * "auto" before the first message reaches it. Best-effort.
+   * "auto" before the first message reaches it. Returns whether the switch
+   * landed — a warm run left in default mode must not receive the question,
+   * or the turn parks forever on an approval prompt the panel can't answer.
    */
   private async setAutoMode(
     apiHost: string,
     projectId: number,
     handle: WarmHandle,
     signal: AbortSignal,
-  ): Promise<void> {
-    await this.post(
-      apiHost,
-      `/api/projects/${projectId}/tasks/${handle.taskId}/runs/${handle.runId}/command/`,
-      {
-        jsonrpc: "2.0",
-        id: globalThis.crypto.randomUUID(),
-        method: "set_config_option",
-        params: { configId: "mode", value: "auto" },
-      },
-      signal,
-    ).catch(() => undefined);
+  ): Promise<boolean> {
+    try {
+      const response = await this.post(
+        apiHost,
+        `/api/projects/${projectId}/tasks/${handle.taskId}/runs/${handle.runId}/command/`,
+        {
+          jsonrpc: "2.0",
+          id: globalThis.crypto.randomUUID(),
+          method: "set_config_option",
+          params: { configId: "mode", value: "auto" },
+        },
+        signal,
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   /** Signals a follow-up question onto the live run. */
@@ -630,8 +637,19 @@ export class QuickAskService {
     if (this.warmHandle) {
       const handle = this.warmHandle;
       this.warmHandle = null;
-      await this.setAutoMode(apiHost, projectId, handle, signal);
-      if (attachments.length > 0) {
+      // A warm run stuck in default mode would park the question on an
+      // approval the panel can't answer; decline the reuse and go cold (the
+      // cold run sets auto mode server-side in its create body).
+      const autoReady = await this.setAutoMode(
+        apiHost,
+        projectId,
+        handle,
+        signal,
+      );
+      if (!autoReady) {
+        reuseWarm = false;
+      }
+      if (autoReady && attachments.length > 0) {
         const uploaded = await this.uploadAttachments(
           apiHost,
           projectId,

@@ -829,6 +829,36 @@ describe("QuickAskService", () => {
     expect(commandIndex).toBeLessThan(createIndex);
   });
 
+  it("goes cold instead of reusing a warm run whose auto-mode switch failed", async () => {
+    const { service, fetchMock } = serviceWith({
+      warm: [
+        new Response(JSON.stringify({ task_id: "task-w", run_id: "run-w" }), {
+          status: 200,
+        }),
+      ],
+      // The set_config_option command fails (e.g. the run is still booting).
+      command: [new Response("boot", { status: 400 })],
+      createTask: [taskResponse("task-1", null)],
+      createRun: [
+        new Response(JSON.stringify({ id: "run-9" }), { status: 200 }),
+      ],
+      startRun: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    await service.warm();
+    const events = await collect(service);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    // No `branch` key: a warm run left in default mode would park the
+    // question on an approval the panel cannot answer.
+    const create = JSON.parse(
+      callsTo(fetchMock, "/tasks/")[0][2].body as string,
+    );
+    expect("branch" in create).toBe(false);
+    // The cold run sets auto mode server-side in its create body.
+    const run = JSON.parse(callsTo(fetchMock, "/runs/")[0][2].body as string);
+    expect(run.initial_permission_mode).toBe("auto");
+  });
+
   it("exposes the thread's task id for open-in-app, cleared on reset", async () => {
     const { service } = serviceWith({
       createTask: [taskResponse()],
