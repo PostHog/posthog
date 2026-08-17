@@ -771,8 +771,13 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
-def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
-    """Open a psycopg connection to a duckgres server."""
+def connect_to_duckgres(server: DuckgresServer, *, application_name: str = "posthog") -> psycopg.Connection:
+    """Open a psycopg connection to a duckgres server.
+
+    ``application_name`` is a caller-identifying slug echoed into duckgres's
+    analytics events, so callers should pass one instead of relying on the
+    ``"posthog"`` default.
+    """
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -780,6 +785,7 @@ def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
         user=server.username,
         password=server.password,
         autocommit=True,
+        application_name=application_name,
     )
 
 

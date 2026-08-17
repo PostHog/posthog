@@ -38,6 +38,7 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.insights` — every insight short id the canvas passes to `ph.loadInsight`.
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
+- `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
 
 Validation rejects undeclared literal calls (`capability_missing_*` diagnostics) so you can fix
 them before publishing; dynamic ids it can only warn about, so keep the declarations complete.
@@ -52,7 +53,7 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
   (bare imports are limited to react, react-dom, @posthog/quill, recharts, lucide-react, and dayjs),
   `forbidden_dynamic_import` / `forbidden_require` / `forbidden_inline_script`,
   `invalid_path`, `capability_missing_insight` / `capability_missing_capture_event` /
-  `capability_missing_inline_queries`,
+  `capability_missing_inline_queries` / `capability_missing_agent_requests`,
   `dependency_not_admitted` / `dependency_version_mismatch`, and path/size violations.
 - `warning` diagnostics don't block, but heed them: `network_fetch` / `network_xhr` mean the code
   reaches for the network directly — the sandbox will block it at runtime; use the `ph` bridge.
