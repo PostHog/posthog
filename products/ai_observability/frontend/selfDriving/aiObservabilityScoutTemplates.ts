@@ -6,8 +6,10 @@ import { getAIObservabilityDigestScoutInitialValues } from '../AIObservabilityDi
 
 export const AI_OBSERVABILITY_SCOUT_TAG = 'ai-observability'
 
+export type AIObservabilityScoutTemplateKey = 'daily-digest' | 'costly-users' | 'error-patterns'
+
 export interface AIObservabilityScoutTemplate {
-    key: 'daily-digest' | 'costly-users' | 'error-patterns'
+    key: AIObservabilityScoutTemplateKey
     title: string
     description: string
     schedule: string
@@ -158,6 +160,12 @@ Finish with a short run summary covering what you reviewed, what you reported or
         },
     },
 ]
+
+/** Looks a template up by key. Returns undefined for anything not in the list, so an untrusted
+ * value (a URL fragment, say) can be resolved and validated in one step. */
+export function findAIObservabilityScoutTemplate(key: unknown): AIObservabilityScoutTemplate | undefined {
+    return AI_OBSERVABILITY_SCOUT_TEMPLATES.find((template) => template.key === key)
+}
 
 export function isAIObservabilityScout(config: SignalScoutConfigApi): boolean {
     return scoutTags(config).includes(AI_OBSERVABILITY_SCOUT_TAG)

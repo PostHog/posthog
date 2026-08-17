@@ -3,7 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
-import type { ReactNode } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -35,10 +34,6 @@ jest.mock('lib/utils/newInternalTab')
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
-}))
-
-jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton', () => ({
-    ScoutCreateButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
 }))
 
 const EVAL_REPORTS_SOURCE_CONFIG = {
