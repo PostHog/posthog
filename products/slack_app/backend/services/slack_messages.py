@@ -329,11 +329,6 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
         )
 
 
-# The scheme a production desktop install registers. Dev builds register
-# `posthog-code-dev://` instead, which the server can't tell apart from here, so links
-# minted server-side always target the production build.
-DESKTOP_URL_SCHEME = "posthog-code"
-
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
@@ -386,9 +381,11 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         state = parse_run_state(run.state)
         return RunFooter(
             task_url=_task_url(run.team_id, run.task_id, run.id),
-            # Task-scoped, matching the desktop app's own task route — the run id has no
-            # equivalent there.
-            desktop_url=f"{DESKTOP_URL_SCHEME}://task/{run.task_id}",
+            # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
+            # desktop app when installed and offers a download when not, so a reader without
+            # the app lands somewhere useful instead of a dead link. It also picks the right
+            # scheme (prod vs dev) client-side, which a server-minted scheme link can't.
+            desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
         )
@@ -447,7 +444,17 @@ def app_home_url(integration: Integration) -> str | None:
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
-    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
+    return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _desktop_bridge_url(task_id: UUID) -> str:
+    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
+    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
+    # the run right beside the link.
+    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _public_url(path: str) -> str:
     # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
     # posted into Slack actually reachable.
     if settings.DEBUG and settings.NGROK_URL:

@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_COMPANION_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
 )
@@ -145,7 +146,7 @@ class Command(BaseCommand):
         entries = ls_result.values() if isinstance(ls_result, dict) else ls_result
 
         violations: list[str] = []
-        named: list[tuple[str, tuple[int, int, int]]] = []
+        named: list[tuple[str, BufferFileSpan]] = []
         for entry in entries:
             if entry.get("type") == "directory":
                 continue
@@ -165,12 +166,12 @@ class Command(BaseCommand):
         named.sort(key=lambda item: item[0].rsplit("/", 1)[-1])
         row_sum = 0
         prev_end: int | None = None
-        for key, (start_seq, end_seq, _file_index) in named:
-            if start_seq > end_seq:
+        for key, span in named:
+            if span.start_seq > span.end_seq:
                 violations.append(f"{schema.name}: inverted range in {key}")
-            if prev_end is not None and start_seq < prev_end:
+            if prev_end is not None and span.start_seq < prev_end:
                 violations.append(f"{schema.name}: overlapping range in {key} (starts before previous end {prev_end})")
-            prev_end = end_seq
+            prev_end = span.end_seq
 
             # A failed shadow write can leave a truncated object; report it as a
             # violation instead of crashing the whole validation run.

@@ -30,6 +30,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession
 from products.replay_vision.backend.quota import QuotaState, compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
@@ -493,6 +495,45 @@ class TestBackfillTickActivities:
         assert not result.more_work_below_cursor
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
+
+    def test_excluded_sessions_are_walked_over_not_dispatched(self) -> None:
+        # The cursor must pass an excluded session exactly as it passes an already-succeeded one.
+        # Filtering before the walk would leave the cursor short and refetch the same rows forever.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        fetched = [
+            CandidateSession(session_id="keep", session_end=timezone.now() - dt.timedelta(hours=2)),
+            CandidateSession(session_id="blocked", session_end=timezone.now() - dt.timedelta(hours=1)),
+        ]
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
+        ):
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+
+        assert query_cls.call_args.kwargs["skip_negative_blocklists"] is True
+        assert [c.session_id for c in result.candidates] == ["keep"]
+        # walked past the excluded row, not stopped at the survivor
+        assert result.next_cursor_session_id == "blocked"
+
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+        # In-query blocklists are off by this point, so swallowing would dispatch unfiltered.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+        ):
+            query_cls.return_value.run.return_value = [
+                CandidateSession(session_id="s1", session_end=timezone.now() - dt.timedelta(hours=1))
+            ]
+            with pytest.raises(RuntimeError):
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
 
     def test_advance_loses_to_concurrent_cancel(self) -> None:
         scanner = _make_scanner()
