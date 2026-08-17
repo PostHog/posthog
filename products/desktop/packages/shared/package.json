@@ -48,6 +48,10 @@
       "types": "./dist/quick-ask-shortcuts.d.ts",
       "import": "./dist/quick-ask-shortcuts.js"
     },
+    "./rich-output-prompt": {
+      "types": "./dist/rich-output-prompt.d.ts",
+      "import": "./dist/rich-output-prompt.js"
+    },
     "./posthog-property-headers": {
       "types": "./dist/posthog-property-headers.d.ts",
       "import": "./dist/posthog-property-headers.js"
