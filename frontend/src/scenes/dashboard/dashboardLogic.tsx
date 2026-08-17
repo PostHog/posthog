@@ -1130,8 +1130,8 @@ export interface dashboardLogicMeta {
             layouts: Partial<Record<DashboardLayoutSize, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
         ) => Layout | undefined
-        undoLayout: (layoutHistory: any) => ResponsiveLayouts | null
-        redoLayout: (layoutHistory: any) => ResponsiveLayouts | null
+        undoLayout: (layoutHistory: LayoutHistory) => ResponsiveLayouts | null
+        redoLayout: (layoutHistory: LayoutHistory) => ResponsiveLayouts | null
         layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
