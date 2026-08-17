@@ -14,6 +14,11 @@ type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
 /** Double-clicking the hedgehog cycles through the crew. */
 const HEDGEHOGS = [happyHog, builderHog, explorerHog, loopHog];
 
+/** An empty, untouched panel folds into mini mode after this long. */
+const IDLE_COLLAPSE_MS = Number(
+  new URLSearchParams(window.location.search).get("idleCollapse") ?? 60_000,
+);
+
 const PILL_MIN_WIDTH = 176;
 const PILL_MAX_WIDTH = 448;
 const PILL_TEXT_EXTRA = 46; // pill padding + caret allowance around the text
@@ -324,6 +329,32 @@ export function QuickAsk(): React.JSX.Element {
   const toggleMini = useCallback((): void => {
     setMini((current) => !current);
   }, []);
+
+  // Left open, empty, and untouched, the panel folds itself into mini mode.
+  useEffect(() => {
+    if (mini || phase !== "idle") return;
+    let timer: number;
+    const schedule = (): void => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (inputRef.current?.value) {
+          schedule();
+        } else {
+          setMini(true);
+        }
+      }, IDLE_COLLAPSE_MS);
+    };
+    schedule();
+    window.addEventListener("keydown", schedule);
+    window.addEventListener("mousedown", schedule);
+    window.addEventListener("mousemove", schedule);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("keydown", schedule);
+      window.removeEventListener("mousedown", schedule);
+      window.removeEventListener("mousemove", schedule);
+    };
+  }, [mini, phase]);
 
   // Leaving mini mode: put the caret back in the pill.
   useEffect(() => {

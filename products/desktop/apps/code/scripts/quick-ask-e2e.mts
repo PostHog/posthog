@@ -510,6 +510,19 @@ if (!focusedAfterReset) {
 }
 pass("new chat clears the thread and focuses the input");
 
+// An empty, untouched panel folds into mini mode; a draft keeps it open.
+await page.goto(`${renderer.origin}/quick-ask.html?idleCollapse=400`);
+await page.waitForSelector(".qa-pill input", { timeout: 15_000 });
+await page.waitForSelector(".qa-mini", { timeout: 3_000 });
+await page.goto(`${renderer.origin}/quick-ask.html?idleCollapse=400`);
+await page.waitForSelector(".qa-pill input", { timeout: 15_000 });
+await page.fill(".qa-pill input", "still typing");
+await page.waitForTimeout(900);
+if (await page.locator(".qa-mini").count()) {
+  fail("panel collapsed while a draft was in the input");
+}
+pass("empty idle panel folds into mini mode, drafts keep it open");
+
 if (pageErrors.length > 0) {
   fail(`page errors: ${pageErrors.join(" | ")}`);
 }
