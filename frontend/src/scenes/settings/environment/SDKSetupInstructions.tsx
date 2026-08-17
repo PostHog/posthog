@@ -224,6 +224,7 @@ export const SDK_CONFIGS: { [key in SDKKey]?: SDKConfig } = {
     },
     [SDKKey.KMP]: {
         Installation: KMPInstallation,
+        wizardIntegrationName: 'Kotlin Multiplatform',
         name: 'Kotlin Multiplatform',
         docsLink: 'https://posthog.com/docs/libraries/kmp',
         category: 'mobile',
