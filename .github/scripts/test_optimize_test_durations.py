@@ -4,6 +4,7 @@ Run with: uv run --with pytest --with defusedxml pytest .github/scripts/test_opt
 """
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -11,13 +12,14 @@ import pytest
 from optimize_test_durations import (
     JUnitShard,
     MigrationTaxCorrector,
+    ShardTimings,
     _pick_outlier,
     average_durations,
     main,
-    calculate_product_durations,
     outlier_merge_durations,
     run_average_files,
-    scope_product_durations_to_junit,
+    run_merge_files,
+    shard_sets_match,
 )
 
 # Minimal valid JUnit XML — one testcase with a CamelCase classname so
@@ -218,7 +220,6 @@ class TestJUnitCallTimeCorrection:
         shards = [self._shard("core-1", {"posthog/x.py::T::test_a": 0.5})]
         result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
         assert result.corrected_durations["posthog/x.py::T::test_a"] == 0.5
-        assert result.carrier_test_ids == set()
 
     def test_leaves_genuinely_slow_test_untouched(self):
         # Real end-to-end test: recorded ~= call, small gap, not flooded.
@@ -284,51 +285,34 @@ class TestStatisticalCorrection:
         assert result.carriers_found == 1
 
 
-class TestProductDurations:
-    def test_excludes_stale_nodeids_absent_from_product_junit(self) -> None:
-        durations = {
-            "products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 10.0,
-            "products/tasks/backend/tests/test_deleted.py::TestDeleted::test_one": 90.0,
-        }
-        junit_shards = [
-            JUnitShard(
-                name="products-1",
-                call_times={"products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 1.0},
-            )
-        ]
+def test_merge_files_replaces_stale_segment_entries(tmp_path: Path) -> None:
+    previous = tmp_path / "previous.json"
+    fresh = tmp_path / "fresh.json"
+    output = tmp_path / "output.json"
+    previous.write_text(json.dumps({"posthog/test.py::test_core": 1.0, "products/tasks/old.py::test_old": 90.0}))
+    fresh.write_text(json.dumps({"products/tasks/new.py::test_new": 10.0}))
 
-        scoped = scope_product_durations_to_junit(durations, junit_shards)
+    run_merge_files([previous, fresh], output, replace_prefix="products/")
 
-        assert calculate_product_durations(scoped) == {"tasks": 10.0}
+    assert json.loads(output.read_text()) == {
+        "posthog/test.py::test_core": 1.0,
+        "products/tasks/new.py::test_new": 10.0,
+    }
 
-    def test_keeps_raw_product_timings_without_junit_artifacts(self) -> None:
-        durations = {"products/tasks/backend/tests/test_current.py::TestCurrent::test_one": 10.0}
 
-        assert scope_product_durations_to_junit(durations, None) == durations
+def test_shard_sets_match_requires_every_junit_artifact() -> None:
+    timings = [
+        ShardTimings(name="timing_data-Products-1", durations={}),
+        ShardTimings(name="timing_data-Products-2", durations={}),
+    ]
+    complete = [
+        JUnitShard(name="product-junit-results-1", call_times={}),
+        JUnitShard(name="product-junit-results-2", call_times={}),
+    ]
+    partial = [JUnitShard(name="product-junit-results-1", call_times={})]
 
-    def test_uses_raw_durations_instead_of_corrected_call_times(self) -> None:
-        raw = {
-            "products/tasks/backend/tests/test_one.py::test_one": 12.0,
-            "products/tasks/backend/tests/test_two.py::test_two": 18.0,
-        }
-        corrected = dict.fromkeys(raw, 0.04)
-
-        assert calculate_product_durations(raw) == {"tasks": 30.0}
-        assert calculate_product_durations(corrected) == {"tasks": 0.08}
-
-    def test_excludes_migration_tax_carriers_but_keeps_normal_fixture_time(self) -> None:
-        raw = {
-            "products/tasks/backend/tests/test_carrier.py::test_carrier": 960.0,
-            "products/tasks/backend/tests/test_fixture.py::test_fixture": 45.0,
-        }
-        correction = MigrationTaxCorrector(raw, expected_shard_count=1).correct()
-
-        assert calculate_product_durations(raw, correction.carrier_test_ids) == {"tasks": 45.0}
-
-    def test_omits_products_absent_from_input(self) -> None:
-        raw = {"products/workflows/backend/tests/test_workflow.py::test_run": 20.0}
-
-        assert calculate_product_durations(raw) == {"workflows": 20.0}
+    assert shard_sets_match(timings, complete)
+    assert not shard_sets_match(timings, partial)
 
 
 if __name__ == "__main__":

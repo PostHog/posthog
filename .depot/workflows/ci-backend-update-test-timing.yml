@@ -1,5 +1,5 @@
 # Depot CI mirror of .github/workflows/ci-backend-update-test-timing.yml. Refreshes the
-# timing files the shadow restores for sharding, saving them to Depot Cache (the GitHub Actions
+# .test_durations the shadow restores for sharding, saving it to Depot Cache (the GitHub Actions
 # Cache copy is a separate store the shadow can't read). Merges timing artifacts from the newest
 # master ci-backend run; no test execution. Needs GH_APP_POSTHOG_TESTS_* in `depot ci secrets`.
 name: Depot CI shadow - update test timing
@@ -75,10 +75,10 @@ jobs:
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products --junit-dir junit_artifacts \
-                      --product-durations-output .product_test_durations.json
+                      --segment Products --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
-                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations \
+                      --replace-prefix products/
                   rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
 
             - name: Compute cache key
@@ -89,7 +89,5 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               continue-on-error: true
               with:
-                  path: |
-                      .test_durations
-                      .product_test_durations.json
+                  path: .test_durations
                   key: ${{ steps.durations-meta.outputs.cache_key }}

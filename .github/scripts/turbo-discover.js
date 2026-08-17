@@ -11,8 +11,7 @@
 //
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
-// Per-test durations come from .test_durations (maintained by pytest-split).
-// Product sizing prefers setup-inclusive totals from .product_test_durations.json.
+// Durations come from .test_durations (maintained by pytest-split).
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
@@ -416,26 +415,6 @@ function loadTestDurations() {
     return parsed
 }
 
-function loadProductDurations(filePath = '.product_test_durations.json') {
-    let parsed
-    try {
-        parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-    } catch {
-        console.error(`Warning: ${filePath} not found, using .test_durations product totals`)
-        return null
-    }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        console.error(`Warning: ${filePath} is not a JSON object, using .test_durations product totals`)
-        return null
-    }
-    for (const [product, duration] of Object.entries(parsed)) {
-        if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0) {
-            delete parsed[product]
-        }
-    }
-    return parsed
-}
-
 // Recursively collect test files (test_*.py / *_test.py) under a directory.
 function collectTestFiles(dir) {
     const files = []
@@ -493,10 +472,7 @@ function checkProductStaleness(product, durations) {
     return { stale: coverage < STALENESS_COVERAGE_THRESHOLD, fileCount: testFiles.length, coveredCount, coverage }
 }
 
-function getProductDuration(product, durations, productDurations = null) {
-    if (productDurations && Object.hasOwn(productDurations, product)) {
-        return productDurations[product]
-    }
+function getProductDuration(product, durations) {
     if (!durations) {
         return 0
     }
@@ -513,8 +489,8 @@ function getProductDuration(product, durations, productDurations = null) {
     return total
 }
 
-function productEffectiveCost(product, durations, productDurations = null) {
-    let base = getProductDuration(product, durations, productDurations)
+function productEffectiveCost(product, durations) {
+    let base = getProductDuration(product, durations)
     const staleness = checkProductStaleness(product, durations)
     if (staleness.stale && staleness.fileCount > 0) {
         base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
@@ -525,9 +501,9 @@ function productEffectiveCost(product, durations, productDurations = null) {
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
 // effective cost descending so the largest products land first and small ones
 // fill the gaps. Each bucket caps at PRODUCT_TARGET_WALL_SECONDS total.
-function packProducts(products, durations, productDurations = null) {
+function packProducts(products, durations) {
     const items = products
-        .map((product) => ({ product, cost: productEffectiveCost(product, durations, productDurations) }))
+        .map((product) => ({ product, cost: productEffectiveCost(product, durations) }))
         .sort((a, b) => b.cost - a.cost)
 
     const buckets = []
@@ -616,7 +592,7 @@ function buildDjangoShards(durations) {
     return result
 }
 
-function buildMatrix(products, durations, productDurations = null) {
+function buildMatrix(products, durations) {
     const matrix = []
     const packable = []
 
@@ -630,7 +606,7 @@ function buildMatrix(products, durations, productDurations = null) {
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
         const staleness = checkProductStaleness(product, durations)
-        let raw = getProductDuration(product, durations, productDurations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 
         // Staleness guard: if .test_durations has poor coverage for this product,
         // use a file-count-based fallback to avoid under-sharding.
@@ -677,7 +653,7 @@ function buildMatrix(products, durations, productDurations = null) {
         }
     }
 
-    for (const bucket of packProducts(packable, durations, productDurations)) {
+    for (const bucket of packProducts(packable, durations)) {
         console.error(
             `  bucket (${(bucket.cost / 60).toFixed(1)} min effective): ${bucket.products.join(', ')}`
         )
@@ -696,8 +672,6 @@ module.exports = {
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
-    getProductDuration,
-    loadProductDurations,
     productEffectiveCost,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
@@ -851,13 +825,12 @@ console.error(`Products to test: ${JSON.stringify(products)}`)
 console.error(`Run legacy (Django): ${runLegacy}`)
 
 const durations = loadTestDurations()
-const productDurations = loadProductDurations()
 
 console.error('\nDjango shard calculation:')
 const djangoShards = buildDjangoShards(durations)
 
 const result = {
-    matrix: buildMatrix(products, durations, productDurations),
+    matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
     django_shards: djangoShards,
 }

@@ -70,7 +70,7 @@
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
-#   Committed timing files are the fallback.
+#   Committed .test_durations is the fallback.
 # - Sharding-plan pinning: canonical snapshots the durations files as a run-scoped
 #   artifact and every test job applies it, so re-runs shard like attempt 1. The shadow
 #   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
@@ -82,7 +82,7 @@
 
 # This workflow runs all of our backend django tests.
 #
-# Shards derive from timing files restored from Depot Cache (else committed);
+# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
 # .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
@@ -291,7 +291,6 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
-                        - .product_test_durations.json # Used for product shard sizing
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # turbo-discover reads the module graph for the dependent
                         # cascade, and `tach check` validates it — a graph-only PR
@@ -366,7 +365,6 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_durations
-                        - .product_test_durations.json
                         - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -554,9 +552,7 @@ jobs:
               # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: |
-                      .test_durations
-                      .product_test_durations.json
+                  path: .test_durations
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-

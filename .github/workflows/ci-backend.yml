@@ -175,7 +175,6 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
-                        - .product_test_durations.json # Used for product shard sizing
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # turbo-discover reads the module graph for the dependent
                         # cascade, and `tach check` validates it — a graph-only PR
@@ -250,7 +249,6 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations
-                        - .product_test_durations.json
                         - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -470,9 +468,7 @@ jobs:
               # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: |
-                      .test_durations
-                      .product_test_durations.json
+                  path: .test_durations
                   # run_id never matches — forces the prefix restore-key to the newest entry.
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
@@ -1013,13 +1009,12 @@ jobs:
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   # --junitxml: written relative to each product's dir (turbo's cwd), so every
-                  # product gets its own call-only report for migration-carrier detection.
+                  # product in the group gets its own products/<name>/junit-product.xml.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
                       --junitxml=junit-product.xml
-                      -o junit_duration_report=call
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}

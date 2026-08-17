@@ -32,7 +32,7 @@ import argparse
 import statistics
 import subprocess
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import defusedxml.ElementTree as ET
@@ -55,7 +55,6 @@ MIGRATION_TAX_THRESHOLD_SECONDS = 120.0
 # are placeholders, not measurements — when JUnit has a real call time for
 # the test, prefer that. See reference: .test_durations ships 60.0 / 18.0.
 DEFAULT_PLACEHOLDER_SECONDS = (60.0, 18.0)
-PRODUCTS_RUNNING_TEMPORAL_IN_JOB = {"managed-warehouse", "warehouse-sources"}
 
 
 @dataclass
@@ -168,7 +167,6 @@ class MigrationTaxResult:
     corrected_durations: dict[str, float]
     migration_tax_seconds: float
     carriers_found: int
-    carrier_test_ids: set[str] = field(default_factory=set)
 
 
 def outlier_merge_durations(sources: list[dict[str, float]]) -> dict[str, float]:
@@ -300,7 +298,6 @@ class MigrationTaxCorrector:
 
         corrected = dict(self.durations)
         removed: list[float] = []
-        carrier_test_ids: set[str] = set()
         for test_id, recorded in self.durations.items():
             is_placeholder = any(abs(recorded - d) < 1e-3 for d in DEFAULT_PLACEHOLDER_SECONDS)
             could_be_contaminated = recorded > MIGRATION_TAX_THRESHOLD_SECONDS
@@ -320,8 +317,6 @@ class MigrationTaxCorrector:
             corrected[test_id] = max(MIN_DURATION, call)
             removed.append(recorded - call)
             reason = "migration tax" if contaminated else "flat-default"
-            if contaminated:
-                carrier_test_ids.add(test_id)
             logger.info("  De-taxed %s: %.0fs -> %.1fs (%s, junit call)", test_id[:60], recorded, call, reason)
 
         avg_removed = sum(removed) / len(removed) if removed else 0.0
@@ -335,7 +330,6 @@ class MigrationTaxCorrector:
             corrected,
             migration_tax_seconds=avg_removed,
             carriers_found=len(removed),
-            carrier_test_ids=carrier_test_ids,
         )
 
     @staticmethod
@@ -368,7 +362,6 @@ class MigrationTaxCorrector:
             corrected_durations=self._apply_correction(carriers, migration_tax),
             migration_tax_seconds=migration_tax,
             carriers_found=len(carriers),
-            carrier_test_ids=set(carriers),
         )
 
     def _find_carriers_statistically(self) -> dict[str, float]:
@@ -464,33 +457,10 @@ def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
     return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
 
 
-def calculate_product_durations(
-    durations: dict[str, float], excluded_test_ids: set[str] | None = None
-) -> dict[str, float]:
-    """Sum raw pytest-split timings by product, excluding migration carriers."""
-    excluded_test_ids = excluded_test_ids or set()
-    totals: dict[str, float] = {}
-    for test_id, duration in durations.items():
-        if test_id in excluded_test_ids or not test_id.startswith("products/"):
-            continue
-        path_parts = test_id.split("/", 2)
-        if len(path_parts) < 3:
-            continue
-        product = path_parts[1].replace("_", "-")
-        if product not in PRODUCTS_RUNNING_TEMPORAL_IN_JOB and "/temporal/" in test_id:
-            continue
-        totals[product] = totals.get(product, 0.0) + duration
-    return totals
-
-
-def scope_product_durations_to_junit(
-    durations: dict[str, float], junit_shards: list[JUnitShard] | None
-) -> dict[str, float]:
-    """Scope product timings to the tests observed in Product JUnit artifacts."""
-    if not junit_shards:
-        return durations
-    ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
-    return {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
+    timing_ids = {shard.name.rsplit("-", 1)[-1] for shard in timing_shards}
+    junit_ids = {shard.name.rsplit("-", 1)[-1] for shard in junit_shards}
+    return timing_ids == junit_ids
 
 
 def collect_existing_tests(segment: str | None = None) -> set[str]:
@@ -543,7 +513,7 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
-def run_merge_files(input_files: list[Path], output_file: Path) -> None:
+def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
@@ -561,6 +531,10 @@ def run_merge_files(input_files: list[Path], output_file: Path) -> None:
         logger.error("No input files found to merge — refusing to write empty %s", output_file)
         sys.exit(1)
 
+    if replace_prefix and len(sources) > 1:
+        sources[0] = {
+            test_id: duration for test_id, duration in sources[0].items() if not test_id.startswith(replace_prefix)
+        }
     merged = outlier_merge_durations(sources)
     with open(output_file, "w") as f:
         json.dump(merged, f, indent=4, sort_keys=True)
@@ -666,16 +640,15 @@ def main():
         help="Aggregation for --average-files (default: mean).",
     )
     parser.add_argument(
-        "--product-durations-output",
-        type=Path,
+        "--replace-prefix",
         default=None,
-        help="Write raw, setup-inclusive per-product totals before per-test duration correction.",
+        help="In merge mode, remove matching entries from the first input before merging fresh segment data.",
     )
 
     args = parser.parse_args()
 
     if args.merge_files:
-        run_merge_files(args.merge_files, args.output_file)
+        run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
         return
 
     if args.average_files:
@@ -707,8 +680,6 @@ def main():
     logger.info("Merging with outlier detection...")
     durations = TimingMerger(shards).merge()
     logger.info("  Merged %d tests", len(durations))
-    raw_durations = dict(durations)
-    carrier_test_ids: set[str] = set()
 
     # Correct migration-inflated first-test durations
     junit_shards = None
@@ -731,7 +702,6 @@ def main():
             expected_shard_count=shard_count,
         ).correct()
         durations = result.corrected_durations
-        carrier_test_ids = result.carrier_test_ids
 
         if result.migration_tax_seconds > 0:
             logger.info(
@@ -740,18 +710,6 @@ def main():
                 result.migration_tax_seconds,
                 result.migration_tax_seconds / 60,
             )
-
-    if args.product_durations_output:
-        scoped_product_durations = scope_product_durations_to_junit(raw_durations, junit_shards)
-        product_durations = calculate_product_durations(scoped_product_durations, carrier_test_ids)
-        with open(args.product_durations_output, "w") as f:
-            json.dump(product_durations, f, indent=4, sort_keys=True)
-            f.write("\n")
-        logger.info(
-            "Saved raw totals for %d products to %s",
-            len(product_durations),
-            args.product_durations_output,
-        )
 
     # Scope to exactly what this segment's JUnit saw run. The shared timing
     # artifacts each carry the full union (every shard restores the merged file
@@ -772,6 +730,19 @@ def main():
             len(durations),
             before_count - len(durations),
         )
+
+    if args.segment == "Products" and junit_shards:
+        if shard_sets_match(shards, junit_shards):
+            ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
+            before_count = len(durations)
+            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            logger.info(
+                "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
+                len(junit_shards),
+                before_count - len(durations),
+            )
+        else:
+            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
 
     # Filter to only existing tests if requested
     if args.filter_existing:

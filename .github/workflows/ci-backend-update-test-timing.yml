@@ -220,8 +220,7 @@ jobs:
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products --junit-dir junit_artifacts \
-                      --product-durations-output .product_test_durations.json
+                      --segment Products --junit-dir junit_artifacts
 
                   # Process Dagster segment if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
@@ -235,7 +234,8 @@ jobs:
                   # with per-segment artifact processing and covered by tests next
                   # to the script — see test_optimize_test_durations.py.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
-                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations \
+                      --replace-prefix products/
 
                   # Additionally emit nodeid-clean per-segment files for
                   # --split-granularity=file. The shared .test_durations above is a union
@@ -321,9 +321,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               continue-on-error: true
               with:
-                  path: |
-                      .test_durations
-                      .product_test_durations.json
+                  path: .test_durations
                   key: ${{ steps.durations-meta.outputs.cache_key }}
 
             - name: Save per-segment durations to Actions cache
@@ -345,13 +343,13 @@ jobs:
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet .test_durations .product_test_durations.json; then
+                  if git diff --quiet .test_durations; then
                       echo "No changes to test durations"
                       echo "changed=false" >> $GITHUB_OUTPUT
                   else
                       echo "Test durations updated"
                       echo "changed=true" >> $GITHUB_OUTPUT
-                      git diff --stat .test_durations .product_test_durations.json
+                      git diff --stat .test_durations
                   fi
 
             # On PR: commit directly to the PR branch (signed via GitHub API)
@@ -362,7 +360,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: '.test_durations .product_test_durations.json'
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
@@ -408,7 +406,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: chore/update-test-timings
-                  file_pattern: '.test_durations .product_test_durations.json'
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
