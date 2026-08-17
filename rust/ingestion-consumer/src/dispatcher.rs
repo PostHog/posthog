@@ -141,45 +141,6 @@ impl MessageGroup {
     }
 }
 
-/// Pack key-groups into chunks of at most `chunking.max_events` events, keeping
-/// each key-group whole. `min_events` only suppresses runt chunks: one still
-/// under it is not closed just because the next group doesn't fit — that group
-/// gets a chunk of its own and the under-filled one keeps taking later groups.
-/// Nothing is held back to reach it, so whatever is left at the end ships as
-/// one chunk however small.
-fn pack_chunks(groups: Vec<MessageGroup>, chunking: ChunkConfig) -> Vec<Vec<MessageGroup>> {
-    debug_assert!(chunking.enabled(), "packing needs an event cap");
-
-    let mut chunks: Vec<Vec<MessageGroup>> = Vec::new();
-    let mut open: Vec<MessageGroup> = Vec::new();
-    let mut open_events = 0usize;
-
-    for group in groups {
-        let events = group.message_count();
-        if !open.is_empty() && !chunking.fits(open_events, events) {
-            if open_events < chunking.min_events {
-                // Under the target — ship this group alone rather than
-                // splitting the open chunk early; later groups top it up.
-                chunks.push(vec![group]);
-                continue;
-            }
-            chunks.push(std::mem::take(&mut open));
-            open_events = 0;
-        }
-        open_events += events;
-        open.push(group);
-        if open_events >= chunking.max_events {
-            chunks.push(std::mem::take(&mut open));
-            open_events = 0;
-        }
-    }
-
-    if !open.is_empty() {
-        chunks.push(open);
-    }
-    chunks
-}
-
 struct WorkerSubBatchBuilder {
     messages: Vec<SerializedKafkaMessage>,
     routing_keys: Vec<String>,
@@ -224,10 +185,15 @@ impl WorkerSubBatchBuilder {
     }
 }
 
-/// The sub-batches a single assignment round produces. With chunking off a
-/// worker gets one sub-batch holding everything routed to it; with it on the
-/// worker's groups are packed into event-capped sub-batches, so one worker may
-/// appear several times.
+/// The sub-batches a single assignment round produces.
+///
+/// Every group — pinned or freshly routed — is added under its target worker,
+/// and each worker has one sub-batch still taking groups. With chunking off
+/// that sub-batch never closes, so the worker gets everything routed to it in
+/// one request. With it on, the sub-batch closes at the cap and the next group
+/// starts another, so one worker may appear several times. Because a worker
+/// keeps only one open sub-batch, its pinned groups and the fresh keys routed
+/// to it in the same batch share a request rather than each getting their own.
 struct WorkerAssignments {
     sub_batches: Vec<(WorkerId, WorkerSubBatchBuilder)>,
     /// Index into `sub_batches` of the sub-batch each worker is still filling.
@@ -614,52 +580,37 @@ impl Dispatcher {
         };
         let candidates: &[WorkerId] = narrowed.as_deref().unwrap_or(&healthy);
 
-        // With chunking on, the groups are packed into event-capped chunks and
-        // each chunk is routed as a unit, so one batch spreads over several
-        // requests instead of one per worker. With it off every group is routed
-        // on its own, as before.
-        let routing_units = if self.chunking.enabled() {
-            pack_chunks(unpinned_groups, self.chunking)
-        } else {
-            unpinned_groups.into_iter().map(|g| vec![g]).collect()
-        };
-
-        for unit in routing_units {
-            let events: usize = unit.iter().map(MessageGroup::message_count).sum();
+        for group in unpinned_groups {
             let Some(worker) = router.select(candidates, &working_load) else {
                 // No routable worker right now (e.g. the whole pool is draining
-                // during a deploy overlap). Stash the groups so the flush loop
-                // can route them once a worker returns — dropping them would
-                // fail the whole batch and restart the process for a transient
+                // during a deploy overlap). Stash the group so the flush loop
+                // can route it once a worker returns — dropping it would fail
+                // the whole batch and restart the process for a transient
                 // condition.
                 counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
-                    .increment(events as u64);
-                for group in unit {
-                    table.stash.defer(
-                        batch_id,
-                        DeferredGroup {
-                            routing_key: group.routing_key,
-                            messages: group.messages,
-                        },
-                    );
-                    unroutable_deferred_count += 1;
-                }
+                    .increment(group.messages.len() as u64);
+                table.stash.defer(
+                    batch_id,
+                    DeferredGroup {
+                        routing_key: group.routing_key,
+                        messages: group.messages,
+                    },
+                );
+                unroutable_deferred_count += 1;
                 continue;
             };
 
-            bump_load(&mut working_load, &worker, events);
-            for group in unit {
-                table.pins.insert(
-                    group.routing_key.clone(),
-                    Pin {
-                        worker: worker.clone(),
-                        ref_count: 1,
-                    },
-                );
-                self.key_sentinel
-                    .note_sent(&group.routing_key, &group.messages);
-                assignments.add_group(worker.clone(), group);
-            }
+            bump_load(&mut working_load, &worker, group.messages.len());
+            table.pins.insert(
+                group.routing_key.clone(),
+                Pin {
+                    worker: worker.clone(),
+                    ref_count: 1,
+                },
+            );
+            self.key_sentinel
+                .note_sent(&group.routing_key, &group.messages);
+            assignments.add_group(worker, group);
         }
         drop(router);
 
@@ -1533,10 +1484,17 @@ mod tests {
         }
     }
 
-    fn chunk_sizes(chunks: &[Vec<MessageGroup>]) -> Vec<usize> {
-        chunks
+    /// Event count of each sub-batch produced by adding `group_events` worth of
+    /// key-groups to one worker.
+    fn packed_sizes(group_events: &[usize], chunking: ChunkConfig) -> Vec<usize> {
+        let mut assignments = WorkerAssignments::new(chunking);
+        for (i, events) in group_events.iter().enumerate() {
+            assignments.add_group(wid(0), group(&format!("k{i}"), *events));
+        }
+        assignments
+            .into_sub_batches()
             .iter()
-            .map(|chunk| chunk.iter().map(MessageGroup::message_count).sum())
+            .map(|sub_batch| sub_batch.messages.len())
             .collect()
     }
 
@@ -1557,78 +1515,98 @@ mod tests {
 
     struct PackCase {
         name: &'static str,
-        /// Event count of each key-group, in packing order.
+        /// Event count of each key-group, in the order they reach the worker.
         group_events: &'static [usize],
         max_events: usize,
         min_events: usize,
-        /// Expected event count of each produced chunk.
-        expected_chunks: &'static [usize],
+        /// Expected event count of each sub-batch the worker ends up with.
+        expected_sub_batches: &'static [usize],
     }
 
     #[test]
-    fn test_pack_chunks_bands() {
+    fn test_sub_batch_packing_bands() {
         let cases = [
+            PackCase {
+                name: "no cap merges everything into one sub-batch",
+                group_events: &[2, 2, 2],
+                max_events: 0,
+                min_events: 0,
+                expected_sub_batches: &[6],
+            },
             PackCase {
                 name: "fills to the cap",
                 group_events: &[2, 2, 2, 2],
                 max_events: 4,
                 min_events: 0,
-                expected_chunks: &[4, 4],
+                expected_sub_batches: &[4, 4],
             },
             PackCase {
-                name: "remainder under the floor still ships",
+                name: "remainder under the target still ships",
                 group_events: &[4, 1],
                 max_events: 4,
                 min_events: 3,
-                expected_chunks: &[4, 1],
+                expected_sub_batches: &[4, 1],
             },
             PackCase {
-                name: "whole batch under the floor is one chunk",
+                name: "whole batch under the target is one sub-batch",
                 group_events: &[1, 1, 1],
                 max_events: 100,
                 min_events: 50,
-                expected_chunks: &[3],
+                expected_sub_batches: &[3],
             },
             PackCase {
                 name: "a group over the cap stays whole",
                 group_events: &[9, 1],
                 max_events: 4,
                 min_events: 0,
-                expected_chunks: &[9, 1],
+                expected_sub_batches: &[9, 1],
             },
             PackCase {
-                name: "floor keeps an under-filled chunk open past a heavy group",
-                // Without the floor the 90-event group would close the 30-event
-                // chunk early, emitting a runt request.
+                name: "target keeps an under-filled sub-batch open past a heavy group",
+                // Without the target the 90-event group would close the
+                // 30-event sub-batch early, emitting a runt request.
                 group_events: &[30, 90, 30, 30],
                 max_events: 100,
                 min_events: 80,
-                expected_chunks: &[90, 90],
+                expected_sub_batches: &[90, 90],
+            },
+            PackCase {
+                name: "a target above the cap is clamped, not stalled",
+                group_events: &[2, 2, 2],
+                max_events: 4,
+                min_events: 100,
+                expected_sub_batches: &[4, 2],
             },
         ];
 
         for case in cases {
-            let groups: Vec<MessageGroup> = case
-                .group_events
-                .iter()
-                .enumerate()
-                .map(|(i, events)| group(&format!("k{i}"), *events))
-                .collect();
+            let sizes = packed_sizes(
+                case.group_events,
+                ChunkConfig::new(case.max_events, case.min_events),
+            );
 
-            let chunks = pack_chunks(groups, ChunkConfig::new(case.max_events, case.min_events));
-
-            assert_eq!(chunk_sizes(&chunks), case.expected_chunks, "{}", case.name);
+            assert_eq!(sizes, case.expected_sub_batches, "{}", case.name);
         }
     }
 
     #[test]
-    fn test_chunk_config_clamps_floor_to_cap() {
-        // A floor above the cap could never be met — it must not make the
-        // packer hold groups back or emit over-cap chunks.
-        let chunking = ChunkConfig::new(4, 100);
-        let groups = vec![group("a", 2), group("b", 2), group("c", 2)];
+    fn test_a_workers_pinned_and_fresh_groups_share_a_sub_batch() {
+        // The reason routing is per group: a worker keeps one open sub-batch,
+        // so a small pinned remainder is topped up by fresh keys routed to the
+        // same worker instead of going out as a request of its own.
+        let dispatcher = chunked_dispatcher(1, 10, 0);
 
-        assert_eq!(chunk_sizes(&pack_chunks(groups, chunking)), vec![4, 2]);
+        // Pin "a" and leave it in flight so the next batch honors the pin.
+        dispatcher.assign("batch-1", make_msgs(&[("t", "a")]));
+
+        let second = dispatcher.assign("batch-2", make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+
+        assert_eq!(
+            second.len(),
+            1,
+            "the pinned group and the fresh keys must share one request"
+        );
+        assert_eq!(second[0].routing_keys.len(), 3);
     }
 
     #[test]
