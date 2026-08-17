@@ -3305,6 +3305,23 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert deliveries.status_code == status.HTTP_200_OK
         assert deliveries.json()["results"] == []
 
+    def test_dashboard_subscription_without_selection_is_gated_on_its_tiles(self, mock_sync):
+        # An empty dashboard_export_insights selection makes the delivery render every tile — admin-
+        # and legacy-created rows look like this — so a restricted tile must hide the row.
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.json()["results"] == []
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+
     def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync):
         # Soft-deleting an insight must not hide its subscription: the owner still needs to see the
         # row and turn it off. The access gate is about restriction, not deletion.

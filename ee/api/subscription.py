@@ -708,7 +708,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             viewable_ids = set(_viewable_queryset(user_access_control, team_insights).values_list("id", flat=True))
             unusable_ids = selected_ids - viewable_ids
             if unusable_ids:
-                # An id outside the team can never be viewable, so the membership error stays reachable.
+                # The happy path pays one query; the unfiltered count runs only to tell the two errors
+                # apart. An id outside the team can never be viewable, so the membership error stays
+                # reachable.
                 if team_insights.count() != len(selected_ids):
                     raise ValidationError(
                         {
@@ -954,13 +956,22 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     `subscription` isn't an access-control resource, so without this a restricted insight or dashboard
     leaks its name and rendered results through the subscription routes. Applied to the viewset
     queryset it covers list, retrieve, update, and delete, since get_object() resolves detail routes
-    from it. A dashboard subscription also requires every selected export insight to be viewable —
-    each one is rendered and delivered on its own, and can be restricted after the subscription was
-    saved. AI prompt subscriptions have no insight or dashboard; they're gated on query access.
+    from it. A dashboard subscription also requires every exported insight to be viewable — each one
+    is rendered and delivered on its own, and can be restricted after the subscription was saved. An
+    empty dashboard_export_insights selection means the delivery renders every tile on the dashboard
+    (admin- and legacy-created rows look like this), so it is gated on the dashboard's tiles instead.
+    AI prompt subscriptions have no insight or dashboard, so the last clause always matches them;
+    their report content is gated on query access separately, by _should_hide_ai_report.
+
+    Known limitation, shared with the alerts sibling: both the write gate and this filter resolve
+    object-level access control rows only. A project that denies a whole resource at the resource
+    level (an AccessControl row with resource_id=None) is not consulted by either — closing that
+    belongs in posthog/rbac/user_access_control.py, for both features at once.
     """
-    if not user_access_control.access_controls_supported:
-        # No entitlement means no rules to enforce, and the filter below would resolve to a no-op
-        # anyway — return early so every list request doesn't carry pointless subqueries.
+    if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
+        # Without the entitlement there are no rules to enforce, and org admins bypass every object
+        # rule (the include_all_if_admin path would return each queryset unfiltered anyway) — return
+        # early so those list requests don't carry pointless subqueries.
         return Q()
 
     # The soft-delete-excluding default managers would silently widen the deny set to every
@@ -972,12 +983,20 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
         user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
     )
     blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id"))
+    dashboards_with_blocked_tiles = Dashboard.objects_including_soft_deleted.filter(
+        team_id=team_id, tiles__insight__in=blocked_insights
+    )
     return (
         Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
         | (
             Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
             # Negated M2M: matches subscriptions with no export insight in the blocked set.
             & ~Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights.values("id")})
+            # An empty selection exports every tile, so the dashboard must have no blocked tile.
+            & (
+                Q(**{f"{prefix}dashboard_export_insights__isnull": False})
+                | ~Q(**{f"{prefix}dashboard_id__in": dashboards_with_blocked_tiles.values("id")})
+            )
         )
         | Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
     )
