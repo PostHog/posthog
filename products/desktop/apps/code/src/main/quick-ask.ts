@@ -126,7 +126,13 @@ function createQuickAskWindow(): BrowserWindow {
   });
 
   window.setAlwaysOnTop(true, "screen-saver");
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // macOS: a `panel` window already floats over full-screen apps on every
+  // Space. Do NOT call setVisibleOnAllWorkspaces with visibleOnFullScreen:
+  // it flips the app's activation policy to accessory, which removes the app
+  // from the Dock and the Cmd+Tab switcher.
+  if (process.platform !== "darwin") {
+    window.setVisibleOnAllWorkspaces(true);
+  }
   // The window is a large transparent rect around a small pill. Let clicks
   // fall through the empty area; the renderer re-enables interaction while
   // the pointer is over actual content (`forward` keeps sending it the mouse
