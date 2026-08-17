@@ -85,7 +85,7 @@ pub fn output_columns(shape: BreakdownShape) -> Vec<Column> {
         shape_output_type(shape),
         DataTypeNode::Array(Box::new(DataTypeNode::Float64)),
         DataTypeNode::Array(Box::new(DataTypeNode::Array(Box::new(DataTypeNode::UUID)))),
-        DataTypeNode::UInt64,
+        DataTypeNode::UInt32,
     ]);
     vec![Column::new(
         "result".into(),
@@ -104,7 +104,7 @@ pub fn write_results<W: RowBinaryWrite + ?Sized>(
         write_propval(w, &r.1, shape)?;
         w.write_array(&r.2, |w, t| w.write_f64_le(*t))?;
         w.write_array(&r.3, |w, row| w.write_array(row, |w, u| w.write_uuid(*u)))?;
-        w.write_u64_le(r.4)?;
+        w.write_u32_le(r.4)?;
     }
     Ok(())
 }

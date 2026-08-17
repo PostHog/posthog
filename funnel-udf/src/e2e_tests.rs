@@ -105,9 +105,9 @@ fn rowbinary_steps_round_trip_strict_wire() {
     .unwrap();
     assert_eq!(uuids_per_step.len(), 3);
 
-    let mut bitfield_buf = [0u8; 8];
+    let mut bitfield_buf = [0u8; 4];
     std::io::Read::read_exact(&mut out, &mut bitfield_buf).unwrap();
-    assert_eq!(u64::from_le_bytes(bitfield_buf), 0b111);
+    assert_eq!(u32::from_le_bytes(bitfield_buf), 0b111);
 }
 
 #[test]

@@ -84,6 +84,11 @@ pub trait RowBinaryWrite: Write {
         self.write_u8(v as u8)
     }
 
+    fn write_u32_le(&mut self, v: u32) -> CodecResult<()> {
+        self.write_all(&v.to_le_bytes())?;
+        Ok(())
+    }
+
     fn write_u64_le(&mut self, v: u64) -> CodecResult<()> {
         self.write_all(&v.to_le_bytes())?;
         Ok(())
