@@ -1,5 +1,7 @@
 import { UniversalFiltersGroup } from '~/types'
 
+import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/logsConfigLogic'
+
 import {
     buildLogsSessionFilters,
     formatFilterGroupValues,
@@ -164,23 +166,67 @@ describe('logs utils', () => {
     })
 
     describe('buildLogsSessionFilters', () => {
+        // Byte-for-byte SESSION_ID_KEYS from utils.tsx. Spelled out rather than imported so a
+        // silent edit to that list shows up here as a failing assertion.
+        const CONVENTION_KEYS = [
+            'session.id',
+            'session_id',
+            'sessionId',
+            'sessionID',
+            '$session_id',
+            'posthogSessionId',
+            'posthogSessionID',
+            'posthog_session_id',
+            'posthog.session.id',
+            'posthog.session_id',
+        ]
+
+        const filterKeys = (configuredKeys?: string[]): string[] => {
+            const innerGroup = buildLogsSessionFilters('sess-1', configuredKeys).filterGroup!
+                .values[0] as UniversalFiltersGroup
+            expect(innerGroup.type).toBe('OR')
+            return (innerGroup.values as { key: string }[]).map((filter) => filter.key)
+        }
+
         it.each([
-            ['defaults to the key the SDKs emit', undefined, ['sessionId']],
-            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
-            ['empty configured list falls back to default', [], ['sessionId']],
-        ])('%s', (_, configuredKeys, expectedKeys) => {
-            const filters = buildLogsSessionFilters('sess-1', configuredKeys)
+            ['no configured keys', undefined],
+            ['empty configured list', []],
+        ])('%s queries the built-in conventions', (_, configuredKeys) => {
+            expect(filterKeys(configuredKeys)).toEqual(CONVENTION_KEYS)
+        })
+
+        it('puts configured keys first, then the conventions, deduped', () => {
+            // `sessionId` is configured and a convention: it keeps its configured position
+            // and is not repeated.
+            expect(filterKeys(['custom.key', 'sessionId'])).toEqual([
+                'custom.key',
+                'sessionId',
+                ...CONVENTION_KEYS.filter((key) => key !== 'sessionId'),
+            ])
+        })
+
+        it('queries the shipped default, which must be one of the conventions', () => {
+            // buildLogsSessionFilters queries the conventions, not the default, so a default
+            // outside this list would go unqueried for a team that never edited it.
+            expect(CONVENTION_KEYS).toEqual(expect.arrayContaining(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS))
+        })
+
+        it('queries sessionId for a team whose stored config is the old posthogSessionId default', () => {
+            // Every team created before the default changed has `posthogSessionId` materialised.
+            // The conventions union is what keeps their session link resolving SDK logs.
+            expect(filterKeys(['posthogSessionId'])).toContain('sessionId')
+        })
+
+        it('builds one exact log-attribute filter per key', () => {
+            const filters = buildLogsSessionFilters('sess-1', ['custom.key'])
 
             const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
-            expect(innerGroup.type).toBe('OR')
-            expect(innerGroup.values).toEqual(
-                expectedKeys.map((key) => ({
-                    key,
-                    value: ['sess-1'],
-                    operator: 'exact',
-                    type: 'log_attribute',
-                }))
-            )
+            expect(innerGroup.values[0]).toEqual({
+                key: 'custom.key',
+                value: ['sess-1'],
+                operator: 'exact',
+                type: 'log_attribute',
+            })
             expect(filters.dateRange).toBeUndefined()
         })
 

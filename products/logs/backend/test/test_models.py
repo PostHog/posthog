@@ -13,6 +13,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     MAX_EVALUATION_PERIODS,
     LogsAlertConfiguration,
     LogsAlertEvent,
@@ -236,6 +237,11 @@ class TestTeamLogsConfig(BaseTest):
         # their person without any team configuration.
         assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
         assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId"]
+        # The SDKs namespace the distinct ID but leave the session ID bare, so this one is
+        # `sessionId`, not `posthogSessionId`. Asserted literally: an assertion against the
+        # constant alone moves with it and would not catch the key drifting from the SDKs.
+        assert config.logs_session_id_attribute_keys == DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+        assert config.logs_session_id_attribute_keys == ["sessionId"]
 
     def test_custom_attribute_keys_persist(self):
         config = get_or_create_team_extension(self.team, TeamLogsConfig)

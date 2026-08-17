@@ -6,7 +6,6 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/logsConfigLogic'
 
 export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
     const group = filterGroup?.values?.[0]
@@ -83,12 +82,8 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
-// `sessionId` is what the posthog-js / posthog-react-native SDKs emit and what the docs
-// tell backends to send, so it is the one that matters in practice. `posthogSessionId` is
-// NOT emitted by any SDK — it was the team-config default between #70414 and this list's
-// correction, so a customer who configured their pipeline from the settings UI in that
-// window may be emitting it. It stays here permanently for those customers; do not remove
-// it on the grounds that nothing emits it.
+// No SDK emits `posthogSessionId`, but it was the team-config default between #70414 and
+// #83710, so teams configured in that window still have it stored. Keep it.
 const SESSION_ID_KEYS = [
     'session.id',
     'session_id',
@@ -176,15 +171,18 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
 }
 
 // Builds logs viewer filters scoped to one session, for other products surfacing logs
-// (error tracking, session replay). Filters on the team's configured session ID keys
-// (OR across keys, exact match), defaulting to the SDK convention; a timestamp scopes
-// the date range to ±30 minutes so old sessions aren't hidden by the default range.
+// (error tracking, session replay). Filters (OR across keys, exact match) on the team's
+// configured session ID keys plus the SESSION_ID_KEYS conventions, deduped, configured
+// first — the same breadth `getSessionIdWithKey` resolves, so a team whose stored key their
+// pipeline never emits still matches. Literal keys only: an exact filter can't express the
+// dot-suffix variants `matchesKey` allows. A timestamp scopes the date range to ±30 minutes
+// so old sessions aren't hidden by the default range.
 export function buildLogsSessionFilters(
     sessionId: string,
     configuredKeys?: string[],
     timestamp?: string
 ): Partial<LogsViewerFilters> {
-    const keys = configuredKeys?.length ? configuredKeys : DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    const keys = Array.from(new Set([...(configuredKeys ?? []), ...SESSION_ID_KEYS]))
     const filters: Partial<LogsViewerFilters> = {
         filterGroup: {
             type: FilterLogicalOperator.And,
