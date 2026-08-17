@@ -406,26 +406,35 @@ export function Annotate(): React.JSX.Element {
     }
   }, [selected, shapes, commit]);
 
+  // The slider's drag is one undo step: grab snapshots the pre-drag shapes and
+  // release records them as a single entry. A keyboard change on the focused
+  // slider fires onChange with no grab, so pickTextSize commits it on its own.
+  const sizeDragOrig = useRef<Shape[] | null>(null);
+
   const pickTextSize = useCallback(
     (value: number): void => {
       setTextSize(value);
-      if (selected !== null && shapes[selected]?.kind === "text") {
-        // Live slider drags collapse into the last history entry.
+      if (selected === null || shapes[selected]?.kind !== "text") return;
+      const applySize = (list: Shape[]): Shape[] =>
+        list.map((shape, index) =>
+          index === selected && shape.kind === "text"
+            ? { ...shape, size: value }
+            : shape,
+        );
+      if (sizeDragOrig.current) {
+        // Mid-drag: fold into the single entry release will record.
         setDoc((current) => ({
           ...current,
-          shapes: current.shapes.map((shape, index) =>
-            index === selected && shape.kind === "text"
-              ? { ...shape, size: value }
-              : shape,
-          ),
+          shapes: applySize(current.shapes),
         }));
+      } else {
+        // Keyboard: its own undo step, and clears redo like the sibling
+        // color and background controls already do.
+        commit(applySize);
       }
     },
-    [selected, shapes],
+    [selected, shapes, commit],
   );
-
-  // The slider's drag is one undo step: capture on grab, record on release.
-  const sizeDragOrig = useRef<Shape[] | null>(null);
 
   const grabTextSize = useCallback((): void => {
     sizeDragOrig.current =
@@ -1042,6 +1051,7 @@ export function Annotate(): React.JSX.Element {
             value={textSizeOn}
             onPointerDown={grabTextSize}
             onPointerUp={releaseTextSize}
+            onPointerCancel={releaseTextSize}
             onChange={(event) => pickTextSize(Number(event.target.value))}
           />
           <span className="an-sub-size an-sub-size-big" aria-hidden="true">
