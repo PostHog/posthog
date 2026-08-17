@@ -322,26 +322,30 @@ export function ConversationMessagesDisplay({
                             Error {httpStatus ? `(${httpStatus})` : ''}
                         </div>
                     </h4>
-                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+                    <div className="flex items-start gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-auto max-h-96">
                         {isObject(errorData) ? (
                             <HighlightedJSONViewer src={errorData} collapsed={4} searchQuery={searchQuery} />
                         ) : (
-                            <span className="font-mono">
+                            <span className="font-mono whitespace-pre-wrap break-words">
                                 {(() => {
-                                    try {
-                                        const parsedJson = JSON.parse(errorData)
-                                        return isObject(parsedJson) ? (
-                                            <HighlightedJSONViewer
-                                                src={parsedJson}
-                                                collapsed={5}
-                                                searchQuery={searchQuery}
-                                            />
-                                        ) : (
-                                            JSON.stringify(errorData ?? null)
-                                        )
-                                    } catch {
-                                        return JSON.stringify(errorData ?? null)
+                                    if (typeof errorData === 'string') {
+                                        try {
+                                            const parsedJson = JSON.parse(errorData)
+                                            if (isObject(parsedJson)) {
+                                                return (
+                                                    <HighlightedJSONViewer
+                                                        src={parsedJson}
+                                                        collapsed={5}
+                                                        searchQuery={searchQuery}
+                                                    />
+                                                )
+                                            }
+                                        } catch {
+                                            // Not JSON, so render the raw string with its line breaks kept
+                                        }
+                                        return errorData
                                     }
+                                    return JSON.stringify(errorData ?? null)
                                 })()}
                             </span>
                         )}

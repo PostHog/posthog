@@ -416,6 +416,26 @@ describe('ConversationMessagesDisplay', () => {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })
+
+    it('renders a multi-line plain-string error as raw text, not JSON-stringified', () => {
+        const errorText = 'ValidationError: bad input\n  at handler (app.js:10)'
+        render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={[]}
+                    errorData={errorText}
+                    raisedError
+                    httpStatus={500}
+                />
+            </Provider>
+        )
+
+        // The raw string keeps a real newline between the two lines. JSON.stringify would
+        // turn that newline into the literal characters backslash-n and wrap the whole
+        // string in quotes, so this whitespace match fails if the raw path regresses.
+        expect(screen.getAllByText(/ValidationError: bad input\s+at handler \(app\.js:10\)/).length).toBeGreaterThan(0)
+    })
 })
 
 describe('ImageMessageDisplay', () => {

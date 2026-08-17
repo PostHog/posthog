@@ -35,6 +35,7 @@ import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nod
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
+import { humanizeQueryError } from '~/queries/nodes/DataTable/humanizeQueryError'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { DATETIME_KEYS, getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -181,6 +182,7 @@ export function DataTable({
         response,
         responseLoading,
         responseError,
+        responseErrorObject,
         queryCancelled,
         nextDataLoading,
         newDataLoading,
@@ -1047,9 +1049,12 @@ export function DataTable({
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
-                                                        : response && 'error' in response
-                                                          ? response.error
-                                                          : responseError
+                                                        : humanizeQueryError(
+                                                              response && 'error' in response
+                                                                  ? response.error
+                                                                  : responseError,
+                                                              responseErrorObject?.status
+                                                          )
                                                 }
                                             />
                                         ) : (
