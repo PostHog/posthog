@@ -52,6 +52,7 @@ export function QuickAsk(): React.JSX.Element {
   const [hasViz, setHasViz] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
+  const [flip, setFlip] = useState(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
@@ -72,31 +73,41 @@ export function QuickAsk(): React.JSX.Element {
     }
   }, []);
 
-  // Sizes the answer card to the space between the window and the screen
-  // bottom, so long answers scroll instead of running off-screen.
-  const updateCardMaxHeight = useCallback((): void => {
-    const available = window.screen.availHeight - window.screenY - 200;
-    document.documentElement.style.setProperty(
-      "--qa-card-max",
-      `${Math.max(180, available)}px`,
+  // Tell the main process how tall the window should be. Called on every
+  // layout-relevant change: the ResizeObserver misses re-shows because the
+  // content size does not change while hidden.
+  const reportSize = useCallback((): void => {
+    const root = rootRef.current;
+    if (!root) return;
+    window.quickAsk?.resize(
+      Math.ceil(root.getBoundingClientRect().height) + 24,
     );
+  }, []);
+
+  // The main process owns screen geometry: it caps the card and decides
+  // whether the card sits above the pill (summoned near the screen bottom).
+  useEffect(() => {
+    return window.quickAsk?.onLayout((layout) => {
+      document.documentElement.style.setProperty(
+        "--qa-card-max",
+        `${layout.cardMax}px`,
+      );
+      setFlip(layout.flip);
+    });
   }, []);
 
   // Refocus on every summon. The previous session is kept — "New chat" or a
   // new question clears it — so reopening restores the last answer.
   useEffect(() => {
-    updateCardMaxHeight();
     inputRef.current?.focus();
-    window.addEventListener("resize", updateCardMaxHeight);
     const unsubscribe = window.quickAsk?.onShown(() => {
-      updateCardMaxHeight();
       inputRef.current?.focus();
+      reportSize();
+      // Re-report once the flipped layout has settled.
+      requestAnimationFrame(reportSize);
     });
-    return () => {
-      window.removeEventListener("resize", updateCardMaxHeight);
-      unsubscribe?.();
-    };
-  }, [updateCardMaxHeight]);
+    return () => unsubscribe?.();
+  }, [reportSize]);
 
   // Answer stream from the main process.
   useEffect(() => {
@@ -147,13 +158,26 @@ export function QuickAsk(): React.JSX.Element {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const observer = new ResizeObserver(() => {
-      window.quickAsk?.resize(
-        Math.ceil(root.getBoundingClientRect().height) + 24,
-      );
-    });
+    const observer = new ResizeObserver(reportSize);
     observer.observe(root);
     return () => observer.disconnect();
+  }, [reportSize]);
+
+  // The hedgehog is the drag handle. Native `-webkit-app-region: drag`
+  // swallows the mousedown that click-through relies on, so the panel moves
+  // itself: report a grab offset and the main process follows the cursor.
+  const startDrag = useCallback((event: React.MouseEvent): void => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    window.quickAsk?.dragStart({
+      dx: event.screenX - window.screenX,
+      dy: event.screenY - window.screenY,
+    });
+    const endDrag = (): void => {
+      window.quickAsk?.dragEnd();
+      document.removeEventListener("mouseup", endDrag);
+    };
+    document.addEventListener("mouseup", endDrag);
   }, []);
 
   // The window is click-through except while the pointer is over content.
@@ -213,17 +237,19 @@ export function QuickAsk(): React.JSX.Element {
   return (
     <div
       ref={rootRef}
-      className="qa-root"
+      className={flip ? "qa-root qa-flip" : "qa-root"}
       onPointerEnter={enableMouse}
       onPointerLeave={disableMouse}
     >
       <div className="qa-pill-row">
-        <img
-          src={happyHog}
-          alt=""
-          draggable={false}
+        <button
+          type="button"
+          aria-label="Drag to move the panel"
+          onMouseDown={startDrag}
           className={phase === "thinking" ? "qa-hog qa-hog-thinking" : "qa-hog"}
-        />
+        >
+          <img src={happyHog} alt="" draggable={false} />
+        </button>
         <div className="qa-pill" style={{ width: pillWidth }}>
           <input
             ref={inputRef}

@@ -140,6 +140,7 @@ describe("QuickAskService", () => {
     const events = await collect(service);
     expect(events).toEqual([
       { type: "conversation", conversationId: expect.any(String) },
+      { type: "trace", detail: "viz query collected (ai/viz)" },
       {
         type: "chart",
         chart: {
@@ -165,7 +166,58 @@ describe("QuickAskService", () => {
     const events = await collect(serviceWith(sse));
     expect(events).toEqual([
       { type: "conversation", conversationId: expect.any(String) },
-      { type: "viz" },
+      { type: "trace", detail: "viz query collected (ai/viz)" },
+      { type: "viz", reason: "query kind FunnelsQuery is not drawable" },
+      { type: "done" },
+    ]);
+  });
+
+  it("collects viz queries from the artifact messages agent mode emits", async () => {
+    const query = {
+      kind: "TrendsQuery",
+      trendsFilter: { display: "ActionsBar" },
+    };
+    const artifact = {
+      type: "ai/artifact",
+      id: "a1",
+      artifact_id: "a1",
+      content: {
+        content_type: "visualization",
+        query,
+        name: "Daily active users",
+      },
+    };
+    const sse = sseResponse([
+      `event: message\ndata: ${JSON.stringify(artifact)}\n\n`,
+    ]);
+    const queryResponse = new Response(
+      JSON.stringify({
+        results: [
+          { label: "DAU", data: [4, 5], days: ["2026-08-01", "2026-08-02"] },
+        ],
+      }),
+      { status: 200 },
+    );
+    const service = serviceWith(sse);
+    const fetchMock = (
+      service as unknown as {
+        authService: { authenticatedFetch: ReturnType<typeof vi.fn> };
+      }
+    ).authService.authenticatedFetch;
+    fetchMock.mockResolvedValueOnce(sse).mockResolvedValueOnce(queryResponse);
+    const events = await collect(service);
+    expect(events).toEqual([
+      { type: "conversation", conversationId: expect.any(String) },
+      { type: "trace", detail: "viz query collected (ai/artifact)" },
+      {
+        type: "chart",
+        chart: {
+          kind: "bar",
+          title: "Daily active users",
+          labels: ["8/1", "8/2"],
+          series: [{ name: "DAU", points: [4, 5] }],
+        },
+      },
       { type: "done" },
     ]);
   });

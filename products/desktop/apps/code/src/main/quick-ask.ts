@@ -12,8 +12,11 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import {
   QUICK_ASK_ASK_CHANNEL,
   QUICK_ASK_CANCEL_CHANNEL,
+  QUICK_ASK_DRAG_END_CHANNEL,
+  QUICK_ASK_DRAG_START_CHANNEL,
   QUICK_ASK_EVENT_CHANNEL,
   QUICK_ASK_HIDE_CHANNEL,
+  QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SET_INTERACTIVE_CHANNEL,
@@ -32,16 +35,39 @@ const QUICK_ASK_VITE_DEV_SERVER_URL = process.env.ELECTRON_RENDERER_URL;
 const QUICK_ASK_VITE_NAME = "main_window";
 
 const PANEL_WIDTH = 640;
-const PANEL_INITIAL_HEIGHT = 96;
+// Layout constants matching quick-ask.css: root padding top/bottom 10/14,
+// pill row 46px, card gap 10px. Non-card chrome is 80px of window height.
+const ROOT_PAD_TOP = 10;
+const ROOT_PAD_BOTTOM = 14;
+const PILL_ROW_HEIGHT = 46;
+const CARD_GAP = 10;
+const CHROME_HEIGHT =
+  ROOT_PAD_TOP + PILL_ROW_HEIGHT + CARD_GAP + ROOT_PAD_BOTTOM;
+const PILL_HEIGHT = CHROME_HEIGHT - CARD_GAP;
+const PANEL_INITIAL_HEIGHT = PILL_HEIGHT;
 // Keep the panel clear of the menu bar and screen edges when opening at the cursor.
 const SCREEN_MARGIN = 16;
 const MENU_BAR_CLEARANCE = 40;
-// Where the pill's top-left corner sits inside the window (root padding +
-// hedgehog + gap; see quick-ask.css). Used to anchor the pill at the cursor.
-const PILL_OFFSET_X = 63;
-const PILL_OFFSET_Y = 10;
-// The pill must stay fully visible when summoned near the screen bottom.
-const MIN_VISIBLE_HEIGHT = 120;
+// Where the cursor lands inside the window: on the hedgehog, Figma-style.
+const CURSOR_IN_WINDOW_X = 55;
+const CURSOR_IN_WINDOW_X_OFFSET = 8;
+const CURSOR_ABOVE_PILL_PX = 10;
+interface QuickAskLayoutState {
+  flip: boolean;
+  cardMax: number;
+}
+
+/** Last geometry the renderer reported; reused across hides/shows. */
+let cachedContentHeight = PANEL_INITIAL_HEIGHT;
+/** Whether the current layout has the card above the pill. */
+let currentFlip = false;
+
+type QuickAskDragState = {
+  dx: number;
+  dy: number;
+  timer: NodeJS.Timeout;
+};
+let dragState: QuickAskDragState | null = null;
 
 export interface QuickAskState {
   enabled: boolean;
@@ -165,42 +191,109 @@ function createQuickAskWindow(): BrowserWindow {
   return window;
 }
 
+/** Geometry math shared by the summon, resize, and drag paths. */
+function layoutFor(
+  bounds: { x: number; y: number; height: number },
+  flip: boolean,
+  area: { x: number; y: number; width: number; height: number },
+): { y: number; height: number; cardMax: number } {
+  if (!flip) {
+    // Window top is anchored at the pill; the card may extend to the screen edge.
+    const maxHeight = area.y + area.height - SCREEN_MARGIN - bounds.y;
+    const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
+    return {
+      y: bounds.y,
+      height,
+      cardMax: Math.max(60, height - CHROME_HEIGHT),
+    };
+  }
+  // Window bottom is anchored at the pill; the card extends upward, capped
+  // by the screen edge above.
+  const maxHeight = bounds.y + bounds.height - (area.y + MENU_BAR_CLEARANCE);
+  const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
+  const y = bounds.y + bounds.height - height;
+  return { y, height, cardMax: Math.max(60, height - CHROME_HEIGHT) };
+}
+
+function pushLayout(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const bounds = window.getBounds();
+  const layout = layoutFor(
+    bounds,
+    currentFlip,
+    screen.getDisplayNearestPoint(bounds).workArea,
+  );
+  if (layout.y !== bounds.y || layout.height !== bounds.height) {
+    window.setBounds({
+      x: bounds.x,
+      y: layout.y,
+      width: PANEL_WIDTH,
+      height: layout.height,
+    });
+  }
+  const payload: QuickAskLayoutState = {
+    flip: currentFlip,
+    cardMax: layout.cardMax,
+  };
+  window.webContents.send(QUICK_ASK_LAYOUT_CHANNEL, payload);
+}
+
+function stopDrag(): void {
+  if (dragState) {
+    clearInterval(dragState.timer);
+    dragState = null;
+  }
+}
+
 /**
- * Position the panel so the pill's top-left corner lands just beside the
- * cursor (Figma cursor-chat style), clamped to the cursor's display. Only the
- * pill's own height is reserved below the cursor; the answer card scrolls
- * within whatever space remains (see the resize handler).
+ * Position the panel so the cursor lands on the hedgehog's nose (Figma
+ * cursor-chat style). Near the bottom of the display the card flips above
+ * the pill instead of squeezing into the sliver below.
  */
 function positionAtCursor(window: BrowserWindow): void {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
-  const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
+  const area = display.workArea;
 
   const x = Math.round(
     Math.min(
       Math.max(
-        cursor.x + 8 - PILL_OFFSET_X,
-        dx + SCREEN_MARGIN - PILL_OFFSET_X,
+        cursor.x + CURSOR_IN_WINDOW_X_OFFSET - CURSOR_IN_WINDOW_X,
+        area.x + SCREEN_MARGIN,
       ),
-      dx + dw - PANEL_WIDTH - SCREEN_MARGIN,
+      area.x + area.width - PANEL_WIDTH - SCREEN_MARGIN,
     ),
   );
-  const y = Math.round(
-    Math.min(
-      Math.max(cursor.y + 10 - PILL_OFFSET_Y, dy + MENU_BAR_CLEARANCE),
-      dy + dh - MIN_VISIBLE_HEIGHT,
-    ),
-  );
+  const pillTopY = cursor.y + CURSOR_ABOVE_PILL_PX;
+  const windowTop = pillTopY - ROOT_PAD_TOP;
+  const roomBelow =
+    area.y + area.height - SCREEN_MARGIN - (windowTop + PILL_HEIGHT);
+  const roomAbove =
+    pillTopY +
+    PILL_ROW_HEIGHT +
+    ROOT_PAD_BOTTOM -
+    (area.y + MENU_BAR_CLEARANCE);
+  // Flip when the card cannot fit below but has at least slightly more room above.
+  const needsFlip = roomBelow < cachedContentHeight && roomAbove > roomBelow;
+  currentFlip = needsFlip;
 
-  window.setBounds({ x, y, width: PANEL_WIDTH, height: PANEL_INITIAL_HEIGHT });
-}
-
-/** The vertical space between the window's top and the display's bottom edge. */
-function availableHeightAt(window: BrowserWindow): number {
-  const bounds = window.getBounds();
-  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
-  const { y: dy, height: dh } = display.workArea;
-  return Math.max(MIN_VISIBLE_HEIGHT, dy + dh - bounds.y - SCREEN_MARGIN);
+  // Flipped: the pill's top edge keeps its anchor, the card extends upward.
+  const y = needsFlip
+    ? pillTopY - (cachedContentHeight - ROOT_PAD_BOTTOM - PILL_ROW_HEIGHT)
+    : windowTop;
+  const bounds = {
+    x,
+    y: Math.round(y),
+    width: PANEL_WIDTH,
+    height: cachedContentHeight,
+  };
+  const layout = layoutFor(bounds, needsFlip, area);
+  window.setBounds({
+    x,
+    y: layout.y,
+    width: PANEL_WIDTH,
+    height: layout.height,
+  });
 }
 
 function showQuickAsk(): void {
@@ -212,11 +305,13 @@ function showQuickAsk(): void {
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
+  pushLayout(quickAskWindow);
 }
 
 function hideQuickAsk(): void {
   // The stream keeps running while hidden so reopening restores the finished
   // answer; it is only cancelled by a new question or app quit.
+  stopDrag();
   if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
   if (!quickAskWindow.isVisible()) return;
   quickAskWindow.hide();
@@ -249,6 +344,12 @@ async function streamAnswer(
           detail: event.detail,
         });
       }
+      if (event.type === "trace") {
+        log.info("Quick ask stream trace", { detail: event.detail });
+      }
+      if (event.type === "viz" && "reason" in event && event.reason) {
+        log.warn("Quick ask chart render skipped", { reason: event.reason });
+      }
       send(event);
     }
   } catch (error) {
@@ -277,6 +378,7 @@ export function toggleQuickAsk(): void {
 
 /** Tear down the panel so `window-all-closed` app-quit behavior is preserved. */
 export function destroyQuickAskWindow(): void {
+  stopDrag();
   if (quickAskWindow && !quickAskWindow.isDestroyed()) {
     quickAskWindow.destroy();
   }
@@ -294,15 +396,48 @@ export function setupQuickAsk(): void {
   ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (_event, height: unknown) => {
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;
-    const clamped = Math.round(
-      Math.min(
-        Math.max(height, PANEL_INITIAL_HEIGHT),
-        availableHeightAt(quickAskWindow),
-      ),
-    );
-    const bounds = quickAskWindow.getBounds();
-    quickAskWindow.setBounds({ ...bounds, height: clamped });
+    cachedContentHeight = Math.max(PILL_HEIGHT, Math.round(height));
+    pushLayout(quickAskWindow);
   });
+  // Dragging: native `-webkit-app-region: drag` is incompatible with the
+  // forwarded click-through events, so the renderer reports a grab offset
+  // and the main process follows the cursor.
+  ipcMain.on(QUICK_ASK_DRAG_START_CHANNEL, (_event, offset: unknown) => {
+    if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
+    const { dx, dy } = (offset ?? {}) as { dx?: unknown; dy?: unknown };
+    if (
+      typeof dx !== "number" ||
+      typeof dy !== "number" ||
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy)
+    ) {
+      return;
+    }
+    stopDrag();
+    dragState = {
+      dx,
+      dy,
+      timer: setInterval(() => {
+        if (
+          !quickAskWindow ||
+          quickAskWindow.isDestroyed() ||
+          !quickAskWindow.isVisible()
+        ) {
+          stopDrag();
+          return;
+        }
+        const point = screen.getCursorScreenPoint();
+        const bounds = quickAskWindow.getBounds();
+        const x = Math.round(point.x - dx);
+        const y = Math.round(point.y - dy);
+        if (x !== bounds.x || y !== bounds.y) {
+          quickAskWindow.setPosition(x, y);
+          pushLayout(quickAskWindow);
+        }
+      }, 15),
+    };
+  });
+  ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => stopDrag());
   ipcMain.on(
     QUICK_ASK_SET_INTERACTIVE_CHANNEL,
     (_event, interactive: unknown) => {

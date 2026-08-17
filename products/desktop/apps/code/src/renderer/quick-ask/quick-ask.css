@@ -43,6 +43,12 @@ body {
   padding: 10px 14px 14px 10px;
 }
 
+/* Summoned close to the screen bottom: the card renders above the pill
+ * (class toggles the root's direction; card overrides live below `.qa-card`). */
+.qa-root.qa-flip {
+  flex-direction: column-reverse;
+}
+
 /* ── Cursor pill ─────────────────────────────────────── */
 
 .qa-pill-row {
@@ -55,12 +61,24 @@ body {
 .qa-hog {
   width: 46px;
   height: 46px;
-  object-fit: contain;
+  padding: 0;
+  border: 0;
+  background: transparent;
   /* The hedgehog is the drag handle for moving the panel around. */
-  -webkit-app-region: drag;
   cursor: grab;
   animation: qa-hog-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: bottom center;
+}
+
+.qa-hog img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.qa-hog:active {
+  cursor: grabbing;
 }
 
 .qa-hog-thinking {
@@ -149,12 +167,22 @@ body {
   animation: qa-card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.05);
   transform-origin: top left;
   overflow: hidden;
+  /* Capped by the main process to the space left on screen; long answers
+   * scroll inside instead of running off-screen. */
+  max-height: var(--qa-card-max, 420px);
+  display: flex;
+  flex-direction: column;
 }
 
-/* Scrolls long answers; capped to the space left on screen (set by the
- * renderer from the window's position). */
+/* Flipped: the card grows upward with the pill anchored to its summon point. */
+.qa-flip .qa-card {
+  margin: 0 0 10px 53px;
+  transform-origin: bottom left;
+}
+
 .qa-card-scroll {
-  max-height: var(--qa-card-max, 420px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px 16px 12px;
 }
@@ -216,6 +244,7 @@ body {
 
 .qa-actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 8px;
   padding: 10px 16px 12px;

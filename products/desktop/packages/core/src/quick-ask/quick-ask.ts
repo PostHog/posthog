@@ -24,9 +24,10 @@ export type QuickAskEvent =
   | { type: "text"; id: string; content: string; complete: boolean }
   | { type: "chart"; chart: QuickAskChart }
   /** The answer has a visualization the panel could not render. */
-  | { type: "viz" }
+  | { type: "viz"; reason?: string }
   | { type: "error"; message: string; detail?: string }
-  | { type: "done" };
+  | { type: "done" }
+  | { type: "trace"; detail: string };
 
 export interface QuickAskInput {
   question: string;
@@ -41,6 +42,12 @@ interface AssistantSseMessage {
   status?: string;
   answer?: unknown;
   visualizations?: { answer?: unknown }[];
+}
+
+interface AssistantArtifactContent {
+  content_type?: unknown;
+  query?: unknown;
+  name?: unknown;
 }
 
 interface AssistantQuery {
@@ -88,7 +95,7 @@ export function* parseSseChunk(
 
 interface StreamCollector {
   /** Query ASTs from viz messages, run after the stream to render charts. */
-  vizQueries: unknown[];
+  vizQueries: { query: unknown; title?: string }[];
 }
 
 function toEvents(
@@ -135,8 +142,8 @@ function toEvents(
         : [];
     case "ai/viz":
       if (message.answer != null) {
-        collector.vizQueries.push(message.answer);
-        return [];
+        collector.vizQueries.push({ query: message.answer });
+        return [{ type: "trace", detail: "viz query collected (ai/viz)" }];
       }
       return [{ type: "viz" }];
     case "ai/multi_viz": {
@@ -144,10 +151,29 @@ function toEvents(
         .map((item) => item.answer)
         .filter((answer) => answer != null);
       if (answers.length > 0) {
-        collector.vizQueries.push(...answers);
-        return [];
+        collector.vizQueries.push(...answers.map((query) => ({ query })));
+        return [
+          { type: "trace", detail: "viz query collected (ai/multi_viz)" },
+        ];
       }
       return [{ type: "viz" }];
+    }
+    // Agent mode emits visualizations as artifacts; the query AST is inline.
+    case "ai/artifact": {
+      const content = message.content as AssistantArtifactContent | undefined;
+      if (content?.content_type === "visualization" && content.query != null) {
+        collector.vizQueries.push({
+          query: content.query,
+          title: typeof content.name === "string" ? content.name : undefined,
+        });
+        return [{ type: "trace", detail: "viz query collected (ai/artifact)" }];
+      }
+      return [
+        {
+          type: "trace",
+          detail: `artifact ignored (${String(content?.content_type)})`,
+        },
+      ];
     }
     case "ai/failure":
       return [
@@ -160,7 +186,14 @@ function toEvents(
         },
       ];
     default:
-      return [];
+      return message.type
+        ? [
+            {
+              type: "trace",
+              detail: `stream message ignored (${message.type})`,
+            },
+          ]
+        : [];
   }
 }
 
@@ -180,6 +213,7 @@ function shortLabel(label: string): string {
 export function toChart(
   query: unknown,
   results: unknown,
+  title?: string,
 ): QuickAskChart | null {
   const assistantQuery = query as AssistantQuery;
   if (!CHARTABLE_QUERY_KINDS.has(assistantQuery.kind ?? "")) {
@@ -199,7 +233,7 @@ export function toChart(
   const display = assistantQuery.trendsFilter?.display ?? "";
   return {
     kind: display.includes("Bar") ? "bar" : "line",
-    title: seriesResults.map(seriesName).join(" · "),
+    title: title ?? seriesResults.map(seriesName).join(" · "),
     labels,
     series: seriesResults.map((result, index) => ({
       name: seriesName(result, index),
@@ -231,12 +265,13 @@ export class QuickAskService {
   private async runQueryToChart(
     apiHost: string,
     projectId: number,
-    query: unknown,
+    entry: { query: unknown; title?: string },
     signal: AbortSignal,
   ): Promise<QuickAskChart | null> {
-    const assistantQuery = query as AssistantQuery;
-    if (!CHARTABLE_QUERY_KINDS.has(assistantQuery.kind ?? "")) {
-      return null;
+    const assistantQuery = entry.query as AssistantQuery;
+    const kind = assistantQuery.kind ?? "unknown";
+    if (!CHARTABLE_QUERY_KINDS.has(kind)) {
+      throw new Error(`query kind ${kind} is not drawable`);
     }
     const response = await this.authService.authenticatedFetch(
       fetch,
@@ -244,15 +279,19 @@ export class QuickAskService {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, refresh: "blocking" }),
+        body: JSON.stringify({ query: entry.query, refresh: "blocking" }),
         signal,
       },
     );
     if (!response.ok) {
-      return null;
+      const detail = await response
+        .text()
+        .then((text) => text.slice(0, 200))
+        .catch(() => "");
+      throw new Error(`query failed with ${response.status}: ${detail}`);
     }
     const payload = (await response.json()) as { results?: unknown };
-    return toChart(query, payload.results);
+    return toChart(entry.query, payload.results, entry.title);
   }
 
   async *ask(input: QuickAskInput): AsyncGenerator<QuickAskEvent> {
@@ -333,24 +372,28 @@ export class QuickAskService {
       // Turn viz queries into drawable charts; anything unrenderable falls
       // back to the "open in PostHog" note.
       let chartRendered = false;
-      for (const query of collector.vizQueries.slice(0, MAX_CHARTS)) {
+      let chartFailure: string | null = null;
+      for (const entry of collector.vizQueries.slice(0, MAX_CHARTS)) {
         try {
           const chart = await this.runQueryToChart(
             apiHost,
             projectId,
-            query,
+            entry,
             controller.signal,
           );
           if (chart) {
             yield { type: "chart", chart };
             chartRendered = true;
+          } else {
+            chartFailure ??= `results for ${(entry.query as AssistantQuery).kind ?? "unknown"} had no drawable series`;
           }
-        } catch {
-          // Chart rendering is best-effort; the fallback note covers it.
+        } catch (error) {
+          chartFailure ??=
+            error instanceof Error ? error.message : "chart query failed";
         }
       }
       if (collector.vizQueries.length > 0 && !chartRendered) {
-        yield { type: "viz" };
+        yield { type: "viz", reason: chartFailure ?? undefined };
       }
 
       yield { type: "done" };

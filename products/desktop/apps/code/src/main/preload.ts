@@ -8,8 +8,11 @@ import {
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
   QUICK_ASK_ASK_CHANNEL,
   QUICK_ASK_CANCEL_CHANNEL,
+  QUICK_ASK_DRAG_END_CHANNEL,
+  QUICK_ASK_DRAG_START_CHANNEL,
   QUICK_ASK_EVENT_CHANNEL,
   QUICK_ASK_HIDE_CHANNEL,
+  QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SET_INTERACTIVE_CHANNEL,
@@ -101,6 +104,9 @@ function setupQuickAskPreload(): void {
     openInApp: () => ipcRenderer.send(QUICK_ASK_OPEN_IN_APP_CHANNEL),
     setInteractive: (interactive: boolean) =>
       ipcRenderer.send(QUICK_ASK_SET_INTERACTIVE_CHANNEL, interactive),
+    dragStart: (offset: { dx: number; dy: number }) =>
+      ipcRenderer.send(QUICK_ASK_DRAG_START_CHANNEL, offset),
+    dragEnd: () => ipcRenderer.send(QUICK_ASK_DRAG_END_CHANNEL),
     ask: (question: string, conversationId?: string) =>
       ipcRenderer.send(QUICK_ASK_ASK_CHANNEL, question, conversationId),
     cancel: () => ipcRenderer.send(QUICK_ASK_CANCEL_CHANNEL),
@@ -108,6 +114,11 @@ function setupQuickAskPreload(): void {
       const listener = (_e: unknown, event: unknown): void => callback(event);
       ipcRenderer.on(QUICK_ASK_EVENT_CHANNEL, listener);
       return () => ipcRenderer.off(QUICK_ASK_EVENT_CHANNEL, listener);
+    },
+    onLayout: (callback: (layout: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, layout: unknown): void => callback(layout);
+      ipcRenderer.on(QUICK_ASK_LAYOUT_CHANNEL, listener);
+      return () => ipcRenderer.off(QUICK_ASK_LAYOUT_CHANNEL, listener);
     },
     onShown: (callback: () => void): (() => void) => {
       const listener = (): void => callback();
