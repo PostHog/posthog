@@ -124,6 +124,12 @@ class TestColumnToExpr(SimpleTestCase):
             # matching log before the page limit applies — same availability risk as aggregations.
             ("window_row_number", "row_number() over (order by timestamp)"),
             ("window_aggregate_over", "min(timestamp) over ()"),
+            # body/message are plain strings, not maps: bracket indexing parses as a HogQL field
+            # chain but fails at ClickHouse with an opaque arrayElement type error. Reject it here
+            # with a message pointing at the body.<json.path> shorthand instead.
+            ("body_bracket_index", "body['config']['url']"),
+            ("message_bracket_index", "message['x']"),
+            ("body_bracket_index_nested_in_call", "upper(body['x'])"),
         ]
     )
     def test_non_scalar_expressions_are_rejected(self, _name, text):
