@@ -157,6 +157,7 @@ jest.mock('react-grid-layout', () => {
 })
 
 jest.mock('react-grid-layout/extras', () => ({
+    fastVerticalCompactor: { type: 'vertical' },
     GridBackground: ({ rowHeight, margin }: { rowHeight: number; margin: [number, number] }) => (
         <div data-attr="grid-background" data-row-height={String(rowHeight)} data-margin={margin.join(',')} />
     ),
