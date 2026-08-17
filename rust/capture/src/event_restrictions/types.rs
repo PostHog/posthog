@@ -45,13 +45,16 @@ impl Pipeline {
     /// Pipelines a given capture deployment produces events to. The events
     /// deployment writes to `analytics` (normal events), `errortracking`
     /// (`$exception` events split off in `process_single_event`), and `ai`
-    /// (`$ai_*` events), so its restriction service must serve restrictions
-    /// for all three pipelines. `Import` is an events deployment restricted to
-    /// backfills, so it serves the same three, and so does `Ai`: its batch
-    /// route accepts any event name, so an event that isn't `$ai_*` lands on
-    /// the analytics or errortracking lane there just as it would anywhere
-    /// else. Serving fewer would leave those lookups matching an unloaded
-    /// slice, which returns an empty `RestrictionSet` — silently unrestricted.
+    /// (names on the `AI_EVENT_NAMES` allowlist), so its restriction service
+    /// must serve restrictions for all three pipelines. `Import` is an events
+    /// deployment restricted to backfills, so it serves the same three.
+    ///
+    /// `Ai` serves only `ai`. That deployment registers no analytics route,
+    /// and `process_events` rejects a batch carrying anything off the AI lane,
+    /// so no event there resolves to another pipeline. Both halves have to
+    /// hold: serving fewer pipelines than a deployment can produce to leaves
+    /// those lookups matching an unloaded slice, which returns an empty
+    /// `RestrictionSet` — silently unrestricted.
     pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
             CaptureMode::Events | CaptureMode::Import => {
@@ -396,7 +399,7 @@ mod tests {
         );
         // Import is an events deployment restricted to backfills, so it must
         // serve the identical pipeline set -- a backfill can carry $exception
-        // and $ai_* events too.
+        // and AI events too.
         assert_eq!(
             Pipeline::for_capture_mode(CaptureMode::Import),
             Pipeline::for_capture_mode(CaptureMode::Events)

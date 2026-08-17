@@ -220,7 +220,7 @@ pub fn process_single_event(
 
 /// Process a batch of analytics events.
 ///
-/// All routing policy lives here: token dropping, `$ai_*` lane assignment
+/// All routing policy lives here: token dropping, AI lane assignment
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, global
 /// rate limiting (per `token:distinct_id`), historical rerouting, and
@@ -1291,8 +1291,8 @@ mod tests {
         );
     }
 
-    /// The `$ai_*` lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every `$ai_*` event (only the AI lane has AI
+    /// The AI lane assignment holds across capture modes: `Events` and
+    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1556,7 +1556,7 @@ mod tests {
         );
     }
 
-    /// Capture mode no longer changes which lane `$ai_*` lands on: under `Ai`
+    /// Capture mode no longer changes which lane an AI event lands on: under `Ai`
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
@@ -1621,12 +1621,12 @@ mod tests {
         let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
         assert_eq!(
             records[0].topic, ai_topic,
-            "$ai_* diverts to the AI lane under Ai mode too"
+            "an allowlisted AI event diverts to the AI lane under Ai mode too"
         );
     }
 
     /// Under `Events` mode, only the diverted `AiEvents` lane is limited:
-    /// `$ai_*` traffic past the budget drops while same-sized `$pageview`s stay
+    /// AI traffic past the budget drops while same-sized `$pageview`s stay
     /// untouched however far over that budget the token already is.
     #[tokio::test]
     async fn events_mode_leaves_analytics_main_untouched_end_to_end() {
@@ -1699,7 +1699,7 @@ mod tests {
         );
     }
 
-    /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the
+    /// A diverted AI event is governed by ai-scoped restrictions (the
     /// same slice the dedicated AI endpoints consult), not analytics ones:
     /// an ai-scoped DropEvent drops it, an analytics-scoped one must not
     /// cross pipelines into the AI lane.
@@ -1771,7 +1771,7 @@ mod tests {
         }
     }
 
-    /// An ai-scoped RedirectToTopic applies to a diverted `$ai_*` event: the
+    /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
     /// matching v1 where the restriction overwrites `Destination::AiEvents`
@@ -2222,7 +2222,7 @@ mod tests {
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted `$ai_*` event
+    /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
     /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.

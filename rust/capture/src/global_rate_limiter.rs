@@ -47,7 +47,7 @@ impl<'a> GlobalRateLimitKey<'a> {
 
 /// Redis key prefix for the AI lane's byte budget. Unlike the event limiters
 /// this deliberately carries no `capture_mode`: AI events reach the AI topic
-/// from the capture-ai deployment and from `$ai_*` traffic diverted on
+/// from the capture-ai deployment and from AI traffic diverted on
 /// capture-analytics, so one token must draw on one budget across both. Both
 /// deployments therefore have to point at the same rate-limiter Redis.
 const AI_BYTES_REDIS_KEY_PREFIX: &str = "@ph/grl/capture/ai_bytes";

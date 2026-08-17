@@ -420,9 +420,9 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
-    /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
+    /// Dedicated Kafka topic for AI events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
     /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
-    /// (via `Destination::AiEvents`) divert `$ai_*` events here instead of the
+    /// (via `Destination::AiEvents`) divert AI events here instead of the
     /// analytics main topic, on every deployment that accepts them — including
     /// capture-ai, whose main topic used to double as the AI topic. Setup also
     /// injects it into every v1 sink config.

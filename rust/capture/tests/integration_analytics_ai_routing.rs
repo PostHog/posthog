@@ -1,9 +1,9 @@
-//! Endpoint-level coverage for `$ai_*` routing on analytics deployments:
+//! Endpoint-level coverage for AI event routing on analytics deployments:
 //! HTTP request -> router state -> `process_events` -> sink. The pipeline
 //! tests in `events::analytics` exercise `process_events` directly, so they
 //! cannot catch a regression in the router wiring (capture mode /
 //! `ai_events_overflow_enabled` not reaching the pipeline) or in the
-//! endpoint-level batch handling of mixed `$ai_*` / non-AI payloads.
+//! endpoint-level batch handling of mixed AI / non-AI payloads.
 
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
@@ -244,7 +244,7 @@ async fn legacy_routes_strip_forged_gateway_properties(#[case] path: &str) {
     assert!(data["properties"].get("$ai_gateway_request_id").is_none());
 }
 
-/// A mixed batch must split lanes: `$ai_*` events divert to the AI lane on
+/// A mixed batch must split lanes: AI events divert to the AI lane on
 /// analytics deployments, and the `$pageview` stays on the analytics lane.
 /// The valve-armed case pins down that the overflow valve alone does not
 /// change lane assignment.
@@ -280,7 +280,7 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
 
 /// Capture mode does not change lane assignment: an Ai-mode deployment splits
 /// a mixed batch exactly like an analytics one. Pins the invariant end-to-end,
-/// so a deployment can never silently rejoin `$ai_*` to the analytics lane and
+/// so a deployment can never silently rejoin AI events to the analytics lane and
 /// slip past every AI-lane gate (byte limiter, ai restrictions, AI overflow).
 #[tokio::test]
 async fn ai_mode_diverts_ai_events_like_every_other_mode() {
@@ -316,7 +316,7 @@ fn force_keyed_limiter() -> Arc<OverflowLimiter> {
 }
 
 /// With `secondary` routing, a force-limited key on the AI limiter
-/// overflow-stamps the diverted `$ai_*` event only when the AI overflow
+/// overflow-stamps the diverted AI event only when the AI overflow
 /// valve is armed (setup wires the AI limiter exactly then, so the test
 /// mirrors that coupling), while the `$pageview` on the same hot key
 /// (force-limited on the analytics limiter) stamps in both cases (the
@@ -364,7 +364,7 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
 
 /// The two lanes consult separate limiter instances end-to-end: a key that
 /// the analytics limiter force-routes must not drag the same key's diverted
-/// `$ai_*` event into AI overflow (and the pageview must still stamp).
+/// AI event into AI overflow (and the pageview must still stamp).
 /// Catches the router wiring one limiter instance into both slots.
 #[tokio::test]
 async fn ai_lane_overflow_isolated_from_analytics_limiter() {
@@ -408,7 +408,7 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
 }
 
 /// Import mode's no-overflow guarantee, end-to-end on the legacy path. Non-AI
-/// events in a historical batch land on `AnalyticsHistorical`; `$ai_*` events
+/// events in a historical batch land on `AnalyticsHistorical`; AI events
 /// divert to the AI lane (only the AI lane has AI processing, so imports must
 /// divert too). With the AI overflow valve unset — the capture-import config —
 /// neither lane can stamp overflow, even with the overflow limiter force-keyed

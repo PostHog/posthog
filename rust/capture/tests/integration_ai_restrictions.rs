@@ -649,7 +649,7 @@ async fn test_ai_force_overflow_restriction_wins_over_overflow_limiter() {
 #[tokio::test]
 async fn test_ai_endpoint_keeps_events_on_the_ai_lane() {
     // The AI endpoint's events are typed at the handler, and they carry the
-    // same lane as a `$ai_*` event that arrives through the batch path — so
+    // same lane as an AI event that arrives through the batch path — so
     // the AI overflow limiter is the one that applies. Catches a regression
     // that types AI-endpoint events as AnalyticsMain, which would put them on
     // the analytics topic and under analytics restrictions.

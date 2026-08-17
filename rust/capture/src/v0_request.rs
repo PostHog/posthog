@@ -177,7 +177,7 @@ pub enum DataType {
     HeatmapMain,
     ExceptionErrorTracking,
     SnapshotMain,
-    /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. The
+    /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
     /// kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, so every
     /// deployment that accepts AI traffic must configure that topic. Like
     /// heatmaps and exceptions, AI events never reroute historical.
@@ -351,7 +351,7 @@ mod tests {
     use super::{CaptureError, Compression, DataType, RawRequest};
 
     /// Mirrors v1's `destination_for_event_name` mapping tests: the
-    /// dedicated-name lanes always win, `$ai_*` diverts on every deployment
+    /// dedicated-name lanes always win, an allowlisted AI name diverts on every deployment
     /// (beating historical), and everything else falls through to
     /// main/historical per the batch flag.
     #[rstest::rstest]

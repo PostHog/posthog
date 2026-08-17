@@ -1,5 +1,6 @@
 //! Drops over-budget events on the AI lane. `DataType::AiEvents` carries every
-//! `$ai_*` event bound for the AI Kafka topic, on every deployment, so the lane
+//! event on the `AI_EVENT_NAMES` allowlist, bound for the AI Kafka topic, on
+//! every deployment, so the lane
 //! is the whole gate. Import deployments are exempt — backfills are never
 //! throttled, matching the other limiters — which setup enforces by not
 //! building the limiter at all in import mode.

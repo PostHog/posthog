@@ -301,7 +301,7 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
-        // The gateway tests send `$ai_*` events, which route to the AI topic;
+        // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());

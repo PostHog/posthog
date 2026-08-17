@@ -341,7 +341,7 @@ async fn test_analytics_force_overflow_restriction() {
 
 #[tokio::test]
 async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event() {
-    // A $ai_* event diverted onto the AI lane is governed by ai-scoped
+    // An AI event diverted onto the AI lane is governed by ai-scoped
     // restrictions — the same Pipeline::Ai slice the dedicated AI endpoints
     // consult — so this test inserts its ForceOverflow under Pipeline::Ai.
     //

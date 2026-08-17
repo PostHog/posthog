@@ -3595,7 +3595,7 @@ mod tests {
         });
     }
 
-    /// process_batch wiring: an `$ai_*` event lands on the AI topic.
+    /// process_batch wiring: an allowlisted AI event lands on the AI topic.
     #[tokio::test]
     async fn process_batch_routes_ai_events_to_ai_topic() {
         let ts = TestStateBuilder::new().build();
@@ -3615,7 +3615,7 @@ mod tests {
 
     /// process_batch wiring: overflow stamping must run when only the AI-lane
     /// limiter is armed (analytics limiter unset), with the state's AI limiter
-    /// governing the AI lane — a bursting key's second `$ai_*` event lands on
+    /// governing the AI lane — a bursting key's second AI event lands on
     /// the AI overflow topic while an analytics event on the same key stays on
     /// the main topic (it would overflow instead if the limiter arguments were
     /// ever swapped).
@@ -3952,7 +3952,7 @@ mod tests {
     async fn import_mode_historical_batch_never_overflows() {
         // Import's no-overflow guarantee on the v1 path. Non-AI events in a
         // historical batch reroute to AnalyticsHistorical before overflow
-        // stamping (which only touches AnalyticsMain), and $ai_* events divert
+        // stamping (which only touches AnalyticsMain), and AI events divert
         // to the AI lane, which cannot stamp overflow while the AI overflow
         // valve is unset — the capture-import config. Even with the burst
         // overflow limiter armed at burst=1 and all three events sharing one
@@ -3995,7 +3995,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_routes_ai_events_to_ai_lane() {
-        // A historical batch's $ai_* event diverts to the AI lane, winning
+        // A historical batch's AI event diverts to the AI lane, winning
         // over historical: only the AI lane has AI processing (cost
         // enrichment, the ai_events double-write), so leaving it on the
         // historical lane would import it incorrectly. Import's no-overflow

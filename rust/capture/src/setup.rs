@@ -426,7 +426,7 @@ pub async fn build_components(
 /// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` means AI events never
 /// overflow. Import mode refuses an armed valve at boot: non-AI import events
 /// can't overflow because historical rerouting takes precedence no matter how
-/// the deployment is configured, but nothing structural protects `$ai_*`
+/// the deployment is configured, but nothing structural protects AI
 /// imports, so an armed valve would silently break the imports-never-overflow
 /// guarantee.
 fn ai_events_overflow_valve(config: &Config) -> bool {
@@ -471,7 +471,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     }
 }
 
-/// Builds the v1 sink router. The dedicated `$ai_*` topics are
+/// Builds the v1 sink router. The dedicated AI topics are
 /// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
 /// so they are injected into every sink config here; the overwrite is
 /// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
