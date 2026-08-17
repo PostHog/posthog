@@ -569,6 +569,7 @@ def _stamp_digest_audiences(team_id: int, pr_obj: PullRequest, audiences: list[R
                 audience_key=audience.key,
                 reason=audience.reason,
                 owned_files=audience.owned_files,
+                owned_file_count=audience.owned_file_count,
             )
             for audience in audiences
         ],
@@ -661,8 +662,12 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             digest_enabled=repo_config.digest_enabled,
             approved=approved,
         )
-    pr_obj.save(update_fields=update_fields)
-    _stamp_digest_audiences(team_id, pr_obj, audiences)
+    # One transaction: `merged_at` is the redelivery guard at the top of this function, so committing
+    # it without the audience rows would let a retry return early and drop the merge from every
+    # digest for good. Both writes are local — the GitHub calls behind `audiences` already happened.
+    with transaction.atomic(using=router.db_for_write(PullRequest)):
+        pr_obj.save(update_fields=update_fields)
+        _stamp_digest_audiences(team_id, pr_obj, audiences)
 
     if delivery_id:
         _mark_pr_event_processed(delivery_id)

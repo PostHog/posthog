@@ -451,3 +451,26 @@ class ResolveAudiencesTests(SimpleTestCase):
             ("repo:PostHog/posthog", AudienceReason.REPO_DECLARED),
             ("team-replay", AudienceReason.OWNED),
         ]
+
+
+class OwnedFileCountTests(SimpleTestCase):
+    def test_true_owned_count_survives_the_capped_sample(self) -> None:
+        # The sample is capped and the count is not. If the prompt reported the sample size, a team
+        # owning most of a large change would look grazed by it and get filtered out of its own digest.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        gate_result = {
+            "classification": {
+                "ownership": {
+                    "teams": ["@PostHog/team-replay"],
+                    "team_files": {"@PostHog/team-replay": [f"a{i}.py" for i in range(10)]},
+                    "team_file_counts": {"@PostHog/team-replay": 200},
+                }
+            }
+        }
+        with (
+            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
+            patch("products.stamphog.backend.logic.audiences._author_team_audience_key", return_value="team-devex"),
+        ):
+            owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
+        assert len(owned.owned_files) == 10
+        assert owned.owned_file_count == 200

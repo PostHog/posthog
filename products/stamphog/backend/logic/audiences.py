@@ -39,8 +39,10 @@ _TEAM_HANDLE_PREFIX = "@"
 class ResolvedAudience:
     key: str
     reason: AudienceReason
-    # Sample of this team's changed paths; empty unless reason is OWNED.
+    # Capped sample of this team's changed paths; empty unless reason is OWNED.
     owned_files: list[str] = field(default_factory=list)
+    # How many files this team owns in the PR, uncapped.
+    owned_file_count: int = 0
 
 
 def _repository_audience_key(repo_config: StamphogRepoConfig) -> str:
@@ -93,8 +95,8 @@ def _author_team_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[
         return _repository_audience_key(repo_config)
 
 
-def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str]]]:
-    """(bare team slug, sample of its changed paths) for every team owning a changed file.
+def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str], int]]:
+    """(bare team slug, capped sample of its changed paths, true count) per owning team.
 
     The review walked the real checkout to get this, which the digest cannot do later. Anything
     unexpected in the blob resolves to "no owners" rather than raising: a merge must still be
@@ -107,6 +109,9 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str
     files_by_team = ownership.get("team_files")
     if not isinstance(files_by_team, dict):
         files_by_team = {}
+    counts_by_team = ownership.get("team_file_counts")
+    if not isinstance(counts_by_team, dict):
+        counts_by_team = {}
     owners = {}
     for team in teams:
         if not isinstance(team, str) or not team.startswith(_TEAM_HANDLE_PREFIX):
@@ -116,8 +121,11 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str
         if not slug:
             continue
         paths = files_by_team.get(team)
-        owners[slug] = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
-    return sorted(owners.items())
+        sample = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
+        count = counts_by_team.get(team)
+        # Fall back to the sample size when the count is missing or nonsense; never below it.
+        owners[slug] = (sample, max(count, len(sample)) if isinstance(count, int) else len(sample))
+    return sorted((slug, sample, count) for slug, (sample, count) in owners.items())
 
 
 def resolve_audiences(
@@ -144,9 +152,16 @@ def resolve_audiences(
 
     audiences = [primary]
     seen = {primary.key}
-    for slug, owned_files in _owner_teams(gate_result):
+    for slug, owned_files, owned_file_count in _owner_teams(gate_result):
         if slug in seen:
             continue
         seen.add(slug)
-        audiences.append(ResolvedAudience(key=slug, reason=AudienceReason.OWNED, owned_files=owned_files))
+        audiences.append(
+            ResolvedAudience(
+                key=slug,
+                reason=AudienceReason.OWNED,
+                owned_files=owned_files,
+                owned_file_count=owned_file_count,
+            )
+        )
     return audiences

@@ -11,10 +11,12 @@ from django.db import OperationalError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
-from products.stamphog.backend.logic.digest import DigestSummary, summarize_merged_prs
+from products.stamphog.backend.logic.digest import DigestSummary, _parse_llm_response, summarize_merged_prs
 from products.stamphog.backend.models import (
     DigestChannel,
     DigestRun,
@@ -402,3 +404,22 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         "https://github.com/acme/b/pull/123",
     }
     assert {p.summary for p in summary.prs} == {"repo a change", "repo b change"}
+
+
+@parameterized.expand(
+    [
+        ("empty_list_is_intentional_filtering", '{"intro": "quiet week", "prs": []}', True),
+        ("unrecognizable_entries_are_not", '{"intro": "x", "prs": [{"index": 99}, "junk"]}', False),
+        ("missing_key_is_not", '{"intro": "x"}', False),
+    ]
+)
+def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
+    # Keeping nothing is a real answer for an owning team. A list we could read no PR out of is a
+    # broken response wearing that shape, and accepting it would consume every claimed audience for
+    # an empty post instead of falling back to the deterministic list.
+    prs_by_index = {0: _pr_stub("PostHog/posthog", 1, "Title", "https://example.com/1")}
+    if accepted:
+        assert _parse_llm_response(content, prs_by_index).prs == []
+    else:
+        with pytest.raises(ValueError):
+            _parse_llm_response(content, prs_by_index)

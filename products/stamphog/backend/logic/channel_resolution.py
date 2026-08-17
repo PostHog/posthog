@@ -94,6 +94,10 @@ def _declared_repo_channel_name(team_id: int, audience_key: str) -> str | None:
     return digest_config.channel
 
 
+class _RegistryUnavailable(Exception):
+    """The owners.yaml registry could not be read, so no channel decision is safe this run."""
+
+
 def _audience_repo_config(team_id: int, audience_key: str) -> StamphogRepoConfig | None:
     """A repo whose merges produced this audience — the source of the ownership that named it.
 
@@ -131,19 +135,32 @@ def _declared_team_channel(team_id: int, audience_key: str) -> TeamChannel | Non
         raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
             repo_config.repository, _OWNERS_FILE_PATH
         )
-    except Exception:
-        # Provisioning is retried every run, so a GitHub blip costs a day, not a wrong channel.
+    except Exception as e:
+        # A blip must not read as "this team has no entry". Falling through to the name match would
+        # provision a channel for the derived slug, and that row then suppresses provisioning
+        # forever — so an unreadable registry stops this run and the next one tries again.
+        raise _RegistryUnavailable(f"could not read {_OWNERS_FILE_PATH} for {repo_config.repository}") from e
+    if raw is None:
+        return None
+    declared = team_channel(audience_key, teams_registry(raw))
+    return declared if declared.declared else None
+
+
+_REGISTRY_UNKNOWN = TeamChannel(channel=None, declared=False)
+
+
+def _resolve_declared_team_channel(team_id: int, audience_key: str) -> TeamChannel | None:
+    """``_declared_team_channel`` with an unreadable registry reported as ``_REGISTRY_UNKNOWN``."""
+    try:
+        return _declared_team_channel(team_id, audience_key)
+    except _RegistryUnavailable:
         logger.warning(
             "stamphog_channel_resolution_owners_fetch_failed",
             team_id=team_id,
             audience_key=audience_key,
             exc_info=True,
         )
-        return None
-    if raw is None:
-        return None
-    declared = team_channel(audience_key, teams_registry(raw))
-    return declared if declared.declared else None
+        return _REGISTRY_UNKNOWN
 
 
 def resolve_slack_destination(
@@ -159,7 +176,9 @@ def resolve_slack_destination(
         if channel_name is None:
             return None
         resolution_source = ChannelResolutionSource.STAMPHOG_CONFIG
-    elif (declared := _declared_team_channel(team_id, audience_key)) is not None:
+    elif (declared := _resolve_declared_team_channel(team_id, audience_key)) is _REGISTRY_UNKNOWN:
+        return None
+    elif declared is not None:
         if declared.channel is None:
             # `slack: false` — the team declared it has no channel. An answer, not a gap, so this
             # must not fall through to a name match on the slug.

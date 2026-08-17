@@ -169,6 +169,9 @@ class PullRequestAudience(ProductTeamModel):
     # it to tell "this changed in your area" from a sweep that grazed two of your files, which it
     # cannot judge from the PR alone. Empty for an authored audience or an engine without the field.
     owned_files = models.JSONField(default=list)
+    # How many of the PR's changed files this team owns. Not len(owned_files) — that list is a
+    # capped sample, and a team owning most of a large change must not read as grazed by it.
+    owned_file_count = models.IntegerField(default=0)
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="audiences")
     created_at = models.DateTimeField(auto_now_add=True)
 

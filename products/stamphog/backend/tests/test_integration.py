@@ -1213,6 +1213,32 @@ def _audience_keys(team_id: int, pull_request: PullRequest) -> list[str]:
     )
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_unreadable_owners_registry_provisions_nothing(team, stamphog_chain: StamphogChain) -> None:
+    # A transient fetch failure must not read as "this team has no entry". Falling through to the
+    # name match would bind the team to the derived slug channel, and because an existing row (even
+    # a disabled one) suppresses provisioning, that wrong binding would never be retried.
+    repo_config = _repo_config(team.id)
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    pr = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="apm-dev", merged_at=timezone.now()
+    )
+    PullRequestAudience.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pr, audience_key="logs", reason=AudienceReason.OWNED
+    )
+    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-LOGS", "name": "logs"}])
+
+    with patch(
+        "products.stamphog.backend.logic.channel_resolution.StamphogGitHubClient",
+        side_effect=RuntimeError("github down"),
+    ):
+        send_daily_digests()
+
+    assert not DigestChannel.objects.for_team(team.id).filter(audience_key="logs").exists()
+
+
 # posthog_owners validates the whole document, so the registry has to arrive inside a real one.
 _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
 
