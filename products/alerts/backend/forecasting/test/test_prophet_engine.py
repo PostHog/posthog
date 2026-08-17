@@ -60,8 +60,31 @@ class TestProphetEngine:
         # observation noise collapses far below its own optimizer convergence residual, making the
         # uncertainty band pathologically narrower than the fit itself and starving fit_coverage.
         values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
-        result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
+        result = engine.forecast(
+            _daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY, include_history=True
+        )
         assert result.fit_mape is not None and result.fit_mape < 0.1  # near-perfect fit on a clean line
         assert result.fit_coverage is not None and result.fit_coverage > 0.8
         assert result.components is not None
         assert len(result.components["trend"]) == 7
+
+    def test_history_band_is_opt_in_and_aligned(self):
+        # Scheduled checks read none of the in-sample output, so it is off by default; the preview
+        # asks for it and needs one band point per input point to draw against `dates`/`data`.
+        np.random.seed(42)
+        engine = get_forecast_engine({"engine": "prophet"})
+        values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
+        dates = _daily_dates(60)
+
+        without = engine.forecast(dates, values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
+        assert without.history_lower is None
+        assert without.history_upper is None
+        assert without.fit_mape is None and without.fit_coverage is None
+
+        with_history = engine.forecast(
+            dates, values, horizon=7, interval_width=0.95, interval=IntervalType.DAY, include_history=True
+        )
+        assert with_history.history_lower is not None and len(with_history.history_lower) == len(values)
+        assert with_history.history_upper is not None and len(with_history.history_upper) == len(values)
+        # Dropping the history rows must not move the forecast itself.
+        assert len(with_history.dates) == len(without.dates) == 7

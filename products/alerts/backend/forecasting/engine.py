@@ -14,6 +14,21 @@ DEFAULT_HORIZON = 7
 MAX_FORECAST_HORIZON = 30
 DEFAULT_INTERVAL_WIDTH = 0.95
 
+# Intervals an engine can map to a series frequency. An unmapped interval would fit at the wrong
+# cadence, and because the lookback is a point count it would also widen the query by that unit:
+# 90 quarters is 22 years of events per check.
+SUPPORTED_FORECAST_INTERVALS = frozenset({IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH})
+
+
+def validate_forecast_interval(interval: IntervalType | None) -> None:
+    """Shared by the save path and the simulate_forecast endpoint. A None interval means the insight
+    uses the daily default, which is supported."""
+    if interval is not None and interval not in SUPPORTED_FORECAST_INTERVALS:
+        raise ValueError(
+            "Forecast alerts support hourly, daily, weekly, and monthly insights. "
+            "Change the insight's interval to one of these."
+        )
+
 
 def min_forecast_points(interval: IntervalType | None) -> int:
     """Roughly two seasonal cycles: hourly series need two days of points to see a daily cycle;
@@ -31,8 +46,12 @@ class ForecastResult:
     upper: list[float]
     # Optional interpretability/quality extras — engines without them (a future Chronos) leave None.
     components: dict[str, list[float]] | None = None  # keys: trend/weekly/yearly, per horizon point
+    # The remaining fields describe the training window, so they are only populated when the caller
+    # asks for in-sample output. Scheduled checks don't, because nothing on that path reads them.
     fit_mape: float | None = None  # in-sample mean absolute percentage error
     fit_coverage: float | None = None  # share of training points inside the prediction interval
+    history_lower: list[float] | None = None  # one per training point, aligned with the input dates
+    history_upper: list[float] | None = None
 
 
 class ForecastEngine(Protocol):
@@ -43,6 +62,7 @@ class ForecastEngine(Protocol):
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
+        include_history: bool = False,
     ) -> ForecastResult: ...
 
 

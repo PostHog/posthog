@@ -624,8 +624,14 @@ class TestForecastConfigValidation:
                 forecast_config=VALID_FORECAST,
             )
 
-    def test_forecast_rejects_breakdown(self) -> None:
-        query = {**TRENDS_QUERY, "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}}
+    @parameterized.expand(
+        [
+            ("single", {"breakdown": "$browser", "breakdown_type": "event"}),
+            ("multi", {"breakdowns": [{"property": "$browser", "type": "event"}]}),
+        ]
+    )
+    def test_forecast_rejects_breakdown(self, _name: str, breakdown_filter: dict) -> None:
+        query = {**TRENDS_QUERY, "breakdownFilter": breakdown_filter}
         with pytest.raises(ValueError, match="breakdown"):
             validate_alert_config(
                 query,
@@ -635,3 +641,65 @@ class TestForecastConfigValidation:
                 calculation_interval="daily",
                 forecast_config=VALID_FORECAST,
             )
+
+    @parameterized.expand(
+        [
+            ("hour", "hour"),
+            ("day", "day"),
+            ("week", "week"),
+            ("month", "month"),
+        ]
+    )
+    def test_forecast_accepts_supported_intervals(self, _name: str, interval: str) -> None:
+        validate_alert_config(
+            {**TRENDS_QUERY, "interval": interval},
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config=VALID_FORECAST,
+        )
+
+    @parameterized.expand(
+        [
+            # Prophet has no frequency for these, so they would silently fit daily, and the
+            # point-count lookback would widen the query to 91 of that unit.
+            ("minute", "minute"),
+            ("quarter", "quarter"),
+            ("year", "year"),
+        ]
+    )
+    def test_forecast_rejects_unsupported_intervals(self, _name: str, interval: str) -> None:
+        with pytest.raises(ValueError, match="hourly, daily, weekly"):
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": interval},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_future_breach_rejects_percentage_threshold(self) -> None:
+        # The evaluator compares a predicted count against the raw bound, so a percentage bound of
+        # 0.2 would read as an absolute 0.2 and fire on every check.
+        with pytest.raises(ValueError, match="absolute threshold"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "relative_increase"},
+                TRENDS_CONFIG,
+                {"type": "percentage", "bounds": {"upper": 0.2}},
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_band_deviation_allows_percentage_threshold(self) -> None:
+        # band_deviation never reads the threshold, so it has no reason to constrain its type.
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "relative_increase"},
+            TRENDS_CONFIG,
+            {"type": "percentage", "bounds": {"upper": 0.2}},
+            calculation_interval="daily",
+            forecast_config={**VALID_FORECAST, "condition": "band_deviation"},
+        )
