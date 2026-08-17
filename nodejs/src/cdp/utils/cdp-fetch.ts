@@ -68,6 +68,54 @@ function logBlockedRequest(
     })
 }
 
+// The third-party response budget is applied with AbortSignal.timeout, which aborts the request
+// with a DOMException named "TimeoutError"; undici's own header/body deadlines surface as
+// "HeadersTimeoutError" / "BodyTimeoutError". Matched by name for the same reason as
+// isBlockedRequestError: mocked request modules leave the error classes undefined.
+export function isTimeoutError(error: unknown): boolean {
+    const name = (error as { name?: string } | null)?.name
+    return name === 'TimeoutError' || name === 'HeadersTimeoutError' || name === 'BodyTimeoutError'
+}
+
+// Emit ops-visible attribution for a request that exhausted its response budget, mirroring
+// logBlockedRequest. A timeout otherwise reads as a generic error, so a user cannot tell it apart
+// from a blocked URL — this names it and ties it back to the owning destination.
+function logTimeoutRequest(
+    error: Error,
+    { url, templateId, teamId, hogFunctionId }: CdpFetchAttribution & { url: string; templateId: string }
+): void {
+    let hostname: string | undefined
+    try {
+        hostname = new URL(url).hostname
+    } catch {
+        // Malformed URL — hostname stays undefined
+    }
+    logger.warn('[cdpTrackedFetch] Request timed out against third-party endpoint', {
+        reason: error.name,
+        message: error.message,
+        hostname,
+        teamId,
+        hogFunctionId,
+        templateId,
+    })
+}
+
+// Route a fetch error to the matching ops-side log. Only blocks and timeouts get a named line;
+// other errors already carry enough context in the customer-facing addLog.
+function logFetchFailure(
+    error: Error | null,
+    attribution: CdpFetchAttribution & { url: string; templateId: string }
+): void {
+    if (!error) {
+        return
+    }
+    if (isBlockedRequestError(error)) {
+        logBlockedRequest(error, attribution)
+    } else if (isTimeoutError(error)) {
+        logTimeoutRequest(error, attribution)
+    }
+}
+
 // Stale keep-alive connections produce these errors when the server has closed its end before
 // we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
 export function isConnectionLevelError(error: any): boolean {
@@ -127,15 +175,11 @@ export async function cdpTrackedFetch({
         const retryDuration = performance.now() - start
         cdpHttpRequestTimingRetried.observe(retryDuration)
         cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
-        if (fetchError && isBlockedRequestError(fetchError)) {
-            logBlockedRequest(fetchError, { url, templateId, teamId, hogFunctionId })
-        }
+        logFetchFailure(fetchError, { url, templateId, teamId, hogFunctionId })
         return { fetchError, fetchResponse, fetchDuration: retryDuration }
     }
 
-    if (fetchError && isBlockedRequestError(fetchError)) {
-        logBlockedRequest(fetchError, { url, templateId, teamId, hogFunctionId })
-    }
+    logFetchFailure(fetchError, { url, templateId, teamId, hogFunctionId })
 
     return { fetchError, fetchResponse, fetchDuration }
 }
@@ -160,7 +204,9 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
         ) {
             canRetry = false
         } else {
-            canRetry = true // Only retry on general errors, not security, validation, or response parsing errors
+            // Retries a general error, including a timeout — the endpoint may be transiently slow.
+            // Not security, validation, or response-parsing errors, which are handled above.
+            canRetry = true
         }
     }
 

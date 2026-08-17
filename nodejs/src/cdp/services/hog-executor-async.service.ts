@@ -18,7 +18,7 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import { cdpTrackedFetch, isFetchResponseRetriable, isTimeoutError } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
@@ -450,7 +450,9 @@ export class HogExecutorAsyncService {
             }.`
 
             if (fetchError) {
-                message += ` Error: ${fetchError.message}.`
+                message += isTimeoutError(fetchError)
+                    ? ` The endpoint did not respond within the request timeout: ${fetchError.message}.`
+                    : ` Error: ${fetchError.message}.`
             }
 
             if (willRetry) {

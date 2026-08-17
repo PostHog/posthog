@@ -1396,10 +1396,11 @@ describe('Hog Executor', () => {
         })
 
         it('handles timeouts', async () => {
-            mockRequest.mockImplementation((_req: any, res: any) => {
-                // Never send response
-                clearTimeout(timeoutHandle)
-                timeoutHandle = setTimeout(() => res.end(), 10000)
+            // AbortSignal.timeout aborts the request with a DOMException named "TimeoutError".
+            jest.mocked(fetch).mockImplementationOnce(() => {
+                const error = new Error('The operation was aborted due to timeout')
+                error.name = 'TimeoutError'
+                return Promise.reject(error)
             })
 
             const invocation = await createFetchInvocation({
@@ -1413,7 +1414,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying.",
+                  "HTTP fetch failed on attempt 1 with status code (none). The endpoint did not respond within the request timeout: The operation was aborted due to timeout. Retrying.",
                 ]
             `)
         })
