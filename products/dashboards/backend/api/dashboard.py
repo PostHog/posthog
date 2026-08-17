@@ -115,7 +115,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
-from products.dashboards.backend.feature_flags import dashboard_tile_spacing_enabled, dashboard_widgets_enabled
+from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_SPACING_GAPS, Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -1495,7 +1495,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
-        if grid_spacing is not None and not dashboard_tile_spacing_enabled(team=team, user=request.user):
+        if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
@@ -1750,7 +1750,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
-        if grid_spacing is not None and not dashboard_tile_spacing_enabled(
+        if grid_spacing is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
