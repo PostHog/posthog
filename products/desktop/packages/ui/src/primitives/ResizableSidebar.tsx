@@ -285,6 +285,10 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
           <button
             type="button"
             aria-label={`Resize ${side} sidebar`}
+            // Mouse/drag-only affordance: there is no keyboard resize model,
+            // so keep it out of the tab order rather than expose a focusable
+            // control that announces a resize action and does nothing.
+            tabIndex={-1}
             onMouseDown={handleMouseDown}
             className={`no-drag group absolute top-0 bottom-0 flex w-2 cursor-col-resize justify-center border-0 bg-transparent p-0 ${
               handleArmed || isResizing ? "" : "pointer-events-none"
