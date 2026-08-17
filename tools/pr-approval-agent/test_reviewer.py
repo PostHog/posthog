@@ -212,20 +212,23 @@ def test_copy_diff_into_explore_root_cannot_follow_pr_symlink(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    "base_ref, expect_stack_note",
+    "base_ref, default_branch, expect_stack_note",
     [
-        ("master", False),
-        ("query-validations", True),
+        ("master", "master", False),
+        ("query-validations", "master", True),
+        # Stacked-ness keys off the repo's own trunk, not a hardcoded "master".
+        ("main", "main", False),
+        ("master", "main", True),
     ],
 )
-def test_prompt_stack_note(base_ref: str, expect_stack_note: bool) -> None:
-    # A stacked PR (base != master) gets a note telling the agent that
-    # parent-PR symbols resolve in the tree and aren't missing.
-    prompt = _prompt(_pr(base_ref=base_ref))
+def test_prompt_stack_note(base_ref: str, default_branch: str, expect_stack_note: bool) -> None:
+    # A stacked PR (base != the repo's default branch) gets a note telling the
+    # agent that parent-PR symbols resolve in the tree and aren't missing.
+    prompt = _prompt(_pr(base_ref=base_ref, default_branch=default_branch))
 
     assert ("Stacked PR" in prompt) is expect_stack_note
     if expect_stack_note:
-        assert base_ref in prompt
+        assert f"targets `{base_ref}`, not `{default_branch}`" in prompt
 
 
 def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:

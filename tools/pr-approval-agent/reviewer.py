@@ -9,14 +9,13 @@ import os
 import json
 import shutil
 import asyncio
-import tempfile
 import textwrap
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, write_pr_diff
+from github import PRData, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
@@ -302,14 +301,8 @@ class Reviewer:
         return asyncio.run(self._review(pr, classification, gate_context, diff_path))
 
     def _copy_diff_into_explore_root(self, diff_path: Path) -> Path:
-        """Copy the diff to a runner-created path the agent can read.
-
-        A predictable worktree path could be a tracked symlink. ``mkstemp``
-        creates a fresh regular file, so PR content cannot redirect this copy.
-        """
-        fd, copied_path = tempfile.mkstemp(prefix=".pr-review-diff-", suffix=".patch", dir=self.explore_root)
-        os.close(fd)
-        copied_diff_path = Path(copied_path)
+        """Copy the diff to a runner-created path the agent can read (see new_diff_file)."""
+        copied_diff_path = new_diff_file(self.explore_root)
         try:
             shutil.copyfile(diff_path, copied_diff_path)
         except OSError:
@@ -343,7 +336,9 @@ class Reviewer:
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
             cwd=str(self.explore_root),
             # SECURITY: explore_root holds PR-authored content (a worktree at
-            # the PR head for stacked PRs). With the default (None) the SDK
+            # the PR head for stacked PRs in the Action; the whole checkout in
+            # the hosted sandbox, which clones the head for every review). With
+            # the default (None) the SDK
             # loads filesystem settings from cwd like the CLI does — including
             # .claude/settings.json hooks (arbitrary command execution) and
             # CLAUDE.md (injected as instructions). A PR could ship either.
@@ -493,8 +488,7 @@ class Reviewer:
 
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        diff_path = self.repo_root / ".pr-review-diff.patch"
-        return write_pr_diff(pr.base_sha, pr.head_sha, diff_path, self.repo_root)
+        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
@@ -585,12 +579,12 @@ class Reviewer:
 
         # For a stacked PR the working tree is the PR head, so parent-PR symbols
         # resolve in Read/Grep/Glob though absent from the diff; tell the agent.
-        if pr.base_ref != "master":
+        if pr.stacked:
             constraint += (
-                f"\nStacked PR: this targets `{pr.base_ref}`, not master. The working tree reflects the "
-                "codebase as it will look after the whole stack lands, so symbols defined in parent PRs "
-                "resolve via Read/Grep/Glob even though they're absent from the diff below. Review only the "
-                "diff's changes; do not flag imports or references that resolve in the tree as missing."
+                f"\nStacked PR: this targets `{pr.base_ref}`, not `{pr.default_branch}`. The working tree "
+                "reflects the codebase as it will look after the whole stack lands, so symbols defined in "
+                "parent PRs resolve via Read/Grep/Glob even though they're absent from the diff below. Review "
+                "only the diff's changes; do not flag imports or references that resolve in the tree as missing."
             )
 
         file_list = "\n".join(

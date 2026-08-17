@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import review_pr  # noqa: E402
 import review_local  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
@@ -313,3 +314,67 @@ def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
     prerequisites = next(g for g in result["gates"] if g["gate"] == "prerequisites")
     assert prerequisites["passed"] is True  # the draft issue is carved out for this run
     assert result["classification"]["self_driving"] is True  # provenance rides into the output contract
+
+
+def _stacked_context(base_ref: str, default_branch: str) -> dict:
+    return {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {
+            "number": 11,
+            "title": "feat: child of a stack",
+            "state": "OPEN",
+            "draft": False,
+            "user": {"login": "author", "type": "User"},
+            "base": {"ref": base_ref, "sha": "def456", "repo": {"default_branch": default_branch}},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "base_ref, default_branch, expect_stacked",
+    [
+        pytest.param("master", "master", False, id="trunk-pr"),
+        pytest.param("feat/parent", "master", True, id="stacked-on-a-parent-branch"),
+        pytest.param("main", "main", False, id="trunk-named-main"),
+    ],
+)
+def test_stacked_detection_follows_the_repo_default_branch(
+    monkeypatch, base_ref: str, default_branch: str, expect_stacked: bool
+) -> None:
+    # The hosted runtime reviews repos whose trunk is "main"; a hardcoded "master" would tag every
+    # PR there as stacked and mis-brief the reviewer.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+
+    pr = review_local._build_pr_data(_stacked_context(base_ref, default_branch))
+
+    assert pr.stacked is expect_stacked
+
+
+def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
+    # The sandbox clones and checks out the PR head before the engine runs, so parent-PR symbols
+    # already resolve. Reviving the Action's stacked-PR worktree here would be a wasted full-tree
+    # checkout per stacked review, plus its symlink-rejection failure mode.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    real_run = review_pr.subprocess.run
+
+    def guarded_run(cmd, *args, **kwargs):
+        assert "worktree" not in cmd, f"hosted review must not create a worktree: {cmd}"
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", guarded_run)
+    seen: dict = {}
+
+    def fake_review(self, pr, classification, gate_context, diff_path=None):
+        seen["explore_root"] = self.explore_root
+        seen["stacked"] = pr.stacked
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(review_pr.Reviewer, "review", fake_review)
+
+    result = review_local.run(_stacked_context("feat/parent", "master"))
+
+    assert result["final_verdict"] == "APPROVED"
+    assert seen["stacked"] is True
+    assert seen["explore_root"] == review_pr.REPO_ROOT

@@ -29,7 +29,7 @@ def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_pr, "compute_familiarity", lambda **_k: None)
 
 
-def _fake_pr(head_sha: str, base_ref: str = "master") -> PRData:
+def _fake_pr(head_sha: str, base_ref: str = "master", default_branch: str = "master") -> PRData:
     return PRData(
         number=1,
         repo="PostHog/posthog",
@@ -46,6 +46,7 @@ def _fake_pr(head_sha: str, base_ref: str = "master") -> PRData:
         reviews=[],
         review_comments=[],
         check_runs=[],
+        default_branch=default_branch,
     )
 
 
@@ -130,13 +131,16 @@ class _TurnLimitReviewer:
     ],
 )
 def test_backend_failure_yields_error_except_when_gates_deny(
-    monkeypatch: pytest.MonkeyPatch, gate_verdict: str, expected_final: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gate_verdict: str, expected_final: str
 ) -> None:
     """A failed LLM call must surface as ERROR (label retained) unless gates
     already DENIED — a deterministic denial outranks an unavailable reviewer."""
     monkeypatch.setattr(review_pr, "Reviewer", _RaisingReviewer)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # _llm_review is called directly, so run()'s diff cleanup never happens — keep the scratch
+    # diff out of the real checkout.
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="abc123")
@@ -161,7 +165,9 @@ def test_backend_failure_yields_error_except_when_gates_deny(
         ("DENIED", "REFUSED"),
     ],
 )
-def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verdict: str, expected_final: str) -> None:
+def test_turn_limit_error_not_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, gate_verdict: str, expected_final: str
+) -> None:
     """A turn-limit error is non-retryable and should give a clear message
     about complexity rather than blaming infrastructure. When gates DENIED,
     the deterministic denial still outranks the error."""
@@ -177,6 +183,7 @@ def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verd
     monkeypatch.setattr(_TurnLimitReviewer, "review", counting_review)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="abc123")
@@ -555,17 +562,28 @@ def test_stacked_worktree_failure_returns_error(monkeypatch: pytest.MonkeyPatch,
     assert pipeline.reviewer_output["issues"] == ["checkout unavailable"]
 
 
-def test_pr_head_worktree_skipped_for_non_stacked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-stacked PR (base is master) reviews from master — no worktree,
-    so git is never invoked and the full-tree checkout cost is skipped."""
+@pytest.mark.parametrize(
+    "base_ref, default_branch, head_checkout",
+    [
+        pytest.param("master", "master", False, id="trunk-is-master"),
+        pytest.param("main", "main", False, id="trunk-is-main"),
+        pytest.param("feat/parent-branch", "master", True, id="hosted-checkout-already-at-head"),
+    ],
+)
+def test_pr_head_worktree_skipped_when_not_needed(
+    monkeypatch: pytest.MonkeyPatch, base_ref: str, default_branch: str, head_checkout: bool
+) -> None:
+    """No worktree — so git is never invoked and the full-tree checkout cost is
+    skipped — for a PR targeting the repo's trunk (whatever it is named), and
+    for a runtime whose checkout already is the PR head (the hosted sandbox)."""
 
     def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
-        raise AssertionError(f"non-stacked PR must not touch git: {cmd}")
+        raise AssertionError(f"must not touch git: {cmd}")
 
     monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
 
-    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
-    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="master")
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog", head_checkout=head_checkout)
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref=base_ref, default_branch=default_branch)
 
     with pipeline._pr_head_worktree() as explore_root:
         assert explore_root is None

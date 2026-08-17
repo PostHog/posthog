@@ -200,7 +200,14 @@ class Pipeline:
     """Orchestrates the full PR review: fetch → classify → gates → LLM review."""
 
     def __init__(
-        self, pr_number: int, repo: str, *, dry_run: bool = False, verbose: bool = False, self_driving: bool = False
+        self,
+        pr_number: int,
+        repo: str,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        self_driving: bool = False,
+        head_checkout: bool = False,
     ):
         self.pr_number = pr_number
         self.repo = repo
@@ -210,6 +217,10 @@ class Pipeline:
         # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
         # task provenance.
         self.self_driving = self_driving
+        # True when REPO_ROOT already holds the PR head (the hosted sandbox clones and checks out
+        # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
+        # needs a separate head worktree there — see _pr_head_worktree.
+        self.head_checkout = head_checkout
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -559,9 +570,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(
-                self.pr.base_sha, self.pr.head_sha, REPO_ROOT / ".pr-review-diff.patch", REPO_ROOT
-            )
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
         return self._diff_path
 
     def _run_gates(self) -> None:
@@ -704,22 +713,24 @@ class Pipeline:
 
     @contextmanager
     def _pr_head_worktree(self):
-        """Yield a detached worktree at the PR head, or None for non-stacked PRs.
+        """Yield a detached worktree at the PR head, or None when none is needed.
 
-        Only stacked PRs need this: their head contains code from parent PRs
-        that aren't on the base branch yet, so without materializing the head
-        tree those parents' symbols look like broken imports and the reviewer
-        false-refuses. A non-stacked PR (base is master) reviews from the master
-        checkout exactly as before — yield None and skip the full-tree checkout.
-        The main checkout stays master (the workflow hardcodes that so a PR can't
-        swap the review script), so the worktree is the only place the head tree
-        is materialized. Cleaned up on exit; stacked PRs fail closed if creation
-        fails rather than reviewing against the wrong source tree.
+        Only stacked PRs reviewed from a trunk checkout need this: their head
+        contains code from parent PRs that aren't on the base branch yet, so
+        without materializing the head tree those parents' symbols look like
+        broken imports and the reviewer false-refuses. A non-stacked PR reviews
+        from the trunk checkout exactly as before, and a runtime whose checkout
+        already IS the head (hosted sandbox, head_checkout=True) needs nothing
+        extra — both yield None and skip the full-tree checkout. In the Action
+        the main checkout stays master (the workflow hardcodes that so a PR
+        can't swap the review script), so the worktree is the only place the
+        head tree is materialized. Cleaned up on exit; stacked PRs fail closed
+        if creation fails rather than reviewing against the wrong source tree.
 
         SECURITY: the worktree is PR-authored content; isolation from it as
         *configuration* is enforced by setting_sources=[] in Reviewer.
         """
-        if self.pr.base_ref == "master":
+        if self.head_checkout or not self.pr.stacked:
             yield None
             return
 

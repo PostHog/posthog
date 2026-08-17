@@ -5,8 +5,10 @@ else (PR metadata, reviews, comments, check runs) from the GitHub API.
 Also handles team membership checks for the ownership gate.
 """
 
+import os
 import re
 import json
+import tempfile
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -36,6 +38,14 @@ class PRData:
     pr_reactions: list[dict] = field(default_factory=list)
     body: str = ""
     discussion: list[dict] = field(default_factory=list)
+    # The repo's default branch, so stacked-ness isn't tied to "master" (the hosted
+    # runtime reviews repos whose trunk is "main").
+    default_branch: str = "master"
+
+    @property
+    def stacked(self) -> bool:
+        """True when the PR targets another PR's branch rather than the repo's trunk."""
+        return self.base_ref != self.default_branch
 
     @property
     def file_paths(self) -> list[str]:
@@ -442,13 +452,27 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
     return files
 
 
-def write_pr_diff(base_sha: str, head_sha: str, dest: Path, repo_root: Path) -> Path:
-    """Write the base...head PR diff to `dest` from the local checkout.
+def new_diff_file(directory: Path) -> Path:
+    """Create a fresh, empty diff file under an unpredictable name inside ``directory``.
+
+    The directory can be PR-authored (the hosted sandbox's head checkout, or
+    the Action's stacked-PR worktree), where a predictable name could be a
+    tracked symlink redirecting the write. ``mkstemp`` creates a new regular
+    file, so PR content cannot redirect it. Callers own the cleanup.
+    """
+    fd, path = tempfile.mkstemp(prefix=".pr-review-diff-", suffix=".patch", dir=directory)
+    os.close(fd)
+    return Path(path)
+
+
+def write_pr_diff(base_sha: str, head_sha: str, repo_root: Path) -> Path:
+    """Write the base...head PR diff to a fresh file in the checkout and return its path.
 
     Shared by the reviewer (feeds the LLM the diff to read) and the familiarity
     signal (parses the same diff for base-side modified line ranges), so the
     `git diff` invocation lives in one place.
     """
+    dest = new_diff_file(repo_root)
     result = subprocess.run(
         ["git", "diff", f"{base_sha}...{head_sha}"],
         capture_output=True,
@@ -599,6 +623,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
             print(f"warning: discussion fetch failed ({exc}); continuing with no discussion context")  # noqa: T201
 
     base_ref = pr["base"]["ref"]
+    default_branch = pr["base"]["repo"]["default_branch"]
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
     check_runs_resp = _gh_api(f"repos/{repo}/commits/{head_sha}/check-runs")
@@ -629,6 +654,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=discussion,
+        default_branch=default_branch,
     )
 
 
