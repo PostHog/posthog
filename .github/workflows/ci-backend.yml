@@ -175,6 +175,7 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
+                        - .product_test_durations.json # Used for product shard sizing
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # turbo-discover reads the module graph for the dependent
                         # cascade, and `tach check` validates it — a graph-only PR
@@ -249,6 +250,7 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations
+                        - .product_test_durations.json
                         - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -468,7 +470,9 @@ jobs:
               # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: .test_durations
+                  path: |
+                      .test_durations
+                      .product_test_durations.json
                   # run_id never matches — forces the prefix restore-key to the newest entry.
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |

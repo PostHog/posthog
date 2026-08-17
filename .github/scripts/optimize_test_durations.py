@@ -32,7 +32,7 @@ import argparse
 import statistics
 import subprocess
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import defusedxml.ElementTree as ET
@@ -55,6 +55,7 @@ MIGRATION_TAX_THRESHOLD_SECONDS = 120.0
 # are placeholders, not measurements — when JUnit has a real call time for
 # the test, prefer that. See reference: .test_durations ships 60.0 / 18.0.
 DEFAULT_PLACEHOLDER_SECONDS = (60.0, 18.0)
+PRODUCTS_RUNNING_TEMPORAL_IN_JOB = {"managed-warehouse", "warehouse-sources"}
 
 
 @dataclass
@@ -80,10 +81,13 @@ class ShardTimings:
         return shards
 
 
-# Maps the script's segment names to the artifact-key fragment used by
-# ci-backend.yml ("junit-results-backend-<artifact-key>-<group>"). Add new
-# segments here when adding JUnit-mode carrier detection for them.
-_JUNIT_ARTIFACT_KEY = {"Core": "core", "CorePOE": "core-poe", "Temporal": "temporal"}
+# Maps segment names to the JUnit artifact prefix used by ci-backend.yml.
+_JUNIT_ARTIFACT_PREFIX = {
+    "Core": "junit-results-backend-core",
+    "CorePOE": "junit-results-backend-core-poe",
+    "Temporal": "junit-results-backend-temporal",
+    "Products": "product-junit-results",
+}
 
 
 @dataclass
@@ -115,10 +119,10 @@ class JUnitShard:
                 continue
 
             if segment:
-                artifact_key = _JUNIT_ARTIFACT_KEY.get(segment, segment.lower())
+                artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
-                pattern = re.compile(rf"^junit-results-backend-{re.escape(artifact_key)}-\d+$")
+                pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
                 if not pattern.match(shard_dir.name.lower()):
                     continue
 
@@ -160,6 +164,7 @@ class MigrationTaxResult:
     corrected_durations: dict[str, float]
     migration_tax_seconds: float
     carriers_found: int
+    carrier_test_ids: set[str] = field(default_factory=set)
 
 
 def outlier_merge_durations(sources: list[dict[str, float]]) -> dict[str, float]:
@@ -291,6 +296,7 @@ class MigrationTaxCorrector:
 
         corrected = dict(self.durations)
         removed: list[float] = []
+        carrier_test_ids: set[str] = set()
         for test_id, recorded in self.durations.items():
             is_placeholder = any(abs(recorded - d) < 1e-3 for d in DEFAULT_PLACEHOLDER_SECONDS)
             could_be_contaminated = recorded > MIGRATION_TAX_THRESHOLD_SECONDS
@@ -310,6 +316,8 @@ class MigrationTaxCorrector:
             corrected[test_id] = max(MIN_DURATION, call)
             removed.append(recorded - call)
             reason = "migration tax" if contaminated else "flat-default"
+            if contaminated:
+                carrier_test_ids.add(test_id)
             logger.info("  De-taxed %s: %.0fs -> %.1fs (%s, junit call)", test_id[:60], recorded, call, reason)
 
         avg_removed = sum(removed) / len(removed) if removed else 0.0
@@ -319,7 +327,12 @@ class MigrationTaxCorrector:
             )
         else:
             logger.info("  No JUnit-detected contamination")
-        return MigrationTaxResult(corrected, migration_tax_seconds=avg_removed, carriers_found=len(removed))
+        return MigrationTaxResult(
+            corrected,
+            migration_tax_seconds=avg_removed,
+            carriers_found=len(removed),
+            carrier_test_ids=carrier_test_ids,
+        )
 
     @staticmethod
     def _lookup_call_time(test_id: str, junit_call: dict[str, float]) -> float | None:
@@ -351,6 +364,7 @@ class MigrationTaxCorrector:
             corrected_durations=self._apply_correction(carriers, migration_tax),
             migration_tax_seconds=migration_tax,
             carriers_found=len(carriers),
+            carrier_test_ids=set(carriers),
         )
 
     def _find_carriers_statistically(self) -> dict[str, float]:
@@ -444,6 +458,25 @@ def _junit_to_pytest_id(classname: str, testname: str) -> str | None:
 def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
     """Ensure all durations have a minimum value for pytest-split."""
     return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
+
+
+def calculate_product_durations(
+    durations: dict[str, float], excluded_test_ids: set[str] | None = None
+) -> dict[str, float]:
+    """Sum raw pytest-split timings by product, excluding migration carriers."""
+    excluded_test_ids = excluded_test_ids or set()
+    totals: dict[str, float] = {}
+    for test_id, duration in durations.items():
+        if test_id in excluded_test_ids or not test_id.startswith("products/"):
+            continue
+        path_parts = test_id.split("/", 2)
+        if len(path_parts) < 3:
+            continue
+        product = path_parts[1].replace("_", "-")
+        if product not in PRODUCTS_RUNNING_TEMPORAL_IN_JOB and "/temporal/" in test_id:
+            continue
+        totals[product] = totals.get(product, 0.0) + duration
+    return totals
 
 
 def collect_existing_tests(segment: str | None = None) -> set[str]:
@@ -618,6 +651,12 @@ def main():
         default="mean",
         help="Aggregation for --average-files (default: mean).",
     )
+    parser.add_argument(
+        "--product-durations-output",
+        type=Path,
+        default=None,
+        help="Write raw, setup-inclusive per-product totals before per-test duration correction.",
+    )
 
     args = parser.parse_args()
 
@@ -654,6 +693,8 @@ def main():
     logger.info("Merging with outlier detection...")
     durations = TimingMerger(shards).merge()
     logger.info("  Merged %d tests", len(durations))
+    raw_durations = dict(durations)
+    carrier_test_ids: set[str] = set()
 
     # Correct migration-inflated first-test durations
     junit_shards = None
@@ -676,6 +717,7 @@ def main():
             expected_shard_count=shard_count,
         ).correct()
         durations = result.corrected_durations
+        carrier_test_ids = result.carrier_test_ids
 
         if result.migration_tax_seconds > 0:
             logger.info(
@@ -684,6 +726,17 @@ def main():
                 result.migration_tax_seconds,
                 result.migration_tax_seconds / 60,
             )
+
+    if args.product_durations_output:
+        product_durations = calculate_product_durations(raw_durations, carrier_test_ids)
+        with open(args.product_durations_output, "w") as f:
+            json.dump(product_durations, f, indent=4, sort_keys=True)
+            f.write("\n")
+        logger.info(
+            "Saved raw totals for %d products to %s",
+            len(product_durations),
+            args.product_durations_output,
+        )
 
     # Scope to exactly what this segment's JUnit saw run. The shared timing
     # artifacts each carry the full union (every shard restores the merged file

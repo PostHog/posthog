@@ -14,6 +14,7 @@ from optimize_test_durations import (
     _pick_outlier,
     average_durations,
     main,
+    calculate_product_durations,
     outlier_merge_durations,
     run_average_files,
 )
@@ -155,6 +156,7 @@ class TestJUnitShardSegmentFilter:
             "junit-results-backend-core-2",
             "junit-results-backend-core-poe-1",
             "junit-results-backend-temporal-1",
+            "product-junit-results-1",
             "junit-results-backend-compat-1",  # unrelated, shouldn't match anything
         ):
             shard = tmp_path / name
@@ -173,6 +175,10 @@ class TestJUnitShardSegmentFilter:
     def test_temporal_only_matches_temporal(self, junit_dir: Path):
         names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Temporal")}
         assert names == {"junit-results-backend-temporal-1"}
+
+    def test_products_matches_product_junit_prefix(self, junit_dir: Path) -> None:
+        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Products")}
+        assert names == {"product-junit-results-1"}
 
     def test_unknown_segment_does_not_panic(self, junit_dir: Path):
         # Unknown segments fall back to lowercase passthrough — should just
@@ -202,6 +208,7 @@ class TestJUnitCallTimeCorrection:
         shards = [self._shard("core-1", {"posthog/x.py::T::test_a": 0.5})]
         result = MigrationTaxCorrector(durations, junit_shards=shards).correct()
         assert result.corrected_durations["posthog/x.py::T::test_a"] == 0.5
+        assert result.carrier_test_ids == set()
 
     def test_leaves_genuinely_slow_test_untouched(self):
         # Real end-to-end test: recorded ~= call, small gap, not flooded.
@@ -265,6 +272,32 @@ class TestStatisticalCorrection:
         # carrier floored toward its real (small) value after tax subtraction
         assert result.corrected_durations["t0"] < 410.0
         assert result.carriers_found == 1
+
+
+class TestProductDurations:
+    def test_uses_raw_durations_instead_of_corrected_call_times(self) -> None:
+        raw = {
+            "products/tasks/backend/tests/test_one.py::test_one": 12.0,
+            "products/tasks/backend/tests/test_two.py::test_two": 18.0,
+        }
+        corrected = dict.fromkeys(raw, 0.04)
+
+        assert calculate_product_durations(raw) == {"tasks": 30.0}
+        assert calculate_product_durations(corrected) == {"tasks": 0.08}
+
+    def test_excludes_migration_tax_carriers_but_keeps_normal_fixture_time(self) -> None:
+        raw = {
+            "products/tasks/backend/tests/test_carrier.py::test_carrier": 960.0,
+            "products/tasks/backend/tests/test_fixture.py::test_fixture": 45.0,
+        }
+        correction = MigrationTaxCorrector(raw, expected_shard_count=1).correct()
+
+        assert calculate_product_durations(raw, correction.carrier_test_ids) == {"tasks": 45.0}
+
+    def test_omits_products_absent_from_input(self) -> None:
+        raw = {"products/workflows/backend/tests/test_workflow.py::test_run": 20.0}
+
+        assert calculate_product_durations(raw) == {"workflows": 20.0}
 
 
 if __name__ == "__main__":

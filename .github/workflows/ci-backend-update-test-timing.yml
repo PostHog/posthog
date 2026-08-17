@@ -180,6 +180,7 @@ jobs:
                   gh run download "$BACKEND_RUN_ID" \
                       --pattern "junit-results-backend-core-*" \
                       --pattern "junit-results-backend-temporal-*" \
+                      --pattern "product-junit-results-*" \
                       --dir junit_artifacts || \
                       echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
 
@@ -213,14 +214,14 @@ jobs:
                   BACKEND_RUN_IDS: ${{ steps.find-backend-run.outputs.run_ids }}
               run: |
                   # Process each segment separately with migration tax correction, then merge.
-                  # Core/Temporal use JUnit for precise carrier detection.
-                  # Products lack JUnit artifacts, so use statistical detection (--shard-count).
+                  # Core, Temporal, and Products use JUnit for precise carrier detection.
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
                       --segment Core --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products
+                      --segment Products --junit-dir junit_artifacts \
+                      --product-durations-output .product_test_durations.json
 
                   # Process Dagster segment if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
@@ -320,7 +321,9 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               continue-on-error: true
               with:
-                  path: .test_durations
+                  path: |
+                      .test_durations
+                      .product_test_durations.json
                   key: ${{ steps.durations-meta.outputs.cache_key }}
 
             - name: Save per-segment durations to Actions cache
@@ -342,13 +345,13 @@ jobs:
             - name: Check for changes
               id: check-changes
               run: |
-                  if git diff --quiet .test_durations; then
+                  if git diff --quiet .test_durations .product_test_durations.json; then
                       echo "No changes to test durations"
                       echo "changed=false" >> $GITHUB_OUTPUT
                   else
                       echo "Test durations updated"
                       echo "changed=true" >> $GITHUB_OUTPUT
-                      git diff --stat .test_durations
+                      git diff --stat .test_durations .product_test_durations.json
                   fi
 
             # On PR: commit directly to the PR branch (signed via GitHub API)
@@ -359,7 +362,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: .test_durations
+                  file_pattern: '.test_durations .product_test_durations.json'
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
@@ -405,7 +408,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: chore/update-test-timings
-                  file_pattern: .test_durations
+                  file_pattern: '.test_durations .product_test_durations.json'
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
