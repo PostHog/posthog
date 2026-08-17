@@ -699,14 +699,22 @@ class OrganizationAdmin(admin.ModelAdmin):
                 if not form.preview_token_matches(request.POST.get("preview_token", "")):
                     form.add_error(None, "Review the organizations again before deactivating.")
                 else:
+                    deactivation_ids = [organization.id for organization in deactivation_organizations]
                     with transaction.atomic():
-                        for organization in deactivation_organizations:
+                        locked_deactivation_organizations = list(
+                            Organization.objects.select_for_update()
+                            .only("id", "is_active", "is_not_active_reason")
+                            .filter(id__in=deactivation_ids)
+                            .exclude(is_active=False)
+                        )
+                        for organization in locked_deactivation_organizations:
                             organization.is_active = False
                             organization.is_not_active_reason = resolved_reason
                             organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
 
-                    count = len(deactivation_organizations)
-                    messages.success(request, f"Deactivated {pluralize(count, 'organization')}.")
+                    count = len(locked_deactivation_organizations)
+                    if count:
+                        messages.success(request, f"Deactivated {pluralize(count, 'organization')}.")
                     if missing_ids:
                         missing_count = len(missing_ids)
                         messages.warning(
@@ -716,12 +724,14 @@ class OrganizationAdmin(admin.ModelAdmin):
                                 f"that {'were' if missing_count != 1 else 'was'} not found."
                             ),
                         )
-                    if already_inactive_organizations:
-                        skipped_count = len(already_inactive_organizations)
+                    skipped_inactive_count = len(already_inactive_organizations) + (
+                        len(deactivation_organizations) - count
+                    )
+                    if skipped_inactive_count:
                         messages.warning(
                             request,
                             (
-                                f"Skipped {pluralize(skipped_count, 'already inactive organization')} "
+                                f"Skipped {pluralize(skipped_inactive_count, 'already inactive organization')} "
                                 "without changing the existing reason."
                             ),
                         )

@@ -1,7 +1,9 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
@@ -149,7 +151,21 @@ class TestOrganizationAdminBulkDeactivate(BaseTest):
     def test_changelist_links_to_organization_tools_module(self) -> None:
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse("admin:posthog_organization_changelist"))
+        with patch.object(
+            admin.site,
+            "each_context",
+            return_value={
+                "site_title": admin.site.site_title,
+                "site_header": admin.site.site_header,
+                "site_url": admin.site.site_url,
+                "has_permission": True,
+                "available_apps": [],
+                "is_popup": False,
+                "is_nav_sidebar_enabled": False,
+                "log_entries": [],
+            },
+        ):
+            response = self.client.get(reverse("admin:posthog_organization_changelist"))
 
         assert response.status_code == 200
         assert b"Organization tools" in response.content
@@ -263,6 +279,31 @@ class TestOrganizationAdminBulkDeactivate(BaseTest):
         assert self.organization.is_not_active_reason == Organization.DeactivationReason.DESKTOP_ABUSE.value
         assert inactive_organization.is_active is False
         assert inactive_organization.is_not_active_reason == Organization.DeactivationReason.COMPLIANCE_REVIEW.value
+
+    def test_confirm_rechecks_active_state_before_saving_reason(self) -> None:
+        stale_organization = Organization.objects.get(id=self.organization.id)
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = Organization.DeactivationReason.COMPLIANCE_REVIEW.value
+        self.organization.save(update_fields=["is_active", "is_not_active_reason"])
+        organization_ids = str(self.organization.id)
+        reason = Organization.DeactivationReason.DESKTOP_ABUSE.value
+        request = self._post(
+            {
+                "organization_ids": organization_ids,
+                "reason": reason,
+                "custom_reason": "",
+                "preview_token": self._preview_token(organization_ids, reason),
+                "confirm": "1",
+            }
+        )
+
+        with patch.object(self.admin, "_bulk_deactivation_candidates", return_value=([stale_organization], [])):
+            response = self.admin.bulk_deactivate_view(request)
+
+        assert response.status_code == 302
+        self.organization.refresh_from_db()
+        assert self.organization.is_active is False
+        assert self.organization.is_not_active_reason == Organization.DeactivationReason.COMPLIANCE_REVIEW.value
 
     def test_preview_requires_at_least_one_active_organization(self) -> None:
         inactive_organization = Organization.objects.create(
