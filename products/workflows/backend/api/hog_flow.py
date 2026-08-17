@@ -1393,6 +1393,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
             raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
 
+        use_person_timezone = delay_until.get("use_person_timezone")
+        if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
+            # The executor only checks whether this is truthy, so a string like "no" would switch the
+            # person's timezone on rather than off.
+            raise serializers.ValidationError({"config": "delay_until.use_person_timezone must be true or false."})
+
         # An unknown zone would silently fall back to UTC in the executor, which is the wrong local day
         # for most of the world - the mistake this setting exists to prevent.
         for field in ("timezone", "fallback_timezone"):

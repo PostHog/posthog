@@ -191,6 +191,29 @@ describe('DelayHandler with delay_until', () => {
         expect(result.nextAction?.type).toBe('exit')
     })
 
+    // A fixed delay caps each unit ('45d' means 30 days). Carrying that into the offset would send a "45
+    // days before" reminder 15 days late, and silently, so the offset keeps its full magnitude. The wait
+    // stays bounded by max_delay_duration instead.
+    it('keeps an offset larger than a fixed delay allows', async () => {
+        const result = await runDelay(delayUntil({ offset: '-45d' }), {
+            trial_expiration_at: '2025-03-02T00:00:00.000Z',
+        })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-16T00:00:00.000Z').toUTC().toISO())
+    })
+
+    // A ceiling nothing can parse must not read as zero: that puts the cap at the step's own start, so every
+    // date resolves as already past and the next step runs at once.
+    it('falls back to the default maximum when the configured one is unreadable', async () => {
+        const result = await runDelay(
+            { ...delayUntil(), max_delay_duration: 'whenever' },
+            { trial_expiration_at: '2025-01-08T00:00:00.000Z' }
+        )
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-08T00:00:00.000Z').toUTC().toISO())
+        expect(result.nextAction).toBeUndefined()
+    })
+
     it('clamps a far-future date to the default maximum', async () => {
         const result = await runDelay(delayUntil(), { trial_expiration_at: '2030-01-01T00:00:00.000Z' })
 
@@ -292,6 +315,17 @@ describe('DelayHandler with delay_until', () => {
         })
 
         expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-07T23:00:00.000Z').toUTC().toISO())
+    })
+
+    // A rerun of a failed run carries the marker in its stored state. Leaving it set would turn any later
+    // failure of this step into an abort, whatever the step's error handling says.
+    it('clears the unresolved marker once the wait resolves', async () => {
+        const { invocation, action } = buildDelay(delayUntil(), { trial_expiration_at: '2025-01-08T00:00:00.000Z' })
+        invocation.state.currentAction!.delayUntilUnresolved = true
+
+        await new DelayHandler().execute({ invocation, action, result: {} as any })
+
+        expect(invocation.state.currentAction!.delayUntilUnresolved).toBeUndefined()
     })
 
     it('still delays by a fixed duration when that is what is configured', async () => {

@@ -76,6 +76,11 @@ class TestDelayUntil(APIBaseTest):
             # An unknown zone reaches the executor and silently reads dates in UTC, which is the wrong
             # local day for most of the world - the mistake the setting exists to prevent.
             ("timezone_unknown", {"delay_until": {"expression": "person.properties.x", "timezone": "Mars/Olympus"}}),
+            # The executor only checks truthiness, so a string would switch the person's timezone on.
+            (
+                "use_person_timezone_not_a_bool",
+                {"delay_until": {"expression": "person.properties.x", "use_person_timezone": "yes"}},
+            ),
             (
                 "fallback_timezone_unknown",
                 {

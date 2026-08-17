@@ -46,16 +46,33 @@ const DEFAULT_MAX_DELAY_UNTIL = '30d'
 // than this is a millisecond timestamp mislabelled as seconds, not a plausible date to wait for.
 const MAX_UNIX_SECONDS = 253402300799
 
-/** Seconds for a duration string, using the same units and per-unit ceilings as a fixed delay. */
-function durationSeconds(value: string): number | null {
+const SECONDS_PER_DURATION_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
+
+/**
+ * Seconds for a signed offset, at its full magnitude.
+ *
+ * Deliberately not held to the per-unit ceilings a fixed delay uses. Those exist to bound how long a run
+ * waits, which `max_delay_duration` already does here, and applying them to an offset would turn "45 days
+ * before" into "30 days before" without saying so: for a date two months out that fires the message 15 days
+ * late rather than not at all.
+ */
+function offsetSeconds(value: string): number | null {
     const match = OFFSET_REGEX.exec(value)
     if (!match) {
         return null
     }
     const [, sign, amountString, unit] = match
-    const perUnit: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
-    const capped = Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString))
-    return (sign === '-' ? -1 : 1) * capped * perUnit[unit]
+    return (sign === '-' ? -1 : 1) * parseFloat(amountString) * SECONDS_PER_DURATION_UNIT[unit]
+}
+
+/** Seconds for the wait's ceiling, using the same units and per-unit ceilings as a fixed delay. */
+function maxDelaySeconds(value: string): number | null {
+    const match = DURATION_REGEX.exec(value)
+    if (!match) {
+        return null
+    }
+    const [, amountString, unit] = match
+    return Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) * SECONDS_PER_DURATION_UNIT[unit]
 }
 
 /**
@@ -141,18 +158,23 @@ async function scheduledAtFromInstant(
     }
     if (invocation.state.currentAction) {
         invocation.state.currentAction.delayUntilAt = instant.toISO() ?? undefined
+        // The wait resolved, so a marker left by an earlier attempt must not outlive it and turn some later
+        // failure of this step into an abort the author never asked for.
+        delete invocation.state.currentAction.delayUntilUnresolved
     }
 
-    const offsetSeconds = config.offset ? durationSeconds(config.offset) : 0
-    if (offsetSeconds === null) {
+    const offset = config.offset ? offsetSeconds(config.offset) : 0
+    if (offset === null) {
         throw new Error(`Invalid offset: ${config.offset}`)
     }
 
-    const target = instant.plus({ seconds: offsetSeconds })
-    const maxSeconds = durationSeconds(action.config.max_delay_duration ?? DEFAULT_MAX_DELAY_UNTIL)
-    const cap = DateTime.fromMillis(startedAtTimestamp)
-        .toUTC()
-        .plus({ seconds: maxSeconds ?? 0 })
+    const target = instant.plus({ seconds: offset })
+    // A ceiling that cannot be read falls back to the default rather than to nothing: zero would put the cap
+    // at the step's own start, which continues the run immediately - the outcome the wait exists to prevent.
+    const maxSeconds =
+        maxDelaySeconds(action.config.max_delay_duration ?? DEFAULT_MAX_DELAY_UNTIL) ??
+        maxDelaySeconds(DEFAULT_MAX_DELAY_UNTIL)!
+    const cap = DateTime.fromMillis(startedAtTimestamp).toUTC().plus({ seconds: maxSeconds })
     const scheduledAt = target > cap ? cap : target
 
     return DateTime.utc() >= scheduledAt ? null : scheduledAt
