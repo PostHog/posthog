@@ -2672,6 +2672,14 @@ snapshots:
         hash: v1.k794b7964.51c09169b5a57e217572bc35c0882b15252b4af936921569bf8d2a1d3a330f2f.red8aW6nElMIxDUdAHhilR3Ls2NgRChoEmFzfpGcgbU
     insights-funneltrendstable--default--light:
         hash: v1.k794b7964.f4486460f4481d343ecf8e0890d94f8d4c3da70164008d53bc762b6900623bc1.MRfTllR3ODYt6mNxjI-nTmfYZk0V2cXLMRmUwbKFC1Q
+    insights-insightseriestooltip--compare-to-previous-period--dark:
+        hash: v1.k794b7964.c678377bbf5032ac7eecc97fa759c8fc9e3c06b57ba16689210c912536a2db4e.gpyupEpCOehnsZYtAShrMscqqGEa5IzBVy3Zvin1AxY
+    insights-insightseriestooltip--compare-to-previous-period--light:
+        hash: v1.k794b7964.fe66a9a81d1cfad2b31e17932f0aaa5951e386c66d15a2f72a3a06556aaeeaf1.-mMZ0ZBqw02XLGxkjNIzt9jbvc-CYe_lJP-seoien7w
+    insights-insightseriestooltip--compare-to-previous-period-with-breakdown--dark:
+        hash: v1.k794b7964.74b55ba78e2185e3c9a7509c3639a9c3e9cf4405a78cb633eb10add327560917.QHNjn6wxv41EnQJT9JhdhNz72JOOjtrSyLrOwyXrTYU
+    insights-insightseriestooltip--compare-to-previous-period-with-breakdown--light:
+        hash: v1.k794b7964.da6d699cc2b19d2e6064163835f30f7e6867d0eaadfe95cef7232a059016fe95.LIiNNb7dAISh1kUiRVYhh3YdDW4BZ5ue-A653MElNuM
     insights-insightseriestooltip--long-series-name-with-breakdown--dark:
         hash: v1.k794b7964.199545e36ed0533f2e52b4e8a88497c4f3587208a61eb2bade6f19e09e6acb09.chYT5gr5mJZO2rmHIGW03J--hW6-dcHe9-3SSmlvfGc
     insights-insightseriestooltip--long-series-name-with-breakdown--light:
