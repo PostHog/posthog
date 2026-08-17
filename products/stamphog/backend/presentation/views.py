@@ -173,11 +173,12 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
     def update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        self._get_or_404(pk)
+        current = self._get_or_404(pk)
         serializer = StamphogRepoConfigWriteSerializer(
             data=request.data,
             partial=kwargs.get("partial", False),
             partial_update=True,
+            current=current,
             context=self.get_serializer_context(),
         )
         serializer.is_valid(raise_exception=True)
@@ -265,10 +266,13 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 team_id=self.team_id,
             )
             raise PermissionDenied("This installation link was started for a different project.")
+        connected_by_user_id = request.user.pk
+        if connected_by_user_id is None:
+            raise PermissionDenied("Log in to complete the installation.")
         # The token also binds the callback to the member who started the flow. Without this, one
         # project member could hand another the callback and complete an install under the second
         # member's session (both pass the team check). Same 403 path as the team mismatch.
-        if state_payload.get("user_id") != request.user.pk:
+        if state_payload.get("user_id") != connected_by_user_id:
             logger.warning(
                 "stamphog sync_installation: state user mismatch",
                 installation_id=installation_id,
@@ -340,7 +344,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                     self.canonical_team_id,
                     installation_id=one_installation_id,
                     user_token=user_token,
-                    connected_by_user_id=request.user.pk,
+                    connected_by_user_id=connected_by_user_id,
                 )
             except StamphogGitHubError:
                 logger.warning(
@@ -364,7 +368,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     scope_object = "stamphog"
     serializer_class = ReviewRunSerializer
 
-    def _runs(self) -> list[contracts.ReviewRunDTO] | None:
+    def _runs(self) -> facade_api.LazyDTOList[contracts.ReviewRunDTO] | None:
         """The team's review runs under the request's filters, or None if a filter is unparseable."""
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
@@ -415,9 +419,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         runs = self._runs()
-        if runs is None:
-            runs = []
-        page = self.paginate_queryset(runs)
+        page = self.paginate_queryset(runs if runs is not None else [])
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
 
@@ -427,7 +429,7 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     scope_object = "stamphog"
     serializer_class = PullRequestSerializer
 
-    def _pull_requests(self) -> list[contracts.PullRequestDTO] | None:
+    def _pull_requests(self) -> facade_api.LazyDTOList[contracts.PullRequestDTO] | None:
         """The team's pull requests under the request's filters, or None if a filter is unparseable."""
         pr_number = self.request.query_params.get("pr_number")
         if pr_number:
@@ -471,9 +473,7 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         pull_requests = self._pull_requests()
-        if pull_requests is None:
-            pull_requests = []
-        page = self.paginate_queryset(pull_requests)
+        page = self.paginate_queryset(pull_requests if pull_requests is not None else [])
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
 
@@ -535,7 +535,7 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     scope_object = "stamphog"
     serializer_class = DigestRunSerializer
 
-    def _digest_runs(self) -> list[contracts.DigestRunDTO] | None:
+    def _digest_runs(self) -> facade_api.LazyDTOList[contracts.DigestRunDTO] | None:
         """The team's digest runs under the request's filter, or None if it is unparseable."""
         digest_channel = self.request.query_params.get("digest_channel")
         channel_id = None
@@ -566,7 +566,5 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         digest_runs = self._digest_runs()
-        if digest_runs is None:
-            digest_runs = []
-        page = self.paginate_queryset(digest_runs)
+        page = self.paginate_queryset(digest_runs if digest_runs is not None else [])
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
