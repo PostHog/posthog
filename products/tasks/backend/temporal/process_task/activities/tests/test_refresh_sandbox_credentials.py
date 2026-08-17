@@ -31,7 +31,7 @@ class TestRefreshSandboxCredentialsActivity:
         return fake
 
     def test_refreshes_github_credentials_and_reports_interval(
-        self, activity_environment, task_context, test_task, test_task_run, sandbox
+        self, activity_environment, task_context, test_task, sandbox
     ):
         with (
             patch(
@@ -45,10 +45,6 @@ class TestRefreshSandboxCredentialsActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
             ) as track_event,
-            patch(
-                "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
-                return_value="jwt",
-            ),
             patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as send_agent_command,
         ):
             output = async_to_sync(activity_environment.run)(

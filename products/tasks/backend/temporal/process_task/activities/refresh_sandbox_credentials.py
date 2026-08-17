@@ -197,6 +197,18 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         if intervals:
             next_refresh = min(intervals)
 
+        # Places the rotation on the run's own timeline. The metric carries no run dimension and
+        # the analytics event below is best-effort, so without this a support engineer replaying a
+        # git 401 has nothing to date the identity change against.
+        logger.info(
+            "sandbox_credentials_refreshed",
+            run_id=ctx.run_id,
+            sandbox_id=input.sandbox_id,
+            refreshed_kinds=refreshed_kinds,
+            orphaned_kinds=orphaned_kinds,
+            next_refresh_seconds=next_refresh,
+        )
+
         track_event(
             "sandbox_credentials_refreshed",
             distinct_id=ctx.distinct_id,
