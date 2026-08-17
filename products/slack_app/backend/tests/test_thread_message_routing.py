@@ -6,12 +6,19 @@ from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 
 
 class TestRouteThreadMessage(TestCase):
@@ -349,6 +356,56 @@ class TestRouteThreadMessage(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_called_once()
         assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+    # --- Thread creator's follow-up mode ----------------------------------
+
+    def _set_creator_mode(self, mode: str) -> None:
+        SlackSettings.objects.create(
+            slack_workspace_id="T_SLACK",
+            slack_user_id=self.mapping.mentioning_slack_user_id,
+            untagged_followup_mode=mode,
+        )
+
+    @parameterized.expand(
+        [
+            (UntaggedFollowupMode.AUTO, True, False),
+            (UntaggedFollowupMode.ASK, False, True),
+            (UntaggedFollowupMode.NEVER, False, False),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_reply_from_someone_else_follows_the_creators_mode(self, mode, expect_workflow, expect_prompt):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        self._set_creator_mode(mode)
+        with (
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+            patch("products.slack_app.backend.api._post_untagged_followup_prompt", return_value=True) as mock_prompt,
+        ):
+            result = self._route(self._make_event())  # U_BOB is not the thread creator
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        assert mock_prompt.called is expect_prompt
+
+    @parameterized.expand([(UntaggedFollowupMode.ASK,), (UntaggedFollowupMode.NEVER,)])
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_creators_own_reply_runs_whatever_the_mode(self, mode):
+        """The setting exists to judge other people's replies. Typing in a thread
+        you handed to PostHog yourself is unambiguous."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        self._set_creator_mode(mode)
+        with (
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+            patch("products.slack_app.backend.api._post_untagged_followup_prompt") as mock_prompt,
+        ):
+            self._route(self._make_event(user="U_ALICE"))
+        mock_start.assert_called_once()
+        mock_prompt.assert_not_called()
 
     # --- Symmetry with the app_mention path -------------------------------
 
