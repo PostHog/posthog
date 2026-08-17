@@ -94,7 +94,12 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
-from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.managed_warehouse.backend.facade.temporal import (
+    POLL_DUCKGRES_USAGE_SCHEDULE_ID,
+    POLL_DUCKGRES_USAGE_WORKFLOW,
+    DucklakeCompactionInput,
+    PollDuckgresUsageInputs,
+)
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
@@ -717,6 +722,41 @@ async def create_run_usage_reports_schedule(client: Client):
         )
 
 
+async def create_poll_duckgres_usage_schedule(client: Client):
+    """Poll duckgres's billing pull API every 10 minutes.
+
+    Pulls managed-warehouse compute usage into the day-keyed staging table
+    (`DuckgresDailyUsage`) that usage reports read from, acking duckgres only
+    at UTC day boundaries. Overlap SKIP is load-bearing: two concurrent polls
+    could apply a stale response after a newer one and regress the open day
+    until the next tick. A failed slot needs no schedule-level retry — every
+    pull is a full-open-window replace, so the next tick supersedes it.
+    """
+    poll_duckgres_usage_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            POLL_DUCKGRES_USAGE_WORKFLOW,
+            # Pydantic model, not a dataclass — `dataclasses.asdict` would
+            # TypeError on registration.
+            PollDuckgresUsageInputs().model_dump(mode="json"),
+            id=POLL_DUCKGRES_USAGE_SCHEDULE_ID,
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=10))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, POLL_DUCKGRES_USAGE_SCHEDULE_ID):
+        await a_update_schedule(client, POLL_DUCKGRES_USAGE_SCHEDULE_ID, poll_duckgres_usage_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            POLL_DUCKGRES_USAGE_SCHEDULE_ID,
+            poll_duckgres_usage_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_finalize_usage_reports_schedule(client: Client):
     """Daily finalizer for the usage reports v2 flow, 02:45 UTC.
 
@@ -905,6 +945,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_poll_duckgres_usage_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
 

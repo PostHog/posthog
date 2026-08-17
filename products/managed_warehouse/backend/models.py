@@ -68,6 +68,109 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         }
 
 
+class DuckgresDailyUsage(UUIDModel):
+    """One UTC day of managed-warehouse compute usage for one (team, query_source, worker size).
+
+    Local durable mirror of duckgres's billing pull API (duckgres
+    `docs/design/billing-pull-api.md`): a Temporal poller replaces the open
+    window's rows on every pull and acks duckgres only at UTC day boundaries,
+    so rows here are always complete day-so-far totals. Once duckgres GCs an
+    acked day this is the surviving copy until the usage report ships it, so
+    it's a system of record, not a scratch buffer. Usage reports (v1 gathers
+    and, later, v2 queries) read from this table; nothing else writes to it.
+    """
+
+    date = models.DateField()
+    organization_id = models.UUIDField()
+    # Not an FK: duckgres attributes usage to the org's default team, rows are
+    # bulk-replaced every poll, and the billing mirror must survive team deletion.
+    team_id = models.IntegerField()
+    # "standard" | "endpoints" (open set — duckgres session GUC).
+    query_source = models.CharField(max_length=32)
+    # Worker size the usage accrued on, as exact decimals (e.g. 8 / 1.5 / 0.5).
+    cpu = models.DecimalField(max_digits=12, decimal_places=6)
+    mem_gib = models.DecimalField(max_digits=12, decimal_places=6)
+    cpu_seconds = models.BigIntegerField()
+    memory_seconds = models.BigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_duckgresdailyusage"
+        verbose_name = "Duckgres daily usage"
+        verbose_name_plural = "Duckgres daily usage"
+        constraints = [
+            # Keyed on team_id (not org): team_id is globally unique per region and org is
+            # derivable from it, matching how the rest of billing keys usage. organization_id
+            # is kept as a stored attribute for traceability, not identity. duckgres's team
+            # stamp is only a hint (it may be a deleted team or 0), but the poller remaps
+            # dead/0 stamps to a live billable team and drops orphan-org rows before
+            # persisting — so team_id here is always a real, collision-free key.
+            models.UniqueConstraint(
+                fields=["date", "team_id", "query_source", "cpu", "mem_gib"],
+                name="duckgres_daily_usage_key",
+            )
+        ]
+
+
+class DuckgresDailyStorageUsage(UUIDModel):
+    """One UTC day of managed-warehouse storage usage (footprint integral) per team.
+
+    Sibling of DuckgresDailyUsage for the pull API's `storage` array: one row
+    per (org's default team, day), `gib_seconds` = tracked bytes x seconds /
+    2^30 as duckgres's exact decimal. Maintained by the same poller
+    transaction; read by the storage usage-report gather (which converts to
+    decimal-GB hours — GiB vs GB conversion lives there, not here).
+    """
+
+    date = models.DateField()
+    organization_id = models.UUIDField()
+    team_id = models.IntegerField()
+    # Up to ~13 integer digits (PB-month scale) + exactly 30 fractional digits.
+    gib_seconds = models.DecimalField(max_digits=45, decimal_places=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_duckgresdailystorageusage"
+        verbose_name = "Duckgres daily storage usage"
+        verbose_name_plural = "Duckgres daily storage usage"
+        constraints = [
+            # See DuckgresDailyUsage: keyed on team_id, org kept as an attribute only.
+            models.UniqueConstraint(fields=["date", "team_id"], name="duckgres_daily_storage_key"),
+        ]
+
+
+class DuckgresUsageCursor(UUIDModel):
+    """Single-row record of the poller's progress against duckgres.
+
+    Two watermarks, protecting two different things:
+
+    - ``last_acked_watermark`` — the last watermark the poller acked. Load-bearing
+      for custody: the poller cross-checks it against duckgres's own cursor
+      (`watermark_low`) each pull and refuses to ack when duckgres is ahead of it
+      (a possible hole in billable usage). Null until the first ack.
+    - ``last_applied_watermark`` — the ``watermark_high`` of the last response whose
+      rows were applied to the mirror. Load-bearing for the mirror: the replace is
+      monotone in this value, so a stale response (a timed-out poll attempt whose
+      late write lands after a newer attempt already applied and acked) can never
+      overwrite newer data — an acked day is deleted upstream and would otherwise
+      stay wrong forever.
+
+    Written in the same transaction as the mirror rows, before the ack. One row per
+    deployment — `singleton` is a unique constant so it's addressable without
+    relying on a magic pk.
+    """
+
+    singleton = models.PositiveSmallIntegerField(default=1, unique=True)
+    last_acked_watermark = models.DateTimeField(null=True, blank=True)
+    last_applied_watermark = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_duckgresusagecursor"
+        verbose_name = "Duckgres usage cursor"
+        verbose_name_plural = "Duckgres usage cursors"
+
+
 class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class WorkflowType(models.TextChoices):
         COPY = "copy", "Copy"

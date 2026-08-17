@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.db import connection
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
 import requests
@@ -53,6 +53,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.managed_warehouse.backend.facade import api as managed_warehouse_api
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,
@@ -223,6 +224,11 @@ class UsageReportCounters:
     # Data Warehouse
     rows_synced_in_period: int
     free_historical_rows_synced_in_period: int
+
+    # Managed Data Warehouse (staged from duckgres by products/managed_warehouse/backend/temporal/duckgres_usage/)
+    managed_warehouse_compute_seconds_in_period: int
+    managed_warehouse_endpoints_compute_seconds_in_period: int
+    managed_warehouse_storage_gb_hours_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
@@ -2117,6 +2123,30 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
     )
 
 
+# The managed-warehouse gathers read the duckgres usage mirror through the product's
+# facade — plain aggregated rows cross the boundary, never the model classes. The
+# billable-unit folding (the compute 1:8 ratio, the GiB->GB storage conversion) lives
+# with the product in facade/api.py; core keeps only the retry/logging wrappers.
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
+    return managed_warehouse_api.duckgres_compute_rows_for_period(begin.date(), end.date(), endpoints=False)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
+    return managed_warehouse_api.duckgres_compute_rows_for_period(begin.date(), end.date(), endpoints=True)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime, end: datetime) -> list:
+    return managed_warehouse_api.duckgres_storage_gb_hour_rows_for_period(begin.date(), end.date())
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_external_data_schemas_in_period() -> list:
@@ -2788,6 +2818,9 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
         or report.replay_vision_credits_used_in_period > 0
+        or report.managed_warehouse_compute_seconds_in_period > 0
+        or report.managed_warehouse_endpoints_compute_seconds_in_period > 0
+        or report.managed_warehouse_storage_gb_hours_in_period > 0
     )
 
 
@@ -3033,6 +3066,15 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_managed_warehouse_compute_seconds_in_period": get_teams_with_managed_warehouse_compute_seconds_in_period(
+            period_start, period_end
+        ),
+        "teams_with_managed_warehouse_endpoints_compute_seconds_in_period": get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(
+            period_start, period_end
+        ),
+        "teams_with_managed_warehouse_storage_gb_hours_in_period": get_teams_with_managed_warehouse_storage_gb_hours_in_period(
+            period_start, period_end
+        ),
         "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
             period_start, period_end
         ),
@@ -3116,10 +3158,19 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     return all_data
 
 
+def billable_teams_queryset() -> QuerySet[Team]:
+    """Teams that count for usage/billing — the single source of truth shared by the
+    usage-report gather and the duckgres team resolver
+    (`products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution`), so the resolver can't elect a
+    team the gather refuses to bill. Excludes internal-metrics orgs (unbilled by
+    design) and demo projects."""
+    return Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+
+
 def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        billable_teams_queryset()
+        .select_related("organization")
         .only(
             "id",
             "name",
@@ -3196,6 +3247,15 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         survey_count=all_data["teams_with_survey_count"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        managed_warehouse_compute_seconds_in_period=all_data[
+            "teams_with_managed_warehouse_compute_seconds_in_period"
+        ].get(team.id, 0),
+        managed_warehouse_endpoints_compute_seconds_in_period=all_data[
+            "teams_with_managed_warehouse_endpoints_compute_seconds_in_period"
+        ].get(team.id, 0),
+        managed_warehouse_storage_gb_hours_in_period=all_data[
+            "teams_with_managed_warehouse_storage_gb_hours_in_period"
+        ].get(team.id, 0),
         free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
             team.id, 0
         ),
