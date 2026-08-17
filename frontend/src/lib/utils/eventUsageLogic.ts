@@ -659,6 +659,13 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardAddMenuOpened: (
+        source: 'header' | 'inline',
+        dashboardId: number
+    ) => {
+        dashboardId: number
+        source: 'header' | 'inline'
+    }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         manualCount: number,
@@ -2478,6 +2485,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
         reportDashboardTileInsertedInline: (
             tileType: DashboardAddTileType,
             dashboardId: number,
@@ -3600,6 +3608,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
+        },
+        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
+            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
             posthog.capture('dashboard tile inserted inline', {
