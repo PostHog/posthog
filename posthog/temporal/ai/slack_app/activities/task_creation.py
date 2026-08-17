@@ -19,6 +19,8 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
 
 _RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. Please try again in a minute."
@@ -193,7 +195,7 @@ def _post_attachment_rejection_notice(
     skipped = "\n".join(f"- {msg}" for msg in skipped_messages)
     text = "I couldn't forward that to the agent — no attachment was accepted:\n" + skipped
     try:
-        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
     except Exception:
         logger.warning("slack_attachment_rejection_notice_failed", channel=channel, thread_ts=thread_ts)
 
@@ -646,7 +648,8 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
         try:
-            slack.client.chat_postMessage(
+            post_slack_thread_reply(
+                slack.client,
                 channel=channel,
                 thread_ts=thread_ts,
                 text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
@@ -855,7 +858,8 @@ def forward_posthog_code_followup_activity(
     sandbox_url = (task_run.state or {}).get("sandbox_url")
     if not sandbox_url:
         logger.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="The agent is still starting up. Give it a moment and try again.",
@@ -957,7 +961,8 @@ def forward_posthog_code_followup_activity(
             signal_result=signal_result,
         )
         _set_followup_done_reaction(slack, channel, user_message_ts, "x")
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="I couldn't deliver your message to the agent. The sandbox may have stopped. Please try starting a new task.",
@@ -1104,7 +1109,8 @@ def _resume_task_with_new_run(
     created_by = mapping.task.created_by
     run_actor = actor_user or created_by
     if not created_by or not run_actor:
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text="I can't restart the agent — the original task creator is no longer available.",
@@ -1175,7 +1181,8 @@ def _resume_task_with_new_run(
             thread_ts=thread_ts,
             task_id=str(mapping.task_id),
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=_RESUME_ERROR_MSG,
@@ -1235,7 +1242,8 @@ def _resume_task_with_new_run(
             task_id=str(mapping.task_id),
             run_id=str(new_run.id),
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=_RESUME_ERROR_MSG,

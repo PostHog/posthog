@@ -86,6 +86,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_opened as _handle_app_home_opened,
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
@@ -296,11 +297,14 @@ def _post_slack_user_feedback(
     prefer_thread_message: bool = False,
 ) -> bool:
     """Post feedback to a Slack user. Returns whether anything reached Slack, so callers
-    that report on whether the user was actually told something aren't guessing."""
+    that report on whether the user was actually told something aren't guessing.
+
+    A thread post whose root has been deleted is skipped rather than posted — see
+    ``post_slack_thread_reply``. That counts as "nothing reached Slack", which is
+    accurate: the user retracted the message this feedback answers."""
     if prefer_thread_message:
         try:
-            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-            return True
+            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
 
@@ -308,7 +312,7 @@ def _post_slack_user_feedback(
         slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         try:
-            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
             return False
@@ -880,7 +884,8 @@ def _post_repo_picker_message(
             }
         )
 
-    response = slack.client.chat_postMessage(
+    response = post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=guidance,
@@ -890,6 +895,9 @@ def _post_repo_picker_message(
             "event_payload": {"context_token": context_token, "workflow_id": workflow_id},
         },
     )
+    if response is None:
+        # No prompt left to route, so there is nothing to ask about and nothing to await.
+        return
 
     if workflow_id:
         response_data = normalize_slack_response(response)
@@ -1631,6 +1639,7 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             title="What can I help you ship?",
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
+        # Slack's own assistant container thread, not a reply to a user message that can be deleted.
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
     except Exception:
         logger.warning("assistant_thread_started_failed", exc_info=True)
@@ -1639,6 +1648,7 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
 
 def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
     try:
+        # Slack's own assistant container thread, not a reply to a user message that can be deleted.
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
     except Exception:
         logger.warning("assistant_unavailable_post_failed", exc_info=True)
@@ -3426,7 +3436,8 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
             integration = Integration.objects.get(
                 id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
             )
-            SlackIntegration(integration).client.chat_postMessage(
+            post_slack_thread_reply(
+                SlackIntegration(integration).client,
                 channel=channel,
                 thread_ts=thread_ts,
                 text="Repository selection expired. Please mention PostHog again to retry.",
@@ -3552,7 +3563,8 @@ def _post_channel_approval_outcome(
     if not thread_ts:
         return
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        post_slack_thread_reply(
+            SlackIntegration(integration).client,
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
@@ -4156,6 +4168,7 @@ def _post_insight_alert_snooze_modal_confirmation(
     actor = f"<@{slack_user_id}>" if slack_user_id else "a teammate"
     text = f"😴 Snoozed until {until.strftime('%Y-%m-%d %H:%M')} UTC by {actor}"
     try:
+        # Insight-alert surface: anchored on the alert the bot posted, not on an @PostHog prompt.
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel, thread_ts=meta.get("message_ts"), text=text
         )
