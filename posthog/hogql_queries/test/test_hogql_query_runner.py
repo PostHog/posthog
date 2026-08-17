@@ -21,6 +21,7 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.utils import UUIDT
 
@@ -374,3 +375,33 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_query_service_allows_offset_when_tagged_as_endpoints(self, _mock_flag):
+        # Endpoints injects its own OFFSET for pagination (EndpointPagination.apply_to) before
+        # routing through here with is_query_service=True. That self-injected OFFSET must be
+        # exempted from the personal-API-key validator regardless of the org allow-list flag.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        tag_queries(product=Product.ENDPOINTS)
+        try:
+            response = runner.calculate()
+        finally:
+            reset_query_tags()
+        self.assertEqual(len(response.results), 5)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_query_service_rejects_offset_for_non_endpoints_product_tag(self, _mock_flag):
+        # A non-Endpoints product tag must not accidentally ride the carve-out — the validator
+        # still fires for arbitrary user-crafted OFFSET clauses.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        tag_queries(product=Product.SQL_EDITOR)
+        try:
+            with self.assertRaises(QueryError) as ctx:
+                runner.calculate()
+        finally:
+            reset_query_tags()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))

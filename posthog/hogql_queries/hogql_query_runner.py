@@ -25,7 +25,7 @@ from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
@@ -141,7 +141,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         query = self.to_query()
 
-        if self.is_query_service:
+        # Endpoints injects its own OFFSET into the query AST for pagination (see
+        # EndpointPagination.apply_to) before routing the request through here with
+        # is_query_service=True (personal-API-key access). That self-injected OFFSET is not
+        # the user-crafted pagination the validator exists to block, so it's exempted here —
+        # same tag-based carve-out idiom as the materialized-endpoint rate limiter in
+        # query_runner.py (get_query_tag_value("workload") == Workload.ENDPOINTS).
+        if self.is_query_service and get_query_tag_value("product") != Product.ENDPOINTS:
             validate_user_query(query, team=self.team)
 
         paginator = None
