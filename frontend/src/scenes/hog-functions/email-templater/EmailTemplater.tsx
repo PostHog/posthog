@@ -26,7 +26,7 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
-import { EmailFieldErrors } from './types'
+import { EmailFieldErrors, EmailTemplateFrom } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -233,14 +233,22 @@ function DestinationEmailTemplaterForm({
 }
 
 function NativeEmailIntegrationChoice({
+    label,
     onChange,
     value,
 }: {
-    onChange: (value: any) => void
-    value: any
+    /** Rendered inside the sender row so it aligns with the select rather than spanning the override rows. */
+    label: ReactNode
+    onChange: (value: EmailTemplateFrom) => void
+    value?: EmailTemplateFrom
 }): JSX.Element {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { logicProps } = useValues(emailTemplaterLogic)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+
+    // Presence of the override keys is what reveals the inputs, so a saved override is
+    // visible again on reopen without any separate reveal state.
+    const overridesVisible = value?.email !== undefined || value?.name !== undefined
 
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
@@ -248,58 +256,116 @@ function NativeEmailIntegrationChoice({
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        onChange({ integrationId })
+        onChange({ ...value, integrationId })
     }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
-            <div className="flex gap-2 justify-end items-center">
-                <span className="text-muted">No email senders configured yet</span>
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    to={urls.workflows('channels')}
-                    targetBlank
-                    className="m-1"
-                    icon={<IconExternal />}
-                >
-                    Connect email sender
-                </LemonButton>
+            <div className="flex gap-2 justify-between items-center">
+                {label}
+                <div className="flex gap-2 items-center">
+                    <span className="text-muted">No email senders configured yet</span>
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        to={urls.workflows('channels')}
+                        targetBlank
+                        className="m-1"
+                        icon={<IconExternal />}
+                    >
+                        Connect email sender
+                    </LemonButton>
+                </div>
             </div>
         )
     }
 
     return (
-        <>
-            <LemonSelect
-                className="m-1 flex-1"
-                type="tertiary"
-                placeholder="Choose email sender"
-                loading={integrationsLoading}
-                options={[
-                    {
-                        title: 'Email senders',
-                        options: (integrationsOfKind || []).map((integration) => ({
-                            label: integration.display_name,
-                            value: integration.id,
-                        })),
-                    },
-                    {
-                        options: [
-                            {
-                                label: 'Add new email sender',
-                                icon: <IconExternal />,
-                                value: -1,
-                            },
-                        ],
-                    },
-                ]}
-                value={value?.integrationId}
-                size="small"
-                fullWidth
-                onChange={onChangeIntegration}
-            />
-        </>
+        <div className="flex flex-col">
+            <div className="flex gap-2 items-center">
+                {label}
+                <LemonSelect
+                    className="m-1 flex-1"
+                    type="tertiary"
+                    placeholder="Choose email sender"
+                    loading={integrationsLoading}
+                    options={[
+                        {
+                            title: 'Email senders',
+                            options: (integrationsOfKind || []).map((integration) => ({
+                                label: integration.display_name,
+                                value: integration.id,
+                            })),
+                        },
+                        {
+                            options: [
+                                {
+                                    label: 'Add new email sender',
+                                    icon: <IconExternal />,
+                                    value: -1,
+                                },
+                            ],
+                        },
+                    ]}
+                    value={value?.integrationId}
+                    size="small"
+                    fullWidth
+                    onChange={onChangeIntegration}
+                />
+                {!overridesVisible && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPlus />}
+                        className="mr-2 shrink-0"
+                        data-attr="email-from-custom-sender"
+                        onClick={() => onChange({ ...value, email: '', name: '' })}
+                        tooltip="Set a custom sender address or name, with template support"
+                    >
+                        Custom sender
+                    </LemonButton>
+                )}
+            </div>
+            {overridesVisible && (
+                <>
+                    <div className="flex gap-2 items-center border-t">
+                        <LemonLabel
+                            className="min-w-30 shrink-0"
+                            info="The address to send from. Templates are supported, so the address can come from the triggering event. It must be on the selected sender's verified domain. Leave empty to use the sender's address."
+                        >
+                            Custom address
+                        </LemonLabel>
+                        <LiquidSupportedText
+                            value={value?.email ?? ''}
+                            onChange={(email) => onChange({ ...value, email })}
+                            globals={logicProps.variables}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            icon={<IconX />}
+                            className="mr-2"
+                            data-attr="email-from-custom-sender-remove"
+                            onClick={() => onChange({ integrationId: value?.integrationId })}
+                            tooltip="Remove custom sender"
+                        />
+                    </div>
+                    <div className="flex gap-2 items-center border-t">
+                        <LemonLabel
+                            className="min-w-30 shrink-0"
+                            info="The sender name shown in the recipient's inbox. Templates are supported. Leave empty to use the sender's name."
+                        >
+                            Custom name
+                        </LemonLabel>
+                        <LiquidSupportedText
+                            value={value?.name ?? ''}
+                            onChange={(name) => onChange({ ...value, name })}
+                            globals={logicProps.variables}
+                        />
+                    </div>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -476,8 +542,8 @@ function NativeEmailTemplaterForm({
                                         renderError={() => null}
                                         showOptional={field.optional}
                                     >
-                                        {({ value, onChange }: ChildFunctionProps) => (
-                                            <div className="flex gap-2 items-center">
+                                        {({ value, onChange }: ChildFunctionProps) => {
+                                            const label = (
                                                 <LemonLabel
                                                     className={fieldError ? 'text-danger' : ''}
                                                     info={field.helpText}
@@ -485,40 +551,49 @@ function NativeEmailTemplaterForm({
                                                 >
                                                     {field.label}
                                                 </LemonLabel>
-                                                {field.key === 'from' ? (
-                                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                                ) : field.key === 'to' ? (
-                                                    /**
-                                                     * In email inputs, "to" maps to { email: string; name: string; },
-                                                     * whereas other fields map directly to their string value
-                                                     */
-                                                    <LiquidSupportedText
-                                                        value={value?.email}
-                                                        onChange={(email) => onChange({ ...value, email })}
-                                                        globals={logicProps.variables}
-                                                    />
-                                                ) : (
-                                                    <LiquidSupportedText
-                                                        value={value}
-                                                        onChange={onChange}
-                                                        globals={logicProps.variables}
-                                                    />
-                                                )}
-                                                {field.isAdvancedField && (
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        type="tertiary"
-                                                        icon={<IconX />}
-                                                        className="mr-2"
-                                                        onClick={() => {
-                                                            onChange('')
-                                                            hideAdvancedField(field.key)
-                                                        }}
-                                                        tooltip="Remove field"
-                                                    />
-                                                )}
-                                            </div>
-                                        )}
+                                            )
+                                            return field.key === 'from' ? (
+                                                <NativeEmailIntegrationChoice
+                                                    label={label}
+                                                    value={value}
+                                                    onChange={onChange}
+                                                />
+                                            ) : (
+                                                <div className="flex gap-2 items-center">
+                                                    {label}
+                                                    {field.key === 'to' ? (
+                                                        /**
+                                                         * In email inputs, "to" maps to { email: string; name: string; },
+                                                         * whereas other fields map directly to their string value
+                                                         */
+                                                        <LiquidSupportedText
+                                                            value={value?.email}
+                                                            onChange={(email) => onChange({ ...value, email })}
+                                                            globals={logicProps.variables}
+                                                        />
+                                                    ) : (
+                                                        <LiquidSupportedText
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            globals={logicProps.variables}
+                                                        />
+                                                    )}
+                                                    {field.isAdvancedField && (
+                                                        <LemonButton
+                                                            size="xsmall"
+                                                            type="tertiary"
+                                                            icon={<IconX />}
+                                                            className="mr-2"
+                                                            onClick={() => {
+                                                                onChange('')
+                                                                hideAdvancedField(field.key)
+                                                            }}
+                                                            tooltip="Remove field"
+                                                        />
+                                                    )}
+                                                </div>
+                                            )
+                                        }}
                                     </LemonField>
                                     <FieldErrorMessage error={fieldError} />
                                 </div>
