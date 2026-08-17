@@ -83,15 +83,6 @@ const apiMocks = {
     get: {
         '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
         '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
-        '/api/environments/:team_id/default_evaluation_contexts/': () => [
-            200,
-            {
-                default_evaluation_contexts: [],
-                available_contexts: ['main-app'],
-                hidden_contexts: [],
-                enabled: false,
-            },
-        ],
     },
 }
 
@@ -551,12 +542,20 @@ describe('experimentWizardLogic', () => {
         })
 
         it('team default contexts satisfy the requirement, since the backend applies them', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true,
+                [FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]: true,
+            })
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
                 require_evaluation_contexts: true,
                 default_evaluation_contexts_enabled: true,
             })
+            // Wait for the fetch that mounting started, so its response can't land after this and
+            // overwrite the injected defaults.
+            await expectLogic(defaultEvaluationContextsLogic).toDispatchActions([
+                'loadDefaultEvaluationContextsSuccess',
+            ])
             defaultEvaluationContextsLogic.actions.loadDefaultEvaluationContextsSuccess({
                 default_evaluation_contexts: [{ id: 1, name: 'production' }],
                 available_contexts: ['production'],
@@ -571,6 +570,17 @@ describe('experimentWizardLogic', () => {
                 evaluationContextsRequired: false,
                 stepValidationErrors: partial({
                     about: expect.not.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+        })
+
+        it('clearing every context drops evaluation_contexts so project defaults still apply', async () => {
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: ['main-app'] })
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: [] })
+
+            await expectLogic(createLogic).toMatchValues({
+                experiment: partial({
+                    feature_flag_config: expect.not.objectContaining({ evaluation_contexts: expect.anything() }),
                 }),
             })
         })

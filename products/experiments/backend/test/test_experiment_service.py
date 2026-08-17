@@ -216,6 +216,21 @@ class TestExperimentService(APIBaseTest):
         )
         assert context_names == {"marketing-site"}
 
+    def test_create_experiment_with_empty_evaluation_contexts_suppresses_defaults(self):
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = self._service().create_experiment(
+                name="Empty Contexts Experiment",
+                feature_flag_key="empty-contexts-flag",
+                feature_flag_config={"evaluation_contexts": []},
+            )
+
+        assert experiment.feature_flag.flag_evaluation_contexts.count() == 0
+
     def test_create_experiment_without_evaluation_contexts_when_required(self):
         self.team.require_evaluation_contexts = True
         self.team.save()

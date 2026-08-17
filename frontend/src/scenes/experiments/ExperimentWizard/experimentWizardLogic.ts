@@ -194,13 +194,26 @@ export interface experimentWizardLogicMeta {
         stepNumber: (currentStep: ExperimentWizardStep) => number
         isLastStep: (currentStep: ExperimentWizardStep) => boolean
         isFirstStep: (currentStep: ExperimentWizardStep) => boolean
+        evaluationContextsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        appliedDefaultEvaluationContexts: (
+            featureFlags: FeatureFlagsSet,
+            teamDefaultsEnabled: boolean,
+            teamDefaults: DefaultEvaluationContext[]
+        ) => string[]
+        evaluationContextsRequired: (
+            evaluationContextsEnabled: boolean,
+            currentTeam: TeamPublicType | TeamType | null,
+            linkedFeatureFlag: FeatureFlagType | null,
+            appliedDefaults: string[]
+        ) => boolean
         stepValidationErrors: (
             experiment: Experiment & {
                 feature_flag_filters?: FeatureFlagFilters
             },
             featureFlagKeyValidation: FeatureFlagKeyValidation | null,
             linkedFeatureFlag: FeatureFlagType | null,
-            departedSteps: Record<string, boolean>
+            departedSteps: Record<string, boolean>,
+            evaluationContextsRequired: boolean
         ) => Record<ExperimentWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<ExperimentWizardStep, string[]>,
@@ -340,12 +353,19 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS],
         ],
-        // The flag the experiment creates carries the team's default contexts when the form leaves
-        // the field empty, so defaults on their own satisfy a team that requires contexts.
+        // The flag the experiment creates carries the team's default contexts when the form omits
+        // the field, so defaults on their own satisfy a team that requires contexts. Both gates are
+        // checked because the backend applies defaults only when both pass (get_default_evaluation_contexts).
         appliedDefaultEvaluationContexts: [
-            (s) => [s.teamDefaultsEnabled, s.teamDefaultEvaluationContexts],
-            (teamDefaultsEnabled: boolean, teamDefaults: DefaultEvaluationContext[]): string[] =>
-                teamDefaultsEnabled ? teamDefaults.map(({ name }) => name) : [],
+            (s) => [s.featureFlags, s.teamDefaultsEnabled, s.teamDefaultEvaluationContexts],
+            (
+                featureFlags: FeatureFlagsSet,
+                teamDefaultsEnabled: boolean,
+                teamDefaults: DefaultEvaluationContext[]
+            ): string[] =>
+                featureFlags[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS] && teamDefaultsEnabled
+                    ? teamDefaults.map(({ name }) => name)
+                    : [],
         ],
         // Only a new flag needs contexts picked here: a linked flag keeps the contexts it already has.
         evaluationContextsRequired: [
