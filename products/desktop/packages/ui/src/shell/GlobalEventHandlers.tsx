@@ -19,9 +19,7 @@ import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
-import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOrder";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import type { TaskData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useFocusWorkspace } from "@posthog/ui/features/workspace/useFocusWorkspace";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { shipIt } from "@posthog/ui/primitives/confetti";
@@ -42,13 +40,17 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 interface GlobalEventHandlersProps {
+  allTasks: Task[];
   onToggleCommandMenu: () => void;
   onToggleShortcutsSheet: () => void;
+  visualTaskOrder: TaskData[];
 }
 
 export function GlobalEventHandlers({
+  allTasks,
   onToggleCommandMenu,
   onToggleShortcutsSheet,
+  visualTaskOrder,
 }: GlobalEventHandlersProps) {
   const trpcReact = useHostTRPC();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
@@ -76,10 +78,6 @@ export function GlobalEventHandlers({
     currentTaskId ?? "",
   );
   const isWorktreeTask = currentWorkspace?.mode === "worktree";
-
-  const { data: allTasks = [] } = useTasks();
-  const sidebarData = useSidebarData({ activeView: view });
-  const visualTaskOrder = useVisualTaskOrder(sidebarData);
 
   // mod+N belongs to the browser tab strip with channels on, and to the
   // starred channels in the new layout (ChannelHotkeys, mounted from __root so
