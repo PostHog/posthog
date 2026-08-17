@@ -72,7 +72,9 @@ export function ToastActionButton({
         <LemonButton
             onClick={() => {
                 void button.action()
-                lemonToast.dismiss(toastId)
+                // Not lemonToast.dismiss: that marks the id cancelled so the next toast reusing it
+                // is swallowed, and ids are a hash of the message, so the same error would go quiet.
+                toast.dismiss(toastId)
             }}
             type="secondary"
             size="small"

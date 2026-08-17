@@ -83,7 +83,7 @@ interface ToastFrame {
     button?: ToastButton
 }
 
-export const toastFrame = (
+const toastFrame = (
     message: ExportNudgeMessage | null,
     headline: string,
     toastId: number | string,

@@ -560,6 +560,9 @@ export const exportsLogic = kea<exportsLogicType>([
                             await foldNudgeIntoSettledToast(nudge, exportToastId, settledMessage, viewExportsButton)
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }
+                            if (apiError?.data?.attr !== 'export_limit_exceeded') {
+                                posthog.captureException(error)
+                            }
                             // Show a survey when the user reaches the export limit, replacing the
                             // generic failure toast with the upsell.
                             if (apiError?.data?.attr === 'export_limit_exceeded') {

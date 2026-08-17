@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ToastActionButton, ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -30,6 +32,28 @@ function subjectLabel(candidate: ExportNudgeCandidate): JSX.Element | string {
     return subjectNoun(candidate.subject)
 }
 
+/**
+ * The toast on screen is static children, so flipping a flag in the closure does not remove this
+ * button from it. Its own state does, which also stops a second click reporting a second follow.
+ */
+function SubscribeButton({ onFollow }: { onFollow: () => void }): JSX.Element {
+    const [followed, setFollowed] = useState(false)
+    return (
+        <LemonButton
+            type="primary"
+            size="small"
+            data-attr="export-nudge-toast-cta"
+            disabledReason={followed ? 'Opening the subscription form' : undefined}
+            onClick={() => {
+                setFollowed(true)
+                onFollow()
+            }}
+        >
+            Subscribe
+        </LemonButton>
+    )
+}
+
 export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): ExportNudgeMessage | null {
     if (!claimExportNudge(candidate.subject)) {
         return null
@@ -55,19 +79,14 @@ export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): Export
                     off the text above it and space the two buttons apart. */}
                 <span className="flex flex-wrap items-center gap-2 *:m-0!">
                     {!accepted && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr="export-nudge-toast-cta"
-                            onClick={() => {
+                        <SubscribeButton
+                            onFollow={() => {
                                 accepted = true
                                 openSubscriptionFromNudge(subscriptionTargetFor(candidate.subject), {
                                     via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
                                 })
                             }}
-                        >
-                            Subscribe
-                        </LemonButton>
+                        />
                     )}
                     {action && <ToastActionButton button={action} toastId={toastId} />}
                 </span>

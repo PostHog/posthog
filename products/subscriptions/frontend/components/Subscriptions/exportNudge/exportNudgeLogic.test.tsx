@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { userLogic } from 'scenes/userLogic'
@@ -267,19 +266,19 @@ describe('exportNudgeLogic', () => {
             expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'export' })
         })
 
-        it('closes only its own toast when the export action is taken', () => {
-            // Dismissing without an id closes every toast on screen, including another export's
-            // completion toast, which is the only signal a polled export gives.
-            const dismiss = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => {})
-            const action = jest.fn()
+        it('reports one follow even if the CTA is clicked twice', () => {
+            // A toast held open by an undelivered file keeps this button on screen, and the offer
+            // only leaves on a later frame, so nothing else stops a second click.
             const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })
-            render(<>{message!('Export complete!', 'export-toast', { label: 'Download', action })}</>)
+            render(<>{message!('Export complete!', 'export-toast')}</>)
 
-            fireEvent.click(screen.getByText('Download'))
+            const push = jest.spyOn(router.actions, 'push')
+            const cta = screen.getByText('Subscribe')
+            fireEvent.click(cta)
+            fireEvent.click(cta)
 
-            expect(action).toHaveBeenCalled()
-            expect(dismiss).toHaveBeenCalledWith('export-toast')
-            dismiss.mockRestore()
+            expect(push).toHaveBeenCalledTimes(1)
+            push.mockRestore()
         })
 
         it('drops the offer from later frames once it has been followed', () => {

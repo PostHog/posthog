@@ -7,7 +7,7 @@ import posthog from 'lib/posthog-typed'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, InsightShortId } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { ExportNudgeSubject } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject'
 import {
@@ -89,47 +89,39 @@ export type ExportNudgeLookup =
     | { status: 'ineligible' }
     | { status: 'unknown' }
 
-interface SubjectKindSupport {
+type SubjectOfKind<K extends ExportNudgeSubject['kind']> = Extract<ExportNudgeSubject, { kind: K }>
+
+interface SubjectKindSupport<K extends ExportNudgeSubject['kind']> {
     /** Event names are spelled out so the string a metric is configured against can be grepped. */
     flag: keyof FeatureFlagsSet
     shownEvent: string
     /** How the subscriptions code addresses this subject: the mounted logic's key, and the CTA url. */
-    target: (subject: ExportNudgeSubject) => SubscriptionBaseProps
-    hasSubscription: (subject: ExportNudgeSubject) => Promise<boolean>
-    eventProperties: (subject: ExportNudgeSubject) => Record<string, string | number>
+    target: (subject: SubjectOfKind<K>) => SubscriptionBaseProps
+    hasSubscription: (subject: SubjectOfKind<K>) => Promise<boolean>
+    eventProperties: (subject: SubjectOfKind<K>) => Record<string, string | number>
     /** Null where the app holds no name for it, and the offer's copy falls back on `noun`. */
-    name: (subject: ExportNudgeSubject) => string | null
+    name: (subject: SubjectOfKind<K>) => string | null
     noun: string
 }
 
 // One place to add a subject kind. Everything that differs per kind lives here rather than in a
 // ternary at each call site.
-const SUBJECT_SUPPORT: Record<ExportNudgeSubject['kind'], SubjectKindSupport> = {
+const SUBJECT_SUPPORT: { [K in ExportNudgeSubject['kind']]: SubjectKindSupport<K> } = {
     dashboard: {
         flag: FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE,
         shownEvent: 'dashboard export nudge shown',
-        target: (subject) => ({ dashboardId: (subject as { dashboardId: number }).dashboardId }),
-        hasSubscription: (subject) =>
-            fetchHasSubscriptionForDashboard((subject as { dashboardId: number }).dashboardId),
-        eventProperties: (subject) => ({
-            kind: subject.kind,
-            dashboard_id: (subject as { dashboardId: number }).dashboardId,
-        }),
-        name: (subject) =>
-            dashboardsModel.findMounted()?.values.rawDashboards[(subject as { dashboardId: number }).dashboardId]
-                ?.name ?? null,
+        target: (subject) => ({ dashboardId: subject.dashboardId }),
+        hasSubscription: (subject) => fetchHasSubscriptionForDashboard(subject.dashboardId),
+        eventProperties: (subject) => ({ kind: subject.kind, dashboard_id: subject.dashboardId }),
+        name: (subject) => dashboardsModel.findMounted()?.values.rawDashboards[subject.dashboardId]?.name ?? null,
         noun: 'this dashboard',
     },
     insight: {
         flag: FEATURE_FLAGS.INSIGHT_EXPORT_NUDGE,
         shownEvent: 'insight export nudge shown',
-        target: (subject) => ({ insightShortId: (subject as { insightShortId: InsightShortId }).insightShortId }),
-        hasSubscription: (subject) =>
-            fetchHasSubscriptionForInsight((subject as { insightShortId: InsightShortId }).insightShortId),
-        eventProperties: (subject) => ({
-            kind: subject.kind,
-            insight_short_id: (subject as { insightShortId: InsightShortId }).insightShortId,
-        }),
+        target: (subject) => ({ insightShortId: subject.insightShortId }),
+        hasSubscription: (subject) => fetchHasSubscriptionForInsight(subject.insightShortId),
+        eventProperties: (subject) => ({ kind: subject.kind, insight_short_id: subject.insightShortId }),
         // There is no light-weight model of insights to read a name from, and importing the insight
         // scene here would put it in every export surface's import graph.
         name: () => null,
@@ -137,7 +129,10 @@ const SUBJECT_SUPPORT: Record<ExportNudgeSubject['kind'], SubjectKindSupport> = 
     },
 }
 
-const supportFor = (subject: ExportNudgeSubject): SubjectKindSupport => SUBJECT_SUPPORT[subject.kind]
+// Each entry is written against its own variant, so it needs no casts. This lookup is the one place
+// that widens back to the union, which is sound because the record is keyed by the same `kind`.
+const supportFor = (subject: ExportNudgeSubject): SubjectKindSupport<ExportNudgeSubject['kind']> =>
+    SUBJECT_SUPPORT[subject.kind] as unknown as SubjectKindSupport<ExportNudgeSubject['kind']>
 
 /** What the offer calls a subject with no name of its own. */
 export function subjectNoun(subject: ExportNudgeSubject): string {

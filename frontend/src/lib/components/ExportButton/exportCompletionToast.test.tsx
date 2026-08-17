@@ -50,8 +50,6 @@ describe('export completion toast', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        // Stands in for the real offer: the headline it was rendered under, plus a CTA that retires
-        // the offer from later frames the way following it does.
         // Stands in for the real offer: the headline, a CTA that retires the offer the way following
         // it does, and the export's own action, which this message owns the layout of either way.
         jest.mocked(claimExportNudgeMessage).mockImplementation(() => {
