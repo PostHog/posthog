@@ -1,5 +1,5 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { TASK_LINK_SERVICE } from "@posthog/core/links/identifiers";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
 import {
@@ -40,6 +40,7 @@ import {
   type QuickAskResizePayload,
 } from "../shared/constants";
 import { container } from "./di/container";
+import { setupExternalLinkHandlers } from "./external-links";
 import {
   beginCapture,
   clearPendingAttachment,
@@ -252,6 +253,20 @@ function createQuickAskWindow(): BrowserWindow {
   // Answer rendering fetches live data over the host tRPC bridge.
   attachWindowToTrpc(window);
 
+  // The panel shares the app session and its privileged preload bridges, so
+  // it gets the same navigation boundary as the main window: links open in
+  // the external browser and the window itself never leaves its own page —
+  // an in-place navigation would carry the bridges into a foreign origin.
+  const quickAskHome = QUICK_ASK_VITE_DEV_SERVER_URL
+    ? new URL(`${QUICK_ASK_VITE_DEV_SERVER_URL}/quick-ask.html`)
+    : pathToFileURL(
+        path.join(
+          __dirname,
+          `../renderer/${QUICK_ASK_VITE_NAME}/quick-ask.html`,
+        ),
+      );
+  setupExternalLinkHandlers(window, quickAskHome);
+
   window.setAlwaysOnTop(true, "screen-saver");
   // macOS: a `panel` window already floats over full-screen apps on every
   // Space. Do NOT call setVisibleOnAllWorkspaces with visibleOnFullScreen:
@@ -462,6 +477,20 @@ function deactivateQuickAsk(): void {
   destroyQuickAskWindow();
 }
 
+/**
+ * Every window shares these ipcMain channels, so each handler accepts events
+ * only from the panel's own webContents — no other renderer (main window,
+ * webviews, or a hypothetically compromised frame) may drive the panel's
+ * privileged surface (asking, capture, window placement).
+ */
+function fromPanel(event: Electron.IpcMainEvent): boolean {
+  return (
+    quickAskWindow !== null &&
+    !quickAskWindow.isDestroyed() &&
+    event.sender === quickAskWindow.webContents
+  );
+}
+
 export function setupQuickAsk(): void {
   // Prototype: dev builds only, or explicit opt-in.
   if (!isDevBuild() && process.env.POSTHOG_QUICK_ASK !== "1") {
@@ -469,8 +498,12 @@ export function setupQuickAsk(): void {
   }
   quickAskEnabled = true;
 
-  ipcMain.on(QUICK_ASK_HIDE_CHANNEL, () => hideQuickAsk());
-  ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (_event, size: unknown) => {
+  ipcMain.on(QUICK_ASK_HIDE_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
+    hideQuickAsk();
+  });
+  ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (event, size: unknown) => {
+    if (!fromPanel(event)) return;
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
     const { width, height } = (size ?? {}) as Partial<QuickAskResizePayload>;
     if (typeof width !== "number" || !Number.isFinite(width)) {
@@ -491,7 +524,8 @@ export function setupQuickAsk(): void {
   // Dragging: native `-webkit-app-region: drag` is incompatible with the
   // forwarded click-through events, so the renderer reports a grab offset
   // and the main process follows the cursor.
-  ipcMain.on(QUICK_ASK_DRAG_START_CHANNEL, (_event, offset: unknown) => {
+  ipcMain.on(QUICK_ASK_DRAG_START_CHANNEL, (event, offset: unknown) => {
+    if (!fromPanel(event)) return;
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
     const { dx, dy } = (offset ?? {}) as Partial<QuickAskDragStartPayload>;
     if (
@@ -537,13 +571,15 @@ export function setupQuickAsk(): void {
       }, 15),
     };
   });
-  ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     stopDrag();
     if (quickAskWindow && !quickAskWindow.isDestroyed()) {
       applyGeometry(quickAskWindow);
     }
   });
-  ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     hideQuickAsk();
     // The thread is a task; land the main window on it.
     const taskId = getQuickAskService().currentTaskId;
@@ -555,7 +591,8 @@ export function setupQuickAsk(): void {
   });
   ipcMain.on(
     QUICK_ASK_ASK_CHANNEL,
-    (_event, question: unknown, conversationId: unknown) => {
+    (event, question: unknown, conversationId: unknown) => {
+      if (!fromPanel(event)) return;
       if (typeof question !== "string" || !question.trim()) return;
       void streamAnswer(
         question.trim(),
@@ -565,19 +602,23 @@ export function setupQuickAsk(): void {
       );
     },
   );
-  ipcMain.on(QUICK_ASK_CANCEL_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_CANCEL_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     getQuickAskService().cancel();
   });
-  ipcMain.on(QUICK_ASK_RESET_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_RESET_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     clearPendingAttachment(captureHost);
     const service = getQuickAskService();
     service.reset();
     void service.warm();
   });
-  ipcMain.on(QUICK_ASK_CAPTURE_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_CAPTURE_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     void beginCapture(captureHost);
   });
-  ipcMain.on(QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL, () => {
+  ipcMain.on(QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL, (event) => {
+    if (!fromPanel(event)) return;
     clearPendingAttachment(captureHost);
   });
   setupQuickAskCapture(captureHost);

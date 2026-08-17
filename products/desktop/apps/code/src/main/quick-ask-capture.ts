@@ -196,16 +196,34 @@ export async function beginCapture(host: CaptureHost): Promise<void> {
   openAnnotator(display, host);
 }
 
+/** Events must come from the named window: these ipcMain channels are shared
+ * by every renderer, and only the annotator may read or submit the held
+ * screenshot, only the panel may open system settings. */
+function fromWindow(
+  event: { sender: Electron.WebContents },
+  window: BrowserWindow | null,
+): boolean {
+  return (
+    window !== null &&
+    !window.isDestroyed() &&
+    event.sender === window.webContents
+  );
+}
+
 export function setupQuickAskCapture(host: CaptureHost): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
-  ipcMain.handle(QUICK_ASK_ANNOTATE_SHOT_CHANNEL, () => shotDataUrl);
-  ipcMain.on(QUICK_ASK_SCREEN_SETTINGS_CHANNEL, () => {
+  ipcMain.handle(QUICK_ASK_ANNOTATE_SHOT_CHANNEL, (event) =>
+    fromWindow(event, annotateWindow) ? shotDataUrl : null,
+  );
+  ipcMain.on(QUICK_ASK_SCREEN_SETTINGS_CHANNEL, (event) => {
+    if (!fromWindow(event, host.getPanel())) return;
     void shell.openExternal(
       "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
     );
   });
-  ipcMain.on(QUICK_ASK_ANNOTATE_DONE_CHANNEL, (_event, result: unknown) => {
+  ipcMain.on(QUICK_ASK_ANNOTATE_DONE_CHANNEL, (event, result: unknown) => {
+    if (!fromWindow(event, annotateWindow)) return;
     shotDataUrl = null;
     closeAnnotator();
     host.showPanel();
