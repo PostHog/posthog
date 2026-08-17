@@ -12,7 +12,7 @@ per organization (not per team).
 
 import re
 from datetime import date
-from typing import TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from django.conf import settings
@@ -52,6 +52,21 @@ class PresentedConnection(TypedDict):
     port: int
     database: str
     username: str
+
+
+ManagedWarehouseMonitoringMetric = Literal[
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "sessions_active",
+    "s3_bytes_rate",
+    "acquire_p95",
+    "acquire_by_source",
+    "storage_bytes",
+    "worker_crash_rate",
+]
+ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
 
 
 def managed_warehouse_domain() -> str:
@@ -894,6 +909,26 @@ def status_for(organization_id: UUID | str) -> Response:
         # WarehouseStatusResponse schema. Backend callers use cp_bucket_for instead.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live monitoring data for one organization."""
+    return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
+
+
+def monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
 
 
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
