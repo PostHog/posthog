@@ -158,8 +158,8 @@ fn pack_chunks(groups: Vec<MessageGroup>, chunking: ChunkConfig) -> Vec<Vec<Mess
         let events = group.message_count();
         if !open.is_empty() && !chunking.fits(open_events, events) {
             if open_events < chunking.min_events {
-                // Under the floor — ship this group alone rather than splitting
-                // the open chunk early; later groups keep topping it up.
+                // Under the target — ship this group alone rather than
+                // splitting the open chunk early; later groups top it up.
                 chunks.push(vec![group]);
                 continue;
             }
@@ -334,7 +334,8 @@ impl WorkerAssignments {
 ///
 /// **Assignment** (`assign`): groups messages by `token:distinct_id`, honors
 /// existing pins for live workers, routes new keys onto a healthy worker via the
-/// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
+/// configured [`RoutingStrategy`], and returns the `SubBatch`es to send — one
+/// per worker, or several when [`ChunkConfig`] caps their event count.
 ///
 /// **Stickiness**: a routing key stays on the same worker across batches
 /// (ref-counted pin). Pins are dropped when a worker is declared dead (or leaves
@@ -494,8 +495,9 @@ impl Dispatcher {
     ///   group when no worker is routable at all, so a transient full-pool
     ///   outage holds messages instead of failing the batch.
     ///
-    /// Returns one `SubBatch` per worker to send now. Deferred groups stay in
-    /// the stash and are flushed later via [`Dispatcher::flush_deferred`].
+    /// Returns the `SubBatch`es to send now: one per worker, or several per
+    /// worker when [`ChunkConfig`] caps their event count. Deferred groups stay
+    /// in the stash and are flushed later via [`Dispatcher::flush_deferred`].
     pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
         let mut table = self.pin_table.lock().unwrap();
 
