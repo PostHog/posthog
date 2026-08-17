@@ -128,6 +128,12 @@ const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
 const MAX_SUPERSEDED_RUN_IDS = 100;
 const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
 /**
+ * A transport that ends a subscription with no error can be resubscribed, but
+ * one that does so on every attempt must not be retried forever. The counter
+ * resets as soon as an event arrives, so a healthy resubscribe costs nothing.
+ */
+const MAX_HOST_ENDED_RESUBSCRIBES = 3;
+/**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
  * per event. Electron IPC delivers each event as its own task, so a microtask
@@ -182,7 +188,11 @@ type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
   subscribe: (
     input: any,
-    handlers: { onData: (data: any) => void; onError?: (err: unknown) => void },
+    handlers: {
+      onData: (data: any) => void;
+      onError?: (err: unknown) => void;
+      onComplete?: () => void;
+    },
   ) => { unsubscribe: () => void };
 };
 
@@ -1641,6 +1651,8 @@ export class SessionService {
       permission?: { unsubscribe: () => void };
     }
   >();
+  /** Resubscribes since the run's last received event, per taskRunId. */
+  private hostEndedResubscribes = new Map<string, number>();
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
@@ -2634,6 +2646,7 @@ export class SessionService {
   private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    this.hostEndedResubscribes.delete(taskRunId);
     if (isAgentTextStreamEvent(acpMsg)) {
       this.lastAgentTextAt.set(taskRunId, Date.now());
     }
@@ -2801,6 +2814,7 @@ export class SessionService {
             "Lost connection to the agent. Please retry or start a new session.",
           );
         },
+        onComplete: () => this.resubscribeIfHostEnded(taskRunId, "event"),
       },
     );
 
@@ -2817,6 +2831,8 @@ export class SessionService {
               error: err,
             });
           },
+          onComplete: () =>
+            this.resubscribeIfHostEnded(taskRunId, "permission"),
         },
       );
 
@@ -2826,14 +2842,48 @@ export class SessionService {
     });
   }
 
+  /**
+   * A subscription completing without an error means the host tore down the
+   * transport rather than the agent finishing: the renderer would otherwise
+   * keep showing a "connected" session that never receives another event.
+   * Our own teardown removes the entry from `subscriptions` before
+   * unsubscribing, so the completion it triggers finds nothing to redo.
+   */
+  private resubscribeIfHostEnded(
+    taskRunId: string,
+    which: "event" | "permission",
+  ): void {
+    const current = this.subscriptions.get(taskRunId);
+    if (!current) return;
+    this.subscriptions.delete(taskRunId);
+    current.event.unsubscribe();
+    current.permission?.unsubscribe();
+
+    const attempts = (this.hostEndedResubscribes.get(taskRunId) ?? 0) + 1;
+    if (attempts > MAX_HOST_ENDED_RESUBSCRIBES) {
+      this.d.log.error(
+        "Session subscription keeps ending without an error, giving up",
+        { taskRunId, which, attempts },
+      );
+      return;
+    }
+    this.hostEndedResubscribes.set(taskRunId, attempts);
+    this.d.log.warn(
+      "Session subscription ended without an error, resubscribing",
+      { taskRunId, which, attempts },
+    );
+    this.subscribeToChannel(taskRunId);
+  }
+
   private unsubscribeFromChannel(taskRunId: string): void {
     // Apply anything still buffered before we stop listening, so a closing
     // channel doesn't drop its final events.
     this.flushSessionEventsForTask(taskRunId);
     const subscription = this.subscriptions.get(taskRunId);
+    this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
-    this.subscriptions.delete(taskRunId);
+    this.hostEndedResubscribes.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
     this.lastAgentTextAt.delete(taskRunId);
@@ -2868,6 +2918,7 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.hostEndedResubscribes.clear();
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
@@ -6110,6 +6161,15 @@ export class SessionService {
         },
         onError: (err: unknown) =>
           this.d.log.error("Cloud task subscription error", { taskId, err }),
+        onComplete: () => {
+          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+            return;
+          }
+          this.d.log.warn(
+            "Cloud task subscription ended without an error, updates stop until the task is reopened",
+            { taskId, runId },
+          );
+        },
       },
     );
 
@@ -6601,8 +6661,8 @@ export class SessionService {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher) return;
 
-    watcher.subscription.unsubscribe();
     this.cloudTaskWatchers.delete(taskId);
+    watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 
