@@ -18,4 +18,8 @@ describe('bucketRanges', () => {
     it('snaps a highlight out to whole buckets', () => {
         expect(highlightedBucketRange(BUCKETS, 90_000, 150_000)).toEqual({ startIndex: 1, endIndex: 2 })
     })
+
+    it('highlights the final bucket for a window inside it', () => {
+        expect(highlightedBucketRange(BUCKETS, 190_000, 200_000)).toEqual({ startIndex: 3, endIndex: 3 })
+    })
 })

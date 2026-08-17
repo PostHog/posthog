@@ -2,8 +2,8 @@ import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
-import { HighlightedRange, TimeSeriesBarChart } from '@posthog/quill-charts'
-import type { DateRangeZoomData, Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import { DefaultTooltip, HighlightedRange, TimeSeriesBarChart } from '@posthog/quill-charts'
+import type { DateRangeZoomData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -28,7 +28,7 @@ export interface LogsSparklineData {
     dates: string[]
 }
 
-interface LogsViewerSparklineProps {
+export interface LogsViewerSparklineProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
@@ -116,20 +116,33 @@ export function LogsSparkline({
             yAxis: { tickFormatter: humanFriendlyNumber },
             barCornerRadius: 2,
             // A service breakdown reaches 13 rows, overflowing the tooltip, so it has to be scrollable.
-            tooltip: {
-                pinnable: true,
-                hideZeroRows: true,
-                sortedByValue: true,
-                valueFormatter: (value: number) => humanFriendlyNumber(value),
-                labelFormatter: (label: string) => {
-                    const date = dayjs(label).tz(displayTimezone)
-                    const tz =
-                        displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, date.toDate()) ?? 'Local')
-                    return `${date.format('D MMM YYYY HH:mm:ss')} ${tz}`
-                },
-            },
+            tooltip: { pinnable: true },
         }),
         [displayTimezone, tickFormat]
+    )
+
+    const tooltipHeader = useCallback(
+        (label: string): string => {
+            const date = dayjs(label).tz(displayTimezone)
+            const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, date.toDate()) ?? 'Local')
+            return `${date.format('D MMM YYYY HH:mm:ss')} ${tz}`
+        },
+        [displayTimezone]
+    )
+
+    // `hideZeroRows` and `sortedByValue` are `DefaultTooltip` props that `config.tooltip` does not
+    // forward, so a sparse bucket would otherwise list every zero-count series.
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <DefaultTooltip
+                {...ctx}
+                hideZeroRows
+                sortedByValue
+                valueFormatter={(value: number) => humanFriendlyNumber(value)}
+                labelFormatter={tooltipHeader}
+            />
+        ),
+        [tooltipHeader]
     )
 
     // Wired straight through rather than via `useDateRangeZoom()`, because that hook's flag would
@@ -176,6 +189,7 @@ export function LogsSparkline({
                             theme={theme}
                             config={config}
                             onDateRangeZoom={onDateRangeZoom}
+                            tooltip={renderTooltip}
                             dataAttr="logs-viewer-volume-chart"
                         >
                             {highlight ? (

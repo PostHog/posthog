@@ -32,7 +32,7 @@ function buildSparklineData(): LogsSparklineData {
 }
 
 const meta: Meta<typeof LogsSparkline> = {
-    title: 'Logs/LogsViewerSparkline',
+    title: 'Scenes-App/Logs/Sparkline',
     component: LogsSparkline,
     args: {
         sparklineData: buildSparklineData(),
@@ -46,8 +46,8 @@ const meta: Meta<typeof LogsSparkline> = {
         viewMode: 'story',
         mockDate: '2026-08-06',
         featureFlags: [FEATURE_FLAGS.LOGS_SPARKLINE_SERVICE_BREAKDOWN],
-        // Bars paint asynchronously (ResizeObserver → rAF); chromium alone keeps the snapshot stable.
-        testOptions: { snapshotBrowsers: ['chromium'], waitForSelector: 'canvas[aria-label]' },
+        // Bars paint asynchronously (ResizeObserver, then rAF); chromium alone keeps the snapshot stable.
+        testOptions: { snapshotBrowsers: ['chromium'] },
     },
     render: (args) => (
         <div className="w-[900px]">

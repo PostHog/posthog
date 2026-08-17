@@ -36,7 +36,12 @@ export function highlightedBucketRange(
     if (bucketTimesMs.length === 0 || !Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
         return null
     }
-    if (toMs < bucketTimesMs[0] || fromMs > bucketTimesMs[bucketTimesMs.length - 1]) {
+    // A bucket spans its own start to the next one's, so the charted range ends one interval past
+    // the last start. Measuring it by that start instead would drop a window sitting inside the
+    // final bucket, which is where the newest rows are on the default newest-first view.
+    const lastStart = bucketTimesMs[bucketTimesMs.length - 1]
+    const interval = bucketTimesMs.length > 1 ? bucketTimesMs[1] - bucketTimesMs[0] : 0
+    if (toMs < bucketTimesMs[0] || fromMs > lastStart + interval) {
         return null
     }
     return {

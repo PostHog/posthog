@@ -25,6 +25,7 @@ import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
+import type { LogsViewerSparklineProps } from './LogsViewerSparkline'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -79,6 +80,14 @@ export function LogsViewer({
     )
 }
 
+/** `visibleRowDateRange` changes on every scroll tick, so it is subscribed here rather than in
+ *  `LogsViewerContent`, where it would re-render the row list and facet rail on each one.
+ *  `LogsSparkline` stays prop-driven so it can render in a story without the keyed logic. */
+function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRowDateRange'>): JSX.Element | null {
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+    return <LogsSparkline {...props} visibleRowDateRange={visibleRowDateRange} />
+}
+
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
@@ -100,7 +109,6 @@ function LogsViewerContent({
         isSelectionActive,
         keyboardNavEnabled,
         isLogDetailsOpen,
-        visibleRowDateRange,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
@@ -296,7 +304,7 @@ function LogsViewerContent({
 
     const sparklineSection = (
         <>
-            <LogsSparkline
+            <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
@@ -306,7 +314,6 @@ function LogsViewerContent({
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
-                visibleRowDateRange={visibleRowDateRange}
             />
             <SceneDivider />
         </>
