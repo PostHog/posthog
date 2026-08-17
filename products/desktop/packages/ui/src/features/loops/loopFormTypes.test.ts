@@ -704,6 +704,33 @@ describe("slack triggers", () => {
     expect(config.allowed_posters?.slack_user_ids).toEqual(["B0INCIDENT"]);
   });
 
+  it("keeps the bot allowlist on save in a mode that doesn't use slack_user_ids", () => {
+    // The write payload rebuilds `allowed_posters` field by field, so a bot list added
+    // alongside a human mode is silently dropped unless it is carried explicitly.
+    const values: LoopFormValues = {
+      ...emptyLoopFormValues(),
+      name: "Incident triage",
+      instructions: "Triage it.",
+      triggers: [
+        slackTrigger({
+          channel_ids: ["C0123ABCDEF"],
+          allowed_posters: {
+            mode: "org_members",
+            allowed_bot_ids: [" a01degpuhhc "],
+          },
+        }),
+      ],
+    };
+
+    const config = formValuesToLoopWrite(values).triggers?.[0]
+      ?.config as LoopSchemas.LoopSlackTriggerConfig;
+
+    expect(config.allowed_posters).toEqual({
+      mode: "org_members",
+      allowed_bot_ids: ["A01DEGPUHHC"],
+    });
+  });
+
   it("drops an empty keyword list rather than saving it", () => {
     // An empty `keywords` means "every message in the channel", so leaving `{keywords: []}`
     // behind would be indistinguishable from a deliberate catch-all.

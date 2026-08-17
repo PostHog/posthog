@@ -426,6 +426,33 @@ def _validate_slack_keywords(raw: Any) -> list[str]:
     return normalized
 
 
+def _clean_slack_actor_ids(raw_ids: Any, field: str) -> list[str]:
+    """Normalize a list of Slack actor IDs, rejecting anything that isn't one."""
+    raw_ids = [raw_ids] if isinstance(raw_ids, str) else raw_ids
+    if not isinstance(raw_ids, list):
+        raise serializers.ValidationError({"allowed_posters": f"'{field}' must be a list of Slack IDs."})
+    if len(raw_ids) > loops_facade.MAX_SLACK_TRIGGER_POSTERS:
+        raise serializers.ValidationError(
+            {"allowed_posters": f"At most {loops_facade.MAX_SLACK_TRIGGER_POSTERS} allowed posters."}
+        )
+
+    cleaned: list[str] = []
+    for actor_id in raw_ids:
+        if not isinstance(actor_id, str) or not _SLACK_ACTOR_ID.match(actor_id.strip()):
+            raise serializers.ValidationError(
+                {
+                    "allowed_posters": (
+                        f"'{actor_id}' is not a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…) — "
+                        "an alerting app posts under its bot ID, not a user ID."
+                    )
+                }
+            )
+        value = actor_id.strip().upper()
+        if value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
 def _validate_slack_allowed_posters(raw: Any) -> dict[str, Any]:
     """Who may fire the loop by posting. Defaults to org members: a matched trigger starts an
     unattended run holding the loop owner's credentials, so the loosest sensible default is
@@ -440,35 +467,23 @@ def _validate_slack_allowed_posters(raw: Any) -> dict[str, Any]:
         raise serializers.ValidationError(
             {"allowed_posters": f"Unsupported mode '{mode}'. Allowed: {list(loops_facade.ALLOWED_SLACK_POSTER_MODES)}."}
         )
+    # Independent of `mode`: bots are never admitted by a mode that authorizes a human, so
+    # this is what makes "any org member, plus these bots" expressible.
+    bot_ids = _clean_slack_actor_ids(raw.get("allowed_bot_ids") or [], "allowed_bot_ids")
+
+    # Omitted when empty so a trigger that never names a bot keeps the config it had.
+    bots = {"allowed_bot_ids": bot_ids} if bot_ids else {}
+
     if mode != "slack_user_ids":
-        return {"mode": mode}
+        return {"mode": mode, **bots}
 
     raw_ids = raw.get("slack_user_ids")
-    raw_ids = [raw_ids] if isinstance(raw_ids, str) else raw_ids
-    if not isinstance(raw_ids, list) or not raw_ids:
+    slack_user_ids = _clean_slack_actor_ids(raw_ids, "slack_user_ids")
+    if not slack_user_ids:
         raise serializers.ValidationError(
             {"allowed_posters": "Mode 'slack_user_ids' needs at least one Slack user, bot or app ID."}
         )
-    if len(raw_ids) > loops_facade.MAX_SLACK_TRIGGER_POSTERS:
-        raise serializers.ValidationError(
-            {"allowed_posters": f"At most {loops_facade.MAX_SLACK_TRIGGER_POSTERS} allowed posters."}
-        )
-
-    slack_user_ids: list[str] = []
-    for actor_id in raw_ids:
-        if not isinstance(actor_id, str) or not _SLACK_ACTOR_ID.match(actor_id.strip()):
-            raise serializers.ValidationError(
-                {
-                    "allowed_posters": (
-                        f"'{actor_id}' is not a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…) — "
-                        "an alerting app posts under its bot ID, not a user ID."
-                    )
-                }
-            )
-        value = actor_id.strip().upper()
-        if value not in slack_user_ids:
-            slack_user_ids.append(value)
-    return {"mode": mode, "slack_user_ids": slack_user_ids}
+    return {"mode": mode, "slack_user_ids": slack_user_ids, **bots}
 
 
 def _validate_slack_trigger_config(config: dict, team_id: int) -> dict:

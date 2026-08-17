@@ -205,6 +205,45 @@ class TestHandleSlackMessageForLoops(TestCase):
 
         self.assertEqual(mock_fire_loop.called, should_fire)
 
+    @parameterized.expand(
+        [
+            ("listed_bot_id", {"bot_id": "B0ALERTS"}, True),
+            ("listed_app_id", {"app_id": "A0ALERTS"}, True),
+            ("unlisted_bot", {"bot_id": "B0OTHER"}, False),
+        ]
+    )
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_allowed_bot_ids_fire_alongside_the_human_mode(self, _name, author, should_fire, mock_fire_loop):
+        # The human modes reject every app author, so the bot allowlist has to be consulted
+        # before that rejection or "any org member, plus these bots" can never fire for a bot.
+        loop = self._create_loop(self.team)
+        self._create_slack_trigger(
+            self.team,
+            loop,
+            slack_integration_id=self.integration.id,
+            allowed_posters={"mode": "org_members", "allowed_bot_ids": ["B0ALERTS", "A0ALERTS"]},
+        )
+
+        self._handle(self._event(**author), poster_user_id=None)
+
+        self.assertEqual(mock_fire_loop.called, should_fire)
+
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_allowed_bot_ids_do_not_widen_the_human_rule(self, mock_fire_loop):
+        # The bot list is an additional door, not a bypass: a human the mode's own check
+        # refuses must still be refused when a bot list is present.
+        loop = self._create_loop(self.team)
+        self._create_slack_trigger(
+            self.team,
+            loop,
+            slack_integration_id=self.integration.id,
+            allowed_posters={"mode": "org_members", "allowed_bot_ids": ["B0ALERTS"]},
+        )
+
+        self._handle(self._event(), poster_user_id=None)
+
+        self.assertFalse(mock_fire_loop.called)
+
     @parameterized.expand([("bot_id", {"bot_id": "B0RELAY"}), ("app_id", {"app_id": "A0RELAY"})])
     @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
     def test_app_authored_messages_cannot_satisfy_the_human_poster_modes(self, _name, author, mock_fire_loop):

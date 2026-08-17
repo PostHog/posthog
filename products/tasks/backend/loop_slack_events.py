@@ -345,6 +345,12 @@ def _poster_allowed(trigger: LoopTrigger, event: dict[str, Any], poster: _Memoiz
     allowed = allowed if isinstance(allowed, dict) else {}
     mode = allowed.get("mode", POSTER_MODE_ORG_MEMBERS)
 
+    # Checked before the mode, and independently of it: the human-authorizing modes can
+    # never admit an app, so this is the only way "any org member, plus these bots" works.
+    bot_ids = allowed.get("allowed_bot_ids")
+    if isinstance(bot_ids, list) and bot_ids and _event_author_ids(event).intersection(bot_ids):
+        return True
+
     if mode == POSTER_MODE_SLACK_USER_IDS:
         permitted = allowed.get("slack_user_ids")
         if not isinstance(permitted, list):

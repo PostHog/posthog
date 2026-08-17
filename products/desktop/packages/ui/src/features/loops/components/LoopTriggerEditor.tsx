@@ -63,6 +63,7 @@ import {
   type LoopTriggerDraft,
   withGithubTriggerEvents,
   withGithubTriggerFilters,
+  withSlackTriggerBotIds,
   withSlackTriggerFilters,
   withSlackTriggerPosterMode,
 } from "../loopFormTypes";
@@ -149,6 +150,12 @@ function slackTriggerInvalidMessage(
     if (badActor) {
       return `'${badActor}' isn't a Slack ID. Use a user ID (U…), bot ID (B…) or app ID (A…).`;
     }
+  }
+  const badBot = (posters?.allowed_bot_ids ?? []).find(
+    (id) => !isSlackActorId(id),
+  );
+  if (badBot) {
+    return `'${badBot}' isn't a Slack ID. An app posts under its bot ID (B…) or app ID (A…).`;
   }
   return "Fill in a path and a value for each message condition, or remove the empty rows.";
 }
@@ -929,11 +936,11 @@ const SLACK_POSTER_OPTIONS: {
 const SLACK_POSTER_HINTS: Record<LoopSchemas.LoopSlackPosterModeEnum, string> =
   {
     org_members:
-      "The person who posts has to have access to this project. Messages from apps and bots never match.",
+      "The person who posts has to have access to this project. Apps and bots only match if you list them below.",
     loop_owner:
-      "Only your own messages start a run. Messages from apps and bots never match.",
+      "Only your own messages start a run. Apps and bots only match if you list them below.",
     slack_user_ids:
-      "The only option that can run on an alert posted by an app. Add the app's bot ID, or a teammate's user ID.",
+      "Only these people start a run. Add a teammate's user ID, or list an app below.",
   };
 
 function SlackTriggerFields({
@@ -1093,6 +1100,26 @@ function SlackTriggerFields({
               }
             />
           ) : null}
+        </div>
+      </SubField>
+
+      <SubField label="Apps and bots">
+        <div className="flex flex-col gap-2">
+          <span className="text-[12px] text-gray-10">
+            Optional. These can trigger the loop as well as whoever you picked
+            above. Easiest to find is the app ID, which starts with A and is in
+            the app's Slack directory URL. A bot ID (B…) or the bot user's
+            member ID (U…) also work.
+          </span>
+          <ChipValues
+            values={config.allowed_posters?.allowed_bot_ids ?? []}
+            ariaLabel="App or bot ID"
+            placeholder="A0123ABCDEF"
+            disabled={disabled}
+            onChange={(botIds) =>
+              onChange(withSlackTriggerBotIds(config, botIds))
+            }
+          />
         </div>
       </SubField>
 
