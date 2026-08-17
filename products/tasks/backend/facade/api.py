@@ -6231,6 +6231,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         id=channel.id,
         name=channel.name,
         channel_type=channel.channel_type,
+        system_role=channel.system_role,
         github_integration=channel.github_integration_id,
         repositories=channel.repositories,
         created_at=channel.created_at,
@@ -6248,6 +6249,18 @@ def _team_channels(team_id: int) -> QuerySet[Channel]:
 def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
     channels = _team_channels(team_id).select_related("created_by")
+    channel = channels.filter(created_by_id=user_id, system_role=Channel.SystemRole.PERSONAL, deleted=False).first()
+    if channel is not None:
+        return channel, False
+
+    # Legacy personal channels predate system_role and were identified by channel_type
+    # alone; stamp the role lazily here instead of backfilling every row up front.
+    channel = channels.filter(created_by_id=user_id, channel_type=Channel.ChannelType.PERSONAL, deleted=False).first()
+    if channel is not None:
+        channel.system_role = Channel.SystemRole.PERSONAL
+        channel.save(update_fields=["system_role"])
+        return channel, False
+
     lookup = {
         "team_id": team_id,
         "created_by_id": user_id,
@@ -6255,9 +6268,14 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]
         "deleted": False,
     }
     try:
-        channel, created = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
+        channel, created = channels.get_or_create(
+            **lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME, "system_role": Channel.SystemRole.PERSONAL}
+        )
     except IntegrityError:
         channel, created = channels.get(**lookup), False
+        if channel.system_role != Channel.SystemRole.PERSONAL:
+            channel.system_role = Channel.SystemRole.PERSONAL
+            channel.save(update_fields=["system_role"])
     return channel, created
 
 
@@ -6274,16 +6292,35 @@ def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     channel a user already named "general" rather than creating a duplicate —
     same resolve-or-create shape as ``resolve_channel``."""
     channels = _team_channels(team_id).select_related("created_by")
-    lookup = {
-        "team_id": team_id,
-        "name": Channel.GENERAL_CHANNEL_NAME,
-        "channel_type": Channel.ChannelType.PUBLIC,
-        "deleted": False,
-    }
+    channel = channels.filter(system_role=Channel.SystemRole.GENERAL, deleted=False).first()
+    if channel is not None:
+        return channel, False
+
+    # Legacy general channels predate system_role and were identified by name alone;
+    # adopt the existing row instead of creating a duplicate under the (team, name) constraint.
+    name_lookup = {"name": Channel.GENERAL_CHANNEL_NAME, "channel_type": Channel.ChannelType.PUBLIC, "deleted": False}
+    channel = channels.filter(**name_lookup).first()
+    if channel is not None:
+        channel.system_role = Channel.SystemRole.GENERAL
+        channel.save(update_fields=["system_role"])
+        return channel, False
+
     try:
-        channel, created = channels.get_or_create(**lookup, defaults={"created_by_id": user_id})
+        channel, created = channels.get_or_create(
+            team_id=team_id,
+            **name_lookup,
+            defaults={"created_by_id": user_id, "system_role": Channel.SystemRole.GENERAL},
+        )
     except IntegrityError:
-        channel, created = channels.get(**lookup), False
+        # Race: another request created (or adopted) it between our checks above and now.
+        # Re-fetch by role first (the other request may have just stamped a legacy row).
+        channel = channels.filter(system_role=Channel.SystemRole.GENERAL, deleted=False).first()
+        if channel is None:
+            channel = channels.get(team_id=team_id, **name_lookup)
+            if channel.system_role != Channel.SystemRole.GENERAL:
+                channel.system_role = Channel.SystemRole.GENERAL
+                channel.save(update_fields=["system_role"])
+        created = False
     if created:
         _emit_channel_created(channel, user_id)
     return channel, created
@@ -6312,7 +6349,7 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         .select_related("created_by")
         .order_by("name")
     )
-    public_channels.sort(key=lambda channel: (channel.name != Channel.GENERAL_CHANNEL_NAME, channel.name))
+    public_channels.sort(key=lambda channel: (channel.system_role != Channel.SystemRole.GENERAL, channel.name))
     channels.extend(public_channels)
 
     starred_ids: set = (
@@ -6399,7 +6436,7 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
-    if channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME:
+    if channel.system_role == Channel.SystemRole.GENERAL:
         if name is not None:
             return "general"
     update_fields: list[str] = []
@@ -6429,7 +6466,7 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
         return "personal" if channel.created_by_id == user_id else "not_found"
-    if channel.name == Channel.GENERAL_CHANNEL_NAME:
+    if channel.system_role == Channel.SystemRole.GENERAL:
         return "general"
     if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
         return "not_empty"

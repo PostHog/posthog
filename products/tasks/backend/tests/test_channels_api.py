@@ -87,27 +87,28 @@ class ChannelsAPITestCase(TestCase):
 
     def test_list_provisions_general_channel_starred_once(self):
         first = self.client.get(self._channels_url()).json()
-        general = [c for c in first if c["name"] == "general"]
+        general = [c for c in first if c["system_role"] == "general"]
         self.assertEqual(len(general), 1)
+        self.assertEqual(general[0]["name"], "general")
         self.assertEqual(general[0]["channel_type"], "public")
         self.assertTrue(general[0]["starred"])
 
         # Listing again reuses the same #general channel rather than creating another.
         again = self.client.get(self._channels_url()).json()
         self.assertEqual(
-            [c["id"] for c in again if c["name"] == "general"],
+            [c["id"] for c in again if c["system_role"] == "general"],
             [general[0]["id"]],
         )
 
     def test_unstarring_general_sticks_on_later_lists(self):
         first = self.client.get(self._channels_url()).json()
-        general_id = next(c["id"] for c in first if c["name"] == "general")
+        general_id = next(c["id"] for c in first if c["system_role"] == "general")
 
         unstar = self.client.post(f"{self._channels_url()}{general_id}/star/", {"starred": False}, format="json")
         self.assertEqual(unstar.status_code, status.HTTP_204_NO_CONTENT)
 
         again = self.client.get(self._channels_url()).json()
-        self.assertFalse(next(c["starred"] for c in again if c["name"] == "general"))
+        self.assertFalse(next(c["starred"] for c in again if c["system_role"] == "general"))
 
     def test_second_users_first_list_also_stars_general(self):
         self.client.get(self._channels_url())  # provisions #general for the team
@@ -115,7 +116,7 @@ class ChannelsAPITestCase(TestCase):
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
         theirs = other_client.get(self._channels_url()).json()
-        self.assertTrue(next(c["starred"] for c in theirs if c["name"] == "general"))
+        self.assertTrue(next(c["starred"] for c in theirs if c["system_role"] == "general"))
 
     @parameterized.expand(
         [
@@ -125,11 +126,44 @@ class ChannelsAPITestCase(TestCase):
     )
     def test_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
         self.client.get(self._channels_url())
-        general = Channel.objects.unscoped().get(
-            team=self.team, name="general", channel_type=Channel.ChannelType.PUBLIC
-        )
+        general = Channel.objects.unscoped().get(team=self.team, system_role=Channel.SystemRole.GENERAL)
         response = act(self.client, f"{self._channels_url()}{general.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_legacy_personal_channel_is_stamped_with_system_role_on_list(self):
+        # Personal channels created before system_role shipped are identified by
+        # channel_type alone; the next list should adopt the row, not duplicate it.
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+        )
+
+        response = self.client.get(self._channels_url()).json()
+        personal = [c for c in response if c["channel_type"] == "personal"]
+        self.assertEqual([c["id"] for c in personal], [str(legacy.id)])
+        self.assertEqual(personal[0]["system_role"], "personal")
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.system_role, Channel.SystemRole.PERSONAL)
+
+    def test_legacy_general_channel_is_adopted_and_stamped_on_list(self):
+        # A user-created "general" channel from before system_role shipped should be
+        # adopted as the team's #general rather than provisioning a duplicate.
+        legacy = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            created_by=self.user,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+        )
+
+        response = self.client.get(self._channels_url()).json()
+        general = [c for c in response if c["system_role"] == "general"]
+        self.assertEqual([c["id"] for c in general], [str(legacy.id)])
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.system_role, Channel.SystemRole.GENERAL)
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
