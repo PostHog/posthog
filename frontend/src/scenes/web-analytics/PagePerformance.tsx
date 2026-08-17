@@ -75,7 +75,7 @@ const CellValue = forwardRef<HTMLDivElement, CellValueProps>(function CellValue(
 /** The muted line under every value: its share of visitors, then how it moved. */
 const secondaryLine = (share: string | null, pctChange: number | null): React.ReactNode | undefined => {
     if (!share && pctChange === null) {
-        return undefined
+        return null
     }
     const trend = pctChange === null ? null : trendIndicator(pctChange)
     return (
