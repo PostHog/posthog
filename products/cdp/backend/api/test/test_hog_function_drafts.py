@@ -88,6 +88,28 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
+            ("desktop_app", "posthog/desktop.hog.dev; version: 1.0"),
+            ("mobile_app", "posthog/mobile.hog.dev; version: 1.0"),
+        ]
+    )
+    def test_first_party_app_edit_also_stages_a_draft(self, _name: str, user_agent: str):
+        # These reach REST under their own user-agent rather than through the MCP header, so the
+        # review gate depends on their membership in AGENT_EVENT_SOURCES. Dropping either would
+        # apply an agent's edit straight to a running function with nothing else to signal it.
+        function_id = self._create()
+
+        with patch(RELOAD_PATH) as mock_reload:
+            response = self.client.patch(
+                self._url(function_id), {"hog": EDITED_HOG}, headers={"user-agent": user_agent}
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["draft"]["hog"] == EDITED_HOG
+        mock_reload.assert_not_called()
+        assert HogFunction.objects.get(id=function_id).hog == LIVE_HOG
+
+    @parameterized.expand(
+        [
             # An agent can't stage a draft on a function that isn't running, and the web builder
             # saves what the person just reviewed, so neither routes to a draft.
             ("disabled_function", True, {"enabled": False}, True),
