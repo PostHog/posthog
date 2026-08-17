@@ -1090,8 +1090,18 @@ class LazyComputationExecutor:
                         new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
-                            # rescan at the top of the loop will pick it up
+                            # rescan at the top of the loop will pick it up. The log keeps
+                            # the per-window trace that Postgres logs no longer carry, so
+                            # investigations can still identify which windows are colliding.
                             LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(query_info.table)).inc()
+                            logger.info(
+                                "lazy_computation.job_create_conflict",
+                                team_id=team.id,
+                                query_hash=query_hash,
+                                table=str(query_info.table),
+                                time_range_start=str(range_start),
+                                time_range_end=str(range_end),
+                            )
                             lost_create_race = True
                             continue
 
