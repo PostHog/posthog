@@ -1,13 +1,17 @@
-/** Geometry pushed by the main process after every layout change. */
-interface QuickAskLayout {
+/**
+ * The contract between the panel and whatever hosts it. The Electron host
+ * implements it in its preload (window.quickAsk); tests stub it the same way.
+ */
+
+/** Geometry pushed by the host after every layout change. */
+export interface QuickAskLayout {
   /** Card renders above the pill (summoned near the bottom of the screen). */
   flip: boolean;
   /** Max window height: pill anchor to screen edge, in CSS pixels. */
   maxHeight: number;
 }
 
-/** Bridge exposed by the quick-ask preload branch (see src/main/preload.ts). */
-interface QuickAskBridge {
+export interface QuickAskHostBridge {
   hide: () => void;
   /** Reports the content's bounding box; the window's bounds hug it. */
   resize: (size: { width: number; height: number }) => void;
@@ -19,7 +23,7 @@ interface QuickAskBridge {
   cancel: () => void;
   /** Drops the thread and pre-warms the next one. */
   reset: () => void;
-  /** Events are `QuickAskEvent`s from @posthog/core/quick-ask/quick-ask. */
+  /** Events are `QuickAskEvent`s from ../service/quick-ask. */
   onEvent: (callback: (event: unknown) => void) => () => void;
   onLayout: (callback: (layout: QuickAskLayout) => void) => () => void;
   onShown: (callback: () => void) => () => void;
@@ -30,10 +34,11 @@ interface QuickAskBridge {
   discardAttachment: () => void;
   /** Opens the OS pane that grants screen-recording permission. */
   openScreenSettings: () => void;
-  /** Payloads are `QuickAskAttachmentPayload`s from shared/constants. */
+  /** Payloads are `QuickAskAttachmentPayload`s from the host's constants. */
   onAttachment: (callback: (payload: unknown) => void) => () => void;
 }
 
-interface Window {
-  quickAsk?: QuickAskBridge;
+/** The bridge the host installed, if any (absent in bare component tests). */
+export function quickAskHost(): QuickAskHostBridge | undefined {
+  return (window as { quickAsk?: QuickAskHostBridge }).quickAsk;
 }

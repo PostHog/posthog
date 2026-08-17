@@ -1,11 +1,12 @@
 // Global styles first so quick-ask.css overrides win at equal specificity.
 import "@posthog/ui/styles/globals.css";
-import "./quick-ask.css";
+import "@posthog/quick-ask/panel/quick-ask.css";
 import { setRootContainer } from "@posthog/di/container";
 import { ipcLink } from "@posthog/electron-trpc/renderer";
 import { HOST_TRPC_CLIENT } from "@posthog/host-router/client";
 import { HostTRPCProvider } from "@posthog/host-router/react";
 import type { HostRouter } from "@posthog/host-router/router";
+import { QuickAsk } from "@posthog/quick-ask/panel/QuickAsk";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
 import { ThemeWrapper } from "@posthog/ui/primitives/ThemeWrapper";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -15,7 +16,6 @@ import { Container } from "inversify";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import superjson from "superjson";
-import { QuickAsk } from "./QuickAsk";
 
 // The panel boots only what answer rendering needs: host tRPC (auth tokens,
 // external links), react-query, and the theme.

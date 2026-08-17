@@ -3,9 +3,8 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
-import type { AuthService } from "../../../packages/core/src/auth/auth";
-import { QuickAskService } from "../../../packages/core/src/quick-ask/quick-ask";
+import type { AuthService } from "@posthog/core/auth/auth";
+import { QuickAskService } from "@posthog/quick-ask/service/quick-ask";
 import {
   REPLAY_FOLLOW_UP,
   REPLAY_FOLLOW_UP_ANSWER,
@@ -13,7 +12,8 @@ import {
   REPLAY_QUESTION,
   REPLAY_STRAY_ANSWER,
   startReplayServer,
-} from "../src/main/quick-ask-replay-fixture";
+} from "@posthog/quick-ask/service/replay-fixture";
+import { chromium } from "playwright-core";
 
 /**
  * The whole quick-ask pipeline: the real QuickAskService asks a replay of a

@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { PANEL_STEERING } from "@posthog/core/quick-ask/quick-ask";
+import { PANEL_STEERING } from "./steering";
 
 /**
  * Replay of a production quick-ask run's stream, for the integration test and

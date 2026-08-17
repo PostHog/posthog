@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { QuickAskAttachment } from "@posthog/core/quick-ask/quick-ask";
+import type { QuickAskAttachment } from "@posthog/quick-ask/service/quick-ask";
 import {
   BrowserWindow,
   type Display,

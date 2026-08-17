@@ -1,4 +1,3 @@
-import type { QuickAskEvent } from "@posthog/core/quick-ask/quick-ask";
 import {
   builderHog,
   explorerHog,
@@ -8,7 +7,9 @@ import {
 } from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { QuickAskEvent } from "../service/quick-ask";
 import { AnswerCard, ErrorCard, ThinkingCard } from "./components/AnswerCard";
+import { quickAskHost } from "./host-bridge";
 
 type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
 
@@ -84,7 +85,7 @@ export function QuickAsk(): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const reset = useCallback((): void => {
-    window.quickAsk?.reset();
+    quickAskHost()?.reset();
     conversationIdRef.current = undefined;
     setAttachment(null);
     setAttachError(null);
@@ -112,7 +113,7 @@ export function QuickAsk(): React.JSX.Element {
     // slack in the root's max-height so the reported height never exceeds
     // the space the main process said was available.
     const rect = root.getBoundingClientRect();
-    window.quickAsk?.resize({
+    quickAskHost()?.resize({
       width: Math.ceil(rect.width) + 2,
       height: Math.ceil(rect.height) + 2,
     });
@@ -124,7 +125,7 @@ export function QuickAsk(): React.JSX.Element {
   // flexbox shrinks the card into whatever is left, so the card cap never
   // depends on the measured height it feeds back.
   useEffect(() => {
-    return window.quickAsk?.onLayout((layout) => {
+    return quickAskHost()?.onLayout((layout) => {
       document.documentElement.style.setProperty(
         "--qa-root-max",
         `${Math.max(60, layout.maxHeight - 2)}px`,
@@ -139,7 +140,7 @@ export function QuickAsk(): React.JSX.Element {
   // Refocus on every summon. The previous session is kept — "New chat" or a
   // new question clears it — so reopening restores the last answer.
   useEffect(() => {
-    const unsubscribe = window.quickAsk?.onShown(() => {
+    const unsubscribe = quickAskHost()?.onShown(() => {
       // Summoning is an intent to type; leave mini mode.
       setMini(false);
       inputRef.current?.focus();
@@ -154,7 +155,7 @@ export function QuickAsk(): React.JSX.Element {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
-        window.quickAsk?.hide();
+        quickAskHost()?.hide();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -163,7 +164,7 @@ export function QuickAsk(): React.JSX.Element {
 
   // Answer stream from the main process.
   useEffect(() => {
-    return window.quickAsk?.onEvent((raw) => {
+    return quickAskHost()?.onEvent((raw) => {
       const event = raw as QuickAskEvent;
       switch (event.type) {
         case "conversation":
@@ -203,7 +204,7 @@ export function QuickAsk(): React.JSX.Element {
   // Screenshot lifecycle: the main process owns the bytes and reports the
   // chip preview (or why capture failed) here.
   useEffect(() => {
-    return window.quickAsk?.onAttachment((payload) => {
+    return quickAskHost()?.onAttachment((payload) => {
       const { previewDataUrl, error, canOpenSettings } = (payload ?? {}) as {
         previewDataUrl?: string | null;
         error?: string;
@@ -229,12 +230,12 @@ export function QuickAsk(): React.JSX.Element {
   const startDrag = useCallback((event: React.MouseEvent): void => {
     if (event.button !== 0) return;
     event.preventDefault();
-    window.quickAsk?.dragStart({
+    quickAskHost()?.dragStart({
       dx: event.screenX - window.screenX,
       dy: event.screenY - window.screenY,
     });
     const endDrag = (): void => {
-      window.quickAsk?.dragEnd();
+      quickAskHost()?.dragEnd();
       document.removeEventListener("mouseup", endDrag);
     };
     document.addEventListener("mouseup", endDrag);
@@ -273,7 +274,7 @@ export function QuickAsk(): React.JSX.Element {
     setPhase("thinking");
     // The main process folds the pending screenshot into this ask.
     setAttachment(null);
-    window.quickAsk?.ask(question, conversationIdRef.current);
+    quickAskHost()?.ask(question, conversationIdRef.current);
   }, [syncPillWidth]);
 
   // Up/down arrows recall previously sent questions, shell-style: up walks
@@ -321,7 +322,7 @@ export function QuickAsk(): React.JSX.Element {
   );
 
   const openInApp = useCallback((): void => {
-    window.quickAsk?.openInApp();
+    quickAskHost()?.openInApp();
   }, []);
 
   const nextHedgehog = useCallback((): void => {
@@ -346,7 +347,7 @@ export function QuickAsk(): React.JSX.Element {
   }, [hogzilla, nextHedgehog]);
 
   useEffect(() => {
-    const unsubscribe = window.quickAsk?.onShake(onShake);
+    const unsubscribe = quickAskHost()?.onShake(onShake);
     return () => unsubscribe?.();
   }, [onShake]);
 
@@ -398,7 +399,14 @@ export function QuickAsk(): React.JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`qa-root${flip ? " qa-flip" : ""}${mini ? " qa-mini" : ""}${hogzilla ? " qa-zilla" : ""}`}
+      className={[
+        "qa-root",
+        flip && "qa-flip",
+        mini && "qa-mini",
+        hogzilla && "qa-zilla",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <div className="qa-pill-row">
         <button
@@ -469,7 +477,7 @@ export function QuickAsk(): React.JSX.Element {
           aria-label="Capture screen"
           title="Capture and annotate the screen"
           className="qa-shot"
-          onClick={() => window.quickAsk?.capture()}
+          onClick={() => quickAskHost()?.capture()}
         >
           <svg
             width="14"
@@ -491,7 +499,7 @@ export function QuickAsk(): React.JSX.Element {
           aria-label="Close"
           title="Close"
           className="qa-close"
-          onClick={() => window.quickAsk?.hide()}
+          onClick={() => quickAskHost()?.hide()}
         >
           <svg
             width="13"
@@ -520,7 +528,7 @@ export function QuickAsk(): React.JSX.Element {
                 type="button"
                 aria-label="Remove screenshot"
                 onClick={() => {
-                  window.quickAsk?.discardAttachment();
+                  quickAskHost()?.discardAttachment();
                   setAttachment(null);
                 }}
               >
@@ -535,7 +543,7 @@ export function QuickAsk(): React.JSX.Element {
                   type="button"
                   className="qa-attach-settings"
                   onClick={() => {
-                    window.quickAsk?.openScreenSettings();
+                    quickAskHost()?.openScreenSettings();
                     setAttachError(null);
                   }}
                 >

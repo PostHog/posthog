@@ -2,11 +2,8 @@
 // The S3 upload posts real multipart FormData, which jsdom's FormData
 // polyfill cannot feed into undici's fetch.
 import type { AuthService } from "@posthog/core/auth/auth";
-import {
-  type QuickAskEvent,
-  QuickAskService,
-} from "@posthog/core/quick-ask/quick-ask";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type QuickAskEvent, QuickAskService } from "./quick-ask";
 import {
   REPLAY_ANSWER,
   REPLAY_FOLLOW_UP,
@@ -16,7 +13,7 @@ import {
   REPLAY_STRAY_ANSWER,
   type ReplayServer,
   startReplayServer,
-} from "./quick-ask-replay-fixture";
+} from "./replay-fixture";
 
 /**
  * The whole transport against a real HTTP server replaying a production run's

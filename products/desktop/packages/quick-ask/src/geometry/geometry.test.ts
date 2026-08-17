@@ -6,7 +6,7 @@ import {
   PILL_TOP_TO_WINDOW_BOTTOM,
   PILL_TOP_TO_WINDOW_TOP,
   SCREEN_MARGIN,
-} from "./quick-ask-geometry";
+} from "./geometry";
 
 const AREA = { x: 0, y: 0, width: 1512, height: 950 };
 const PILL = { width: 300, height: PILL_HEIGHT };

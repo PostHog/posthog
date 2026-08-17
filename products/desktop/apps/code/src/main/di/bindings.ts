@@ -83,7 +83,6 @@ import type {
 import type { OAuthService } from "@posthog/core/oauth/oauth";
 import type { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import type { ProvisioningService } from "@posthog/core/provisioning/provisioning";
-import type { QUICK_ASK_FETCH } from "@posthog/core/quick-ask/quick-ask";
 import type { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import type { SleepService } from "@posthog/core/sleep/sleep";
 import type { UI_AUTH, UI_SERVICE } from "@posthog/core/ui/identifiers";
@@ -132,6 +131,7 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import type { QUICK_ASK_FETCH } from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";

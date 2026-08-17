@@ -1,5 +1,5 @@
+import type { AuthService } from "@posthog/core/auth/auth";
 import { describe, expect, it, vi } from "vitest";
-import type { AuthService } from "../auth/auth";
 import {
   PANEL_STEERING,
   parseSseChunk,

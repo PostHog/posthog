@@ -3,9 +3,17 @@ import { fileURLToPath } from "node:url";
 import { TASK_LINK_SERVICE } from "@posthog/core/links/identifiers";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
 import {
+  computeGeometry,
+  PILL_HEIGHT,
+  PILL_TOP_TO_WINDOW_BOTTOM,
+  PILL_TOP_TO_WINDOW_TOP,
+  SCREEN_MARGIN,
+} from "@posthog/quick-ask/geometry/geometry";
+import { ShakeDetector } from "@posthog/quick-ask/gesture/shake";
+import {
   QUICK_ASK_SERVICE,
   type QuickAskService,
-} from "@posthog/core/quick-ask/quick-ask";
+} from "@posthog/quick-ask/service/quick-ask";
 import {
   isQuickAskShortcut,
   QUICK_ASK_DEFAULT_SHORTCUT,
@@ -39,14 +47,6 @@ import {
   setupQuickAskCapture,
   teardownQuickAskCapture,
 } from "./quick-ask-capture";
-import {
-  computeGeometry,
-  PILL_HEIGHT,
-  PILL_TOP_TO_WINDOW_BOTTOM,
-  PILL_TOP_TO_WINDOW_TOP,
-  SCREEN_MARGIN,
-} from "./quick-ask-geometry";
-import { ShakeDetector } from "./quick-ask-shake";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";

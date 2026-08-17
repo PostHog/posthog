@@ -1,5 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { annotateHost } from "./host-bridge";
 import {
   contrastInk,
   drawShape,
@@ -269,15 +270,17 @@ export function Annotate(): React.JSX.Element {
   }, [textDraft]);
 
   useEffect(() => {
-    void window.quickAskAnnotate.shot().then((dataUrl) => {
-      if (!dataUrl) {
-        window.quickAskAnnotate.cancel();
-        return;
-      }
-      const image = new Image();
-      image.onload = () => setShot(image);
-      image.src = dataUrl;
-    });
+    void annotateHost()
+      .shot()
+      .then((dataUrl) => {
+        if (!dataUrl) {
+          annotateHost().cancel();
+          return;
+        }
+        const image = new Image();
+        image.onload = () => setShot(image);
+        image.src = dataUrl;
+      });
   }, []);
 
   const scaleX = shot ? shot.naturalWidth / window.innerWidth : 1;
@@ -462,7 +465,7 @@ export function Annotate(): React.JSX.Element {
     for (const shape of shapes) {
       drawShape(ctx, shape, env);
     }
-    window.quickAskAnnotate.done(canvas.toDataURL("image/png"));
+    annotateHost().done(canvas.toDataURL("image/png"));
   }, [shot, crop, shapes, scaleX, scaleY, textDraft, commitText]);
 
   // Keyboard: tools, undo/redo, delete, nudge and resize, finish.
@@ -474,7 +477,7 @@ export function Annotate(): React.JSX.Element {
         } else if (selected !== null) {
           setSelected(null);
         } else {
-          window.quickAskAnnotate.cancel();
+          annotateHost().cancel();
         }
         return;
       }
@@ -978,7 +981,7 @@ export function Annotate(): React.JSX.Element {
           <button
             type="button"
             className="an-cancel"
-            onClick={() => window.quickAskAnnotate.cancel()}
+            onClick={() => annotateHost().cancel()}
           >
             Cancel
           </button>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ShakeDetector } from "./quick-ask-shake";
+import { ShakeDetector } from "./shake";
 
 /** Feeds a left-right zigzag of the given amplitude; returns first fire time. */
 function zigzag(

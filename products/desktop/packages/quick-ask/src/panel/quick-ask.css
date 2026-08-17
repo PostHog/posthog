@@ -238,10 +238,6 @@ html body {
   animation: qa-zilla-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.qa-mini .qa-mini-label {
-  display: inline-block;
-}
-
 .qa-mini-label {
   display: none;
   align-self: center;
@@ -257,6 +253,10 @@ html body {
   text-overflow: ellipsis;
   animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
   box-shadow: inset 0 1px 0 var(--qa-sheen);
+}
+
+:where(.qa-mini) .qa-mini-label {
+  display: inline-block;
 }
 
 /* Status dot on the hedgehog's shoulder, mini mode only. */
@@ -944,12 +944,12 @@ html body {
   overflow: hidden;
 }
 
-.qa-status-row .qa-thinking-label {
+:where(.qa-status-row) .qa-thinking-label {
   flex: 1;
   min-width: 0;
 }
 
-.qa-status-row .qa-pager {
+:where(.qa-status-row) .qa-pager {
   margin-left: auto;
 }
 

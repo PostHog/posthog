@@ -1,7 +1,7 @@
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
+import { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import { inject, injectable, optional } from "inversify";
-import type { AuthService, FetchLike } from "../auth/auth";
-import { AUTH_SERVICE } from "../auth/auth.module";
+import { PANEL_STEERING } from "./steering";
 
 export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
 /**
@@ -37,18 +37,7 @@ export interface QuickAskAttachment {
   mimeType: string;
 }
 
-/**
- * Sent after the user's first question, so the task title stays the question.
- * The tag vocabulary is the shared block the renderer's object-tag pipeline
- * parses.
- */
-export const PANEL_STEERING = `<posthog_trusted_context>
-This question was asked from PostHog Desktop's compact quick-ask panel. For this whole conversation:
-- Answer from PostHog data using the PostHog MCP tools. Do not clone repositories or modify code.
-- Keep the text answer short - a few sentences at most.
-- Never ask a blocking question; make reasonable assumptions and state them briefly.
-- Rich output: ${RICH_OUTPUT_TAGS_PROMPT}
-</posthog_trusted_context>`;
+export { PANEL_STEERING } from "./steering";
 
 /** One parsed SSE event: name, optional resume id, joined data lines. */
 export interface SseFrame {
