@@ -160,11 +160,17 @@ jobs:
                   if python -m products.replay_vision.evals.collect --help 2>/dev/null | grep -q -- '--max-observations'; then
                       max_obs_args=(--max-observations 50)
                   fi
+                  # To the runner-local file only, never the public job log: the collector emits
+                  # session and observation ids for missing-event and failed cases.
                   python -m products.replay_vision.evals.collect \
                       --project-id 2 \
                       --per-type "$PER_TYPE" \
                       "${max_obs_args[@]}" \
-                      --output "$DATASET_DIR"
+                      --output "$DATASET_DIR" > /tmp/collect-output.log 2>&1 || {
+                      status=$?
+                      echo "collect exited with status $status; collector output stays off the public log"
+                      exit "$status"
+                  }
                   # An empty dataset (expired assets, warehouse lag) must fail loudly, not score green over nothing.
                   python - <<'EOF'
                   import json, os, pathlib, sys
