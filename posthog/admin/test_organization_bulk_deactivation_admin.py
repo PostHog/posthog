@@ -38,6 +38,7 @@ class TestOrganizationToolsAdminTemplate(SimpleTestCase):
         )
 
         assert "Organization tools" in rendered
+        assert 'id="organization-tools"' in rendered
         assert "Bulk deactivate organizations" in rendered
         assert reverse("admin:organization_bulk_deactivate") in rendered
 
@@ -144,6 +145,15 @@ class TestOrganizationAdminBulkDeactivate(BaseTest):
         self.user.save()
         self.factory = RequestFactory()
         self.admin = OrganizationAdmin(Organization, AdminSite())
+
+    def test_changelist_links_to_organization_tools_module(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("admin:posthog_organization_changelist"))
+
+        assert response.status_code == 200
+        assert b"Organization tools" in response.content
+        assert f"{reverse('admin:index')}#organization-tools".encode() in response.content
 
     def _post(self, data: dict[str, str]) -> HttpRequest:
         request = self.factory.post("/admin/posthog/organization/bulk-deactivate/", data)
