@@ -165,7 +165,10 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
-from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
+from products.warehouse_sources.backend.presentation.views.public_source_configs import (
+    build_source_configs,
+    build_source_icon_map,
+)
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
@@ -1829,6 +1832,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "retrieve",
         "jobs",
         "wizard",
+        "source_icons",
         "connect_link",
         "stored_credentials",
         "webhook_info",
@@ -4599,6 +4603,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # browser reuse it across navigations instead of re-downloading and re-parsing several hundred
         # KB on each visit to the new-source page. `private` because the route is auth-gated; a new
         # source ships at most once per deploy, so a short freshness window is safe.
+        patch_cache_control(response, private=True, max_age=600)
+        return response
+
+    @extend_schema(
+        responses={200: dict[str, str]},
+    )
+    @action(methods=["GET"], detail=False)
+    def source_icons(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Icon-only surfaces (the source-type icon shown in the SQL editor tree and every source table)
+        # need one string per source, not the full field schemas the `wizard` catalog carries. The
+        # unfiltered catalog is over 1 MB; this map is a few KB, so rendering a row of icons no longer
+        # pulls the whole catalog.
+        response = Response(status=status.HTTP_200_OK, data=build_source_icon_map())
+        # Deploy-static like the catalog, so reuse the same short private cache window.
         patch_cache_control(response, private=True, max_age=600)
         return response
 

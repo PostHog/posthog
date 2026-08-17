@@ -5954,6 +5954,9 @@ const api = {
         async wizard(): Promise<Record<string, SourceConfig>> {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
+        async sourceIcons(): Promise<Record<string, string>> {
+            return await new ApiRequest().externalDataSources().withAction('source_icons').get()
+        },
         async source_prefix(
             source_type: ExternalDataSourceType,
             prefix: string
@@ -7509,7 +7512,7 @@ async function handleFetch(
                 is_shared_view: isSharedView(),
                 failure_reason: reason,
             })
-            throw new NetworkError(reason, error)
+            throw new NetworkError(reason)
         }
         throw new ApiError(error as any, response?.status)
     }

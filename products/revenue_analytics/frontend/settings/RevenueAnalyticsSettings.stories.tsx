@@ -57,6 +57,9 @@ const meta: Meta = {
                         },
                     ]
                 },
+                '/api/environments/:team_id/external_data_sources/source_icons': () => {
+                    return [200, { Stripe: '/static/services/stripe.png' }]
+                },
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {

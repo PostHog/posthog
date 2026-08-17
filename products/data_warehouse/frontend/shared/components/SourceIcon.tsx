@@ -16,7 +16,7 @@ import IconDuckDB from 'public/services/duckdb.svg'
 import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
-import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { sourceIconsLogic } from '../logics/sourceIconsLogic'
 import { supportsDirectQuery } from './forms/schemaGroupingUtils'
 // eslint-disable-next-line import/no-cycle
 import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
@@ -115,20 +115,16 @@ export function SourceIcon({
     sizePx?: number
     disableTooltip?: boolean
 }): JSX.Element | null {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { sourceIcons, sourceIconsLoading } = useValues(sourceIconsLogic)
 
     const icon = useMemo(() => {
-        if (!availableSources) {
-            return null
-        }
-
         if (supportsDirectQuery(type) && engine === 'duckdb') {
             return IconDuckDB
         }
 
-        const sourceConfig = availableSources[type]
-        if (sourceConfig) {
-            return sourceConfig.iconPath
+        const iconPath = sourceIcons?.[type]
+        if (iconPath) {
+            return iconPath
         }
 
         const icon = DATA_WAREHOUSE_SOURCE_ICON_MAP[type]
@@ -139,13 +135,14 @@ export function SourceIcon({
         const component = DATA_WAREHOUSE_SOURCE_ICON_COMPONENT_MAP[type]
 
         return component ?? null
-    }, [availableSources, engine, type])
+    }, [sourceIcons, engine, type])
 
     const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
 
-    if (availableSourcesLoading || !availableSources) {
+    if (!icon && sourceIconsLoading) {
         // A bare LemonSkeleton defaults to w-full, so it balloons to fill its container while the
-        // source configs load. Constrain it to the icon's footprint so the placeholder matches.
+        // icon map loads. Constrain it to the icon's footprint so the placeholder matches. Icons that
+        // resolve from the local maps above render immediately, without waiting on the network.
         return (
             // eslint-disable-next-line react/forbid-dom-props
             <div className="shrink-0" style={{ width: sizePx, height: sizePx }}>

@@ -45,7 +45,7 @@ describe('SuggestionModal', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/external_data_sources/wizard': () => [200, {}],
+                '/api/environments/:team_id/external_data_sources/source_icons': () => [200, {}],
             },
         })
         initKeaTests()

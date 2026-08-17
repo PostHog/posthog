@@ -66,18 +66,12 @@ const SQL_RESULTS = {
 }
 
 // The empty-warehouse notice in the sidebar renders a SourceIcon per provider, each of which shows a
-// LemonSkeleton until availableSourcesLogic resolves. Without this mock the skeletons never settle and
+// LemonSkeleton until sourceIconsLogic resolves. Without this mock the skeletons never settle and
 // the visual-regression runner times out waiting for loaders to disappear.
-const AVAILABLE_SOURCES = {
-    Postgres: { name: 'Postgres', iconPath: '/static/services/postgres.png', fields: [], caption: '', featured: true },
-    Stripe: { name: 'Stripe', iconPath: '/static/services/stripe.png', fields: [], caption: '', featured: true },
-    GoogleAds: {
-        name: 'GoogleAds',
-        iconPath: '/static/services/google-ads.png',
-        fields: [],
-        caption: '',
-        featured: true,
-    },
+const SOURCE_ICONS: Record<string, string> = {
+    Postgres: '/static/services/postgres.png',
+    Stripe: '/static/services/stripe.png',
+    GoogleAds: '/static/services/google-ads.png',
 }
 
 // A managed warehouse's name is long enough to outgrow the database-tree sidebar, which is what made
@@ -104,7 +98,7 @@ const meta: Meta = {
         grantWarehouseAccess,
         mswDecorator({
             get: {
-                '/api/environments/:team_id/external_data_sources/wizard': () => [200, AVAILABLE_SOURCES],
+                '/api/environments/:team_id/external_data_sources/source_icons': () => [200, SOURCE_ICONS],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {

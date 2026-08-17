@@ -27,6 +27,7 @@ import type {
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
     ExternalDataSourcesResumeCdcCreate200,
+    ExternalDataSourcesSourceIconsRetrieve200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
@@ -1029,6 +1030,26 @@ export const externalDataSourcesSetupCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sourceSetupApi),
     })
+}
+
+export const getExternalDataSourcesSourceIconsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/source_icons/`
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesSourceIconsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesSourceIconsRetrieve200> => {
+    return apiMutator<ExternalDataSourcesSourceIconsRetrieve200>(
+        getExternalDataSourcesSourceIconsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) => {

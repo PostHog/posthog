@@ -97,6 +97,20 @@ const meta: Meta = {
                         },
                     ]
                 },
+                '/api/environments/:team_id/external_data_sources/source_icons': () => {
+                    return [
+                        200,
+                        {
+                            Github: '/static/services/github.png',
+                            Hubspot: '/static/services/hubspot.png',
+                            Postgres: '/static/services/postgres.png',
+                            Stripe: '/static/services/stripe.png',
+                            Ashby: '/static/services/ashby.png',
+                            Supabase: '/static/services/supabase.png',
+                            Shopify: '/static/services/shopify.png',
+                        },
+                    ]
+                },
             },
             patch: {
                 '/api/environments/:team_id/add_product_intent/': {},

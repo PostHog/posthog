@@ -12842,6 +12842,8 @@ export type ExternalDataSourcesOauthAccountsRetrieveParams = {
     source_type: string
 }
 
+export type ExternalDataSourcesSourceIconsRetrieve200 = { [key: string]: string }
+
 export type ExternalDataSourcesStoredCredentialsListParams = {
     /**
      * A search term.

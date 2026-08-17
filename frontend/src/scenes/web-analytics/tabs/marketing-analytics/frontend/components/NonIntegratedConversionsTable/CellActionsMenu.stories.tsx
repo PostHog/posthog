@@ -8,50 +8,15 @@ import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 import { MappingTypes } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildRowMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
-// Mock icons for marketing sources - these are the paths returned by the backend
-const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {
-    GoogleAds: {
-        name: 'GoogleAds',
-        iconPath: '/static/services/google-ads.png',
-        fields: [],
-        caption: 'Google Ads',
-    },
-    MetaAds: {
-        name: 'MetaAds',
-        iconPath: '/static/services/meta-ads.png',
-        fields: [],
-        caption: 'Meta Ads',
-    },
-    LinkedinAds: {
-        name: 'LinkedinAds',
-        iconPath: '/static/services/linkedin.png',
-        fields: [],
-        caption: 'LinkedIn Ads',
-    },
-    TikTokAds: {
-        name: 'TikTokAds',
-        iconPath: '/static/services/tiktok.png',
-        fields: [],
-        caption: 'TikTok Ads',
-    },
-    RedditAds: {
-        name: 'RedditAds',
-        iconPath: '/static/services/reddit.png',
-        fields: [],
-        caption: 'Reddit Ads',
-    },
-    BingAds: {
-        name: 'BingAds',
-        iconPath: '/static/services/bing-ads.svg',
-        fields: [],
-        caption: 'Bing Ads',
-    },
-    SnapchatAds: {
-        name: 'SnapchatAds',
-        iconPath: '/static/services/snapchat.png',
-        fields: [],
-        caption: 'Snapchat Ads',
-    },
+// Mock icon paths for marketing sources - these are the paths returned by the backend
+const MARKETING_SOURCE_ICONS: Record<string, string> = {
+    GoogleAds: '/static/services/google-ads.png',
+    MetaAds: '/static/services/meta-ads.png',
+    LinkedinAds: '/static/services/linkedin.png',
+    TikTokAds: '/static/services/tiktok.png',
+    RedditAds: '/static/services/reddit.png',
+    BingAds: '/static/services/bing-ads.svg',
+    SnapchatAds: '/static/services/snapchat.png',
 }
 
 const meta: Meta<LemonMenuOverlayProps> = {
@@ -60,7 +25,7 @@ const meta: Meta<LemonMenuOverlayProps> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                '/api/environments/:team_id/external_data_sources/source_icons': () => {
                     return [200, MARKETING_SOURCE_ICONS]
                 },
             },
