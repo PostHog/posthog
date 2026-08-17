@@ -118,6 +118,13 @@ Draft status doesn't help, since runs are dispatched before draft/skip logic app
 - Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
 - When a restack must push many branches, stagger them instead of force-pushing all at once.
 
+#### Pre-push checks — merge queue guard
+
+The pre-push hook refuses to push a branch whose PR is sitting in the Trunk merge queue, mirroring how GitHub's native merge queue blocks such pushes server-side — a push there would knock the PR out of the queue.
+It detects queue membership from the PR's comment stream: a `/trunk merge` with no later `/trunk cancel` or Trunk bot outcome comment means queued.
+When it blocks you, leave the branch alone and put further changes on a new branch with a new PR; to intentionally update the queued PR instead, comment `/trunk cancel`, wait for it to leave the queue, then push.
+The check fails open (missing `gh`, offline, API errors), and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
+
 #### Pre-push checks — ci:preflight
 
 A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).

@@ -10,6 +10,65 @@ then
     exit 1 # push will not execute
 fi
 
+# Refuse to push a branch whose PR sits in the Trunk merge queue — the push knocks it
+# out of the queue. Queue membership is read from the PR's comment stream (newest first):
+# a "/trunk merge" with no later "/trunk cancel" or trunk-io outcome comment means queued.
+# TRUNK_QUEUE_PUSH_CHECK_DISABLED=1 skips; no gh, offline, or non-GitHub remote → skip.
+if [ -z "$TRUNK_QUEUE_PUSH_CHECK_DISABLED" ] && command -v gh >/dev/null 2>&1
+then
+    repo=$(printf '%s' "$2" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+    if [ -n "$repo" ] && [ "$repo" != "$2" ]
+    then
+        owner=${repo%%/*}
+        name=${repo##*/}
+        while read -r local_ref local_sha remote_ref remote_sha
+        do
+            case "$remote_ref" in
+                refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
+                *) continue ;;
+            esac
+            queued_pr=''
+            for attempt in 1 2 3
+            do
+                if queue_state=$(gh api graphql \
+                    -f query='query($owner: String!, $name: String!, $branch: String!) {
+                        repository(owner: $owner, name: $name) {
+                            pullRequests(headRefName: $branch, states: OPEN, first: 5) {
+                                nodes { number comments(last: 50) { nodes { body author { login } } } }
+                            }
+                        }
+                    }' \
+                    -f owner="$owner" -f name="$name" -f branch="$branch" \
+                    --jq '.data.repository.pullRequests.nodes[]
+                        | .number as $n
+                        | ((.comments.nodes | reverse | map(
+                            (.body | ltrimstr(" ")) as $b
+                            | if ($b | startswith("/trunk merge")) then "queued"
+                              elif ($b | startswith("/trunk cancel")) then "dequeued"
+                              elif ((.author.login // "") == "trunk-io") and (($b | contains("Trunk Test Analytics")) | not) then "dequeued"
+                              else empty end
+                          ) | first) // "none")
+                        | select(. == "queued") | $n' </dev/null 2>/dev/null)
+                then
+                    queued_pr=$(printf '%s\n' "$queue_state" | head -n 1)
+                    break
+                fi
+                sleep 1
+            done
+            case "$queued_pr" in
+                ''|*[!0-9]*) continue ;; # no queued PR, or gh never got a clean answer → fail open
+            esac
+            if [ -n "$queued_pr" ]
+            then
+                echo "pre-push: PR #$queued_pr ('$branch') is in the Trunk merge queue — this push would remove it from the queue."
+                echo "Do NOT push to this branch. Let the queued PR merge, then make further changes on a NEW branch and open a NEW pull request."
+                echo "If you really need to update this PR instead, comment '/trunk cancel' on PR #$queued_pr, wait for it to leave the queue, then push again."
+                exit 1
+            fi
+        done
+    fi
+fi
+
 # Catch deterministic CI failures before this push burns a CI matrix.
 # Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op; no hogli → skip.
 if command -v hogli >/dev/null 2>&1
