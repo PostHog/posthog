@@ -52,7 +52,14 @@ export interface LoopFormValues {
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
   triggers: LoopTriggerDraft[];
+  overlapPolicy: LoopSchemas.LoopOverlapPolicyEnum;
   behaviors: LoopSchemas.LoopBehaviors;
+  /**
+   * Carried whole rather than as a bare id list: a loop run mounts only the
+   * connectors named here, so dropping `posthog_mcp_scopes` on save would
+   * silently change the PostHog MCP access of every future run.
+   */
+  connectors: LoopSchemas.LoopConnectors;
   notifications: LoopSchemas.LoopNotifications;
   contextTarget: LoopContextTargetDraft | null;
 }
@@ -194,15 +201,35 @@ export function withSlackTriggerPosterMode(
   config: LoopSchemas.LoopSlackTriggerConfig,
   mode: LoopSchemas.LoopSlackPosterModeEnum,
 ): LoopSchemas.LoopSlackTriggerConfig {
+  // The bot list is independent of the mode, so switching modes carries it over.
+  const botIds = config.allowed_posters?.allowed_bot_ids;
+  const bots = botIds?.length ? { allowed_bot_ids: botIds } : {};
   if (mode !== "slack_user_ids") {
-    return { ...config, allowed_posters: { mode } };
+    return { ...config, allowed_posters: { mode, ...bots } };
   }
   return {
     ...config,
     allowed_posters: {
       mode,
       slack_user_ids: config.allowed_posters?.slack_user_ids ?? [],
+      ...bots,
     },
+  };
+}
+
+/** Sets the apps and bots allowed to trigger, leaving the human rule alone. */
+export function withSlackTriggerBotIds(
+  config: LoopSchemas.LoopSlackTriggerConfig,
+  allowedBotIds: string[],
+): LoopSchemas.LoopSlackTriggerConfig {
+  const posters = config.allowed_posters ?? { mode: "org_members" as const };
+  if (!allowedBotIds.length) {
+    const { allowed_bot_ids: _dropped, ...rest } = posters;
+    return { ...config, allowed_posters: rest };
+  }
+  return {
+    ...config,
+    allowed_posters: { ...posters, allowed_bot_ids: allowedBotIds },
   };
 }
 
@@ -217,6 +244,15 @@ export function defaultLoopBehaviors(): LoopSchemas.LoopBehaviors {
     watch_ci: false,
     fix_review_comments: false,
     max_fix_iterations: 3,
+  };
+}
+
+/** No connectors until the owner picks them — an unattended run must not inherit
+ * every credential the team has shared. */
+export function defaultLoopConnectors(): LoopSchemas.LoopConnectors {
+  return {
+    mcp_installation_ids: [],
+    posthog_mcp_scopes: "read_only",
   };
 }
 
@@ -287,7 +323,9 @@ export function emptyLoopFormValues(): LoopFormValues {
     reasoningEffort: null,
     repositories: [],
     triggers: [defaultLoopScheduleTrigger()],
+    overlapPolicy: "skip",
     behaviors: defaultLoopBehaviors(),
+    connectors: defaultLoopConnectors(),
     notifications: defaultLoopNotifications(),
     contextTarget: null,
   };
@@ -333,7 +371,9 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
       enabled: trigger.enabled,
       config: trigger.config,
     })),
+    overlapPolicy: loop.overlap_policy,
     behaviors: loop.behaviors,
+    connectors: loop.connectors,
     notifications: loop.notifications,
     contextTarget: loop.context_target
       ? {
@@ -374,7 +414,9 @@ export function formValuesToLoopWrite(
               )
             : trigger.config,
     })),
+    overlap_policy: values.overlapPolicy,
     behaviors: values.behaviors,
+    connectors: values.connectors,
     notifications: values.notifications,
     context_target: values.contextTarget
       ? {
@@ -425,6 +467,8 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
       (posters?.mode !== "slack_user_ids" ||
         ((posters.slack_user_ids ?? []).length > 0 &&
           (posters.slack_user_ids ?? []).every(isSlackActorId))) &&
+      // Checked in every mode: the bot list is independent of the human rule.
+      (posters?.allowed_bot_ids ?? []).every(isSlackActorId) &&
       (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
@@ -469,6 +513,15 @@ function withNormalizedSlackConfig(
           ...(posters.mode === "slack_user_ids"
             ? {
                 slack_user_ids: (posters.slack_user_ids ?? []).map((id) =>
+                  id.trim().toUpperCase(),
+                ),
+              }
+            : {}),
+          // Carried in every mode: the bot list is independent of the human rule,
+          // and rebuilding this object without it drops the field on save.
+          ...(posters.allowed_bot_ids?.length
+            ? {
+                allowed_bot_ids: posters.allowed_bot_ids.map((id) =>
                   id.trim().toUpperCase(),
                 ),
               }

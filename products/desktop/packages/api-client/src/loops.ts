@@ -155,6 +155,10 @@ export namespace LoopSchemas {
   export type LoopSlackAllowedPosters = {
     mode: LoopSlackPosterModeEnum;
     slack_user_ids?: Array<string>;
+    /** Apps and bots allowed to trigger the loop, checked independently of
+     * `mode`. The human-authorizing modes reject every app author, so this is
+     * what lets "anyone on your team, plus these bots" work. */
+    allowed_bot_ids?: Array<string>;
   };
 
   export type LoopSlackTriggerFilters = {

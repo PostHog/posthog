@@ -47,11 +47,13 @@ import {
 import { formatLoopModel } from "../loopModels";
 import { buildSkillInstructions, loopSkillBundles } from "../loopSkill";
 import { LoopBehaviorFields } from "./LoopBehaviorFields";
+import { LoopConnectorFields } from "./LoopConnectorFields";
 import { LoopContextFields } from "./LoopContextFields";
 import { Field } from "./LoopFormPrimitives";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopModelFields } from "./LoopModelFields";
 import { LoopNotificationsFields } from "./LoopNotificationsFields";
+import { LoopOverlapField } from "./LoopOverlapField";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 import { LoopInstructionsFields } from "./LoopSkillFields";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
@@ -473,6 +475,18 @@ export function LoopForm({
               onChange={(behaviors) => patch({ behaviors })}
             />
           </Field>
+          <Field label="Connectors">
+            <LoopConnectorFields
+              connectors={values.connectors}
+              disabled={isSubmitting}
+              onChange={(connectors) => patch({ connectors })}
+            />
+          </Field>
+          <LoopOverlapField
+            overlapPolicy={values.overlapPolicy}
+            disabled={isSubmitting}
+            onChange={(overlapPolicy) => patch({ overlapPolicy })}
+          />
           <LoopModelFields
             adapter={values.runtimeAdapter}
             model={values.model}
@@ -707,6 +721,18 @@ export function LoopForm({
                         onChange={(behaviors) => patch({ behaviors })}
                       />
                     </Field>
+                    <Field label="Connectors">
+                      <LoopConnectorFields
+                        connectors={values.connectors}
+                        disabled={isSubmitting}
+                        onChange={(connectors) => patch({ connectors })}
+                      />
+                    </Field>
+                    <LoopOverlapField
+                      overlapPolicy={values.overlapPolicy}
+                      disabled={isSubmitting}
+                      onChange={(overlapPolicy) => patch({ overlapPolicy })}
+                    />
                     <LoopModelFields
                       adapter={values.runtimeAdapter}
                       model={values.model}
