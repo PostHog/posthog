@@ -16,7 +16,7 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
