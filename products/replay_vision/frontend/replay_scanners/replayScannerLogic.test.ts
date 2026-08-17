@@ -12,7 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
-import { markGoalDraftIntent } from './goalDraftIntent'
+import { consumeGoalDraftIntent, markGoalDraftIntent } from './goalDraftIntent'
 import {
     buildObservationListParams,
     ObservationStatusValue,
@@ -183,15 +183,15 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
 
-        // The in-player analysis nudge deep-links to the wizard with the goal as a search param
-        // plus a one-shot intent marker that authorizes the auto-start.
-        it('consumes a ?goal= param from the nudge: starts the draft and strips the param so a reload cannot re-fire it', async () => {
+        // The in-player analysis nudge hands the goal to the wizard via a one-shot sessionStorage
+        // hand-off that authorizes the auto-start; the free text never travels in the URL.
+        it('consumes the nudge hand-off: prefills the box and starts the draft with the goal never in the URL', async () => {
             draftSpy.mockReturnValue([
                 200,
                 { name: 'Rage clicks', description: '', scanner_type: 'monitor', scanner_config: { prompt: 'x' } },
             ])
-            markGoalDraftIntent()
-            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () => logic.actions.loadScanner())
                 .toDispatchActions([
@@ -204,6 +204,42 @@ describe('replayScannerLogic', () => {
             expect(router.values.searchParams.goal).toBeUndefined()
             expect(logic.values.scanner).toMatchObject({ name: 'Rage clicks' })
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
+            // One-shot: the entry consumed the hand-off, so a reload cannot re-fire the draft.
+            expect(consumeGoalDraftIntent()).toBeNull()
+        })
+
+        // The hand-off is consumed on every wizard entry, even when another prefill path wins,
+        // so it can't stay armed for the tab session and auto-start from a later ?goal= link.
+        it('an entry that takes the experiment path still consumes the hand-off, so a later ?goal= link cannot auto-start', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
+        // Documented precedence with the ?filters= deep link (a fully built query): filters win,
+        // the free-text goal is dropped, regardless of which entry point built the URL.
+        it('an explicit ?filters= param outranks the goal prefill and drops it', async () => {
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'), {
+                filters: JSON.stringify({ kind: 'RecordingsQuery' }),
+                goal: 'find rage clicks in checkout',
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('')
+            expect(draftSpy).not.toHaveBeenCalled()
         })
 
         // A ?goal= link without the nudge's marker (e.g. crafted or shared) must not spend the
@@ -220,13 +256,13 @@ describe('replayScannerLogic', () => {
 
         // The drafted scanner persists over the sole saved-draft slot, so auto-starting on top of
         // a restored draft would destroy the user's saved work without any action of theirs.
-        it('a nudge ?goal= over a saved draft restores the draft and does not auto-start', async () => {
+        it('a nudge hand-off over a saved draft restores the draft and does not auto-start', async () => {
             writeScannerDraft(MOCK_TEAM_ID, {
                 ...logic.values.scanner!,
                 name: 'My saved work',
             })
-            markGoalDraftIntent()
-            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
 

@@ -4,14 +4,15 @@ import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ANALYSIS_NUDGE_THRESHOLD, analysisNudgeLogic } from '../logics/analysisNudgeLogic'
 import { AnalysisNudge } from './AnalysisNudge'
 
 // The nudge hides without scanner editor access; grant it on the storybook app context before
-// the story mounts and restore the original on unmount so story order can't leak. A persisted
-// dismissal is cleared here too, before the logic's persisted reducer reads it on mount.
+// the story mounts and restore the original on unmount so story order can't leak. Persisted
+// suppressions are cleared here too, before the logic's persisted reducers read them on mount.
 const grantScannerAccess: Decorator = function GrantScannerAccess(Story): JSX.Element {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     const original = useRef<{ value: unknown }>()
@@ -23,6 +24,7 @@ const grantScannerAccess: Decorator = function GrantScannerAccess(Story): JSX.El
             [AccessControlResourceType.SessionRecording]: AccessControlLevel.Editor,
         }
         localStorage.removeItem('products.replay_vision.frontend.logics.analysisNudgeLogic.suppressed')
+        localStorage.removeItem('products.replay_vision.frontend.logics.analysisNudgeLogic.lastShownAt')
     }
     useEffect(
         () => () => {
@@ -38,7 +40,15 @@ const grantScannerAccess: Decorator = function GrantScannerAccess(Story): JSX.El
 const meta: Meta<typeof AnalysisNudge> = {
     title: 'Replay Vision/Analysis nudge',
     component: AnalysisNudge,
-    decorators: [grantScannerAccess],
+    decorators: [
+        grantScannerAccess,
+        // The nudge only shows for teams without scanners, checked against this endpoint.
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+            },
+        }),
+    ],
     parameters: {
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_ANALYSIS_NUDGE]: true },
     },

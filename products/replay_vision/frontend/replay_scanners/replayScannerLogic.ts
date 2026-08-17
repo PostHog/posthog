@@ -1497,6 +1497,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         typeof router.values.searchParams.goal === 'string'
                             ? router.values.searchParams.goal.trim()
                             : ''
+                    // Consumed unconditionally on every wizard entry: whichever prefill path wins
+                    // below, a hand-off armed by the nudge must not stay usable for the rest of
+                    // the tab session, where a later ?goal= link would auto-start a draft and
+                    // spend the user's AI allowance without fresh intent.
+                    const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
+                    // Prefill precedence: an experiment deep link, then an explicit ?filters=
+                    // query (both carry fully built state), then a saved draft, then the
+                    // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
+                    // takes the filters and drops the goal.
+                    const hasFiltersPrefill = 'filters' in router.values.searchParams
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
                     // template stays), the experiment deep-link params, and the goal param. One replace
@@ -1554,14 +1564,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } finally {
                         cache.restoringDraft = false
                     }
-                    // A goal deep link prefills the AI box; the draft only auto-starts for the
-                    // in-player nudge's hand-off (one-shot marker), and never over a saved draft.
-                    // A crafted external ?goal= link can therefore neither spend the user's AI
-                    // allowance nor overwrite their saved work without an explicit click.
-                    if (goalParam) {
-                        actions.setGoalDraftInput(goalParam)
-                        if (consumeGoalDraftIntent() && !draft) {
-                            actions.draftScannerFromGoal(goalParam)
+                    // The goal prefills the AI box; the draft only auto-starts for the in-player
+                    // nudge's sessionStorage hand-off (which carries the goal so the free text
+                    // never enters the URL), and never over a saved draft. A crafted external
+                    // ?goal= link can therefore neither spend the user's AI allowance nor
+                    // overwrite saved work without an explicit click.
+                    const goal = handedOffGoal || goalParam
+                    if (goal && !hasFiltersPrefill) {
+                        actions.setGoalDraftInput(goal)
+                        if (handedOffGoal && !draft) {
+                            actions.draftScannerFromGoal(handedOffGoal)
                         }
                     }
                     return

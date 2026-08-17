@@ -6,8 +6,10 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import { analysisNudgeLogic } from '../logics/analysisNudgeLogic'
+import { consumeGoalDraftIntent, markGoalDraftIntent } from '../replay_scanners/goalDraftIntent'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 
 /** Card overlaying the player once the user has analyzed a few recordings this session:
@@ -33,6 +35,10 @@ export function AnalysisNudge(): JSX.Element | null {
         if (dataProcessingAccepted) {
             submitGoal(goal)
         } else {
+            // Stored before the consent ask: approving can trigger a full-page SSO reauth that
+            // unloads before onApprove runs, and on return the wizard (pendingRedirectUrl below)
+            // picks the goal up from the hand-off instead of losing it.
+            markGoalDraftIntent(goal)
             setPendingConsentGoal(goal)
         }
     }
@@ -72,13 +78,19 @@ export function AnalysisNudge(): JSX.Element | null {
                 ignoreDismissal
                 hideTrainingDisclaimer
                 hidden={pendingConsentGoal === null}
+                pendingRedirectUrl={urls.replayVisionTemplates()}
                 onApprove={() => {
                     if (pendingConsentGoal) {
                         submitGoal(pendingConsentGoal)
                     }
                     setPendingConsentGoal(null)
                 }}
-                onDismiss={() => setPendingConsentGoal(null)}
+                onDismiss={() => {
+                    // Disarm the hand-off so a later wizard visit can't auto-start a draft the
+                    // user backed out of.
+                    consumeGoalDraftIntent()
+                    setPendingConsentGoal(null)
+                }}
             >
                 <LemonButton
                     type="primary"
