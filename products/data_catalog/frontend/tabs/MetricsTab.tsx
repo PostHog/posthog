@@ -274,19 +274,22 @@ export function MetricsTab(): JSX.Element {
                 emptyState="No metrics match your filters."
                 nouns={['metric', 'metrics']}
                 bulkSelection={{
-                    getKey: (metric: DataCatalogMetricApi) => metric.name,
+                    // Key on the stable id, not the name: a name is freed for reuse when a metric is
+                    // deleted or renamed, so a name-keyed selection could target a different metric
+                    // that later takes the same name.
+                    getKey: (metric: DataCatalogMetricApi) => metric.id,
                     noun: ['metric', 'metrics'],
                     rowAriaLabel: (metric: DataCatalogMetricApi) => `Select metric ${metric.name}`,
                     headerAriaLabel: 'Select all metrics on this page',
                     barPortalTarget: bulkBarTarget,
                     renderActions: (ctx) => {
                         // Selection spans pages, so resolve the keys against every metric rather
-                        // than ctx.selectedRecords, which only covers the page on screen.
+                        // than ctx.selectedRecords, which only covers the page on screen. Resolving
+                        // by id also drops any selected metric that has since left the list.
                         const selected = new Set(ctx.selectedKeys)
-                        const approvableNames = allMetrics
-                            .filter((metric) => selected.has(metric.name) && isApprovable(metric))
-                            .map((metric) => metric.name)
-                        const selectedNames = [...ctx.selectedKeys]
+                        const selectedMetrics = allMetrics.filter((metric) => selected.has(metric.id))
+                        const approvableNames = selectedMetrics.filter(isApprovable).map((metric) => metric.name)
+                        const selectedNames = selectedMetrics.map((metric) => metric.name)
                         return (
                             <>
                                 <LemonButton
@@ -306,9 +309,11 @@ export function MetricsTab(): JSX.Element {
                                     data-attr="data-catalog-metrics-bulk-delete"
                                     loading={bulkActionInFlight === 'delete'}
                                     disabledReason={
-                                        selectedNames.length > METRIC_BULK_MAX
-                                            ? OVER_CAP_REASON
-                                            : otherBulkActionReason('delete')
+                                        selectedNames.length === 0
+                                            ? 'The selected metrics are no longer available. Reload the list.'
+                                            : selectedNames.length > METRIC_BULK_MAX
+                                              ? OVER_CAP_REASON
+                                              : otherBulkActionReason('delete')
                                     }
                                     onClick={() => confirmBulkDelete(selectedNames, ctx.clearSelection)}
                                 >
