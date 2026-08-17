@@ -700,6 +700,7 @@ def get_rows_via_search(
             anchor_id = next_anchor_id
             after: Optional[str] = None
             got_any = False
+            anchor_result_count = 0
 
             while True:
                 body: dict[str, Any] = {
@@ -723,6 +724,7 @@ def get_rows_via_search(
                 if not results:
                     break
                 got_any = True
+                anchor_result_count += len(results)
 
                 if config.associations:
                     _backfill_associations_into_results(
@@ -745,6 +747,12 @@ def get_rows_via_search(
                         next_anchor_id = result_id
 
                 yield from _process_results(results)
+
+                # HubSpot rejects paging a single query past SEARCH_RESULT_CAP results ("Attempting
+                # to page beyond 10,000"). Restart with the advanced anchor before that happens,
+                # rather than waiting for `after` to run out.
+                if anchor_result_count >= SEARCH_RESULT_CAP:
+                    break
 
                 next_cursor = data.get("paging", {}).get("next", {}).get("after")
                 if not next_cursor:

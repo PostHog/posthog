@@ -90,21 +90,27 @@ account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgres
 )
 
 
-account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_custom_property_values: PostgresTable = PostgresTable(
     name="_account_custom_property_values",
     postgres_table_name="customer_analytics_custompropertyvalue",
+    # Per-account deny filters used to arrive via the account-subquery predicate; with the
+    # direct team guard they must be declared explicitly, filtering on the account FK.
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of custom property values per account; not for direct querying — use `system.accounts.custom_properties`.",
-    # Scope through team-filtered accounts (as the other junction tables do) AND prune
-    # soft-deleted rows, so superseded `value_*` data can't be read via direct selection
-    # of this hidden backing table — matching the `NOT cpv.is_deleted` filter in the lazy join.
+    # Unlike the FK-only junction tables, this table has a real `team_id` column, so the
+    # framework's standard `team_id = X` guard scopes it, and as a plain column comparison it is
+    # pushed down into the federated PostgreSQL read, where the account-subquery predicate
+    # cannot be. Soft-deleted rows stay pruned so superseded `value_*` data can't be read via
+    # direct selection of this hidden backing table, matching the lazy join's filter.
     predicates=[
-        parse_expr("account_id IN (SELECT id FROM system.accounts)"),
         # `NOT is_deleted` (not `is_deleted != true`): the predicate is pushed into the federated
         # PostgreSQL query, where comparing a boolean column to an integer literal is a type error.
         parse_expr("NOT is_deleted"),
     ],
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
+        "team_id": IntegerDatabaseField(name="team_id"),
         "definition_id": UUIDDatabaseField(
             name="definition_id", description="Custom property definition this value is for."
         ),
@@ -128,12 +134,15 @@ account_custom_property_values: _AccountScopedPostgresTable = _AccountScopedPost
 )
 
 
-account_custom_property_values_history: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_custom_property_values_history: PostgresTable = PostgresTable(
     name="_account_custom_property_values_history",
     postgres_table_name="customer_analytics_custompropertyvalue",
+    access_scope="account",
+    access_control_id_field="account_id",
     description="Internal federated table (PostgreSQL `customer_analytics_custompropertyvalue`) of every custom property value write per account, superseded rows included; not for direct querying — use `system.accounts.custom_properties_history`.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Primary key of the custom property value row."),
+        "team_id": IntegerDatabaseField(name="team_id"),
         "definition_id": UUIDDatabaseField(
             name="definition_id", description="Custom property definition this value is for."
         ),
@@ -554,6 +563,8 @@ account_relationship_definitions: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_accountrelationshipdefinition",
     # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
+    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
+    resource_level_access_only=True,
     description="Customer analytics account relationship definitions: team-defined relationship types between PostHog users and accounts (CSM, Account executive, ...), one row per definition. Per-account assignments live in system.account_relationships and via the system.accounts.relationships lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Relationship definition UUID."),
@@ -620,6 +631,7 @@ accounts: PostgresTable = PostgresTable(
     # `account` here (where the per-object grants are stored) instead of the
     # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
     access_scope="account",
+    access_control_creator_id_field="created_by_id",
     description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Account UUID."),
@@ -659,6 +671,9 @@ accounts: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(
             name="updated_at", nullable=True, description="When the account record was last updated."
         ),
+        "churned_at": DateTimeDatabaseField(
+            name="churned_at", nullable=True, description="When the account churned; NULL if it has not churned."
+        ),
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
         "custom_properties": account_custom_properties_lazy_join,
@@ -673,6 +688,8 @@ custom_property_definitions: PostgresTable = PostgresTable(
     postgres_table_name="customer_analytics_custompropertydefinition",
     # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
     access_scope="account",
+    # Team-level definitions shared by every account, so a per-account grant never keys these rows.
+    resource_level_access_only=True,
     description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),

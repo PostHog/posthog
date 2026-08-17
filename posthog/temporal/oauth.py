@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Literal
+from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
@@ -41,11 +42,22 @@ POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
 
 # OAuth applications used to mint sandbox agent tokens. The Array applications also
 # issue interactive Desktop grants, so membership in this set does not prove sandbox origin.
+POSTHOG_CODE_OAUTH_APP_CLIENT_IDS = frozenset({ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_DEV})
+
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
-        ARRAY_APP_CLIENT_ID_US,
-        ARRAY_APP_CLIENT_ID_EU,
-        ARRAY_APP_CLIENT_ID_DEV,
+        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+    }
+)
+
+# The dedicated "PostHog AI" OAuth app. Tokens minted against it are only ever created
+# server-side for PostHog AI sandbox agents, so a request bearing one is authoritatively
+# attributable to PostHog AI regardless of spoofable user-agent or client headers.
+POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
         POSTHOG_AI_APP_CLIENT_ID_US,
         POSTHOG_AI_APP_CLIENT_ID_EU,
         POSTHOG_AI_APP_CLIENT_ID_DEV,
@@ -226,7 +238,9 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scopes: list[str]) -> str:
+def _mint_oauth_access_token(
+    user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
+) -> str:
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(
@@ -236,6 +250,7 @@ def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scope
         expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scope=" ".join(dict.fromkeys(scopes)),
         scoped_teams=[team_id],
+        sandbox_task_id=sandbox_task_id,
     )
 
     return token_value
@@ -249,6 +264,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     application: SandboxOAuthApplication = "array",
+    sandbox_task_id: UUID | None = None,
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     if include_mcp_builtin_agent_scope:
@@ -257,7 +273,7 @@ def create_oauth_access_token_for_user(
         # does not narrow the token's other scopes.
         resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:

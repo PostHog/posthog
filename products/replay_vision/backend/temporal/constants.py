@@ -47,15 +47,45 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
+# Minimum age of the deep-sweep watermark before a sweep tick runs the full-events-lookback catch-up
+# pass that picks up sessions whose matching events were older than the fast pass's narrow window.
+# Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
+# waits, so tuning either one moves the same cost-against-latency tradeoff.
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
+# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
+# share: it is catch-up work, and a tick that overruns retries both queries.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+
+# Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
+# proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
+# Sized an order of magnitude above the healthy post-optimization p95 so only pathological
+# filter configurations are ever throttled.
+SWEEP_READ_BUDGET_BYTES_24H = 200 * 1024**3
+# Cadence stretch ceiling: worst case one sweep an hour, so a throttled scanner stays usable.
+SWEEP_THROTTLE_MAX_FACTOR = 12
+
+READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
+READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
+READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
+READ_METER_INTERVAL = dt.timedelta(hours=1)
+READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
+
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
 # Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
-# The agentic refresh may run several tool rounds and up to two cold summaries. Its in-process budget
-# (_AGENT_BUDGET_BACKGROUND_S) keeps typical runs well under this, so the activity finishes cleanly and
-# a suggestion lands; this cap is the backstop for a hung provider.
+# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
+# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
+# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
+# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
+
+# What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
+# scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
+# kills the attempt after the candidates were found, so the tick retries without ever dispatching.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -79,20 +109,8 @@ LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 
 
-# Capped so `replay-vision-apply-scanner-{scanner_uuid:36}-{session_id}` fits the 255-char `ReplayObservation.workflow_id` column.
-MAX_SESSION_ID_LENGTH = 128
-
 # Bounded so broker errors surface as activity failures instead of getting lost in the producer buffer.
 KAFKA_DELIVERY_TIMEOUT_S = 10.0
-
-# Sessions shorter than this don't carry enough signal for the LLM to analyze.
-MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S = 15
-
-# Sessions with less than this much actual interaction are skipped — they're mostly idle.
-MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 10
-
-# Sessions with more than 1 hour of active interaction take too long to analyze well.
-MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
 
 
 # Signals source identity — must match the registered (SourceProduct, SourceType) pair and schema variant.
@@ -109,6 +127,8 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
+CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
+
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
@@ -120,6 +140,41 @@ def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     return min(
         MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
         MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+    )
+
+
+BACKFILL_SCANNER_WORKFLOW_NAME = "replay-vision-backfill-scanner"
+BACKFILL_SCHEDULE_ID_PREFIX = "replay-vision-backfill"
+# Search-attribute value stamped on every per-backfill schedule so the reconciler can list and reap them.
+BACKFILL_SCHEDULE_TYPE = "replay-vision-backfill-tick"
+
+# Each tick dispatches at most the backfill sub-cap, so a short interval keeps throughput bounded by
+# in-flight capacity rather than tick cadence; overlap SKIP means a slow tick absorbs the next fire.
+BACKFILL_TICK_INTERVAL = dt.timedelta(minutes=1)
+# Covers the candidate query's ClickHouse budget plus child dispatch fan-out.
+BACKFILL_TICK_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+
+PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
+FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
+BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+REAP_BACKFILL_SCHEDULES_TIMEOUT = dt.timedelta(minutes=3)
+
+# A backfill's dispatches count toward the shared per-scanner/per-team caps but never fill more than
+# this many slots, so live sweeps always retain rasterizer + provider capacity.
+MAX_IN_FLIGHT_APPLIES_PER_BACKFILL = 50
+
+
+def backfill_schedule_id(backfill_id: UUID) -> str:
+    return f"{BACKFILL_SCHEDULE_ID_PREFIX}-{backfill_id}"
+
+
+def backfill_dispatch_budget(scanner_in_flight: int, team_in_flight: int, backfill_in_flight: int) -> int:
+    """How many apply-scanner children one backfill tick may dispatch: the shared sweep headroom
+    further bounded by the backfill sub-cap. Pure, so it is safe inside deterministic workflow code."""
+    return min(
+        in_flight_headroom(scanner_in_flight, team_in_flight),
+        MAX_IN_FLIGHT_APPLIES_PER_BACKFILL - backfill_in_flight,
     )
 
 

@@ -41,11 +41,6 @@ import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import {
-    MAX_REPLAY_IFRAME_HTML_CHARS,
-    ReplayIframeData,
-    persistReplayIframeData,
-} from 'scenes/heatmaps/replayIframeData'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -59,6 +54,12 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+
+import {
+    MAX_REPLAY_IFRAME_HTML_CHARS,
+    ReplayIframeData,
+    persistReplayIframeData,
+} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
@@ -149,6 +150,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     onRecordingDeleted?: () => void
     autoPlay?: boolean
     withSidebar?: boolean
+    noMeta?: boolean
+    noDock?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
@@ -538,6 +541,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    isSnapshotUnauthorized: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -726,6 +730,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
     } // snapshotDataLogic
@@ -839,6 +846,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: any
     }
     restartIframePlayback: () => {
+        value: true
+    }
+    retryLoadingSnapshots: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1130,6 +1140,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
+                'isSnapshotUnauthorized',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1160,6 +1171,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1190,6 +1202,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
@@ -2538,24 +2551,34 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotsForSourceFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
+                )
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotSourcesFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
+                )
             }
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError('snapshotSourceLoadExhausted')
+            actions.setPlayerError(
+                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
+            )
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
             actions.setPlayerError('snapshotProcessingFailed')
+        },
+        retryLoadingSnapshots: () => {
+            actions.clearPlayerError()
+            actions.retrySnapshotLoading()
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {

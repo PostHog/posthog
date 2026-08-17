@@ -9,7 +9,9 @@ from unittest import mock
 
 from django.db import InterfaceError, OperationalError
 
+from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -24,7 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
@@ -85,6 +90,7 @@ def _make_source(error: Exception, non_retryable: dict[str, str | None]):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_non_retryable_errors.return_value = non_retryable
+    source.get_required_parent_schemas.return_value = []
     source.source_for_pipeline.side_effect = error
     return source
 
@@ -172,6 +178,29 @@ async def test_unparseable_config_routes_through_handler():
 
 
 @pytest.mark.asyncio
+async def test_schema_deleted_mid_sync_routes_through_handler():
+    # The schema can be deleted (or soft-deleted) between the job being created and this
+    # activity's mid-run re-fetch of it, e.g. a user removes the table while its sync is in
+    # flight. Every retry re-reads the same gone row, so it must be treated as non-retryable
+    # instead of crash-looping on every attempt.
+    error = ExternalDataSchema.DoesNotExist("ExternalDataSchema matching query does not exist.")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(side_effect=error)),
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await import_data_activity_sync(_inputs())
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args.args[5] is error
+    source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
@@ -230,6 +259,68 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
 
 
 @pytest.mark.asyncio
+async def test_http_404_routes_through_handler_without_source_opt_in():
+    # A 404 from the shared REST engine's fallback raise_for_status() path means the configured
+    # endpoint/resource doesn't exist — every retry hits the identical dead URL. It must be honored
+    # by status code even when the source's get_non_retryable_errors doesn't list the message, so
+    # any REST-based source stops instead of retrying to the activity max and minting error-tracking
+    # noise on every attempt.
+    error = HTTPError(
+        "404 Client Error: Not Found for url: https://api.example.com/export", response=mock.MagicMock(status_code=404)
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_401_is_reraised_for_activity_retry():
+    # A 401 can mean an access token expired mid-run — the REST engine's own auth layer re-mints
+    # the token on the next attempt, so this must stay retryable rather than being swept into the
+    # same non-retryable bucket as a 404 (which has no self-recovering path).
+    error = HTTPError(
+        "401 Client Error: Unauthorized for url: https://api.example.com/export",
+        response=mock.MagicMock(status_code=401),
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        with pytest.raises(HTTPError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+    logger.aexception.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
@@ -258,6 +349,11 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     [
         ("operational_error", OperationalError, "query_wait_timeout"),
         ("interface_error", InterfaceError, "connection already closed"),
+        # Raised by shared pipeline code (e.g. cdp_producer's should_run check) when a lookup
+        # against PostHog's own app DB fails — already reclassified clear of wording a customer's
+        # misconfigured source host would produce, so it must get the same NonReportableError
+        # treatment as the Django exception types above, not fall through to the default branch.
+        ("posthog_internal_database_error", PostHogInternalDatabaseError, "Failed to check hog function triggers"),
     ]
 )
 @pytest.mark.asyncio
@@ -335,6 +431,37 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
 
     # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
     # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
+    # The shared REST engine compiles data_selector/cursor_path/resolve-param fields as JSONPath at
+    # sync time, not manifest-validation time — a malformed path (e.g. a typo'd data_selector) raises
+    # jsonpath_ng's JSONPathError deep in shared code. It's a fixed string, so it fails identically on
+    # every retry regardless of source. It must be non-retryable by type, since jsonpath_ng's error
+    # messages vary across parse/lex failure shapes and can't be matched via get_non_retryable_errors.
+    error = JsonPathParserError("Parse error at 1:0 near token . (.)")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
     with (
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
         mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
@@ -477,3 +604,135 @@ async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override
 
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.api_version == expected
+
+
+def _fanout_child_schema() -> mock.MagicMock:
+    schema = mock.MagicMock()
+    schema.name = "issue_events"
+    return schema
+
+
+def _fanout_source() -> mock.MagicMock:
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_required_parent_schemas.return_value = ["issues"]
+    return source
+
+
+def _parent(
+    should_sync: bool,
+    initial_sync_complete: bool,
+    sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
+) -> mock.MagicMock:
+    parent = mock.MagicMock()
+    parent.should_sync = should_sync
+    parent.initial_sync_complete = initial_sync_complete
+    parent.sync_type = sync_type
+    parent.is_incremental = sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+    return parent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "parent",
+    [None, "disabled", "never_synced", "append_mode", "cdc_mode"],
+)
+async def test_unusable_parent_falls_back_to_the_api_path(parent):
+    # A child enabled without its parent is a config that syncs today, so turning the flag on
+    # must leave it working: fall back to the parent API instead of failing the run. Append and
+    # CDC parents hold more than one row per key, so the reader must not stream them either.
+    parent_obj = None
+    if parent == "disabled":
+        parent_obj = _parent(should_sync=False, initial_sync_complete=True)
+    elif parent == "never_synced":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=False)
+    elif parent == "append_mode":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, sync_type=ExternalDataSchema.SyncType.APPEND)
+    elif parent == "cdc_mode":
+        parent_obj = _parent(should_sync=True, initial_sync_complete=True, sync_type=ExternalDataSchema.SyncType.CDC)
+
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(module, "get_schema_if_exists", return_value=parent_obj),
+    ):
+        result = await module._warehouse_parent_reuse_available(
+            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
+        )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sync_type",
+    [ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.FULL_REFRESH],
+)
+async def test_synced_parent_uses_the_warehouse_path(sync_type):
+    # Merge and full-refresh parents both hold one row per key, so both drive the reader.
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(
+            module,
+            "get_schema_if_exists",
+            return_value=_parent(should_sync=True, initial_sync_complete=True, sync_type=sync_type),
+        ),
+    ):
+        result = await module._warehouse_parent_reuse_available(
+            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
+        )
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_fanout_gate_result_threaded_into_source_inputs():
+    # The gate's decision must reach the source via SourceInputs — if this wiring drops,
+    # every child silently falls back to re-pulling the parent API with the flag on.
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.get_required_parent_schemas.return_value = ["issues"]
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    source.resolve_api_version = lambda p: p or "v1"
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
+        mock.patch.object(
+            module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
+        ),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.fanout_warehouse_reuse is True
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_inert_when_flag_disabled():
+    with (
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
+        mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
+    ):
+        result = await module._warehouse_parent_reuse_available(
+            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
+        )
+
+    assert result is False
+    schema_lookup.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_parent_gate_inert_for_sources_without_requirements():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_required_parent_schemas.return_value = []
+
+    with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
+        result = await module._warehouse_parent_reuse_available(
+            source, _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
+        )
+
+    assert result is False
+    flag_check.assert_not_called()

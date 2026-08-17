@@ -507,6 +507,33 @@ def test_error_string_matches_a_retryable_key(status_code):
 
 
 @pytest.mark.parametrize(
+    "error_message",
+    [
+        pytest.param(
+            "HTTPSConnectionPool(host='sheets.googleapis.com', port=443): Max retries exceeded with url: "
+            '/v4/spreadsheets/abc123/values/Sheet1%211%3A1 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+            "(host='sheets.googleapis.com', port=443): Read timed out. (read timeout=120.0)\"))",
+            id="read_timeout_after_retries_exhausted",
+        ),
+        pytest.param(
+            "HTTPSConnectionPool(host='sheets.googleapis.com', port=443): Max retries exceeded with url: "
+            "/v4/spreadsheets/abc123 (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection "
+            "object at 0x7f0000000000>: Failed to establish a new connection: [Errno 110] Connection timed out'))",
+            id="connection_refused_after_retries_exhausted",
+        ),
+    ],
+)
+def test_error_string_matches_a_retryable_key_for_network_errors(error_message):
+    """`_retry_on_transient_api_error` also retries `requests.exceptions.ConnectionError`/`Timeout`/
+    `ChunkedEncodingError` in-process; once that budget is exhausted, urllib3 re-raises them wrapped
+    as "Max retries exceeded with url". If that prefix drops out of `get_retryable_errors()`, a
+    transient network blip starts polluting error tracking even though Temporal still retries it."""
+    retryable_errors = GoogleSheetsSource().get_retryable_errors()
+
+    assert any(key in error_message for key in retryable_errors)
+
+
+@pytest.mark.parametrize(
     "call_site",
     [
         pytest.param(
@@ -674,6 +701,20 @@ def test_validate_credentials_maps_api_error_to_friendly_message(api_message, ex
     assert expected_fragment in (error_message or "")
     # The raw gspread "APIError: [400]: ..." dump must not reach the user.
     assert "APIError" not in (error_message or "")
+
+
+def test_validate_credentials_rejects_non_sheets_url_with_actionable_message():
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        # gspread raises this (with an empty str()) when the value has no spreadsheet key.
+        mock_client.return_value.open_by_url.side_effect = gspread.exceptions.NoValidUrlKeyFound()
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://example.com/not-a-sheet")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    # The empty str() would otherwise surface as a bare "Invalid credentials"; point at the URL.
+    assert "Google Sheets URL" in (error_message or "")
 
 
 def test_validate_credentials_permission_denied_names_service_account(settings):

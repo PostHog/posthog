@@ -53,7 +53,12 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import {
+    HogWatcherService,
+    HogWatcherState,
+    sameWatcherState,
+    sameWatcherStates,
+} from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -64,10 +69,10 @@ import {
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
 } from './utils'
+import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
-import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -126,7 +131,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
-    private hogWatcherMirror: HogWatcherService | null
+    private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -309,10 +314,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await mirrorCompare(
+            const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror?.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
             )
 
             res.json(summary)
@@ -330,10 +336,11 @@ export class CdpApi {
                 return
             }
 
-            const summary = await mirrorCompare(
+            const summary = await dualRead(
                 'hog-watcher.getPersistedState',
                 () => this.hogWatcher.getPersistedState(id),
-                () => this.hogWatcherMirror?.getPersistedState(id)
+                () => this.hogWatcherMirror.getPersistedState(id),
+                sameWatcherState
             )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
@@ -345,22 +352,22 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await Promise.all([
-                    this.hogWatcher.forceStateChange(hogFunction, state),
-                    mirrorCall('hog-watcher.forceStateChange', () =>
-                        this.hogWatcherMirror?.forceStateChange(hogFunction, state)
-                    ),
-                ])
+                await dualWrite(
+                    'hog-watcher.forceStateChange',
+                    () => this.hogWatcher.forceStateChange(hogFunction, state),
+                    () => this.hogWatcherMirror.forceStateChange(hogFunction, state)
+                )
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
             res.json(
-                await mirrorCompare(
+                await dualRead(
                     'hog-watcher.getPersistedState',
                     () => this.hogWatcher.getPersistedState(id),
-                    () => this.hogWatcherMirror?.getPersistedState(id)
+                    () => this.hogWatcherMirror.getPersistedState(id),
+                    sameWatcherState
                 )
             )
         }
@@ -369,10 +376,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await mirrorCompare(
+                const allStates = await dualRead(
                     'hog-watcher.getAllFunctionStates',
                     () => this.hogWatcher.getAllFunctionStates(),
-                    () => this.hogWatcherMirror?.getAllFunctionStates()
+                    () => this.hogWatcherMirror.getAllFunctionStates(),
+                    sameWatcherStates
                 )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
@@ -766,9 +774,15 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
 
-            invocation.state.currentAction = current_action_id
+            // Real event ingestion evaluates trigger filters before creating an invocation. A test run has to
+            // execute the trigger action itself so callers can verify whether their supplied globals match.
+            // Without this explicit position, executeCurrentAction starts after the trigger by design.
+            const startingActionId =
+                current_action_id ??
+                compoundConfiguration.actions?.find((action: HogFlowAction) => action.type === 'trigger')?.id
+            invocation.state.currentAction = startingActionId
                 ? {
-                      id: current_action_id,
+                      id: startingActionId,
                       startedAtTimestamp: Date.now(),
                   }
                 : undefined
@@ -815,8 +829,8 @@ export class CdpApi {
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
-                nextActionId: result.invocation.state.currentAction?.id,
-                status: result.error ? 'error' : 'success',
+                nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,
+                status: result.error ? 'error' : result.skipped ? 'skipped' : 'success',
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -73,17 +73,19 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel>
+        dashboard?: DashboardType<QueryBasedInsightModel> | null
         dashboardMode?: DashboardMode | null
         dashboardModeSource?: DashboardEventSource
+        loading?: boolean
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
             dashboardModeSource = DashboardEventSource.Browser,
+            loading = false,
         } = opts
 
-        const logic = dashboardLogic({ id: dashboard.id, dashboard })
+        const logic = dashboardLogic({ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined })
         logic.mount()
 
         if (dashboardMode) {
@@ -91,13 +93,33 @@ describe('DashboardHeader', () => {
         }
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
-                <DashboardHeader />
+            <BindLogic
+                logic={dashboardLogic}
+                props={{ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined }}
+            >
+                <DashboardHeader loading={loading} />
             </BindLogic>
         )
 
         return { logic }
     }
+
+    it('keeps the scene header visible while the dashboard is loading', () => {
+        const { logic } = renderHeader({ dashboard: null, loading: true })
+
+        expect(document.querySelector('.scene-title-section')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('keeps the dashboard name and description visible during a background load', () => {
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD, loading: true })
+
+        expect(screen.getByText('Test Dashboard')).toBeInTheDocument()
+        expect(screen.getByText('A test dashboard')).toBeInTheDocument()
+
+        logic.unmount()
+    })
 
     it.each([
         {

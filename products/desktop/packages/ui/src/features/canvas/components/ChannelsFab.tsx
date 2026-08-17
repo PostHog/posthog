@@ -1,5 +1,4 @@
 import {
-  ChartBarIcon,
   CubeIcon,
   FileTextIcon,
   HashIcon,
@@ -19,9 +18,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
-import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -38,8 +35,8 @@ import { useState } from "react";
  * of whichever sidebar pane is showing.
  *
  * The same button on both panes, so "create" is always the same corner: given a
- * channel it creates inside it (task, canvas), and either way it can create a
- * channel — the list has no other entry point for that.
+ * channel it creates inside it (task, canvas); from the list it creates a
+ * channel, which has no other entry point.
  */
 export function ChannelsFab({ channelId }: { channelId?: string }) {
   const channelsLayout = useChannelsLayout();
@@ -47,7 +44,6 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
   const hasDraft = useDraftStore(
     (s) => !isContentEmpty(s.drafts["task-input"]),
   );
-  const createAndOpenCanvas = useCreateAndOpenDashboard(channelId);
   // New task has no /website mirror yet, so it jumps back to Code unless we're
   // already in the Channels space — same rule as the nav's New task row.
   const inChannels = useRouterState({
@@ -81,7 +77,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       variant="primary"
       size="icon-lg"
       aria-label="Create"
-      className="absolute right-3 bottom-3 z-10 rounded-full shadow-lg"
+      className="absolute right-3 bottom-3 z-10 rounded-full"
     >
       <PlusIcon size={20} weight="bold" />
       {channelsLayout && hasDraft && (
@@ -123,24 +119,9 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
             <FileTextIcon size={14} className="text-gray-9" />
             New task
           </DropdownMenuItem>
-          {channelId && (
-            <DropdownMenuItem
-              onClick={() => {
-                // Create + open a canvas with the default template directly;
-                // the canvas's own composer drives what gets built.
-                trackAndCreateCanvas(
-                  channelId,
-                  undefined,
-                  "sidebar",
-                  () => void createAndOpenCanvas(),
-                );
-              }}
-            >
-              <ChartBarIcon size={14} className="text-gray-9" />
-              New canvas
-            </DropdownMenuItem>
-          )}
-          {channelsLayout && (
+          {/* Inside a space the menu is about filling that space; making
+              another one belongs to the list this button also serves. */}
+          {channelsLayout && !channelId && (
             <>
               <DropdownMenuSeparator />
               {newChannelItem}

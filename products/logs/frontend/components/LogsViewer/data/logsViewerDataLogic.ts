@@ -994,7 +994,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
     })),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         handleQueryChange: ({ filterType, extraProps }) => {
             if (values.hasRunQuery) {
                 posthog.capture('logs filter changed', { filter_type: filterType, ...extraProps })
@@ -1201,7 +1201,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setNewLogUuids([])
                 }
             } catch (error) {
-                if (signal.aborted) {
+                if (signal.aborted || !logsViewerDataLogic.isMounted(props.id)) {
                     return
                 }
                 console.error('Live tail polling error:', error)
@@ -1214,17 +1214,25 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 })
                 actions.setLiveTailRunning(false)
             } finally {
-                actions.setLiveTailAbortController(null)
-                if (values.liveTailRunning) {
-                    cache.disposables.add(() => {
-                        const timerId = setTimeout(
-                            () => {
-                                actions.pollForNewLogs()
-                            },
-                            Math.max(duration, values.liveTailPollInterval)
-                        )
-                        return () => clearTimeout(timerId)
-                    }, 'liveTailTimer')
+                // beforeUnmount aborts the in-flight controller and marks liveTailRunning false,
+                // but those are plain dispatches during teardown, not guaranteed to run their
+                // listeners before the logic's keyed path is torn down. So an unmount that lands
+                // while this request is in flight can resolve normally afterwards. Re-check both
+                // signals before touching actions/values, or this can dispatch against an
+                // already-unmounted keyed logic instance and throw "[KEA] Can not find path ...".
+                if (!signal.aborted && logsViewerDataLogic.isMounted(props.id)) {
+                    actions.setLiveTailAbortController(null)
+                    if (values.liveTailRunning) {
+                        cache.disposables.add(() => {
+                            const timerId = setTimeout(
+                                () => {
+                                    actions.pollForNewLogs()
+                                },
+                                Math.max(duration, values.liveTailPollInterval)
+                            )
+                            return () => clearTimeout(timerId)
+                        }, 'liveTailTimer')
+                    }
                 }
             }
         },

@@ -10,12 +10,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckIncrementalApi,
     CheckSchemaNameResponseApi,
     CreateTableFromUploadApi,
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseExpressionApi,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
@@ -26,6 +28,7 @@ import type {
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
     FixHogqlListParams,
+    IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
@@ -33,6 +36,7 @@ import type {
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
+    PaginatedDataWarehouseExpressionListApi,
     PaginatedDataWarehouseModelPathListApi,
     PaginatedDataWarehouseSavedQueryColumnAnnotationListApi,
     PaginatedDataWarehouseSavedQueryDraftListApi,
@@ -43,6 +47,7 @@ import type {
     PaginatedViewLinkListApi,
     PaginatedWarehouseColumnAnnotationListApi,
     PaginatedWarehouseColumnStatisticsListApi,
+    PatchedDataWarehouseExpressionApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryColumnAnnotationApi,
     PatchedDataWarehouseSavedQueryDraftApi,
@@ -60,6 +65,7 @@ import type {
     SavedQueryColumnAnnotationsListParams,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -68,6 +74,7 @@ import type {
     WarehouseColumnAnnotationsListParams,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
+    WarehouseExpressionsListParams,
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
@@ -1298,6 +1305,134 @@ export const warehouseDagList = async (projectId: string, options?: RequestInit)
     })
 }
 
+export const getWarehouseExpressionsListUrl = (projectId: string, params?: WarehouseExpressionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_expressions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_expressions/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsList = async (
+    projectId: string,
+    params?: WarehouseExpressionsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataWarehouseExpressionListApi> => {
+    return apiMutator<PaginatedDataWarehouseExpressionListApi>(getWarehouseExpressionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseExpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsCreate = async (
+    projectId: string,
+    dataWarehouseExpressionApi: NonReadonly<DataWarehouseExpressionApi>,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseExpressionApi),
+    })
+}
+
+export const getWarehouseExpressionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseExpressionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseExpressionApi: NonReadonly<DataWarehouseExpressionApi>,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseExpressionApi),
+    })
+}
+
+export const getWarehouseExpressionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseExpressionApi?: NonReadonly<PatchedDataWarehouseExpressionApi>,
+    options?: RequestInit
+): Promise<DataWarehouseExpressionApi> => {
+    return apiMutator<DataWarehouseExpressionApi>(getWarehouseExpressionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataWarehouseExpressionApi),
+    })
+}
+
+export const getWarehouseExpressionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_expressions/${id}/`
+}
+
+/**
+ * Create, read, update and delete saved HogQL expressions that appear as virtual fields on tables.
+ */
+export const warehouseExpressionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseExpressionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getWarehouseModelPathsListUrl = (projectId: string, params?: WarehouseModelPathsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1655,14 +1790,14 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryRunApi),
     })
 }
 
@@ -1681,6 +1816,29 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueriesCheckIncrementalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/check_incremental/`
+}
+
+/**
+ * Report whether a query can be materialized incrementally, without running it.
+ *
+ * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+ * the editor explain why the incremental option is unavailable before anything is saved.
+ */
+export const warehouseSavedQueriesCheckIncrementalCreate = async (
+    projectId: string,
+    checkIncrementalApi: CheckIncrementalApi,
+    options?: RequestInit
+): Promise<IncrementalEligibilityApi> => {
+    return apiMutator<IncrementalEligibilityApi>(getWarehouseSavedQueriesCheckIncrementalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(checkIncrementalApi),
     })
 }
 
