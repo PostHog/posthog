@@ -1,7 +1,7 @@
 """`hogli auth:posthog:*`, which signs hogli in to a PostHog host once, for every command.
 
-Separate from `posthog_auth` so importing the shared token helper costs no click machinery: a
-command that just needs a token imports the module, not this surface.
+The commands live here so `posthog_auth` stays a plain helper: a command that just needs a token
+imports that module and picks up none of these.
 
     hogli auth:posthog:login     # opens a browser; no API key to mint
     hogli auth:posthog:status    # which host, which scopes, how long the token has left
@@ -117,6 +117,9 @@ def posthog_status(host: str, as_json: bool) -> None:
 def posthog_logout(host: str) -> None:
     host = host.rstrip("/")
     result = posthog_auth.logout(host)
+    if found := posthog_auth.key_in_env():
+        # This is the command where "signed out" is acted on, and the key keeps every command signed in.
+        click.secho(f"Note: {found.variable} is still set, and hogli keeps using it.", fg="yellow")
     if not result.forgotten:
         click.echo(f"No cached credential for {host}.")
         return
@@ -126,4 +129,4 @@ def posthog_logout(host: str) -> None:
     click.echo(f"Forgot the cached credential for {host}.")
     if result.error:
         click.secho(result.error, fg="yellow", err=True)
-    click.secho("The token may still work. Revoke it under Settings → Connected apps.", fg="yellow", err=True)
+    click.secho("The token may still work. Revoke it under Settings → Connected applications.", fg="yellow", err=True)

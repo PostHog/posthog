@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import io
+import os
 import json
 import stat
 import time
 import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -60,20 +61,23 @@ def _port_from(uri: str) -> int:
     return int(uri.rsplit(":", 1)[1].split("/")[0])
 
 
-class _Stdin(io.StringIO):
-    """Stands in for the terminal a login reads a pasted redirect from. Pinned because `-s` hands
-    the tests the real one."""
+@contextmanager
+def _terminal(text: str) -> Iterator[None]:
+    # A real pipe rather than a StringIO, because the reader polls with select() and needs an fd.
+    # `_readable_terminal` is stubbed since a pipe is not a terminal and pytest's own stdin is not
+    # one either, so without this the paste path never starts.
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, text.encode())
+    try:
+        with os.fdopen(read_fd) as stdin:
+            with patch.object(posthog_auth.sys, "stdin", stdin), _paste_path(True):
+                yield
+    finally:
+        os.close(write_fd)
 
-    def __init__(self, text: str = "", *, tty: bool = True) -> None:
-        super().__init__(text)
-        self._tty = tty
 
-    def isatty(self) -> bool:
-        return self._tty
-
-
-def _terminal(text: str = "", *, tty: bool = True) -> Any:
-    return patch.object(posthog_auth.sys, "stdin", _Stdin(text, tty=tty))
+def _paste_path(available: bool) -> Any:
+    return patch.object(posthog_auth, "_readable_terminal", lambda: available)
 
 
 # Stands in for `requests.post`, recording every call and replaying a canned response per endpoint,
@@ -335,6 +339,8 @@ def test_a_login_reuses_the_registered_client_when_its_ceiling_already_covers_th
     with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     assert not poster.reached("register")
+    # Revoking the credential this one replaces would take the new token with it, since the server
+    # sweeps every token for the client rather than the one presented.
     assert not poster.reached("revoke")
     assert credential.client_id == "client-abc"
 
@@ -469,7 +475,7 @@ def test_a_redirect_that_does_not_answer_our_request_is_rejected(query: dict[str
 def test_the_callback_listener_ignores_paths_that_are_not_the_redirect() -> None:
     # A browser also fetches /favicon.ico, so treating any request as the callback would end the wait
     # on the wrong one.
-    with posthog_auth._CallbackServer() as server, _terminal(tty=False):
+    with posthog_auth._CallbackServer() as server, _paste_path(False):
         with patch.object(posthog_auth.webbrowser, "open", lambda url: True):
             threading.Thread(
                 target=lambda: (
@@ -486,7 +492,7 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
     # doesn't detach. Opened in the foreground it would wait on the redirect only this listener can
     # serve, so the login would hang until its timeout.
     released = threading.Event()
-    with posthog_auth._CallbackServer() as server, _terminal(tty=False):
+    with posthog_auth._CallbackServer() as server, _paste_path(False):
 
         def blocking_open(url: str) -> bool:
             # What a real blocking browser does: fetch the redirect, then stay open.
@@ -501,6 +507,30 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
     released.set()
 
 
+@pytest.mark.parametrize(
+    "foreground, expected",
+    [
+        (True, True),
+        # Reading a terminal from a background process group raises SIGTTIN, which stops the whole
+        # process, so `hogli auth:posthog:login &` would hang instead of finishing on the listener.
+        (False, False),
+    ],
+)
+def test_the_paste_reader_only_runs_in_the_foreground(foreground: bool, expected: bool) -> None:
+    ours = os.getpgrp()
+    with patch.object(posthog_auth.sys, "stdin", _FakeTty()):
+        with patch.object(posthog_auth.os, "tcgetpgrp", lambda fd: ours if foreground else ours + 1):
+            assert posthog_auth._readable_terminal() is expected
+
+
+class _FakeTty:
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return 0
+
+
 def test_a_login_prints_the_url_and_takes_the_redirect_back_by_hand(capsys: pytest.CaptureFixture[str]) -> None:
     # A browser on another machine never reaches this listener, so without the printed URL and the
     # redirect typed back, a devbox login waits out its timeout with the code already on screen.
@@ -512,16 +542,6 @@ def test_a_login_prints_the_url_and_takes_the_redirect_back_by_hand(capsys: pyte
 
 
 # --- the CLI surface ----------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "command",
-    [posthog_auth_cli.posthog_login, posthog_auth_cli.posthog_status, posthog_auth_cli.posthog_logout],
-)
-def test_help_works_with_nothing_configured(runner: CliRunner, command: Any) -> None:
-    # tools/hogli/tests/test_cli.py asserts --help exits 0 for every manifest `click:` entry.
-    result = runner.invoke(command, ["--help"])
-    assert result.exit_code == 0 and "Usage:" in result.output
 
 
 def test_status_exits_not_configured_when_nothing_is_cached(runner: CliRunner) -> None:
@@ -589,29 +609,30 @@ def test_logout_reports_whether_there_was_anything_to_forget(runner: CliRunner) 
     assert "No cached credential" in runner.invoke(posthog_auth_cli.posthog_logout, []).output
 
 
-def test_logout_revokes_the_refresh_token_before_dropping_the_file() -> None:
-    # Deleting the file alone leaves the refresh token minting access tokens for anyone who copied
-    # it, with nothing local left to name it by.
-    posthog_auth.save(_credential())
+@pytest.mark.parametrize(
+    "refresh_token, expected_token, expected_hint",
+    [
+        # The refresh token is the one that matters: it outlives the access token and mints more.
+        ("phr_cached", "phr_cached", "refresh_token"),
+        # Without this branch the absent refresh token goes out as token=None, revoking nothing.
+        (None, "pha_cached", "access_token"),
+    ],
+)
+def test_logout_revokes_the_credential_before_dropping_the_file(
+    refresh_token: str | None, expected_token: str, expected_hint: str
+) -> None:
+    # Deleting the file alone leaves the token live for anyone who copied it, with nothing local
+    # left to name it by.
+    posthog_auth.save(_credential(refresh_token=refresh_token))
     poster = _Poster()
     with patch.object(posthog_auth.requests, "post", poster):
         result = posthog_auth.logout(_HOST)
     revoked = poster.body_for("revoke")
-    assert revoked["token"] == "phr_cached"
-    assert revoked["token_type_hint"] == "refresh_token"
+    assert revoked["token"] == expected_token
+    assert revoked["token_type_hint"] == expected_hint
     assert revoked["client_id"] == "client-abc"
     assert result.revoked and result.forgotten
     assert posthog_auth.load(_HOST) is None
-
-
-def test_logout_revokes_the_access_token_when_the_credential_has_no_refresh_token() -> None:
-    # Sending the absent refresh token would post token=None and leave the access token live.
-    posthog_auth.save(_credential(refresh_token=None))
-    poster = _Poster()
-    with patch.object(posthog_auth.requests, "post", poster):
-        posthog_auth.logout(_HOST)
-    revoked = poster.body_for("revoke")
-    assert revoked["token"] == "pha_cached" and revoked["token_type_hint"] == "access_token"
 
 
 def test_logout_still_drops_the_credential_when_revocation_fails(runner: CliRunner) -> None:

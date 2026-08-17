@@ -19,9 +19,9 @@ prints the URL as well as opening it, and accepts the redirect typed back in, so
 on a machine whose browser lives somewhere else.
 
 Credentials are cached per host at ``~/.config/posthog/oauth/<host>.json`` with mode 0600,
-alongside the registered client, so one login serves every hogli command on that host. Dropping a
-credential revokes it at the server first, since a deleted file leaves a refresh token that still
-mints access tokens for anyone holding a copy.
+alongside the registered client, so one login serves every hogli command on that host. Logging out
+revokes at the server before deleting the file, since a deleted file leaves a refresh token that
+still mints access tokens for anyone holding a copy.
 
 Nothing here opens a browser off a tty. A piped or agent-driven caller with no cached credential
 gets ``AuthError`` carrying exit code 78 (sysexits ``EX_CONFIG``), so it can branch on the code
@@ -36,6 +36,7 @@ import json
 import time
 import queue
 import base64
+import select
 import hashlib
 import secrets
 import threading
@@ -101,8 +102,8 @@ class Credential:
 
     host: str
     client_id: str
-    access_token: str
-    refresh_token: str | None = None
+    access_token: str = field(repr=False)
+    refresh_token: str | None = field(default=None, repr=False)
     expires_at: float | None = None
     granted: tuple[str, ...] = ()
     registered: tuple[str, ...] = ()
@@ -246,14 +247,15 @@ def _revoke_superseded(credential: Credential) -> None:
         click.secho(
             f"Could not revoke the previous credential for {credential.host}: {exc.message}", fg="yellow", err=True
         )
-        click.secho("It is still live. Revoke it under Settings → Connected apps.", fg="yellow", err=True)
+        click.secho("It is still live. Revoke it under Settings → Connected applications.", fg="yellow", err=True)
 
 
 def revoke(credential: Credential) -> None:
     """Tell the server to drop the grant, so a copy of the token stops working.
 
-    The refresh token goes when there is one, since it outlives the access token and mints more,
-    and django-oauth-toolkit's `RefreshToken.revoke` takes the paired access token with it.
+    The refresh token goes when there is one, since it outlives the access token and mints more.
+    PostHog's `revoke_token` override then sweeps every token and grant for that user and client,
+    not just the one presented, so this must only ever run against a client hogli is done with.
     """
     hint = "refresh_token" if credential.refresh_token else "access_token"
     revoked = credential.refresh_token or credential.access_token
@@ -350,7 +352,12 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
     # leaves a dead OAuth client plus a live grant behind each time.
     superseded: Credential | None = None
     if existing is not None and set(wanted) <= set(existing.requested):
-        client_id, registered, requested = existing.client_id, existing.registered, existing.requested
+        # No revocation on this path, though the old tokens are about to be overwritten: the server
+        # sweeps every token for the client, so revoking here would kill the one just minted. The
+        # orphan dies with the next logout, which sweeps the same family.
+        client_id = existing.client_id
+        registered = existing.registered
+        requested = existing.requested
     else:
         # Carry forward what the old client could do, so authorizing for a new scope doesn't
         # silently narrow another command that was already working.
@@ -643,34 +650,62 @@ class _CallbackServer:
     def _await_code(self, *, state: str) -> str:
         deadline = time.monotonic() + _LOGIN_TIMEOUT_SECONDS
         self._server.timeout = 1.0
-        pasted = _pasted_redirects()
-        while self._server.query is None:
-            if pasted is not None and not pasted.empty():
-                return _code_from(pasted.get(), state=state)
-            if time.monotonic() > deadline:
-                raise AuthError("Timed out waiting for the browser to come back.", exit_code=1)
-            self._server.handle_request()
-        return _code_from(self._server.query, state=state)
+        done = threading.Event()
+        pasted = _pasted_redirects(done)
+        try:
+            while self._server.query is None:
+                if pasted is not None and not pasted.empty():
+                    return _code_from(pasted.get(), state=state)
+                if time.monotonic() > deadline:
+                    raise AuthError("Timed out waiting for the browser to come back.", exit_code=1)
+                self._server.handle_request()
+            return _code_from(self._server.query, state=state)
+        finally:
+            # Releases the reader, which would otherwise hold stdin for the life of the process and
+            # eat the next line a command prompts for.
+            done.set()
 
 
-def _pasted_redirects() -> queue.Queue[dict[str, list[str]]] | None:
-    """Redirects typed back in, or None when there is no terminal to type at.
+def _pasted_redirects(done: threading.Event) -> queue.Queue[dict[str, list[str]]] | None:
+    """Redirects typed back in, or None when there is no terminal to read from.
 
     A browser on another machine cannot reach this listener, so its redirect fails and the code
     exists only in the address bar of a page that never loaded. Read alongside the listener rather
     than instead of it, because which one the redirect reaches cannot be detected from here.
     """
-    if not sys.stdin.isatty():
+    if not _readable_terminal():
         return None
     click.echo("If your browser is on another machine, paste the address it lands on:", err=True)
     queued: queue.Queue[dict[str, list[str]]] = queue.Queue()
-    threading.Thread(target=_read_redirect, args=(queued,), daemon=True).start()
+    threading.Thread(target=_read_redirect, args=(queued, done), daemon=True).start()
     return queued
 
 
-def _read_redirect(queued: queue.Queue[dict[str, list[str]]]) -> None:
+def _readable_terminal() -> bool:
+    """Whether this process may read stdin, rather than only whether stdin is a terminal.
+
+    Reading a terminal from a background process group raises SIGTTIN, which by default stops the
+    whole process, so `hogli auth:posthog:login &` would hang on the read instead of finishing on
+    the listener the browser can still reach.
+    """
+    if not sys.stdin.isatty():
+        return False
+    try:
+        return os.tcgetpgrp(sys.stdin.fileno()) == os.getpgrp()
+    except (OSError, AttributeError):
+        return False
+
+
+def _read_redirect(queued: queue.Queue[dict[str, list[str]]], done: threading.Event) -> None:
     """Read lines until one carries an authorization redirect, queueing its query."""
-    while line := sys.stdin.readline():
+    while not done.is_set():
+        # Polled rather than blocking outright, so the login ending releases stdin for whatever
+        # the command does next.
+        if not select.select([sys.stdin], [], [], 0.5)[0]:
+            continue
+        line = sys.stdin.readline()
+        if not line:
+            return
         pasted = line.strip()
         # The address may arrive whole or as the query alone, depending on what the user selected.
         query = parse_qs(urlparse(pasted).query or pasted)
