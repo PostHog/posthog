@@ -349,23 +349,34 @@ describe('replayScannersLogic', () => {
             })
         })
 
-        it.each([
-            { id: 'a', initialState: 'enabled', expectedMessage: 'Scanner disabled' },
-            { id: 'b', initialState: 'disabled', expectedMessage: 'Scanner enabled' },
-        ])(
-            'a persisted toggle of a scanner that starts $initialState completes and shows a "$expectedMessage" toast',
-            async ({ id, expectedMessage }) => {
-                const successToast = jest.spyOn(lemonToast, 'success')
-                logic.actions.loadScannersSuccess(scanners, scanners.length)
+        it('a persisted toggle completes without a success toast', async () => {
+            const successToast = jest.spyOn(lemonToast, 'success')
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
 
-                await expectLogic(logic, () => logic.actions.toggleScannerEnabled(id)).toDispatchActions([
-                    'toggleScannerEnabledDone',
-                ])
+            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
+                'toggleScannerEnabledDone',
+            ])
 
-                expect(successToast).toHaveBeenCalledWith(expectedMessage)
-                expect(logic.values.togglingIds).toEqual([])
-            }
-        )
+            expect(successToast).not.toHaveBeenCalled()
+            expect(logic.values.togglingIds).toEqual([])
+        })
+
+        it('ignores a second toggle of the same scanner while one is in flight', async () => {
+            logic.actions.loadScannersSuccess(scanners, scanners.length)
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleScannerEnabled('a')
+                logic.actions.toggleScannerEnabled('a')
+            })
+                .toMatchValues({
+                    scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+                    togglingIds: ['a'],
+                })
+                .toFinishAllListeners()
+
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            expect(logic.values.togglingIds).toEqual([])
+        })
 
         it('a failed toggle reverts the row and shows an error toast', async () => {
             useMocks({
@@ -380,7 +391,7 @@ describe('replayScannersLogic', () => {
 
             expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(true)
             expect(logic.values.togglingIds).toEqual([])
-            expect(errorToast).toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Failed to disable scanner'))
         })
 
         it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
