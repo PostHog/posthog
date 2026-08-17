@@ -35,39 +35,23 @@ describe("orderedNavItems", () => {
     expect(ids.indexOf("configure")).toBe(ids.indexOf("command-center") + 1);
   });
 
-  it("keeps Activity directly below Inbox in an existing persisted order", () => {
-    const ids = orderedNavItems([
-      "inbox",
-      "loops",
-      "command-center",
-      "activity",
-      "configure",
-    ]).map((item) => item.id);
-
-    expect(ids.indexOf("activity")).toBe(ids.indexOf("inbox") + 1);
-    expect(ids.filter((id) => id !== "activity")).toEqual([
-      "inbox",
-      "loops",
-      "command-center",
-      "configure",
-    ]);
-  });
-
   it("inserts a missing id with no present predecessor at the start", () => {
     const ids = orderedNavItems(["command-center", "loops"]).map(
       (item) => item.id,
     );
 
-    expect(ids[0]).toBe("inbox");
+    expect(ids[0]).toBe("activity");
   });
 
   it("puts stored ids first and appends the rest in default order", () => {
-    const ids = orderedNavItems(["configure", "inbox"]).map((item) => item.id);
+    const ids = orderedNavItems(["configure", "activity"]).map(
+      (item) => item.id,
+    );
 
-    expect(ids.slice(0, 2)).toEqual(["configure", "inbox"]);
+    expect(ids.slice(0, 2)).toEqual(["configure", "activity"]);
     expect(ids.slice(2)).toEqual(
       CUSTOMIZABLE_NAV_ITEM_IDS.filter(
-        (id) => id !== "configure" && id !== "inbox",
+        (id) => id !== "configure" && id !== "activity",
       ),
     );
   });
@@ -75,26 +59,26 @@ describe("orderedNavItems", () => {
 
 describe("moveNavItem", () => {
   it("moves an item backward to the target position", () => {
-    const next = moveNavItem([], "loops", "inbox");
+    const next = moveNavItem([], "loops", "activity");
 
     expect(next[0]).toBe("loops");
     expect(next).toHaveLength(CUSTOMIZABLE_NAV_ITEM_IDS.length);
   });
 
   it("moves an item forward to the target position", () => {
-    const next = moveNavItem([], "inbox", "loops");
+    const next = moveNavItem([], "activity", "loops");
 
-    expect(next.indexOf("inbox")).toBe(
+    expect(next.indexOf("activity")).toBe(
       CUSTOMIZABLE_NAV_ITEM_IDS.indexOf("loops"),
     );
   });
 
   it.each([
-    ["an unknown source", "retired-item", "inbox"],
-    ["an unknown target", "inbox", "retired-item"],
-    ["the same source and target", "inbox", "inbox"],
+    ["an unknown source", "retired-item", "activity"],
+    ["an unknown target", "activity", "retired-item"],
+    ["the same source and target", "activity", "activity"],
   ])("returns the order unchanged for %s", (_label, source, target) => {
-    const order: readonly ("loops" | "inbox")[] = ["loops", "inbox"];
+    const order = ["loops", "activity"] as const;
 
     expect(moveNavItem(order, source, target)).toBe(order);
   });
@@ -113,6 +97,6 @@ describe("sanitizeNavItemOrder", () => {
   it("drops unknown ids, non-strings and duplicates", () => {
     expect(
       sanitizeNavItemOrder(["loops", "retired-item", 7, "inbox", "loops"]),
-    ).toEqual(["loops", "inbox"]);
+    ).toEqual(["loops"]);
   });
 });
