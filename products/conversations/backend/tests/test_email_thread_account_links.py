@@ -5,7 +5,7 @@ from django.utils import timezone
 from posthog.models.comment import Comment
 
 from products.conversations.backend.facade.api import (
-    get_account_email_thread,
+    list_account_email_thread_messages,
     list_account_email_threads,
     list_email_threads_for_account_matching,
     replace_email_thread_account_links,
@@ -94,15 +94,16 @@ class TestEmailThreadAccountLinks(BaseTest):
         )
 
         summaries, count = list_account_email_threads(self.team.id, "account-1")
-        detail = get_account_email_thread(self.team.id, "account-1", str(self.thread.id))
+        message_page = list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id))
         assert count == 1
         assert len(summaries) == 1
         assert summaries[0].subject == "Account review"
-        assert detail is not None
-        assert detail.id == str(self.thread.id)
-        assert detail.messages[0].content == "Latest update"
-        assert detail.messages[0].sender_authenticated is True
-        assert detail.messages[0].to_recipients[0].email == "csm@example.com"
+        assert message_page is not None
+        messages, message_count = message_page
+        assert message_count == 1
+        assert messages[0].content == "Latest update"
+        assert messages[0].sender_authenticated is True
+        assert messages[0].to_recipients[0].email == "csm@example.com"
 
         replace_email_thread_account_links(
             self.team.id,
@@ -120,4 +121,4 @@ class TestEmailThreadAccountLinks(BaseTest):
         remaining = EmailThreadAccountLink.objects.for_team(self.team.id).get()
         assert remaining.account_external_id == "renamed-group-2"
         assert remaining.match_source == "person_group"
-        assert get_account_email_thread(self.team.id, "account-1", str(self.thread.id)) is None
+        assert list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id)) is None

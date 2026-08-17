@@ -159,6 +159,8 @@ export interface ExperimentWatchShelfContext {
     friction_cards: number
     variant_only_cards: number
     metric_cards: number
+    /** Cards removed for restating another card's recordings; what the dedupe threshold is tuned from. */
+    dropped_duplicate_cards: number
 }
 
 /**

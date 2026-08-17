@@ -52,6 +52,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
+    ResolvedClientAssertion,
     expected_assertion_audiences,
     resolve_client_assertion,
     verify_client_assertion,
@@ -508,7 +509,7 @@ class OAuthValidator(OAuth2Validator):
             )
 
     @staticmethod
-    def _resolve_request_assertion(request) -> tuple[str, str] | None:
+    def _resolve_request_assertion(request) -> ResolvedClientAssertion | None:
         return resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
             getattr(request, "client_assertion_type", None) or "",
@@ -520,8 +521,7 @@ class OAuthValidator(OAuth2Validator):
         if assertion is None:
             return False
 
-        assertion_value, client_id = assertion
-        app = self._load_application(client_id, request)
+        app = self._load_application(assertion.client_id, request)
         # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
         # and start signing before any partner registration. What's REQUIRED is a separate
         # question, decided by client_type via client_authentication_required.
@@ -529,16 +529,16 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
-            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, client_id)
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, assertion.client_id)
 
         try:
             verify_client_assertion(
                 app,
-                assertion_value,
+                assertion.client_assertion,
                 audiences=expected_assertion_audiences(*STANDARD_TOKEN_ENDPOINT_PATHS),
             )
         except ClientAssertionError as e:
-            logger.warning("oauth_client_assertion_rejected", client_id=client_id, error=str(e))
+            logger.warning("oauth_client_assertion_rejected", client_id=assertion.client_id, error=str(e))
             return False
 
         request.client = app
@@ -1987,7 +1987,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credentials = client_credentials_from_basic_auth(request)
         if credentials is not None:
-            return credentials[0]
+            return credentials.client_id
         return request.POST.get("client_id") or None
 
     def get_token_response(self, request, token_value=None):

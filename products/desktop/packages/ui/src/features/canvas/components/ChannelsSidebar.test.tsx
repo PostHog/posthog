@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
+  markChannelSeen: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
@@ -34,6 +35,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
   }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkChannelSeen", () => ({
+  useMarkChannelSeen: (channelId: string | undefined) =>
+    mocks.markChannelSeen(channelId),
 }));
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
@@ -123,7 +128,13 @@ describe("ChannelsSidebar", () => {
     mocks.routeChannelId = undefined;
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
-    useSidebarStore.setState({ channelsEnabled: false, open: true });
+    // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
+    // workspaces in this harness) can't collapse it out from under the tests.
+    useSidebarStore.setState({
+      channelsEnabled: false,
+      open: true,
+      hasUserSetOpen: true,
+    });
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're
@@ -155,6 +166,25 @@ describe("ChannelsSidebar", () => {
 
       expect(listIsInteractive()).toBe(true);
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("marks a channel seen only while its pane is visible", () => {
+      mocks.routeChannelId = ENG.id;
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(ENG.id);
+
+      act(() => showChannelList());
+
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
+    // ⌘B collapses the sidebar to zero width but keeps the pane mounted. A poll
+    // landing behind it must not stamp the channel seen — nobody saw the pane.
+    it("does not mark a channel seen while the sidebar is closed", () => {
+      mocks.routeChannelId = ENG.id;
+      useSidebarStore.setState({ open: false });
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
     });
 
     // Opening a channel from anywhere — a deep link, a mention, ⌘1-9 — has to

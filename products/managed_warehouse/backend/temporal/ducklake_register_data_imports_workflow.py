@@ -10,7 +10,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -68,6 +68,9 @@ DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-regist
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
+# One CALL per batch. A generation-wide glob runs parquet_full_metadata on the
+# DuckLake metadata connection and can stall there for large file counts.
+_ADD_DATA_FILES_BATCH_SIZE = 200
 _PARQUET_FILE_GLOB = "**/*.[pP][aA][rR][qQ][uU][eE][tT]"
 _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
@@ -548,7 +551,8 @@ def _should_publish_prepared_generation(inputs: DuckLakeRegisterDataImportsActiv
 @contextlib.contextmanager
 def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     if is_dev_mode():
-        with psycopg.connect(make_duckgres_conninfo(team_id), autocommit=True) as conn:
+        conninfo = make_duckgres_conninfo(team_id, application_name="ducklake-register")
+        with psycopg.connect(conninfo, autocommit=True) as conn:
             yield conn
         return
 
@@ -556,7 +560,7 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     server = get_duckgres_server_for_organization(organization_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-register") as conn:
         yield conn
 
 
@@ -623,6 +627,20 @@ def _raise_if_duckgres_cancel_requested(cancel_requested: threading.Event | None
         raise TimeoutError("Duckgres registration reached the Temporal activity deadline")
 
 
+def _add_data_files_path_batches(landing_paths: Sequence[str], *, batch_size: int | None = None) -> list[list[str]]:
+    resolved_batch_size = _ADD_DATA_FILES_BATCH_SIZE if batch_size is None else batch_size
+    if resolved_batch_size < 1:
+        raise ValueError("add_data_files batch size must be at least 1")
+    return [
+        list(landing_paths[index : index + resolved_batch_size])
+        for index in range(0, len(landing_paths), resolved_batch_size)
+    ]
+
+
+def _duckdb_varchar_list_literal(values: Sequence[str]) -> psql.Composed:
+    return psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(value) for value in values))
+
+
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
@@ -670,17 +688,19 @@ def _register_prepared_parquet_files(
                     )
                 )
             _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(
-                psql.SQL(
-                    "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                    "allow_missing => true, hive_partitioning => true)"
-                ).format(
-                    psql.Literal("ducklake"),
-                    psql.Literal(registration_names.shadow_name),
-                    parquet_glob,
-                    psql.Literal(schema_name),
+            for path_batch in _add_data_files_path_batches(landing_paths):
+                _raise_if_duckgres_cancel_requested(cancel_requested)
+                conn.execute(
+                    psql.SQL(
+                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                        "allow_missing => true, hive_partitioning => true)"
+                    ).format(
+                        psql.Literal("ducklake"),
+                        psql.Literal(registration_names.shadow_name),
+                        _duckdb_varchar_list_literal(path_batch),
+                        psql.Literal(schema_name),
+                    )
                 )
-            )
 
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             _raise_if_duckgres_cancel_requested(cancel_requested)
