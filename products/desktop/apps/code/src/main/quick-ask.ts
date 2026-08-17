@@ -22,6 +22,7 @@ import {
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESET_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SHAKE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
   type QuickAskDragStartPayload,
@@ -36,6 +37,7 @@ import {
   PILL_TOP_TO_WINDOW_TOP,
   SCREEN_MARGIN,
 } from "./quick-ask-geometry";
+import { ShakeDetector } from "./quick-ask-shake";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
@@ -402,6 +404,7 @@ export function setupQuickAsk(): void {
       return;
     }
     stopDrag();
+    const shakeDetector = new ShakeDetector();
     dragState = {
       dx,
       dy,
@@ -415,6 +418,9 @@ export function setupQuickAsk(): void {
           return;
         }
         const point = screen.getCursorScreenPoint();
+        if (shakeDetector.sample(point.x, Date.now())) {
+          quickAskWindow.webContents.send(QUICK_ASK_SHAKE_CHANNEL);
+        }
         const bounds = quickAskWindow.getBounds();
         const x = Math.round(point.x - dx);
         const y = Math.round(point.y - dy);

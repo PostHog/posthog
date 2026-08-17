@@ -83,6 +83,7 @@ html body {
 }
 
 .qa-hog {
+  position: relative;
   width: 46px;
   height: 46px;
   padding: 0;
@@ -179,6 +180,51 @@ html body {
 
 .qa-pill input:disabled {
   cursor: default;
+}
+
+/* Mini mode: only the hedgehog and its status dot stay on screen. */
+.qa-mini > :not(.qa-pill-row),
+.qa-mini .qa-pill-row > :not(.qa-hog) {
+  display: none;
+}
+
+/* Status dot on the hedgehog's shoulder, mini mode only. */
+.qa-status {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--qa-surface);
+}
+
+.qa-mini .qa-status {
+  display: block;
+}
+
+.qa-status-idle {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.qa-status-busy {
+  background: var(--qa-accent);
+  animation: qa-status-pulse 1.1s ease-in-out infinite;
+}
+
+.qa-status-ready {
+  background: var(--qa-up);
+}
+
+.qa-status-error {
+  background: var(--qa-down);
+}
+
+@keyframes qa-status-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Pill-height circles so the controls read as part of the input row. */
@@ -814,7 +860,8 @@ html body {
   .qa-skeleton,
   .qa-thinking-dots span,
   .qa-thinking-label,
-  .qa-streaming > :last-child::after {
+  .qa-streaming > :last-child::after,
+  .qa-status-busy {
     animation: none;
   }
 }

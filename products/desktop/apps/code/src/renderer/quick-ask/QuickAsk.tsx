@@ -57,6 +57,7 @@ export function QuickAsk(): React.JSX.Element {
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
   const [flip, setFlip] = useState(false);
   const [hedgehog, setHedgehog] = useState(0);
+  const [mini, setMini] = useState(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const historyRef = useRef<string[]>([]);
   /** Position while walking history with the arrows; null = editing the draft. */
@@ -122,6 +123,8 @@ export function QuickAsk(): React.JSX.Element {
   // so reopening restores the last answer.
   useEffect(() => {
     const unsubscribe = window.quickAsk?.onShown(() => {
+      // Summoning is an intent to type; leave mini mode.
+      setMini(false);
       inputRef.current?.focus();
       reportSize();
       // Re-report once the flipped layout has settled.
@@ -291,19 +294,51 @@ export function QuickAsk(): React.JSX.Element {
     setHedgehog((current) => (current + 1) % HEDGEHOGS.length);
   }, []);
 
+  // Shaking the panel while dragging it cycles the hedgehog.
+  useEffect(() => {
+    const unsubscribe = window.quickAsk?.onShake(nextHedgehog);
+    return () => unsubscribe?.();
+  }, [nextHedgehog]);
+
+  const toggleMini = useCallback((): void => {
+    setMini((current) => !current);
+  }, []);
+
+  // Leaving mini mode: put the caret back in the pill.
+  useEffect(() => {
+    if (!mini) {
+      inputRef.current?.focus();
+    }
+  }, [mini]);
+
   const answerText = textParts.map((part) => part.content).join("\n\n");
 
+  const status = loading
+    ? "busy"
+    : phase === "answered"
+      ? "ready"
+      : phase === "error"
+        ? "error"
+        : "idle";
+
   return (
-    <div ref={rootRef} className={flip ? "qa-root qa-flip" : "qa-root"}>
+    <div
+      ref={rootRef}
+      className={`qa-root${flip ? " qa-flip" : ""}${mini ? " qa-mini" : ""}`}
+    >
       <div className="qa-pill-row">
         <button
           type="button"
-          aria-label="Drag to move the panel"
+          aria-label={mini ? "Expand the panel" : "Drag to move the panel"}
           onMouseDown={startDrag}
-          onDoubleClick={nextHedgehog}
+          onDoubleClick={toggleMini}
           className={phase === "thinking" ? "qa-hog qa-hog-thinking" : "qa-hog"}
         >
           <img src={HEDGEHOGS[hedgehog]} alt="" draggable={false} />
+          <span
+            className={`qa-status qa-status-${status}`}
+            aria-hidden="true"
+          />
         </button>
         <div
           className={loading ? "qa-pill qa-pill-loading" : "qa-pill"}

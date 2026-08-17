@@ -160,6 +160,7 @@ await page.addInitScript(`
     onEvent: (callback) => { listeners.push(callback); return () => {}; },
     onLayout: () => () => {},
     onShown: () => () => {},
+    onShake: (cb) => { window.__qaShake = cb; return () => { window.__qaShake = undefined; }; },
   };
 `);
 
@@ -278,18 +279,67 @@ if (hides !== 1) {
 }
 pass("close button hides the panel");
 
-// Double-clicking the hedgehog cycles the hedgehog.
+// Shaking the panel (relayed from the main-process drag loop) cycles the hedgehog.
 const hogBefore = (await page.evaluate(
   'document.querySelector(".qa-hog img")?.getAttribute("src") ?? ""',
 )) as string;
-await page.dblclick(".qa-hog");
+await page.evaluate("window.__qaShake?.()");
+await page
+  .waitForFunction(
+    `document.querySelector(".qa-hog img")?.getAttribute("src") !== ${JSON.stringify(hogBefore)}`,
+    undefined,
+    { timeout: 2_000 },
+  )
+  .catch(() => {});
 const hogAfter = (await page.evaluate(
   'document.querySelector(".qa-hog img")?.getAttribute("src") ?? ""',
 )) as string;
 if (!hogBefore || hogBefore === hogAfter) {
-  fail("double-clicking the hedgehog did not change it");
+  fail("shaking did not change the hedgehog");
 }
-pass("hedgehog easter egg cycles");
+pass("shake cycles the hedgehog");
+
+// Double-clicking the hedgehog collapses to mini mode: hedgehog + status dot.
+await page.dblclick(".qa-hog");
+const miniState = (await page.evaluate(`(() => {
+  const pill = document.querySelector(".qa-pill");
+  const card = document.querySelector(".qa-card");
+  const dot = document.querySelector(".qa-status");
+  return {
+    pillHidden: !pill || getComputedStyle(pill).display === "none",
+    cardHidden: !card || getComputedStyle(card).display === "none",
+    dotVisible: !!dot && getComputedStyle(dot).display !== "none",
+    dotStatus: dot?.className ?? "",
+  };
+})()`)) as {
+  pillHidden: boolean;
+  cardHidden: boolean;
+  dotVisible: boolean;
+  dotStatus: string;
+};
+if (!miniState.pillHidden || !miniState.cardHidden) {
+  fail("mini mode did not hide the pill and answer");
+}
+if (!miniState.dotVisible || !miniState.dotStatus.includes("qa-status-ready")) {
+  fail(`mini mode status dot wrong (${miniState.dotStatus || "missing"})`);
+}
+// Double-click again restores the panel and refocuses the input.
+await page.dblclick(".qa-hog");
+await page.waitForSelector(".qa-pill input", { timeout: 2_000 });
+await page
+  .waitForFunction(
+    'document.activeElement === document.querySelector(".qa-pill input")',
+    undefined,
+    { timeout: 2_000 },
+  )
+  .catch(() => {});
+const restored = (await page.evaluate(
+  'document.activeElement === document.querySelector(".qa-pill input")',
+)) as boolean;
+if (!restored) {
+  fail("leaving mini mode did not refocus the input");
+}
+pass("double-click toggles mini mode with a status dot");
 
 if (process.env.QUICK_ASK_E2E_METRICS) {
   const metrics = await page.evaluate(`(() => {

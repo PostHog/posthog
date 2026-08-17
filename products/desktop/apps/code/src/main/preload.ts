@@ -16,6 +16,7 @@ import {
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESET_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SHAKE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
   type QuickAskDragStartPayload,
@@ -125,6 +126,11 @@ function setupQuickAskPreload(): void {
       const listener = (): void => callback();
       ipcRenderer.on(QUICK_ASK_SHOWN_CHANNEL, listener);
       return () => ipcRenderer.off(QUICK_ASK_SHOWN_CHANNEL, listener);
+    },
+    onShake: (callback: () => void): (() => void) => {
+      const listener = (): void => callback();
+      ipcRenderer.on(QUICK_ASK_SHAKE_CHANNEL, listener);
+      return () => ipcRenderer.off(QUICK_ASK_SHAKE_CHANNEL, listener);
     },
   });
 }

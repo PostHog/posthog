@@ -23,6 +23,8 @@ interface QuickAskBridge {
   onEvent: (callback: (event: unknown) => void) => () => void;
   onLayout: (callback: (layout: QuickAskLayout) => void) => () => void;
   onShown: (callback: () => void) => () => void;
+  /** Fired when the panel is shaken while dragged. */
+  onShake: (callback: () => void) => () => void;
 }
 
 interface Window {

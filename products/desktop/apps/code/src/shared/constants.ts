@@ -11,6 +11,7 @@ export const QUICK_ASK_HIDE_CHANNEL = "posthog-quick-ask-hide";
 export const QUICK_ASK_RESIZE_CHANNEL = "posthog-quick-ask-resize";
 export const QUICK_ASK_OPEN_IN_APP_CHANNEL = "posthog-quick-ask-open-in-app";
 export const QUICK_ASK_SHOWN_CHANNEL = "posthog-quick-ask-shown";
+export const QUICK_ASK_SHAKE_CHANNEL = "posthog-quick-ask-shake";
 export const QUICK_ASK_ASK_CHANNEL = "posthog-quick-ask-ask";
 export const QUICK_ASK_CANCEL_CHANNEL = "posthog-quick-ask-cancel";
 export const QUICK_ASK_RESET_CHANNEL = "posthog-quick-ask-reset";
