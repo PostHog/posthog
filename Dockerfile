@@ -8,6 +8,7 @@
 #
 # The stages are used to:
 #
+# - node-base: shared Node.js base with pnpm already provisioned
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
@@ -24,11 +25,25 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:24.13.0-bookworm-slim AS frontend-build
+FROM node:24.13.0-bookworm-slim AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+# corepack fetches the pinned pnpm with a bare fetch() — no timeout, no retries — so a stalled
+# registry connection blocks until the job timeout kills the build. Seeding it here keeps that fetch
+# off every source change: only a root package.json edit re-runs this layer. Then take corepack off
+# the network, so a pin this layer does not cover fails in milliseconds naming the URL it wanted.
+COPY package.json ./
+RUN corepack enable && corepack install
+ENV COREPACK_ENABLE_NETWORK=0
+
+
+#
+# ---------------------------------------------------------
+#
+FROM node-base AS frontend-build
+
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/
 COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
@@ -42,7 +57,6 @@ COPY packages/llm-normalizer/ packages/llm-normalizer/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
-    corepack enable && pnpm --version && \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
@@ -123,17 +137,14 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # Build plugin transpiler and other Node.js build artifacts.
 #
-FROM node:24.13.0-bookworm-slim AS node-scripts-build
-WORKDIR /code
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+FROM node-base AS node-scripts-build
 # Build plugin transpiler for site destinations/apps
-COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/plugin_transpiler/ common/plugin_transpiler/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
-    corepack enable && \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
 
