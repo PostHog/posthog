@@ -435,36 +435,39 @@ class Reviewer:
             active_query = query
 
         structured_output = None
-        async for message in active_query(prompt=prompt, options=options, **posthog_kwargs):
-            if self.verbose:
-                print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
-            if isinstance(message, ResultMessage):
-                if message.subtype == "error_max_structured_output_retries":
-                    raise RuntimeError("Agent could not produce valid structured output after retries")
-                if getattr(message, "is_error", False):
-                    # An API-level failure (auth, rate limit, overload, quota) surfaces
-                    # here with subtype "success" and the real HTTP status in
-                    # api_error_status. Raise with that detail now — otherwise the CLI
-                    # process exits right after this message and the SDK's read loop
-                    # replaces it with the generic, status-less "Claude Code returned
-                    # an error result: success" once the exception reaches us anyway.
-                    # getattr guards older SDK builds that lack these attributes.
-                    api_status = getattr(message, "api_error_status", None)
-                    status = f" (HTTP {api_status})" if api_status else ""
-                    raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
-                if message.structured_output:
-                    structured_output = message.structured_output
-                    # Stamp the LLM verdict onto the trace properties
-                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
-            elif isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, ToolUseBlock) and self.verbose:
-                        self._log_tool_call(block)
-
-        if copied_diff_path is not None:
-            copied_diff_path.unlink(missing_ok=True)
-        if owns_diff:
-            original_diff.unlink(missing_ok=True)
+        try:
+            async for message in active_query(prompt=prompt, options=options, **posthog_kwargs):
+                if self.verbose:
+                    print(f"\033[2m    [{type(message).__name__}]\033[0m", flush=True)
+                if isinstance(message, ResultMessage):
+                    if message.subtype == "error_max_structured_output_retries":
+                        raise RuntimeError("Agent could not produce valid structured output after retries")
+                    if getattr(message, "is_error", False):
+                        # An API-level failure (auth, rate limit, overload, quota) surfaces
+                        # here with subtype "success" and the real HTTP status in
+                        # api_error_status. Raise with that detail now — otherwise the CLI
+                        # process exits right after this message and the SDK's read loop
+                        # replaces it with the generic, status-less "Claude Code returned
+                        # an error result: success" once the exception reaches us anyway.
+                        # getattr guards older SDK builds that lack these attributes.
+                        api_status = getattr(message, "api_error_status", None)
+                        status = f" (HTTP {api_status})" if api_status else ""
+                        raise RuntimeError(f"Anthropic API error{status}: {message.result or message.subtype}")
+                    if message.structured_output:
+                        structured_output = message.structured_output
+                        # Stamp the LLM verdict onto the trace properties
+                        props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
+                elif isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, ToolUseBlock) and self.verbose:
+                            self._log_tool_call(block)
+        finally:
+            # Runs on every exit path (API error, cancellation): PR-authored diff copies must not
+            # linger on the runner.
+            if copied_diff_path is not None:
+                copied_diff_path.unlink(missing_ok=True)
+            if owns_diff:
+                original_diff.unlink(missing_ok=True)
 
         if structured_output is None:
             raise RuntimeError("Reviewer agent returned no structured output")
