@@ -78,16 +78,22 @@ html:not(.dark) {
   --qa-shimmer-hi: rgba(0, 0, 0, 0.09);
 }
 
-/* Scoped to the panel tree: this file is un-layered, so a bare `*` reset
- * would also beat the layered Tailwind utilities that portalled overlays
- * (hover cards) are built from. :where() keeps specificity at zero. */
+/* box-sizing everywhere. Un-layered, but border-box is the default every
+ * element wants, so winning over utilities is harmless. */
 * {
   box-sizing: border-box;
 }
 
-:where(#root, #root *) {
-  margin: 0;
-  padding: 0;
+/* Reset panel-tree margins/padding in `base` — below Tailwind's `utilities`
+ * layer — so shared components (MarkdownRenderer, reference chips) keep their
+ * spacing utilities inside #root. An un-layered reset outranks every layer
+ * regardless of specificity, which would zero those utilities. :where(#root …)
+ * keeps the reset off the portalled overlays that render outside #root. */
+@layer base {
+  :where(#root, #root *) {
+    margin: 0;
+    padding: 0;
+  }
 }
 
 /* `html body` outranks the app globals' plain `body` background rules. */
