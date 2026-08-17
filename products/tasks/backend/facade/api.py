@@ -2756,7 +2756,14 @@ def clear_task_run_conversation(
     Only for a finished run: a live one has a sandbox that owns the clear (and a writer
     streaming into the same log object, which this read-modify-write append would race),
     so the caller sends `/clear` to it as an ordinary message instead.
+
+    Also drops the run's teardown resume snapshot. That snapshot is a cache of the
+    pre-clear conversation that resume reads before the log; left in place it would
+    restore the very conversation this boundary retires, so the next resume must fall
+    back to replaying the log (which honors the marker).
     """
+    from posthog.storage import object_storage  # noqa: PLC0415
+
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None
@@ -2769,6 +2776,9 @@ def clear_task_run_conversation(
         run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
         if not run.is_terminal:
             return "not_terminal", None
+        # Invalidate the snapshot before writing the marker: if the delete fails we
+        # never append the boundary, so a stale snapshot can't outlive its own clear.
+        object_storage.delete(run.resume_state_url)
         run.emit_conversation_cleared()
     return "cleared", _task_run_detail_to_dto(run)
 

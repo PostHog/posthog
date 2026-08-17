@@ -5728,6 +5728,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert log_content is not None
         self.assertEqual(len(log_content.strip().split("\n")), 2)
 
+    def test_clear_conversation_invalidates_the_resume_snapshot(self):
+        # The teardown snapshot is read before the log on resume, so a clear that left it
+        # in place would restore the conversation it just retired.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        object_storage.write(run.resume_state_url, json.dumps({"conversation": [{"role": "user"}]}))
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(object_storage.read(run.resume_state_url, missing_ok=True))
+
     @parameterized.expand([("queued", TaskRun.Status.QUEUED), ("in_progress", TaskRun.Status.IN_PROGRESS)])
     def test_clear_conversation_rejects_an_active_run(self, _name, run_status):
         # An active run's agent owns the clear, and its log has a live writer this
