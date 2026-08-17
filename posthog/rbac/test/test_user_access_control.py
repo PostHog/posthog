@@ -41,7 +41,7 @@ class BaseUserAccessControlTest(BaseTest):
         self, resource="project", resource_id=None, access_level="admin", organization_member=None, team=None, role=None
     ):
         ac, _ = AccessControl.objects.get_or_create(
-            team=self.team,
+            team=team or self.team,
             resource=resource,
             resource_id=resource_id,
             organization_member=organization_member,
@@ -2207,31 +2207,29 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         self.sibling_team = Team.objects.create(
             organization=self.organization, project=self.team.project, name="Sibling environment"
         )
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
 
     def _deny(self, resource, resource_id, team):
-        AccessControl.objects.create(team=team, resource=resource, resource_id=resource_id, access_level="none")
+        self._create_access_control(resource=resource, resource_id=resource_id, access_level="none", team=team)
 
-    def _level(self, obj, team):
+    def _level_in(self, obj, team):
         return UserAccessControl(self.user, team).get_user_access_level(obj)
 
     @parameterized.expand(
         [
-            ("dashboard_denied_in_its_own_environment", "dashboard", False),
-            ("dashboard_denied_in_a_sibling_environment", "dashboard", True),
-            ("insight_denied_in_its_own_environment", "insight", False),
-            ("insight_denied_in_a_sibling_environment", "insight", True),
+            ("dashboard_denied_in_its_own_environment", "dashboard", Dashboard, False),
+            ("dashboard_denied_in_a_sibling_environment", "dashboard", Dashboard, True),
+            ("insight_denied_in_its_own_environment", "insight", Insight, False),
+            ("insight_denied_in_a_sibling_environment", "insight", Insight, True),
         ]
     )
-    def test_rule_governs_the_object_from_every_environment(self, _name, resource, rule_in_sibling):
-        model = Dashboard if resource == "dashboard" else Insight
+    def test_rule_governs_the_object_from_every_environment(self, _name, resource, model, rule_in_sibling):
         obj = model.objects.create(team=self.team, name="Restricted")
         self._deny(resource, str(obj.id), self.sibling_team if rule_in_sibling else self.team)
 
-        assert self._level(obj, self.team) == "none"
-        assert self._level(obj, self.sibling_team) == "none"
+        assert self._level_in(obj, self.team) == "none"
+        assert self._level_in(obj, self.sibling_team) == "none"
 
     def test_environment_scoped_resource_keeps_its_rule_in_its_own_environment(self):
         # Notebooks are mounted under a project id, so resolution always names the project's
@@ -2239,15 +2237,15 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         notebook = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Restricted")
         self._deny("notebook", str(notebook.id), self.team)
 
-        assert self._level(notebook, self.team) == "none"
-        assert self._level(notebook, self.sibling_team) == "editor"
+        assert self._level_in(notebook, self.team) == "none"
+        assert self._level_in(notebook, self.sibling_team) == "editor"
 
     def test_rule_does_not_reach_another_project(self):
         other_project_team = Team.objects.create(organization=self.organization, name="Other project")
         dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
         self._deny("dashboard", str(dashboard.id), self.team)
 
-        assert self._level(dashboard, other_project_team) == "editor"
+        assert self._level_in(dashboard, other_project_team) == "editor"
 
     def test_denied_object_is_filtered_out_of_a_sibling_environments_queryset(self):
         denied = Dashboard.objects.create(team=self.team, name="Restricted")
@@ -2259,3 +2257,23 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         )
 
         assert list(queryset) == [visible]
+
+    def test_denied_object_is_filtered_out_of_a_sibling_environments_file_tree(self):
+        # Pins the SQL copy of the project-wide match in filter_and_annotate_file_system_queryset
+        # to the resolver's rule, so the two encodings cannot drift apart silently.
+        dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
+        entry = FileSystem.objects.create(
+            team=self.sibling_team,
+            path="top/restricted",
+            depth=2,
+            type="dashboard",
+            ref=str(dashboard.id),
+            created_by=self.other_user,
+        )
+        self._deny("dashboard", str(dashboard.id), self.team)
+
+        queryset = UserAccessControl(self.user, self.sibling_team).filter_and_annotate_file_system_queryset(
+            FileSystem.objects.all()
+        )
+
+        assert entry not in queryset
