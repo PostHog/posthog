@@ -445,9 +445,17 @@ def approved_engine_output() -> str:
     """
     payload = {
         "final_verdict": "APPROVED",
-        "reviewer": {"reasoning": "Small, well-tested change. No policy concerns.", "issues": []},
+        "reviewer": {
+            "reasoning": "Small, well-tested change. No policy concerns.",
+            "issues": [],
+            "change_summary": "Docs gain a setup section and the helper stops throwing on an empty list.",
+        },
         "gates": [{"name": "size", "passed": True}, {"name": "deny_list", "passed": True}],
-        "classification": {"tier": "low_risk", "reason": "docs + small logic change"},
+        "classification": {
+            "tier": "low_risk",
+            "reason": "docs + small logic change",
+            "ownership": {"teams": ["@PostHog/team-devex"]},
+        },
         "policy": {"version": "1"},
         "review_body": "Approved by stamphog. All deterministic gates passed; change is low risk.",
         "stamphog_version": "test-1.0.0",

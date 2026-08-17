@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 
 from products.signals.backend.models import SignalReport
 from products.stamphog.backend.facade.enums import (
+    AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
     ReviewMode,
@@ -26,7 +27,14 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
-from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    DigestChannel,
+    DigestRun,
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
@@ -1194,7 +1202,79 @@ def test_merged_pr_digest_eligibility_gate(
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     assert pr.merged_at is not None
     assert pr.merge_commit_sha == "merge101"
-    assert pr.audience_key == expected_audience_key
+    assert _audience_keys(team.id, pr) == ([expected_audience_key] if expected_audience_key else [])
+
+
+def _audience_keys(team_id: int, pull_request: PullRequest) -> list[str]:
+    return sorted(
+        PullRequestAudience.objects.for_team(team_id)
+        .filter(pull_request=pull_request)
+        .values_list("audience_key", flat=True)
+    )
+
+
+# posthog_owners validates the whole document, so the registry has to arrive inside a real one.
+_OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
+
+
+@pytest.mark.parametrize(
+    "registry_yaml,workspace_channels,expected",
+    [
+        (
+            _OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n",
+            [{"id": "C-APM", "name": "team-apm"}],
+            ("C-APM", True, ChannelResolutionSource.OWNERS_CONTACT),
+        ),
+        (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: false\n", [{"id": "C-LOGS", "name": "logs"}], None),
+        (
+            _OWNERS_YAML_HEAD + "teams:\n  other-team:\n    slack: '#elsewhere'\n",
+            [{"id": "C-LOGS", "name": "logs"}],
+            ("C-LOGS", False, ChannelResolutionSource.SLACK_NAME_MATCH),
+        ),
+        (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n", [{"id": "C-LOGS", "name": "logs"}], None),
+    ],
+    ids=[
+        "declared_channel_provisions_enabled",
+        "declared_no_channel_stops",
+        "no_entry_falls_through_to_name_match",
+        "declared_channel_missing_never_falls_back_to_the_slug",
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_owners_registry_routes_a_team_whose_channel_is_not_its_slug(
+    team, stamphog_chain: StamphogChain, registry_yaml: str, workspace_channels: list, expected: tuple | None
+) -> None:
+    # The derived "#<slug>" is wrong for the teams whose channel was named before the slug existed
+    # ("logs" posts to #team-apm), which is exactly what the owners.yaml registry records. Two of
+    # these guard deliberate dead ends: `slack: false` is an answer, not a gap, and a declared
+    # channel that is missing must never retry the slug — the slug is the name it was correcting.
+    repo_config = _repo_config(team.id)
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    stamphog_chain.recorder.policy_files["owners.yaml"] = registry_yaml
+    pr = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id,
+        repo_config=repo_config,
+        pr_number=101,
+        title="Tune the log ingestion batch size",
+        author_login="apm-dev",
+        pr_url=f"https://github.com/{REPO}/pull/101",
+        merged_at=timezone.now(),
+    )
+    PullRequestAudience.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pr, audience_key="logs", reason=AudienceReason.OWNED
+    )
+    fakes.FakeSlackIntegration.reset(channels=workspace_channels)
+
+    send_daily_digests()
+
+    channels = list(DigestChannel.objects.for_team(team.id).filter(audience_key="logs"))
+    if expected is None:
+        assert channels == []
+        return
+    channel_id, enabled, source = expected
+    assert [(c.slack_channel_id, c.enabled, c.resolution_source) for c in channels] == [(channel_id, enabled, source)]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1217,7 +1297,9 @@ def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_ch
         author_login="devex-dev",
         pr_url=f"https://github.com/{REPO}/pull/101",
         merged_at=timezone.now(),
-        audience_key="team-devex",
+    )
+    PullRequestAudience.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pr, audience_key="team-devex", reason=AudienceReason.AUTHORED
     )
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}])
 
@@ -1243,8 +1325,7 @@ def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_ch
     assert len(posted) == 1
     assert posted[0]["channel"] == "C-DEVEX"
     assert "#101 Add util helper" in posted[0]["text"]
-    pr.refresh_from_db()
-    assert pr.digest_run_id == run.id
+    assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1263,7 +1344,7 @@ def test_repo_declared_digest_channel_short_circuits_author_cascade(team, stamph
 
     stamphog_chain.post_webhook(_merged_event(101, author, merged_head), delivery_id=str(uuid.uuid4()))
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
-    assert pr.audience_key == f"repo:{REPO}"
+    assert _audience_keys(team.id, pr) == [f"repo:{REPO}"]
 
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-ENG", "name": "eng-merges"}])
     send_daily_digests()
@@ -1381,10 +1462,13 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
     _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     pull_request.refresh_from_db()
-    assert pull_request.audience_key == expected_audience
+    assert _audience_keys(team.id, pull_request) == ([expected_audience] if expected_audience else [])
     if expected_audience:
         run.refresh_from_db()
         assert run.verdict == ReviewVerdict.APPROVED
+        # The digest has no diff of its own, so it reads what the reviewer wrote while it had one.
+        assert run.change_summary.startswith("Docs gain a setup section")
+        assert pull_request.summary_line == run.change_summary
 
 
 @pytest.mark.parametrize(

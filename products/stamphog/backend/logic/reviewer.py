@@ -48,6 +48,11 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
+# Mirrors the engine's VERDICT_SCHEMA cap (tools/pr-approval-agent/reviewer.py) and the
+# stamphog_reviewrun column width.
+CHANGE_SUMMARY_MAX_CHARS = 200
+
+
 @dataclass
 class ReviewerInvocation:
     """Everything needed to run the reviewer inside the sandbox.
@@ -79,6 +84,10 @@ class ReviewerVerdict:
     # The engine-rendered comment body (reasoning + judgment bullets + gate
     # mechanics), posted verbatim when present.
     review_body: str = ""
+    # One-sentence plain-language description of what the change does, written
+    # in the sandbox where the diff is available. Feeds the daily digest. Blank
+    # when the engine predates the field, which the digest tolerates.
+    change_summary: str = ""
     # The engine version the output reports, for analytics segmentation.
     stamphog_version: str = ""
 
@@ -164,6 +173,9 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
 
     reviewer = obj.get("reviewer") or {}
     reasoning = str(reviewer.get("reasoning", "")).strip()
+    # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
+    # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.
+    change_summary = str(reviewer.get("change_summary", "")).strip()[:CHANGE_SUMMARY_MAX_CHARS]
     issues = reviewer.get("issues") or []
     showstoppers = [str(i) for i in issues] if isinstance(issues, list) else [str(issues)]
 
@@ -186,6 +198,7 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
         gate_blocked=gate_blocked,
         gate_result=gate_result,
         review_body=str(obj.get("review_body") or ""),
+        change_summary=change_summary,
         stamphog_version=str(obj.get("stamphog_version") or ""),
     )
 

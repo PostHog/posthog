@@ -145,6 +145,10 @@ dependencies = [
     "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
+    # Distributed owners.yaml resolver. A runtime dependency, not just tooling: stamphog's digest
+    # reads a repo's team -> Slack channel registry through it (products/stamphog/backend/logic/
+    # channel_resolution.py). Adds no third-party code — its own deps, pyyaml and click, are here.
+    "posthog-owners",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "whitenoise~=6.10.0",
@@ -277,9 +281,6 @@ dev = [
     "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
-    # Distributed owners.yaml resolver — installed so hogli's owners:* commands and
-    # the pr-approval gate can `import posthog_owners` from the main venv.
-    "posthog-owners",
     "libcst>=1.8.6,<2.0.0",
 ]
 sentiment = [

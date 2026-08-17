@@ -13,9 +13,15 @@ from django.utils import timezone
 
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import DigestRunStatus
+from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
 from products.stamphog.backend.logic.digest import DigestSummary, summarize_merged_prs
-from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    DigestChannel,
+    DigestRun,
+    PullRequest,
+    PullRequestAudience,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.tasks.digest import (
     DIGEST_LOOKBACK_DAYS,
     STALE_PENDING_RUN_MINUTES,
@@ -29,7 +35,7 @@ REPO = "acme/widgets"
 AUDIENCE = "team-devex"
 
 
-def _summary(prs: list[PullRequest]) -> DigestSummary:
+def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway."""
     return DigestSummary(intro=f"{len(prs)} merged.", prs=[])
 
@@ -42,12 +48,17 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
         team_id=team_id, audience_key=AUDIENCE, slack_integration_id=1, slack_channel_id="C1"
     )
     for number in range(1, pr_count + 1):
-        PullRequest.objects.for_team(team_id).create(
+        pr = PullRequest.objects.for_team(team_id).create(
             team_id=team_id,
             repo_config=repo_config,
             pr_number=number,
-            audience_key=AUDIENCE,
             merged_at=timezone.now(),
+        )
+        PullRequestAudience.objects.for_team(team_id).create(
+            team_id=team_id,
+            pull_request=pr,
+            audience_key=AUDIENCE,
+            reason=AudienceReason.AUTHORED,
         )
     return str(channel.id)
 
@@ -70,7 +81,7 @@ def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_li
             status=DigestRunStatus.PENDING,
             slack_message_ts=slack_ts,
         )
-        PullRequest.objects.for_team(team.id).filter(audience_key=AUDIENCE).update(digest_run=run)
+        PullRequestAudience.objects.for_team(team.id).filter(audience_key=AUDIENCE).update(digest_run=run)
         stale = timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         DigestRun.objects.for_team(team.id).filter(id=run.id).update(created_at=stale)
 
@@ -78,7 +89,7 @@ def test_reclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_li
 
     with team_scope(team.id):
         run.refresh_from_db()
-        linked = PullRequest.objects.for_team(team.id).filter(digest_run_id=run.id).count()
+        linked = PullRequestAudience.objects.for_team(team.id).filter(digest_run_id=run.id).count()
         channel_last_digest_at = DigestChannel.objects.for_team(team.id).get(id=channel_id).last_digest_at
     assert run.status == expect_status
     assert (linked == 2) is expect_prs_linked
@@ -169,7 +180,7 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
     assert post.call_count == 1  # Slack posted exactly once either way
     with team_scope(team.id):
         run = DigestRun.objects.get()
-        linked = PullRequest.objects.filter(digest_run_id=run.id).count()
+        linked = PullRequestAudience.objects.filter(digest_run_id=run.id).count()
     if expect_raise:
         assert run.status == DigestRunStatus.PENDING  # never finalized
         assert linked == 2  # PRs stay linked to the PENDING run for the reclaim sweeper
@@ -208,7 +219,7 @@ def test_concurrent_runs_for_one_channel_post_to_slack_once(team) -> None:
     with team_scope(team.id):
         completed = list(DigestRun.objects.filter(status=DigestRunStatus.COMPLETED))
         assert len(completed) == 1
-        assert PullRequest.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -219,7 +230,7 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
     channel_id = _seed_channel_and_prs(team.id, pr_count=3)
     batch_sizes: list[int] = []
 
-    def sized_summary(prs: list[PullRequest]) -> DigestSummary:
+    def sized_summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
         batch_sizes.append(len(prs))
         return DigestSummary(intro="x", prs=[])
 
@@ -233,7 +244,7 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
     assert batch_sizes == [2, 1]
     with team_scope(team.id):
-        assert PullRequest.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -252,7 +263,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     with team_scope(team.id):
         run = DigestRun.objects.get()
         assert run.status == DigestRunStatus.FAILED
-        assert PullRequest.objects.filter(digest_run__isnull=True).count() == 2  # unlinked, retryable
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2  # unlinked, retryable
 
     with (
         patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
@@ -262,7 +273,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
 
     with team_scope(team.id):
         completed = DigestRun.objects.get(status=DigestRunStatus.COMPLETED)
-        assert PullRequest.objects.filter(digest_run=completed).count() == 2  # retry picked them up
+        assert PullRequestAudience.objects.filter(digest_run=completed).count() == 2  # retry picked them up
 
 
 @pytest.mark.parametrize(
@@ -308,19 +319,27 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
             DigestRun.objects.for_team(team.id).create(
                 team_id=team.id, digest_channel=channel, status=DigestRunStatus.COMPLETED
             )
-        recent = PullRequest.objects.for_team(team.id).create(
+        recent = PullRequestAudience.objects.for_team(team.id).create(
             team_id=team.id,
-            repo_config=repo_config,
-            pr_number=1,
+            pull_request=PullRequest.objects.for_team(team.id).create(
+                team_id=team.id,
+                repo_config=repo_config,
+                pr_number=1,
+                merged_at=timezone.now() - claimed_offset,
+            ),
             audience_key=AUDIENCE,
-            merged_at=timezone.now() - claimed_offset,
+            reason=AudienceReason.AUTHORED,
         )
-        old = PullRequest.objects.for_team(team.id).create(
+        old = PullRequestAudience.objects.for_team(team.id).create(
             team_id=team.id,
-            repo_config=repo_config,
-            pr_number=2,
+            pull_request=PullRequest.objects.for_team(team.id).create(
+                team_id=team.id,
+                repo_config=repo_config,
+                pr_number=2,
+                merged_at=timezone.now() - unclaimed_offset,
+            ),
             audience_key=AUDIENCE,
-            merged_at=timezone.now() - unclaimed_offset,
+            reason=AudienceReason.AUTHORED,
         )
 
     with (
