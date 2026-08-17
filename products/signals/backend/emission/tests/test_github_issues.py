@@ -1,5 +1,6 @@
 import pytest
 
+from products.signals.backend.contracts import GithubIssueSignalExtra
 from products.signals.backend.emission.github_issues import EXTRA_FIELDS, GITHUB_ISSUES_CONFIG, github_issue_emitter
 
 
@@ -58,6 +59,47 @@ class TestGithubIssueEmitter:
         assert result is not None
         assert result.extra["html_url"] == "https://github.com/acme/analytics/issues/87"
         assert result.extra["number"] == 87
+
+    def test_author_lifted_out_of_nested_user_object(self, github_issue_record):
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        assert result.extra["author_login"] == "octocat"
+        assert result.extra["author_association"] == "CONTRIBUTOR"
+        # The rest of the user object is avatar and API URLs; only the handle belongs in `extra`.
+        assert "user" not in result.extra
+
+    def test_author_satisfies_extra_contract(self, github_issue_record):
+        # The eval fixtures predate the author columns, so this is the only coverage of a populated
+        # author against a contract that forbids unknown keys.
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        GithubIssueSignalExtra(**result.extra)
+
+    @pytest.mark.parametrize(
+        "record_overrides",
+        [
+            pytest.param({}, id="columns_absent"),
+            pytest.param({"user": None, "author_association": None}, id="null_columns"),
+            pytest.param({"user": "not-json"}, id="unparseable_user"),
+            pytest.param({"user": '["not", "an", "object"]'}, id="non_object_user"),
+            pytest.param({"user": '{"id": 583231}'}, id="user_without_login"),
+            pytest.param({"author_association": ""}, id="blank_association"),
+        ],
+    )
+    def test_author_degrades_to_none_without_raising(self, github_issue_record, record_overrides):
+        # Both keys are required by the contract, so an author the emitter can't read has to become
+        # None rather than drop the issue or fail validation downstream.
+        github_issue_record.pop("user")
+        github_issue_record.pop("author_association")
+        github_issue_record.update(record_overrides)
+
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        assert result.extra["author_login"] is None
+        assert result.extra["author_association"] is None
 
     def test_labels_parsed_from_json_string(self, github_issue_record):
         result = github_issue_emitter(team_id=1, record=github_issue_record)

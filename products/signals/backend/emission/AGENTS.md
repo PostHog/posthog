@@ -67,6 +67,8 @@ Users enable sources via the Inbox Sources modal.
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.) unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
+   The deliberate exception is the author of a record: `github_issues.py` carries `author_login` and `author_association`, because who filed a report is what separates a maintainer's bug report from a drive-by one on a public repo, and triage can't weigh the two without it.
+   Reach for the same pair on other issue-tracker sources, and keep it to the handle and the relationship — not emails, real names, or the rest of the nested user object.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
    For external sources, use the `ExternalDataSourceType` value as the source type.
    For internal sources, use a descriptive string identifier.

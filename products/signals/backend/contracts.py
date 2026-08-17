@@ -139,6 +139,11 @@ class GithubIssueSignalExtra(SignalExtraBase):
     updated_at: str
     locked: bool
     state: str
+    author_login: str | None
+    # GitHub's own enum — OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+    # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
+    # taxonomy instead of failing validation and dropping the signal.
+    author_association: str | None
 
 
 class GithubIssueSignalInput(SignalInputBase):

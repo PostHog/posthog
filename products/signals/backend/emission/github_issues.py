@@ -51,9 +51,16 @@ Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 REQUIRED_FIELDS = ("id", "title", "body")
 
-EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "locked", "state")
+PASSTHROUGH_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "locked", "state")
 # TODO: Add "comments", but they can be pretty heavy, so better to iterate on them later,
 # either when adding weight-defining logic, or when we decide to include them into the description
+
+# Columns behind the author identity on `extra`. `author_association` lands verbatim; `author_login`
+# is lifted out of the nested `user` object, which otherwise carries a pile of avatar and API URLs
+# that triage has no use for.
+AUTHOR_FIELDS = ("author_association", "user")
+
+EXTRA_FIELDS = (*PASSTHROUGH_FIELDS, "author_login", "author_association")
 
 
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -84,8 +91,34 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
     )
 
 
+def _author_login(raw_user: Any) -> str | None:
+    """Lift `login` out of a GitHub user object, which the warehouse stores as a JSON string.
+
+    Unlike labels, a user object we can't read degrades to an unknown author rather than raising:
+    the author is context for triage, not something the signal is meaningless without.
+    """
+    if isinstance(raw_user, str):
+        try:
+            raw_user = json.loads(raw_user)
+        except (json.JSONDecodeError, TypeError):
+            # The blob itself names a person, so log only enough to spot a shape change upstream.
+            logger.warning(
+                "Ignoring unparseable GitHub issue user field",
+                signals_type="data-import-signals",
+                raw_user_length=len(raw_user),
+            )
+            return None
+    if not isinstance(raw_user, dict):
+        return None
+    login = raw_user.get("login")
+    return login if isinstance(login, str) and login else None
+
+
 def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
-    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    extra = {k: v for k, v in record.items() if k in PASSTHROUGH_FIELDS}
+    # Always present, so the contract shape doesn't shift when a repo or a sync withholds the author.
+    extra["author_login"] = _author_login(record.get("user"))
+    extra["author_association"] = record.get("author_association") or None
     raw_labels = extra.get("labels")
     if raw_labels is None:
         extra["labels"] = []
@@ -115,7 +148,7 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     record_fetcher=data_warehouse_record_fetcher,
     partition_field="created_at",
     partition_field_is_datetime_string=True,
-    fields=REQUIRED_FIELDS + EXTRA_FIELDS,
+    fields=REQUIRED_FIELDS + PASSTHROUGH_FIELDS + AUTHOR_FIELDS,
     where_clause=f"state NOT IN ({', '.join(repr(s) for s in GITHUB_IGNORED_STATES)})",
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
