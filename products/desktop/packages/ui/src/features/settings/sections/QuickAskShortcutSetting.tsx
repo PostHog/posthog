@@ -41,7 +41,10 @@ const CODE_KEYS: Record<string, string> = {
   PageDown: "PageDown",
 };
 
-function acceleratorFromEvent(event: KeyboardEvent): string | null {
+export function acceleratorFromEvent(
+  event: KeyboardEvent,
+  isMac: boolean,
+): string | null {
   let key: string | null = null;
   if (event.code.startsWith("Key")) key = event.code.slice(3);
   else if (event.code.startsWith("Digit")) key = event.code.slice(5);
@@ -50,7 +53,12 @@ function acceleratorFromEvent(event: KeyboardEvent): string | null {
   if (!key) return null;
 
   const modifiers: string[] = [];
-  if (event.metaKey || event.ctrlKey) modifiers.push("CommandOrControl");
+  // Map each physical modifier to its own Electron accelerator. Collapsing
+  // Meta and Control into CommandOrControl records a different shortcut than
+  // pressed — on macOS a Control+Space would become Command+Space and collide
+  // with Spotlight.
+  if (event.metaKey) modifiers.push(isMac ? "Command" : "Super");
+  if (event.ctrlKey) modifiers.push("Control");
   if (event.altKey) modifiers.push("Alt");
   if (event.shiftKey) modifiers.push("Shift");
   const accelerator = [...modifiers, key].join("+");
@@ -77,7 +85,7 @@ function ShortcutRecorder({
         setRecording(false);
         return;
       }
-      const accelerator = acceleratorFromEvent(event);
+      const accelerator = acceleratorFromEvent(event, IS_MAC);
       if (accelerator) {
         setRecording(false);
         onRecord(accelerator);
