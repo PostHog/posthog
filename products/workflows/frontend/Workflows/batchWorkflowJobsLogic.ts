@@ -112,8 +112,13 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                     // One request flags a bounded batch of runs, so a very large run leaves
                     // some in flight. Prompt another pass instead of reporting a clean stop.
                     lemonToast.warning('Some runs are still in flight. Select Stop again to catch the rest.')
-                } else {
+                } else if (response.status === 'cancelled') {
                     lemonToast.success('Batch run stopped. Runs still in flight are being canceled.')
+                } else {
+                    // done:true with a non-cancelled status means the run reached a terminal state
+                    // (completed or failed) before the stop could flag anything — the backend reports
+                    // that instead of flipping to cancelled, so don't claim a stop that didn't happen.
+                    lemonToast.info('This batch run already finished, so there was nothing to stop.')
                 }
                 actions.loadBatchWorkflowJobs()
             } catch (e: any) {
