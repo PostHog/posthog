@@ -11,6 +11,7 @@ from typing import Any, Optional, cast
 import pytest
 
 from parameterized import parameterized
+from websockets.exceptions import InvalidMessage
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
@@ -276,6 +277,16 @@ class TestFramer:
         client = FramerClient(PROJECT_ID, "key", protocol_version="0.1.29", connect_fn=server)
         with pytest.raises(FramerAPIError) as exc_info:
             client.connect()
+        assert exc_info.value.retryable
+
+    def test_client_wraps_handshake_eof_as_retryable(self) -> None:
+        def connect_fn(*args: Any, **kwargs: Any) -> Any:
+            raise InvalidMessage("did not receive a valid HTTP response")
+
+        client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=connect_fn)
+        with pytest.raises(FramerAPIError) as exc_info:
+            client.connect()
+        assert exc_info.value.code == "CONNECTION_CLOSED"
         assert exc_info.value.retryable
 
     def test_client_raises_on_method_error(self) -> None:
