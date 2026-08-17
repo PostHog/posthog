@@ -1059,14 +1059,19 @@ impl GlobalRateLimiterImpl {
         let now = Utc::now();
         let ttl = config.global_cache_ttl.as_secs() as usize;
 
-        // Reads first: enforcement accuracy depends on fresh global counts, while
-        // a write is additive and lands correctly a tick late. The old
-        // writes-first order let a large write batch consume the tick before any
-        // read ran, starving the very syncs the burst made necessary.
-        let reads_issued =
-            Self::run_reads(config, redis, &redis_idx_str, cache, sync_keys, now, scope).await;
+        // Writes first, then reads. A read result zeroes each synced key's
+        // `local_pending`, so the read must already include this tick's write
+        // batch -- reads-first would discard up to a tick of a key's counts
+        // until its next sync. Writes-first is safe to wait on now that the
+        // write batch is bounded and chunked: the read delay is capped at a few
+        // command timeouts, where the old unbounded batch could consume whole
+        // ticks. Counts deferred past the write cap are still cleared by the
+        // read before they land; that loss is bounded by the cap and fails
+        // open, like every other overload path here.
         let writes_issued =
             Self::run_writes(config, redis, &redis_idx_str, writes, ttl, scope).await;
+        let reads_issued =
+            Self::run_reads(config, redis, &redis_idx_str, cache, sync_keys, now, scope).await;
 
         metrics::histogram!(GLOBAL_RATE_LIMITER_COMMANDS_HISTOGRAM, "scope" => scope, "op" => "write")
             .record(writes_issued as f64);
@@ -2132,7 +2137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_tick_runs_reads_before_writes() {
+    async fn test_tick_runs_writes_before_reads() {
         let mock = Arc::new(MockRedisClient::new());
         let client: Arc<dyn Client + Send + Sync> = mock.clone();
         let config = config_with_floor(0);
@@ -2163,10 +2168,10 @@ mod tests {
             "tick should issue both a read and a write"
         );
         assert!(
-            first_read < first_write,
-            "reads must run before writes: enforcement depends on fresh global \
-             counts, and a large write batch running first starves the reads a \
-             burst makes necessary. calls={calls:?}"
+            first_write < first_read,
+            "writes must land before reads: the read result zeroes each synced \
+             key's local_pending, so a read that predates this tick's writes \
+             silently discards those counts until the next sync. calls={calls:?}"
         );
     }
 
