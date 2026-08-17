@@ -1,6 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from rest_framework import status
+
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 
 class TestPublicSourceConfigs(APIBaseTest):
@@ -105,3 +111,31 @@ class TestPublicSourceConfigs(APIBaseTest):
         response = self.client.get("/api/public_source_configs/")
         with_tables = [name for name, config in response.json().items() if config["tables"]]
         assert len(with_tables) >= 100, f"only {len(with_tables)} sources list tables"
+
+
+class TestBuildSourceConfigs(SimpleTestCase):
+    def _fake_source(self) -> MagicMock:
+        source = MagicMock()
+        source.get_source_config.model_dump.return_value = {"name": "Good"}
+        source.supports_column_selection = False
+        source.supported_versions = ["v1"]
+        source.default_version = "v1"
+        source.api_docs_url = None
+        source.deprecated_versions = []
+        source.get_documented_tables.return_value = []
+        return source
+
+    def test_one_failing_source_does_not_break_catalog(self) -> None:
+        good = self._fake_source()
+        bad = self._fake_source()
+        bad.get_source_config.model_dump.side_effect = RuntimeError("boom")
+
+        with patch.object(SourceRegistry, "get_all_sources", return_value={"Good": good, "Bad": bad}):
+            build_source_configs.cache_clear()
+            try:
+                result = build_source_configs()
+            finally:
+                build_source_configs.cache_clear()
+
+        assert "Good" in result
+        assert "Bad" not in result

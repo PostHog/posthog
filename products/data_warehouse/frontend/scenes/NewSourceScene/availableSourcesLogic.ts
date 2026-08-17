@@ -41,11 +41,12 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
                 load: async () => {
                     try {
                         return await api.externalDataSources.wizard()
-                    } catch (e: any) {
-                        if (e.status === 403) {
-                            return null
-                        }
-                        throw e
+                    } catch {
+                        // This logic mounts on pages that only need the catalog for icons and
+                        // labels (project settings, onboarding, marketing analytics, data pipelines).
+                        // Any failure must degrade to an empty catalog so consumers render their
+                        // empty state, rather than throw from a mount hook onto an unrelated page.
+                        return null
                     }
                 },
             },

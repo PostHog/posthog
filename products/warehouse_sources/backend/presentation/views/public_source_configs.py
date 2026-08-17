@@ -30,23 +30,30 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
 
     results: dict[str, dict] = {}
     for source_type, source in sources.items():
-        config = source.get_source_config.model_dump()
-        config["supportsColumnSelection"] = bool(source.supports_column_selection)
-        config["versions"] = list(source.supported_versions)
-        config["defaultVersion"] = source.default_version
-        config["apiDocsUrl"] = source.api_docs_url
-        config["deprecatedVersions"] = [
-            {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
-            for d in source.deprecated_versions
-        ]
-        if include_tables:
-            # Per-source guard: a single misbehaving source must never break the whole catalog.
-            try:
-                config["tables"] = source.get_documented_tables()
-            except Exception:
-                logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
-                config["tables"] = []
-        results[str(source_type)] = config
+        # Per-source guard: a single misbehaving source must never break the whole catalog.
+        try:
+            config = source.get_source_config.model_dump()
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
+            config["versions"] = list(source.supported_versions)
+            config["defaultVersion"] = source.default_version
+            config["apiDocsUrl"] = source.api_docs_url
+            config["deprecatedVersions"] = [
+                {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
+                for d in source.deprecated_versions
+            ]
+            if include_tables:
+                # A source whose only failure is the table catalog still renders its form,
+                # so keep it with an empty table list rather than dropping it entirely.
+                try:
+                    config["tables"] = source.get_documented_tables()
+                except Exception:
+                    logger.exception(
+                        "build_source_configs: get_documented_tables failed", source_type=str(source_type)
+                    )
+                    config["tables"] = []
+            results[str(source_type)] = config
+        except Exception:
+            logger.exception("build_source_configs: source config failed", source_type=str(source_type))
 
     return results
 
