@@ -2704,8 +2704,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
+                const experimentVariant = featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT]
+                if (experimentVariant === 'control') {
+                    return false
+                }
+                if (experimentVariant === 'test') {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION]
+            },
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -3312,7 +3320,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                   : newTile.widget
                     ? 'widget'
                     : 'insight'
-            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(
+                insertedTileType,
+                props.id,
+                newTile.id,
+                slot.x,
+                slot.y,
+                slot.w != null
+            )
 
             // In edit mode the change is saved with the rest of the edit session.
             if (values.layoutEditMode) {
