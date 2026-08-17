@@ -507,6 +507,11 @@ export const exportsLogic = kea<exportsLogicType>([
                                 downloadExportedAsset(response)
                                 return EXPORT_COMPLETE_MESSAGE
                             }
+                            // Claimed before addFresh, because that is the moment the poll can see
+                            // this asset. A poll running before the toast settles would otherwise
+                            // announce the same export again.
+                            cache.notifiedExportIds ??= new Set<number>()
+                            cache.notifiedExportIds.add(response.id)
                             actions.addFresh(response)
                             // Not a failure, so not a rejection: the export succeeded and the file
                             // is ready, it just needs a fresh click. Rejecting here would settle the
@@ -548,10 +553,6 @@ export const exportsLogic = kea<exportsLogicType>([
                             )
                             const readyForDownload = awaiting.download
                             if (readyForDownload) {
-                                // This export is announced here, so the poll must not announce it
-                                // again while it waits in freshUndownloadedExports to be clicked.
-                                cache.notifiedExportIds ??= new Set<number>()
-                                cache.notifiedExportIds.add(readyForDownload.id)
                                 await settleWithDownload(nudge, exportToastId, () =>
                                     actions.downloadExport(readyForDownload)
                                 )

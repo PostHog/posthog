@@ -75,7 +75,7 @@ describe('export completion toast', () => {
             filename: 'dashboard.png',
             created_at: '2026-05-11T19:00:00Z',
             dashboard: 7,
-        } as ExportedAssetType)
+        })
     })
 
     afterEach(() => {
@@ -96,7 +96,7 @@ describe('export completion toast', () => {
             has_content: false,
             filename: 'recording.mp4',
             created_at: '2026-05-11T19:00:00Z',
-        } as ExportedAssetType)
+        })
 
         render(<ToastContainer />)
         act(() => {
@@ -175,7 +175,7 @@ describe('export completion toast', () => {
                 has_content: true,
                 filename: 'export.png',
                 created_at: '2026-05-11T19:00:00Z',
-            } as ExportedAssetType)
+            })
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(SETTLE_MS)
             })
@@ -214,7 +214,7 @@ describe('export completion toast', () => {
             has_content: true,
             filename: 'insight.png',
             created_at: '2026-05-11T19:00:00Z',
-        } as ExportedAssetType)
+        })
 
         render(<ToastContainer />)
         logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
@@ -266,7 +266,7 @@ describe('export completion toast', () => {
             filename: 'dashboard.png',
             created_at: '2026-05-11T19:00:00Z',
             dashboard: 7,
-        } as ExportedAssetType)
+        })
         await act(async () => {
             await jest.advanceTimersByTimeAsync(SETTLE_MS)
         })
