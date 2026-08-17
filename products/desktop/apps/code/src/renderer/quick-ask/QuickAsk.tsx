@@ -79,22 +79,26 @@ export function QuickAsk(): React.JSX.Element {
   const reportSize = useCallback((): void => {
     const root = rootRef.current;
     if (!root) return;
-    window.quickAsk?.resize(
-      Math.ceil(root.getBoundingClientRect().height) + 24,
-    );
+    // +2 mirrors the -2 slack in the root's max-height so the reported
+    // height never exceeds the space the main process said was available.
+    window.quickAsk?.resize(Math.ceil(root.getBoundingClientRect().height) + 2);
   }, []);
 
-  // The main process owns screen geometry: it caps the card and decides
-  // whether the card sits above the pill (summoned near the screen bottom).
+  // The main process owns screen geometry: it pushes the room available at
+  // the current position and decides whether the card sits above the pill
+  // (summoned near the screen bottom). The root caps itself to that room and
+  // flexbox shrinks the card into whatever is left, so the card cap never
+  // depends on the measured height it feeds back.
   useEffect(() => {
     return window.quickAsk?.onLayout((layout) => {
       document.documentElement.style.setProperty(
-        "--qa-card-max",
-        `${layout.cardMax}px`,
+        "--qa-root-max",
+        `${Math.max(60, layout.maxHeight - 2)}px`,
       );
       setFlip(layout.flip);
+      requestAnimationFrame(reportSize);
     });
-  }, []);
+  }, [reportSize]);
 
   // Refocus on every summon. The previous session is kept — "New chat" or a
   // new question clears it — so reopening restores the last answer.

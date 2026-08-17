@@ -2,8 +2,8 @@
 interface QuickAskLayout {
   /** Card renders above the pill (summoned near the bottom of the screen). */
   flip: boolean;
-  /** Max allowed answer-card height in CSS pixels. */
-  cardMax: number;
+  /** Max window height: pill anchor to screen edge, in CSS pixels. */
+  maxHeight: number;
 }
 
 /** Bridge exposed by the quick-ask preload branch (see src/main/preload.ts). */

@@ -54,7 +54,8 @@ const CURSOR_IN_WINDOW_X_OFFSET = 8;
 const CURSOR_ABOVE_PILL_PX = 10;
 interface QuickAskLayoutState {
   flip: boolean;
-  cardMax: number;
+  /** Room between the pill's anchor and the screen edge, in CSS pixels. */
+  maxHeight: number;
 }
 
 /** Last geometry the renderer reported; reused across hides/shows. */
@@ -191,28 +192,38 @@ function createQuickAskWindow(): BrowserWindow {
   return window;
 }
 
-/** Geometry math shared by the summon, resize, and drag paths. */
+/**
+ * Geometry math shared by the summon, resize, and drag paths.
+ *
+ * `maxHeight` is the room between the pill's anchor and the screen edge in
+ * the grow direction. It depends only on position and display — never on the
+ * content height the renderer reported. (Deriving the card cap from the
+ * window height fed the capped measurement back into the cap, locking the
+ * panel at whatever sliver it started at.)
+ */
 function layoutFor(
   bounds: { x: number; y: number; height: number },
   flip: boolean,
   area: { x: number; y: number; width: number; height: number },
-): { y: number; height: number; cardMax: number } {
+): { y: number; height: number; maxHeight: number } {
   if (!flip) {
     // Window top is anchored at the pill; the card may extend to the screen edge.
-    const maxHeight = area.y + area.height - SCREEN_MARGIN - bounds.y;
+    const maxHeight = Math.max(
+      PILL_HEIGHT,
+      area.y + area.height - SCREEN_MARGIN - bounds.y,
+    );
     const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
-    return {
-      y: bounds.y,
-      height,
-      cardMax: Math.max(60, height - CHROME_HEIGHT),
-    };
+    return { y: bounds.y, height, maxHeight };
   }
   // Window bottom is anchored at the pill; the card extends upward, capped
   // by the screen edge above.
-  const maxHeight = bounds.y + bounds.height - (area.y + MENU_BAR_CLEARANCE);
+  const bottom = bounds.y + bounds.height;
+  const maxHeight = Math.max(
+    PILL_HEIGHT,
+    bottom - (area.y + MENU_BAR_CLEARANCE),
+  );
   const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
-  const y = bounds.y + bounds.height - height;
-  return { y, height, cardMax: Math.max(60, height - CHROME_HEIGHT) };
+  return { y: bottom - height, height, maxHeight };
 }
 
 function pushLayout(window: BrowserWindow): void {
@@ -233,7 +244,7 @@ function pushLayout(window: BrowserWindow): void {
   }
   const payload: QuickAskLayoutState = {
     flip: currentFlip,
-    cardMax: layout.cardMax,
+    maxHeight: layout.maxHeight,
   };
   window.webContents.send(QUICK_ASK_LAYOUT_CHANNEL, payload);
 }

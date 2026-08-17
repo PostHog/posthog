@@ -41,6 +41,10 @@ body {
   flex-direction: column;
   align-items: flex-start;
   padding: 10px 14px 14px 10px;
+  /* Pushed by the main process: the room between the pill's anchor and the
+   * screen edge. Flexbox shrinks the card into it; the window then matches
+   * the measured result. */
+  max-height: var(--qa-root-max, none);
 }
 
 /* Summoned close to the screen bottom: the card renders above the pill
@@ -53,6 +57,7 @@ body {
 
 .qa-pill-row {
   display: flex;
+  flex-shrink: 0;
   align-items: flex-end;
   gap: 7px;
   position: relative;
@@ -167,9 +172,8 @@ body {
   animation: qa-card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.05);
   transform-origin: top left;
   overflow: hidden;
-  /* Capped by the main process to the space left on screen; long answers
-   * scroll inside instead of running off-screen. */
-  max-height: var(--qa-card-max, 420px);
+  /* Shrinks into the root's max-height; long answers scroll inside. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
