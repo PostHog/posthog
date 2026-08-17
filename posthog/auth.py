@@ -1103,7 +1103,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
-    def authenticate(self, request: Request) -> Optional[tuple[Any, Any]]:
+    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
         header = authentication.get_authorization_header(request).split()
         # No bearer header: return None (not raise) so the view's other authenticators,
         # if any, still get their turn.
@@ -1136,7 +1136,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 
         return self._authenticate_claims(request, claims)
 
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
         claim_team_id = claims.get("team_id")
 
         if claim_team_id is None:
