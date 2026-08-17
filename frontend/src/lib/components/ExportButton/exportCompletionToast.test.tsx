@@ -56,7 +56,7 @@ describe('export completion toast', () => {
         // it does, and the export's own action, which this message owns the layout of either way.
         jest.mocked(claimExportNudgeMessage).mockImplementation(() => {
             let accepted = false
-            return (headline, action) => (
+            return (headline, _toastId, action) => (
                 <span>
                     <span>{headline}</span>
                     {!accepted && <button onClick={() => (accepted = true)}>{NUDGE_CTA}</button>}

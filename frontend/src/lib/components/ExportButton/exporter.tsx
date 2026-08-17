@@ -46,6 +46,5 @@ export type TriggerExportProps = Pick<
     ExportedAssetType,
     'export_format' | 'dashboard' | 'insight' | 'export_context'
 > & {
-    /** Client-side only, never sent to the API: the export nudge links to the insight's subscriptions. */
     insightShortId?: InsightShortId
 }

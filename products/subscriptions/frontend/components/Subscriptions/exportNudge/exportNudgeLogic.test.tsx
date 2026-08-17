@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { userLogic } from 'scenes/userLogic'
@@ -19,17 +20,17 @@ import { subscriptionsLogic } from 'products/subscriptions/frontend/components/S
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import {
-    ExportNudgeSubject,
     claimExportNudge,
     exportNudgeLogic,
     lookUpExportNudge,
     resolveExportNudgeEligibility,
 } from './exportNudgeLogic'
+import { ExportNudgeSubject } from './exportNudgeSubject'
 import { claimExportNudgeMessage } from './ExportNudgeToast'
 
 jest.mock('lib/posthog-typed', () => ({
     __esModule: true,
-    default: { capture: jest.fn() },
+    default: { capture: jest.fn(), captureRaw: jest.fn() },
 }))
 
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
@@ -52,7 +53,9 @@ const USER_WITH_SUBSCRIPTIONS_FEATURE: UserType = {
 }
 
 function capturesOf(event: string): any[][] {
-    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+    return [...(posthog.capture as jest.Mock).mock.calls, ...(posthog.captureRaw as jest.Mock).mock.calls].filter(
+        ([name]) => name === event
+    )
 }
 
 describe('exportNudgeLogic', () => {
@@ -96,6 +99,7 @@ describe('exportNudgeLogic', () => {
         logic = exportNudgeLogic()
         logic.mount()
         ;(posthog.capture as jest.Mock).mockClear()
+        ;(posthog.captureRaw as jest.Mock).mockClear()
     })
 
     afterEach(() => {
@@ -255,7 +259,7 @@ describe('exportNudgeLogic', () => {
             [INSIGHT, null, `/insights/${INSIGHT_SHORT_ID}/subscriptions/new`],
         ])('the CTA routes to the prefilled new-subscription form', (subject, name, path) => {
             const message = claimExportNudgeMessage({ subject, name })
-            render(<>{message!('Export complete!')}</>)
+            render(<>{message!('Export complete!', 'export-toast')}</>)
 
             fireEvent.click(screen.getByText('Subscribe'))
 
@@ -263,14 +267,29 @@ describe('exportNudgeLogic', () => {
             expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'export' })
         })
 
+        it('closes only its own toast when the export action is taken', () => {
+            // Dismissing without an id closes every toast on screen, including another export's
+            // completion toast, which is the only signal a polled export gives.
+            const dismiss = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => {})
+            const action = jest.fn()
+            const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })
+            render(<>{message!('Export complete!', 'export-toast', { label: 'Download', action })}</>)
+
+            fireEvent.click(screen.getByText('Download'))
+
+            expect(action).toHaveBeenCalled()
+            expect(dismiss).toHaveBeenCalledWith('export-toast')
+            dismiss.mockRestore()
+        })
+
         it('drops the offer from later frames once it has been followed', () => {
             const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })
-            render(<>{message!('Preparing export…')}</>)
+            render(<>{message!('Preparing export…', 'export-toast')}</>)
             fireEvent.click(screen.getByText('Subscribe'))
             cleanup()
 
             // The export settles into its own message rather than asking a second time.
-            expect(message!('Export complete!')).toEqual('Export complete!')
+            expect(message!('Export complete!', 'export-toast')).toEqual('Export complete!')
         })
     })
 })

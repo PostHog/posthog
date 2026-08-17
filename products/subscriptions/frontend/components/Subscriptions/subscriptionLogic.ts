@@ -39,13 +39,6 @@ const EXPORT_NUDGE_CLICKED_EVENTS = {
     insight: 'insight export nudge clicked',
 } as const
 
-// Surfaces that deep-link into the prefilled form, so the readout can compare them.
-const PREFILL_VIA_VALUES: readonly string[] = [
-    SUBSCRIPTION_PREFILL_PARAMS.viaToast,
-    SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
-    SUBSCRIPTION_PREFILL_PARAMS.viaExport,
-]
-
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
     prompt: string | null | undefined
@@ -846,8 +839,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (searchParams.resource_type === SubscriptionResourceTypes.AiPrompt) {
                 actions.setSubscriptionValue('resource_type', SubscriptionResourceTypes.AiPrompt)
             }
-            // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
-            // fresh session days later — the prefill is built here from URL + context, not kea state.
             const nudgeSubject = props.dashboardId ? 'dashboard' : props.insightShortId ? 'insight' : null
             // The route pattern matches any subject's page, so without this a logic keyed to another
             // insight or dashboard prefills and reports the click for someone else's nudge.
@@ -882,8 +873,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
                 actions.setSubscriptionValues(prefill)
                 cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
-                // Every nudge surface enters the flow through this route. The export nudge is its
-                // own experiment, so it reports a separate event rather than another `via` value.
                 const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
                 posthog.capture(
                     via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
@@ -895,7 +884,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                             ? { dashboard_id: props.dashboardId }
                             : { insight_short_id: props.insightShortId }),
                         prefilled: !!values.user?.email,
-                        via: PREFILL_VIA_VALUES.includes(via) ? via : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+                        via: via ?? SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
                     }
                 )
             }

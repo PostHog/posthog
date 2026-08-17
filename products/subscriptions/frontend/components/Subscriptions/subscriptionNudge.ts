@@ -4,12 +4,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled. One source
- * of truth for the producers (the dashboard toast and the export offer) and the consumer
- * (subscriptionLogic's urlToAction). The backend notification's source_url must mirror these; see
- * the comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
 export const SUBSCRIPTION_PREFILL_PARAMS = {
     param: 'prefill',
     nudge: 'nudge',

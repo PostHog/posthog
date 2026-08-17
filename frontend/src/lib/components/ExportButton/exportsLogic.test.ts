@@ -7,6 +7,7 @@ import { ExportedAssetType, ExporterFormat, InsightShortId, SidePanelTab } from 
 
 import {
     ExportNudgeCandidate,
+    captureExportNudgeCheckFailed,
     lookUpExportNudge,
     resolveExportNudgeEligibility,
 } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
@@ -47,7 +48,8 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/
 
 // The nudge body stands in as an opaque element that echoes the headline it was rendered under,
 // which is what distinguishes the toast's states.
-const NUDGE_MESSAGE: ExportNudgeMessage = (headline, action) => `nudge:${headline}${action ? ` +${action.label}` : ''}`
+const NUDGE_MESSAGE: ExportNudgeMessage = (headline, _toastId, action) =>
+    `nudge:${headline}${action ? ` +${action.label}` : ''}`
 
 const DASHBOARD_SUBJECT = { kind: 'dashboard' as const, dashboardId: 7 }
 const INSIGHT_SHORT_ID = '11' as InsightShortId
@@ -485,6 +487,8 @@ describe('exportsLogic', () => {
 
             expect(claimExportNudgeMessage).not.toHaveBeenCalled()
             expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
+            // Without this the readout cannot tell a dropped offer from an ineligible exporter.
+            expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('toast-gone', expect.anything())
         })
 
         it('offers a Download button when the create call outlived the user gesture', async () => {

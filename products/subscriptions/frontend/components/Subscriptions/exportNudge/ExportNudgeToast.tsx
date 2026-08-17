@@ -4,6 +4,7 @@ import { ToastActionButton, ToastButton } from 'lib/lemon-ui/LemonToast/LemonToa
 import {
     ExportNudgeCandidate,
     claimExportNudge,
+    subjectNoun,
     subscriptionTargetFor,
 } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
 import {
@@ -12,16 +13,21 @@ import {
 } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionNudge'
 
 /**
- * Builds the toast's message for a given headline. The offer rides along until it is followed, and
- * lays out the toast's own action beside its CTA so the two sit on one row.
+ * Builds the toast's message. The offer rides along until it is followed, and lays the toast's own
+ * action out beside its CTA so the two sit on one row. `toastId` is required because that action
+ * closes its own toast, and closing without one closes every toast on screen.
  */
-export type ExportNudgeMessage = (headline: string, action?: ToastButton) => string | JSX.Element
+export type ExportNudgeMessage = (
+    headline: string,
+    toastId: number | string,
+    action?: ToastButton
+) => string | JSX.Element
 
 function subjectLabel(candidate: ExportNudgeCandidate): JSX.Element | string {
     if (candidate.name) {
         return <span className="italic">{candidate.name}</span>
     }
-    return candidate.subject.kind === 'dashboard' ? 'this dashboard' : 'this insight'
+    return subjectNoun(candidate.subject)
 }
 
 export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): ExportNudgeMessage | null {
@@ -30,7 +36,7 @@ export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): Export
     }
 
     let accepted = false
-    return (headline: string, action?: ToastButton) => {
+    return (headline: string, toastId: number | string, action?: ToastButton) => {
         // One layout either way. Following the offer only takes the offer away: this message still
         // owns the row, so it keeps rendering the export's own action, and a file waiting to be
         // downloaded does not lose its button.
@@ -63,7 +69,7 @@ export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): Export
                             Subscribe
                         </LemonButton>
                     )}
-                    {action && <ToastActionButton button={action} />}
+                    {action && <ToastActionButton button={action} toastId={toastId} />}
                 </span>
             </span>
         )

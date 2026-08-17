@@ -12,15 +12,10 @@ import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
-// A null count (loading or fetch failed) fails open, because the backend POST check is the hard limit.
 export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
     return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
-// Whether a nudge may offer to set up a subscription. Paid orgs are never limited. Free-tier orgs
-// must have room under the cap, and unlike EditSubscription, where the user asked and the backend
-// is the hard gate, an unknown count fails closed here: don't advertise an action we can't confirm
-// they can complete.
 export function canNudgeToSubscribe(
     hasSubscriptionsFeature: boolean,
     freeTierSubscriptionCount: number | null

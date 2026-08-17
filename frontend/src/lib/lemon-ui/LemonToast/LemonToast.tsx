@@ -52,6 +52,8 @@ export const EMAIL_SUPPORT_BUTTON: ToastButton = {
     },
 }
 
+const successIcon = (): JSX.Element => (isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />)
+
 export interface ToastContentProps {
     type: 'info' | 'success' | 'warning' | 'error'
     message: string | JSX.Element
@@ -59,11 +61,6 @@ export interface ToastContentProps {
     id?: number | string
 }
 
-/**
- * A toast's action. Exported so that a message laying out its own actions, such as an offer that
- * wants its CTA on the same row, renders the same button with the same dismiss-on-click as the slot
- * below.
- */
 export function ToastActionButton({
     button,
     toastId,
@@ -75,7 +72,7 @@ export function ToastActionButton({
         <LemonButton
             onClick={() => {
                 void button.action()
-                toast.dismiss(toastId)
+                lemonToast.dismiss(toastId)
             }}
             type="secondary"
             size="small"
@@ -128,9 +125,6 @@ function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
         </>
     )
 }
-
-// Three toast paths settle into success, and the holiday swap has to look the same on each.
-const successIcon = (): JSX.Element => (isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />)
 
 interface ToastError {
     message: string
@@ -246,8 +240,6 @@ export const lemonToast = {
         },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
-        // Promise toasts always get random IDs (unless explicitly provided) because
-        // different operations often share identical pending text like "Saving..."
         const options = ensureToastId(toastOptions, 'promise')
         const id = options.toastId
         // see https://fkhadra.github.io/react-toastify/promise
@@ -283,7 +275,6 @@ export const lemonToast = {
             options
         )
     },
-    /** Restates the whole success frame: react-toastify defers updates 100ms and re-dispatches the pending content when given no render. */
     updateToSuccess(
         id: number | string,
         message: string | JSX.Element,
