@@ -28,7 +28,6 @@ use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
-use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -178,17 +177,34 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
-    // The dynamic custom-threshold refresh loop is owned by the common limiter:
-    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
-    // source into the limiter, which spawns and manages the refresh task itself.
-    let global_rate_limiter_token_distinctid = if config.global_rate_limit_enabled {
-        let limiter = GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-            .await
-            .expect("failed to create global rate limiter");
-        Some(Arc::new(limiter))
+    // Both global limiters — the token+distinct_id event limiter and the AI
+    // lane's byte budget — share one Redis client: the dedicated rate-limiter
+    // Redis when GLOBAL_RATE_LIMIT_REDIS_URL is set, otherwise the shared one.
+    // Their key prefixes keep their counts apart. Built only if at least one
+    // limiter is enabled, so a deployment running neither opens no connection.
+    let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
+    let rate_limiter_redis = if config.global_rate_limit_enabled || ai_byte_limit_enabled {
+        Some(
+            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+                .await
+                .expect("failed to create rate limiter redis client"),
+        )
     } else {
         None
     };
+
+    // The dynamic custom-threshold refresh loop is owned by the common limiter:
+    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
+    // source into the limiter, which spawns and manages the refresh task itself.
+    let global_rate_limiter_token_distinctid = rate_limiter_redis
+        .as_ref()
+        .filter(|_| config.global_rate_limit_enabled)
+        .map(|redis| {
+            Arc::new(
+                GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
+                    .expect("failed to create global rate limiter"),
+            )
+        });
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -328,37 +344,21 @@ pub async fn build_components(
             None
         };
 
-    let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
-        std::num::NonZeroU32::new(ai_byte_limit_per_second(&config)).map(|per_second| {
-            let burst = if config.ai_byte_limit_burst < ByteRateLimiter::BURST_FLOOR {
-                warn!(
-                    ai_byte_limit_burst = config.ai_byte_limit_burst,
-                    "AI_BYTE_LIMIT_BURST is below the 8 MiB max AI event size; \
-                     clamping up to 8 MiB so legitimate large AI events aren't always dropped"
-                );
-                ByteRateLimiter::BURST_FLOOR
-            } else {
-                config.ai_byte_limit_burst
-            };
-            let burst = std::num::NonZeroU32::new(burst).unwrap_or(per_second);
-            let limiter =
-                ByteRateLimiter::new(per_second, burst, config.ai_byte_limit_overrides.clone());
-
-            if config.export_prometheus {
-                let limiter = limiter.clone();
-                tokio::spawn(async move {
-                    limiter.report_metrics("ai_byte").await;
-                });
-            }
-
-            {
-                let limiter = limiter.clone();
-                tokio::spawn(async move {
-                    limiter.clean_state().await;
-                });
-            }
-
-            Arc::new(limiter)
+    // Unlike the governor-backed overflow limiters above, this one needs no
+    // metrics or state-cleanup tasks of its own: the global rate limiter owns
+    // its background tick loop, its cache eviction, and its own metric series
+    // (scoped `<mode>_ai_bytes`).
+    if ai_byte_limit_enabled {
+        warn_if_ai_byte_budget_below_max_event(&config);
+    }
+    let ai_byte_rate_limiter = rate_limiter_redis
+        .as_ref()
+        .filter(|_| ai_byte_limit_enabled)
+        .map(|redis| {
+            Arc::new(
+                GlobalRateLimiter::new_ai_bytes(&config, vec![redis.clone()])
+                    .expect("failed to create AI byte rate limiter"),
+            )
         });
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
@@ -445,22 +445,30 @@ fn ai_events_overflow_valve(config: &Config) -> bool {
 /// The AI byte budget this deployment enforces, or `0` to skip building the
 /// limiter entirely. Import is exempt — backfills are never throttled, matching
 /// the other limiters — and not building the limiter is the whole exemption, so
-/// `drop_ai_byte_limited` needs no capture-mode awareness of its own. Rates
-/// above the governor's ceiling clamp down: above it the replenish interval
-/// truncates to zero, which would disable limiting altogether.
-fn ai_byte_limit_per_second(config: &Config) -> u32 {
+/// `drop_ai_byte_limited` needs no capture-mode awareness of its own.
+fn ai_byte_limit_per_second(config: &Config) -> u64 {
     if matches!(config.capture_mode, CaptureMode::Import) {
         return 0;
     }
-    if config.ai_byte_limit_per_second > ByteRateLimiter::RATE_CEILING {
+    config.ai_byte_limit_per_second
+}
+
+/// The AI endpoint accepts events up to this size, so a window budget below it
+/// perma-limits a token that sends full-size events.
+const MAX_AI_EVENT_BYTES: u64 = 8_388_608;
+
+fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
+    let window_secs = config.global_rate_limit_window_interval_secs.max(1);
+    let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
+    if window_budget < MAX_AI_EVENT_BYTES {
         warn!(
             ai_byte_limit_per_second = config.ai_byte_limit_per_second,
-            "AI_BYTE_LIMIT_PER_SECOND exceeds 1e9; governor truncates its replenish interval to \
-             zero above that, which disables rate limiting entirely -- clamping to 1e9"
+            window_secs,
+            window_budget,
+            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below the 8 MiB max AI event size; \
+             a token sending full-size events will be limited on nearly every event"
         );
-        return ByteRateLimiter::RATE_CEILING;
     }
-    config.ai_byte_limit_per_second
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are
@@ -1146,16 +1154,11 @@ mod tests {
     #[case::events_keeps_the_configured_rate(CaptureMode::Events, 5_000, 5_000)]
     #[case::ai_keeps_the_configured_rate(CaptureMode::Ai, 5_000, 5_000)]
     #[case::import_is_exempt(CaptureMode::Import, 5_000, 0)]
-    #[case::rate_above_the_ceiling_clamps(
-        CaptureMode::Events,
-        2_000_000_000,
-        ByteRateLimiter::RATE_CEILING
-    )]
     #[case::unset_stays_unset(CaptureMode::Events, 0, 0)]
     fn ai_byte_limit_per_second_by_mode(
         #[case] mode: CaptureMode,
-        #[case] configured: u32,
-        #[case] expected: u32,
+        #[case] configured: u64,
+        #[case] expected: u64,
     ) {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),

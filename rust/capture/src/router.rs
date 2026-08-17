@@ -22,7 +22,6 @@ use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
-use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
@@ -81,9 +80,11 @@ pub struct State {
     /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
     /// the AI lane subject to restriction-driven `force_overflow` only.
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
-    /// AI-lane byte-rate limiter; `None` when disabled. Drops over-budget
+    /// AI-lane per-token byte budget; `None` when disabled. A second instance
+    /// of the same global rate limiter the `token:distinct_id` field holds,
+    /// charged an event's serialized size rather than `1`. Drops over-budget
     /// events, unlike the overflow limiter's reroute.
-    pub ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
+    pub ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     /// Redis-backed replay overflow limiter for session recording sessions.
     /// When present, the recordings pipeline calls `is_limited(session_id)`
     /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
@@ -173,7 +174,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
-    ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,

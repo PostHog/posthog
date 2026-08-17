@@ -349,16 +349,29 @@ pub struct Config {
     pub capture_ingestion_warnings_kafka_tls: bool,
 
     /// Per-token byte/second budget for the AI lane. `0` disables the limiter.
+    ///
+    /// The budget is enforced fleet-wide by the global rate limiter, over the
+    /// shared `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` sliding window, so the
+    /// cap a token actually sees is this value times the window length. Within
+    /// a window the token may spend the whole budget at once.
     #[envconfig(default = "0")]
-    pub ai_byte_limit_per_second: u32,
+    pub ai_byte_limit_per_second: u64,
 
-    /// Burst budget in bytes. Values below the 8 MiB max event size are clamped
-    /// up (a smaller burst would perma-drop legitimate large events).
-    #[envconfig(default = "16777216")]
-    pub ai_byte_limit_burst: u32,
+    /// CSV list of `token=bytesPerSecond` pairs raising specific tokens' budgets.
+    /// Same unit as `ai_byte_limit_per_second`.
+    pub ai_byte_limit_overrides_csv: Option<String>,
 
-    /// Per-token ceiling overrides: "token=perSecond:burst,...".
-    pub ai_byte_limit_overrides: Option<String>,
+    /// When true, the AI byte limiter evaluates and reports but does not drop.
+    /// Separate from `global_rate_limit_dry_run` so this rollout and the
+    /// token+distinct_id limiter's can move independently.
+    #[envconfig(default = "false")]
+    pub ai_byte_limit_dry_run: bool,
+
+    /// Max local cache entries for the AI byte limiter. Keyed per token, so this
+    /// is bounded by the number of projects sending AI traffic — far smaller
+    /// than the per-(token, distinct_id) limiter's key space.
+    #[envconfig(default = "300000")]
+    pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
 #[derive(Envconfig, Clone)]

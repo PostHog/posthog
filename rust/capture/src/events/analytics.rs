@@ -17,7 +17,6 @@ use serde_json;
 use tracing::{error, instrument, warn, Span};
 use uuid::Uuid;
 
-use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 
 use crate::{
@@ -246,7 +245,7 @@ pub async fn process_events(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
-    ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     // The whole request fails on the first hard error, so the abort warning
     // charges the full batch, matching what the endpoint's
@@ -289,7 +288,7 @@ async fn process_events_inner(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
-    ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -372,7 +371,7 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref());
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Apply event restrictions, looking each event up under its `DataType`'s
     // pipeline. The single restriction service holds entries for all
@@ -675,7 +674,7 @@ mod tests {
         overflow_limiter: Option<Arc<OverflowLimiter>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
-        ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
+        ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     }
 
     impl Default for PipelineOptions {
@@ -1365,14 +1364,10 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
-        // 800-byte burst: the enveloped small event (~672 B) fits, the large
-        // one exceeds the burst outright (InsufficientCapacity), so the result
-        // is timing-independent.
-        let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(800).unwrap(),
-            NonZeroU32::new(800).unwrap(),
-            None,
-        )));
+        // 800-byte budget: the enveloped small event (~672 B) is the token's
+        // first charge and is admitted, and the large one takes the running
+        // total past the budget.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
         let sink = Arc::new(KafkaSinkBase::with_producer(
@@ -1438,12 +1433,9 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
-        // 800-byte burst: the enveloped small event fits, the large one exceeds it outright.
-        let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(800).unwrap(),
-            NonZeroU32::new(800).unwrap(),
-            None,
-        )));
+        // 800-byte budget: the small event is the token's first charge and is
+        // admitted, the large one takes the running total past the budget.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
         let sink = Arc::new(KafkaSinkBase::with_producer(
@@ -1503,15 +1495,12 @@ mod tests {
         );
     }
 
-    /// Under `Events` mode, only the diverted `AiEvents` lane is limited: an
-    /// over-budget `$ai_*` drops while a same-sized `$pageview` stays untouched.
+    /// Under `Events` mode, only the diverted `AiEvents` lane is limited:
+    /// `$ai_*` traffic past the budget drops while same-sized `$pageview`s stay
+    /// untouched however far over that budget the token already is.
     #[tokio::test]
     async fn events_mode_leaves_analytics_main_untouched_end_to_end() {
-        let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(300).unwrap(),
-            NonZeroU32::new(300).unwrap(),
-            None,
-        )));
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(300)));
 
         let sink = Arc::new(MockSink::new());
 
@@ -1520,15 +1509,18 @@ mod tests {
             .with_timezone(&Utc);
         let context = create_test_context(now, None);
 
-        let mut oversized_ai_event = create_test_event_with_name(
-            "$ai_generation",
-            Some("2023-01-01T11:00:00Z".to_string()),
-            None,
-            None,
-        );
-        oversized_ai_event
-            .properties
-            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+        let oversized_ai_event = || {
+            let mut event = create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            );
+            event
+                .properties
+                .insert("$ai_input".to_string(), json!("x".repeat(500)));
+            event
+        };
         let mut oversized_pageview = create_test_event_with_name(
             "$pageview",
             Some("2023-01-01T11:00:00Z".to_string()),
@@ -1548,7 +1540,13 @@ mod tests {
             None,
             None,
             None,
-            vec![oversized_ai_event, oversized_pageview],
+            // The first AI event is the token's first charge and is admitted;
+            // the second is over budget and drops.
+            vec![
+                oversized_ai_event(),
+                oversized_ai_event(),
+                oversized_pageview,
+            ],
             &context,
             limiter,
         )
@@ -1558,10 +1556,17 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(
             captured.len(),
-            1,
+            2,
             "only the over-budget AiEvents event must be dropped"
         );
-        assert_eq!(captured[0].metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(
+            captured
+                .iter()
+                .filter(|e| e.metadata.data_type == DataType::AnalyticsMain)
+                .count(),
+            1,
+            "the same-sized $pageview must survive"
+        );
     }
 
     /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the
