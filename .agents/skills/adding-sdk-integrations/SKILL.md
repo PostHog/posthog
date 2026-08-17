@@ -3,7 +3,7 @@ name: adding-sdk-integrations
 description: >
   How to surface a PostHog SDK inside the PostHog app: the SDK setup picker in project settings, per-product onboarding install steps, and the backend `$lib` lists that decide whether the SDK's traffic is recognised.
   Use when adding a new SDK, extending an existing one to another product (session replay, feature flags, experiments, web analytics, surveys, logs, error tracking), or when an SDK is "already added" but does not appear in a picker.
-  Covers the two independent pickers, the `docs/onboarding` step components, the integration points that fail silently because nothing renders them, and how to verify snippets against the real SDK.
+  Covers the two independent pickers, the `docs/onboarding` step components, the integration points that fail silently because nothing renders them, the posthog.com and wizard repos, and how to verify snippets against the real SDK.
   Treat the file list here as a checklist to check against the tree, not a spec — rediscover it with the trace command below and update this skill when it drifts.
 ---
 
@@ -95,7 +95,17 @@ Nothing renders these, so skipping them fails silently in production rather than
 
 **Icons:** `frontend/src/lib/lemon-ui/icons/categories.ts`, `frontend/src/lib/integrations/GitHubIntegrationHelpers.tsx`.
 
-**Setup wizard:** `legacy/sdks/skillBadge.tsx` `WIZARD_SKILL_IDS` — only when the CLI repo ships a matching skill id. Flutter is not in it, so this is usually skipped.
+**AI setup wizard:** if [PostHog/wizard](https://github.com/PostHog/wizard) has a `src/frameworks/<sdk>/` directory, set `wizardIntegrationName` on the `SDK_CONFIGS` entry. That renders the "Run the following command from the root of your X project" banner above the manual steps. It is display text only, so it does not have to match the wizard's framework id — but do not set it when the wizard cannot handle the SDK.
+
+## Other repos
+
+Two repos have to change too. Their file lists are not reproduced here, because this skill cannot verify them and a stale list is worse than a pointer — read the tree when you get there.
+
+**[PostHog/posthog.com](https://github.com/PostHog/posthog.com) — required.** Every `docsLink` in this repo points at it, so shipping the app wiring without the docs page gives customers a 404 from the picker. Trace an existing SDK with `git grep -Il "flutter" -- '*.ts' '*.tsx' '*.mdx' '*.js'`. As of writing that is five places: the page at `contents/docs/libraries/<sdk>/index.mdx` (whose frontmatter `features` block drives the support matrices), a `platformLogo` entry in `src/constants/logos.ts`, an entry in `src/constants/installation-taxonomy.ts`, the sidebar in `src/navs/index.js`, and the grid in `src/components/Docs/Integrate.tsx`.
+
+**[PostHog/wizard](https://github.com/PostHog/wizard) — optional.** A framework under `src/frameworks/<sdk>/` plus a `SkillId` entry lets the AI setup wizard install the SDK. Only then set `wizardIntegrationName` here, or the banner promises something the wizard cannot do.
+
+The SDK's own repo is out of scope for this skill.
 
 ## Known dead ends
 
@@ -103,6 +113,7 @@ Confirm before relying on these; both were true when this skill was written.
 
 - `legacy/sdks/sdk-install-instructions/` — unimported, see above.
 - `SDK_KEY_TO_SNIPPET_LANGUAGE` in `frontend/src/lib/constants.tsx` — zero consumers.
+- `legacy/sdks/skillBadge.tsx`, including `WIZARD_SKILL_IDS` and `WIZARD_SKILL_TO_SDK_KEY` — nothing imports the module. Use `wizardIntegrationName` instead, above.
 
 ## Verify the snippets, do not trust the docs page
 
