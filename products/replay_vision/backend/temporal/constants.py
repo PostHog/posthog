@@ -47,6 +47,30 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
+# Minimum age of the deep-sweep watermark before a sweep tick runs the full-events-lookback catch-up
+# pass that picks up sessions whose matching events were older than the fast pass's narrow window.
+# Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
+# waits, so tuning either one moves the same cost-against-latency tradeoff.
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
+# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
+# share: it is catch-up work, and a tick that overruns retries both queries.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+
+# Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
+# proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
+# Sized an order of magnitude above the healthy post-optimization p95 so only pathological
+# filter configurations are ever throttled.
+SWEEP_READ_BUDGET_BYTES_24H = 200 * 1024**3
+# Cadence stretch ceiling: worst case one sweep an hour, so a throttled scanner stays usable.
+SWEEP_THROTTLE_MAX_FACTOR = 12
+
+READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
+READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
+READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
+READ_METER_INTERVAL = dt.timedelta(hours=1)
+READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
+
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
 # Overlap SKIP means a slow run absorbs later ticks instead of stacking.
@@ -57,6 +81,11 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
 # attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
+
+# What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
+# scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
+# kills the attempt after the candidates were found, so the tick retries without ever dispatching.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -97,6 +126,8 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:

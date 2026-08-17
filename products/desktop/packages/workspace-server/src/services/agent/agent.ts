@@ -630,7 +630,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
 
 Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}
 
 Example:
@@ -638,7 +638,7 @@ Example:
 git commit -m "$(cat <<'EOF'
 fix: resolve login redirect loop
 
-Generated-By: PostHog Code
+Generated-By: PostHog Desktop
 Task-Id: ${taskId}
 EOF
 )"
@@ -649,7 +649,7 @@ When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-lo
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Code](https://posthog.com/code?ref=pr)*
+*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
 \`\`\`
 
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
@@ -662,7 +662,14 @@ Optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
+- Never rerun a command solely to reproduce output you already have.
+
+## Rich output in replies
+Embed the PostHog objects behind your conclusions as XML tags, the same convention as \`<file path="..."/>\` attachments. Every tag is a live reference the app resolves when shown - never restate the object's data in your text, and never put tags inside code fences.
+- Inline reference: \`<kind id="...">short human label</kind>\` inside a sentence, e.g. \`The <insight id="9pQx3">checkout funnel</insight> dropped after <flag id="42">new-checkout-flow</flag> rolled out.\` Kinds: insight, dashboard, error, replay, flag, experiment, survey, ticket, trace, eval, event, cohort, action, person. Use the object's id (insights: the short id; feature flags: the numeric id, falling back to the key; persons: the uuid). It renders as a chip with a live hover preview that opens the object in PostHog.
+- Inline SQL: \`<hogql label="signups today">SELECT count() FROM events WHERE ...</hogql>\` - the SQL is the tag body, the label is what the sentence shows. Hovering runs the query live; clicking opens the SQL editor.
+- Full-size chart, for any numeric or time-series answer (always prefer this over a markdown table): a saved insight \`<insight id="9pQx3" display="block"/>\` or a query \`<hogql display="block" title="Daily active users, last 7 days" caption="optional context">SELECT ...</hogql>\`. The chart executes live on every view. Include the time range in the title, and keep blank lines out of the SQL body.
+- Recording card: \`<replay id="<session_id>" display="block"/>\` renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
 
     if (channelMode) {
       prompt += `
@@ -2345,6 +2352,7 @@ For git operations while detached:
       gatewayUrl,
       region,
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     );
   }
 
@@ -2356,6 +2364,7 @@ For git operations while detached:
     const gatewayModels = await fetchGatewayModels({
       gatewayUrl,
       authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     });
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,

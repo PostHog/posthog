@@ -777,6 +777,55 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    def test_email_change_rejected_when_new_email_is_plus_addressed(self):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alpha+alias@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "plus_addressing_not_allowed"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+
+    def test_email_change_allowed_when_current_plus_addressed_email_is_unchanged(self):
+        # Grandfathers legacy plus-addressed accounts, which can't edit their profile otherwise.
+        self.user.email = "alpha+legacy@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alpha+legacy@example.com", "first_name": "Newname"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha+legacy@example.com"
+        assert self.user.first_name == "Newname"
+
+    def test_email_change_rejected_when_another_account_holds_the_aliased_form(self):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        User.objects.create(email="beta+old@example.com", first_name="Beta")
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "unique"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+
+    @patch("posthog.api.user.is_email_available", return_value=False)
+    def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
+        # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
+        self.user.email = "alpha+legacy@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "alpha@example.com"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+
     @parameterized.expand(
         [
             ("single_google", [("google-oauth2", "google-sub-1")]),
@@ -1961,6 +2010,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
+                "task_comments_slack_dm": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -1968,6 +2018,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "materialized_view_sync_failed_daily": True,
+                "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
@@ -1981,6 +2033,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
+                "task_comments_slack_dm": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -1988,6 +2041,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "materialized_view_sync_failed_daily": True,
+                "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
@@ -2249,6 +2304,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
+                "task_comments_slack_dm": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2256,6 +2312,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "materialized_view_sync_failed_daily": True,  # Default value
+                "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value

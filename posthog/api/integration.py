@@ -137,15 +137,6 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     raise error
 
 
-def _github_account_type(owner_type: str | None) -> str | None:
-    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
-    if owner_type == "Organization":
-        return "organization"
-    if owner_type == "User":
-        return "personal"
-    return None
-
-
 def validate_github_repository_name(repo: str) -> str:
     """Validate repository paths accepted by GitHub integration endpoints."""
     parts = repo.split("/")
@@ -488,19 +479,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
-        report_properties: dict[str, Any] = {"integration_kind": kind, "is_overwrite": is_overwrite}
-        if kind == "github":
-            # Surface whether the connected GitHub account is an org or a personal one, mirroring the
-            # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
-            owner_type = ((instance.config or {}).get("account") or {}).get("type")
-            report_properties["repo_owner_type"] = owner_type
-            report_properties["account_type"] = _github_account_type(owner_type)
-        report_user_action(
-            self.context["request"].user,
-            "integration created",
-            report_properties,
-            team=self.context["get_team"](),
-        )
+        # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
+        # is also created outside this serializer (the App installation callback, agentic
+        # provisioning). This branch reaches that same helper, so reporting here too would count a
+        # new connection twice.
+        if kind != "github":
+            report_user_action(
+                self.context["request"].user,
+                "integration created",
+                {"integration_kind": kind, "is_overwrite": is_overwrite},
+                team=self.context["get_team"](),
+            )
         return instance
 
     def _build_integration(self, validated_data: Any) -> Any:
@@ -1197,6 +1186,15 @@ class IntegrationViewSet(
                 auth_url = OauthIntegration.authorize_url(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
                 )
+                # Capture the hand-off to the provider's authorize page. A rejection there (e.g.
+                # TikTok's "app has been blocked") never returns to us, so this is the only leg we
+                # can record — an authorize start with no matching completion is now countable.
+                report_user_action(
+                    request.user,
+                    "integration authorize started",
+                    {"integration_kind": kind},
+                    team=self.team,
+                )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -1744,6 +1742,7 @@ class IntegrationViewSet(
                 "reason_length": len(serializer.validated_data["reason"]),
             },
             team=self.team,
+            request=request,
         )
         return Response({"success": True})
 
