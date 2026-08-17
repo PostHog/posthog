@@ -177,8 +177,17 @@ class TestJUnitShardSegmentFilter:
         assert names == {"junit-results-backend-temporal-1"}
 
     def test_products_matches_product_junit_prefix(self, junit_dir: Path) -> None:
-        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Products")}
-        assert names == {"product-junit-results-1"}
+        (junit_dir / "product-junit-results-1" / "second.xml").write_bytes(
+            b'<testsuite><testcase classname="products.tasks.test_two.TestThing" name="test_two" time="1.5"/></testsuite>'
+        )
+
+        shards = JUnitShard.load_all(junit_dir, segment="Products")
+
+        assert [shard.name for shard in shards] == ["product-junit-results-1"]
+        assert set(shards[0].call_times) == {
+            "posthog/test_foo.py::TestThing::test_one",
+            "products/tasks/test_two.py::TestThing::test_two",
+        }
 
     def test_unknown_segment_does_not_panic(self, junit_dir: Path):
         # Unknown segments fall back to lowercase passthrough — should just

@@ -130,7 +130,11 @@ class JUnitShard:
             if not xml_files:
                 continue
 
-            shards.append(cls(name=shard_dir.name, call_times=cls._parse_call_times(xml_files[0])))
+            call_times: dict[str, float] = {}
+            for xml_file in xml_files:
+                for test_id, call_time in cls._parse_call_times(xml_file).items():
+                    call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
+            shards.append(cls(name=shard_dir.name, call_times=call_times))
 
         return shards
 
