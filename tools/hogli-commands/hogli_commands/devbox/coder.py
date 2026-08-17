@@ -123,13 +123,12 @@ class CoderUserInfo(dict[str, str]):
 def _fail(message: str, *, cause: str | None = None) -> NoReturn:
     """Print a short actionable error and exit.
 
-    ``cause`` is a stable slug for the failure, recorded on the command's
-    telemetry event. Every tailnet failure prints a different sentence, so
-    without a slug the whole class reads as one undifferentiated error.
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
     """
+    click.echo(click.style(message, fg="red"))
     if cause:
         telemetry.add_command_properties(devbox_failure_cause=cause)
-    click.echo(click.style(message, fg="red"))
     raise SystemExit(1)
 
 
@@ -427,7 +426,7 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
             f"  Then {setup_hint}",
-            cause="tailscale_cli_not_on_path",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
@@ -857,7 +856,7 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
@@ -873,10 +872,10 @@ def ensure_runtime_ready() -> None:
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 

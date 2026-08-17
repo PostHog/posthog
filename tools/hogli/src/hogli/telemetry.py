@@ -44,8 +44,8 @@ _DEFAULT_HOST = "https://us.i.posthog.com"
 # suppress real local signal -- deliberately not listed here.
 _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
 
-# Click context meta key holding properties a command stashed for its own
-# command_completed event. See :func:`add_command_properties`.
+# Shared by the writer (:func:`add_command_properties`) and the reader in
+# hogli.cli, which would otherwise drift on a literal.
 COMMAND_PROPERTIES_META_KEY = "hogli.command_properties"
 
 

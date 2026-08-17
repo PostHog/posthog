@@ -273,13 +273,13 @@ class TestCommandProperties:
         ctx.invoked_subcommand = "quickstart"
         ctx.meta["hogli.telemetry_active"] = True
         with ctx:
-            telemetry.add_command_properties(devbox_failure_cause="tailscale_not_connected")
+            telemetry.add_command_properties(failure_cause="unreachable")
 
         with patch.object(telemetry._client, "track") as mock_track:
             _fire_telemetry(ctx, 1)
 
         props = mock_track.call_args.args[1]
-        assert props["devbox_failure_cause"] == "tailscale_not_connected"
+        assert props["failure_cause"] == "unreachable"
 
 
 def _patch_cli_manifest(monkeypatch: pytest.MonkeyPatch, command_config: dict | None) -> None:
