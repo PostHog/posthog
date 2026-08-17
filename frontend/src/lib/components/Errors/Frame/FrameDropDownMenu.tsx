@@ -14,7 +14,6 @@ import {
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
-import { getInstructionAddress } from '../utils'
 import { SourceData, framesCodeSourceLogic } from './framesCodeSourceLogic'
 
 export function FrameDropDownMenu({
@@ -31,7 +30,6 @@ export function FrameDropDownMenu({
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
     const sourceData = getSourceDataForFrame(raw_id)
     const lineLocation = getLineLocation(frame)
-    const instructionAddress = getInstructionAddress(frame)
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
 
     if (!hasItems) {
@@ -51,7 +49,6 @@ export function FrameDropDownMenu({
                 {frame.resolved_name && <CopyItem value={frame.resolved_name} description="function name" />}
                 {frame.source && <CopyItem value={frame.source} description="file path" />}
                 {lineLocation && <CopyItem value={lineLocation} description="line location" />}
-                {instructionAddress && <CopyItem value={instructionAddress} description="instruction address" />}
                 {sourceData && <DropdownMenuSeparator />}
                 {sourceData && <SourceDataLink sourceData={sourceData} />}
             </DropdownMenuContent>
