@@ -2506,8 +2506,14 @@ class TestExperimentService(APIBaseTest):
         assert clone_groups[0]["rollout_percentage"] == 20
         assert clone_groups[0]["properties"] == []
 
-    def test_duplicate_experiment_inherits_evaluation_contexts(self):
-        self.team.require_evaluation_contexts = True
+    @parameterized.expand(
+        [
+            ("source_with_contexts", ["marketing-site"], {"marketing-site"}),
+            # A context-less source must stay context-less, not pick up the target team's defaults.
+            ("source_without_contexts", [], set()),
+        ]
+    )
+    def test_duplicate_experiment_inherits_evaluation_contexts(self, name, source_contexts, expected_contexts):
         self.team.default_evaluation_contexts_enabled = True
         self.team.save()
         default_ctx = EvaluationContext.objects.create(name="production", team=self.team)
@@ -2516,19 +2522,19 @@ class TestExperimentService(APIBaseTest):
         with patch("posthoganalytics.feature_enabled", return_value=True):
             service = self._service()
             source = service.create_experiment(
-                name="Contexts Source",
-                feature_flag_key="dup-contexts-source",
-                feature_flag_config={"evaluation_contexts": ["marketing-site"]},
+                name=f"Contexts Source {name}",
+                feature_flag_key=f"dup-contexts-source-{name}",
+                feature_flag_config={"evaluation_contexts": source_contexts},
             )
 
-            dup = service.duplicate_experiment(source, feature_flag_key="dup-contexts-target")
+            dup = service.duplicate_experiment(source, feature_flag_key=f"dup-contexts-target-{name}")
 
         assert dup.feature_flag.id != source.feature_flag.id
         context_names = set(
             dup.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
         )
         # The source's contexts, not the team defaults.
-        assert context_names == {"marketing-site"}
+        assert context_names == expected_contexts
 
     # ------------------------------------------------------------------
     # Launch experiment

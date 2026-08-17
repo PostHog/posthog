@@ -3341,17 +3341,23 @@ class ExperimentService:
             clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
         # Inherit the source flag's evaluation contexts, so a clone evaluates where the original did
         # instead of falling back to the target team's defaults.
-        source_evaluation_contexts = list(
-            source_experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
-        )
+        source_flag = source_experiment.feature_flag
+        if "flag_evaluation_contexts" in getattr(source_flag, "_prefetched_objects_cache", {}):
+            source_evaluation_contexts = [
+                ec.evaluation_context.name for ec in source_flag.flag_evaluation_contexts.all()
+            ]
+        else:
+            source_evaluation_contexts = list(
+                source_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+            )
         feature_flag_config: dict[str, Any] = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
             # would substitute the target team's flags_persistence_default, changing SDK behavior.
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
+            # Always explicit, including []: a context-less source must not pick up the target's defaults.
+            "evaluation_contexts": source_evaluation_contexts,
         }
-        if source_evaluation_contexts:
-            feature_flag_config["evaluation_contexts"] = source_evaluation_contexts
 
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
