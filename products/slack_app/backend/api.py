@@ -86,6 +86,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_opened as _handle_app_home_opened,
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
@@ -296,10 +297,15 @@ def _post_slack_user_feedback(
     prefer_thread_message: bool = False,
 ) -> bool:
     """Post feedback to a Slack user. Returns whether anything reached Slack, so callers
-    that report on whether the user was actually told something aren't guessing."""
+    that report on whether the user was actually told something aren't guessing.
+
+    A thread post whose root has been deleted is skipped rather than posted — see
+    ``post_slack_thread_reply``. That counts as "nothing reached Slack", which is
+    accurate: the user retracted the message this feedback answers."""
     if prefer_thread_message:
         try:
-            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            if post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is None:
+                return False
             return True
         except Exception:
             logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
@@ -308,7 +314,8 @@ def _post_slack_user_feedback(
         slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         try:
-            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+            if post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is None:
+                return False
         except Exception:
             logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
             return False
@@ -835,6 +842,11 @@ def _post_repo_picker_message(
     workflow_id: str | None = None,
     allow_no_repo: bool = False,
 ) -> None:
+    # No prompt left to route, so there is no repository to ask about.
+    if not slack_message_exists(slack.client, channel, thread_ts):
+        logger.warning("slack_app_repo_picker_skipped_message_deleted", channel=channel, thread_ts=thread_ts)
+        return
+
     context_data = {
         "integration_id": integration.id,
         "channel": channel,

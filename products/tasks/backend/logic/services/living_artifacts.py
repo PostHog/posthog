@@ -892,7 +892,15 @@ def deliver_pending_slack_file_artifacts(
         logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
         return result
 
+    from products.slack_app.backend.services.slack_messages import slack_message_exists  # noqa: PLC0415
+
     slack_integration = _slack_integration_for_mapping(mapping)
+    # Nobody is waiting on charts or file shares for a prompt that has been deleted.
+    # Leave the artifacts pending rather than delivering them into the thread.
+    if not slack_message_exists(slack_integration.client, mapping.channel, mapping.thread_ts):
+        logger.warning("task_artifact.slack_delivery_skipped_message_deleted", task_run_id=str(run.id))
+        return result
+
     has_file_scope = not slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
 
     # The relay activity's start_to_close_timeout is a minute; a self-inflicted timeout would
