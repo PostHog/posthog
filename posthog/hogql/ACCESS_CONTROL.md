@@ -205,7 +205,7 @@ When a run has no user but does read access-controlled resources, the fingerprin
 
 ## One preloaded `UserAccessControl` everywhere
 
-`UserAccessControl` (`posthog/rbac/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
+`UserAccessControl` (`posthog/rbac/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team — plus the whole project's rows for the project-level resources (`PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES`: dashboards and insights, whose rules are matched across every environment in the project) — in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
 
 The same instance is reused across:
 
