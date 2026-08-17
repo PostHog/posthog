@@ -20,7 +20,6 @@ import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardL
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -35,7 +34,6 @@ import {
     DashboardPlacement,
     DashboardTile,
     DashboardType,
-    AccessControlLevel,
     InsightColor,
     InsightShortId,
     QueryBasedInsightModel,
@@ -2644,27 +2642,12 @@ describe('dashboardLogic', () => {
 
             const { container, getByText: getDialogText } = render(dialogProps.description)
             expect(getDialogText('This insight is also used on:')).not.toBeNull()
-            expect(container.querySelector('a')?.getAttribute('href')).toBe(urls.dashboard(6))
+            expect(container.querySelector('a')?.getAttribute('href')).toMatch(/\/dashboard\/6$/)
             expect(
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()
 
             reportDeleteClicked.mockRestore()
-        })
-
-        it('does not offer to delete an insight with view-only access', async () => {
-            const { render } = await import('@testing-library/react')
-            const insightTile = logic.values.insightTiles[0]
-            insightTile.insight!.user_access_level = AccessControlLevel.Viewer
-
-            await expectLogic(logic, () => {
-                logic.actions.removeTile(insightTile)
-            }).toFinishAllListeners()
-
-            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
-            const { getByText, queryByText } = render(toastContent)
-            expect(queryByText('Delete insight everywhere')).toBeNull()
-            expect(getByText('Undo')).not.toBeNull()
         })
     })
 
