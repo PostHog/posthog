@@ -428,10 +428,12 @@ export class QuickAskService {
   }
 
   /**
-   * Creates the thread's task. `branch` must be present (null) to trigger the
-   * backend's warm-run lookup: a matching idle sandbox is activated with the
-   * pending message; otherwise the task returns runless and the caller starts
-   * a run. Repo-less user-created tasks file into the personal channel.
+   * Creates the thread's task. The backend's warm-run lookup triggers only
+   * when `branch` is present (null): a matching idle sandbox is activated
+   * with the pending message. `reuseWarm: false` omits the key entirely, so
+   * the task returns runless and the caller starts a cold run — the safe
+   * route when the warm run couldn't be prepared for this message. Repo-less
+   * user-created tasks file into the personal channel.
    */
   private async createTask(
     apiHost: string,
@@ -439,6 +441,7 @@ export class QuickAskService {
     question: string,
     content: string,
     pendingArtifactIds: string[],
+    reuseWarm: boolean,
     signal: AbortSignal,
   ): Promise<Response> {
     const defaults = this.defaults();
@@ -447,7 +450,7 @@ export class QuickAskService {
       `/api/projects/${projectId}/tasks/`,
       {
         description: question,
-        branch: null,
+        ...(reuseWarm ? { branch: null } : {}),
         pending_user_message: content,
         pending_user_artifact_ids: pendingArtifactIds,
         ...(defaults.channelId ? { channel: defaults.channelId } : {}),
@@ -617,19 +620,30 @@ export class QuickAskService {
     }
 
     let warmArtifactIds: string[] = [];
+    // Reusing a warm run forwards the pending message as-is, so it is only
+    // safe when any attachments are already uploaded to that run. When the
+    // upload fails — or attachments exist with no warm run to carry them —
+    // the task is created without the warm lookup, and the cold staged path
+    // below re-uploads them (or fails the turn); riding a warm run anyway
+    // would silently answer without the screenshots.
+    let reuseWarm = attachments.length === 0;
     if (this.warmHandle) {
-      await this.setAutoMode(apiHost, projectId, this.warmHandle, signal);
-      // Warm reuse forwards the first message with run artifacts already on
-      // the warm run, so upload there before creating the task.
-      const uploaded = await this.uploadAttachments(
-        apiHost,
-        projectId,
-        `tasks/${this.warmHandle.taskId}/runs/${this.warmHandle.runId}/artifacts`,
-        attachments,
-        signal,
-      );
-      warmArtifactIds = uploaded ?? [];
+      const handle = this.warmHandle;
       this.warmHandle = null;
+      await this.setAutoMode(apiHost, projectId, handle, signal);
+      if (attachments.length > 0) {
+        const uploaded = await this.uploadAttachments(
+          apiHost,
+          projectId,
+          `tasks/${handle.taskId}/runs/${handle.runId}/artifacts`,
+          attachments,
+          signal,
+        );
+        if (uploaded) {
+          warmArtifactIds = uploaded;
+          reuseWarm = true;
+        }
+      }
     }
     const response = await this.createTask(
       apiHost,
@@ -637,6 +651,7 @@ export class QuickAskService {
       question,
       content,
       warmArtifactIds,
+      reuseWarm,
       signal,
     );
     if (!response.ok) {

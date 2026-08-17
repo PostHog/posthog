@@ -421,6 +421,65 @@ describe("QuickAskService", () => {
     expect(create.pending_user_artifact_ids).toEqual(["art-1"]);
   });
 
+  it("skips warm reuse and re-stages when the warm upload fails", async () => {
+    const { service, fetchMock } = serviceWith({
+      warm: [
+        new Response(JSON.stringify({ task_id: "task-w", run_id: "run-w" }), {
+          status: 200,
+        }),
+      ],
+      command: [new Response("{}", { status: 200 })],
+      // The warm-run upload fails; the retry on the cold path succeeds.
+      prepare: [
+        new Response("nope", { status: 500 }),
+        preparedResponse(["art-1"]),
+      ],
+      finalize: [preparedResponse(["art-1"])],
+      createTask: [taskResponse("task-1", null)],
+      createRun: [
+        new Response(JSON.stringify({ id: "run-9" }), { status: 200 }),
+      ],
+      startRun: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    await service.warm();
+    const events = await collect(service, QUESTION, undefined, [SHOT]);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    // No `branch` key: the backend's warm-run lookup must not fire, or the
+    // question would ride the warm run without its screenshot.
+    const create = JSON.parse(
+      callsTo(fetchMock, "/tasks/")[0][2].body as string,
+    );
+    expect("branch" in create).toBe(false);
+    expect(create.pending_user_artifact_ids).toEqual([]);
+    // The attachment went up through the fresh task's staged path instead.
+    const prepareCalls = callsTo(fetchMock, "/prepare_upload/");
+    expect(prepareCalls[1][1]).toContain("/tasks/task-1/staged_artifacts/");
+    const start = JSON.parse(
+      callsTo(fetchMock, "/start/")[0][2].body as string,
+    );
+    expect(start.pending_user_artifact_ids).toEqual(["art-1"]);
+  });
+
+  it("errors the turn when the staged retry upload also fails", async () => {
+    const { service } = serviceWith({
+      warm: [
+        new Response(JSON.stringify({ task_id: "task-w", run_id: "run-w" }), {
+          status: 200,
+        }),
+      ],
+      command: [new Response("{}", { status: 200 })],
+      prepare: [
+        new Response("nope", { status: 500 }),
+        new Response("nope", { status: 500 }),
+      ],
+      createTask: [taskResponse("task-1", null)],
+    });
+    await service.warm();
+    const events = await collect(service, QUESTION, undefined, [SHOT]);
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+  });
+
   it("attaches run artifacts to a follow-up user_message", async () => {
     const followUpTurn = [
       `data: ${promptEcho("and yesterday?")}\n\ndata: ${TURN_COMPLETE}\n\n`,
