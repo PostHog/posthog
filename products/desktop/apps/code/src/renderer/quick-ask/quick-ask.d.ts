@@ -25,6 +25,11 @@ interface QuickAskBridge {
   onShown: (callback: () => void) => () => void;
   /** Fired when the panel is shaken while dragged. */
   onShake: (callback: () => void) => () => void;
+  /** Hides the panel, freezes the screen, and opens the annotator. */
+  capture: () => void;
+  discardAttachment: () => void;
+  /** Payloads are `QuickAskAttachmentPayload`s from shared/constants. */
+  onAttachment: (callback: (payload: unknown) => void) => () => void;
 }
 
 interface Window {

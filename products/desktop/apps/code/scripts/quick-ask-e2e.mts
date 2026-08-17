@@ -96,16 +96,42 @@ page.on("pageerror", (error) => pageErrors.push(error.message));
 // The panel's preload bridges, stubbed: tRPC absorbs requests (chart cards
 // stay in their loading state without a session), and quickAsk.ask routes to
 // the real service in this process.
+// A capture in this harness attaches a canned PNG; the real annotator UI is
+// exercised separately below.
+const SHOT_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+let pendingShot: { name: string; base64: string; mimeType: string } | null =
+  null;
 await page.exposeFunction(
   "__hostAsk",
   (question: string, conversationId?: string) => {
+    const attachments = pendingShot ? [pendingShot] : [];
+    pendingShot = null;
+    void page.evaluate("window.__qaAttach({ previewDataUrl: null })");
     void (async () => {
-      for await (const event of service.ask({ question, conversationId })) {
+      for await (const event of service.ask({
+        question,
+        conversationId,
+        attachments,
+      })) {
         await page.evaluate(`window.__qaEmit(${JSON.stringify(event)})`);
       }
     })();
   },
 );
+await page.exposeFunction("__hostCapture", () => {
+  pendingShot = {
+    name: "screenshot.png",
+    base64: SHOT_BASE64,
+    mimeType: "image/png",
+  };
+  void page.evaluate(
+    `window.__qaAttach({ previewDataUrl: "data:image/png;base64,${SHOT_BASE64}" })`,
+  );
+});
+await page.exposeFunction("__hostDiscard", () => {
+  pendingShot = null;
+});
 // The panel's chart cards resolve data through the authenticated client,
 // which forms from auth state served over the tRPC bridge. Stub the bridge
 // wire protocol so the real client forms, and intercept its API calls below.
@@ -148,7 +174,9 @@ await page.addInitScript(`
     },
   };
   const listeners = [];
+  const attachListeners = [];
   window.__qaEmit = (event) => { for (const listener of listeners) listener(event); };
+  window.__qaAttach = (payload) => { for (const listener of attachListeners) listener(payload); };
   window.quickAsk = {
     hide: () => { window.__qaHides = (window.__qaHides ?? 0) + 1; },
     resize: () => {},
@@ -162,6 +190,9 @@ await page.addInitScript(`
     onLayout: () => () => {},
     onShown: () => () => {},
     onShake: (cb) => { window.__qaShake = cb; return () => { window.__qaShake = undefined; }; },
+    capture: () => window.__hostCapture(),
+    discardAttachment: () => window.__hostDiscard(),
+    onAttachment: (callback) => { attachListeners.push(callback); return () => {}; },
   };
 `);
 
@@ -372,6 +403,19 @@ if (shot) {
   pass(`screenshot written to ${shot}`);
 }
 
+// Capture attaches a screenshot chip; remove discards it; a second capture
+// rides the follow-up.
+await page.click(".qa-shot");
+await page.waitForSelector(".qa-attach img", { timeout: 5_000 });
+await page.click('.qa-attach button[aria-label="Remove screenshot"]');
+await page.waitForSelector(".qa-attach", { state: "detached", timeout: 5_000 });
+if (pendingShot !== null) {
+  fail("removing the chip did not discard the pending screenshot");
+}
+await page.click(".qa-shot");
+await page.waitForSelector(".qa-attach img", { timeout: 5_000 });
+pass("screenshot chip attaches and removes");
+
 // Follow-up through the same input.
 await page.fill(".qa-pill input", REPLAY_FOLLOW_UP);
 await page.press(".qa-pill input", "Enter");
@@ -381,6 +425,26 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 pass("follow-up answer rendered");
+
+await page.waitForSelector(".qa-attach", { state: "detached", timeout: 5_000 });
+const prepare = replay.requests.find((r) =>
+  r.path.endsWith("/prepare_upload/"),
+);
+if (!prepare || !prepare.path.includes("/runs/run-1/artifacts/")) {
+  fail(`screenshot was not uploaded to the live run: ${prepare?.path}`);
+}
+const userMessage = replay.requests.find(
+  (r) => (r.body as { method?: string } | null)?.method === "user_message",
+);
+const artifactIds = (
+  userMessage?.body as { params?: { artifact_ids?: string[] } }
+).params?.artifact_ids;
+if (JSON.stringify(artifactIds) !== '["art-1"]') {
+  fail(
+    `follow-up did not reference the artifact: ${JSON.stringify(artifactIds)}`,
+  );
+}
+pass("screenshot uploaded and referenced on the follow-up");
 
 // The follow-up turn has text on both sides of a tool call, so the answer
 // arrives as two segments with a pager pinned to the top of the card.
@@ -437,6 +501,76 @@ if (pageErrors.length > 0) {
   fail(`page errors: ${pageErrors.join(" | ")}`);
 }
 pass("no page errors");
+
+// The annotator app: crop by drag, ink an arrow, export the flattened PNG.
+const annotate = await browser.newPage({
+  viewport: { width: 1200, height: 800 },
+});
+const annotateErrors: string[] = [];
+annotate.on("pageerror", (error) => annotateErrors.push(error.message));
+await annotate.addInitScript(`
+  window.quickAskAnnotate = {
+    shot: async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2400;
+      canvas.height = 1600;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#1d4ed8";
+      ctx.fillRect(0, 0, 2400, 1600);
+      return canvas.toDataURL("image/png");
+    },
+    done: (dataUrl) => { window.__annotated = dataUrl; },
+    cancel: () => { window.__cancelled = true; },
+  };
+`);
+await annotate.goto(`${renderer.origin}/quick-ask-annotate.html`);
+await annotate.waitForSelector(".an-hint", { timeout: 15_000 });
+await annotate.waitForSelector(".an-shot", { timeout: 15_000 });
+
+// Crop: 300x200 at (100, 100). The shot is 2x the viewport, so the export
+// should be 600x400.
+await annotate.mouse.move(100, 100);
+await annotate.mouse.down();
+await annotate.mouse.move(400, 300, { steps: 5 });
+await annotate.mouse.up();
+await annotate.waitForSelector('.an-tool.an-active:has-text("Box")', {
+  timeout: 5_000,
+});
+
+await annotate.click('.an-tool:has-text("Arrow")');
+await annotate.mouse.move(150, 150);
+await annotate.mouse.down();
+await annotate.mouse.move(320, 240, { steps: 5 });
+await annotate.mouse.up();
+
+await annotate.click('.an-tool:has-text("Attach")');
+await annotate.waitForFunction("typeof window.__annotated === 'string'", {
+  timeout: 5_000,
+});
+const exported = (await annotate.evaluate(`
+  new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () =>
+      resolve({
+        prefix: window.__annotated.slice(0, 22),
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    image.src = window.__annotated;
+  })
+`)) as { prefix: string; width: number; height: number };
+if (exported.prefix !== "data:image/png;base64,") {
+  fail(`annotator exported ${exported.prefix}`);
+}
+if (exported.width !== 600 || exported.height !== 400) {
+  fail(
+    `annotator export is ${exported.width}x${exported.height}, expected 600x400`,
+  );
+}
+if (annotateErrors.length > 0) {
+  fail(`annotator page errors: ${annotateErrors.join(" | ")}`);
+}
+pass("annotator crops, inks, and exports the flattened PNG");
 
 await browser.close();
 renderer.close();

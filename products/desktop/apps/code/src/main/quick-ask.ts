@@ -14,6 +14,8 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import {
   QUICK_ASK_ASK_CHANNEL,
   QUICK_ASK_CANCEL_CHANNEL,
+  QUICK_ASK_CAPTURE_CHANNEL,
+  QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL,
   QUICK_ASK_DRAG_END_CHANNEL,
   QUICK_ASK_DRAG_START_CHANNEL,
   QUICK_ASK_EVENT_CHANNEL,
@@ -30,6 +32,13 @@ import {
   type QuickAskResizePayload,
 } from "../shared/constants";
 import { container } from "./di/container";
+import {
+  beginCapture,
+  clearPendingAttachment,
+  pendingAttachments,
+  setupQuickAskCapture,
+  teardownQuickAskCapture,
+} from "./quick-ask-capture";
 import {
   computeGeometry,
   PILL_HEIGHT,
@@ -277,6 +286,17 @@ function getQuickAskService(): QuickAskService {
   return container.get<QuickAskService>(QUICK_ASK_SERVICE);
 }
 
+const captureHost = {
+  getPanel: (): BrowserWindow | null => quickAskWindow,
+  showPanel: (): void => {
+    if (quickAskWindow && !quickAskWindow.isDestroyed()) {
+      quickAskWindow.show();
+      quickAskWindow.focus();
+    }
+  },
+  hidePanel: (): void => hideQuickAsk(),
+};
+
 /** Streams one PostHog AI turn, forwarding each event to the panel. */
 async function streamAnswer(
   question: string,
@@ -289,10 +309,13 @@ async function streamAnswer(
       target.webContents.send(QUICK_ASK_EVENT_CHANNEL, event);
     }
   };
+  const attachments = pendingAttachments();
+  clearPendingAttachment(captureHost);
   try {
     for await (const event of getQuickAskService().ask({
       question,
       conversationId,
+      attachments,
     })) {
       if (event.type === "error") {
         log.warn("Quick ask answered with an error", {
@@ -329,6 +352,7 @@ export function toggleQuickAsk(): void {
 /** Tear down the panel so `window-all-closed` app-quit behavior is preserved. */
 export function destroyQuickAskWindow(): void {
   stopDrag();
+  teardownQuickAskCapture();
   if (quickAskWindow && !quickAskWindow.isDestroyed()) {
     quickAskWindow.destroy();
   }
@@ -442,10 +466,18 @@ export function setupQuickAsk(): void {
     getQuickAskService().cancel();
   });
   ipcMain.on(QUICK_ASK_RESET_CHANNEL, () => {
+    clearPendingAttachment(captureHost);
     const service = getQuickAskService();
     service.reset();
     void service.warm();
   });
+  ipcMain.on(QUICK_ASK_CAPTURE_CHANNEL, () => {
+    void beginCapture(captureHost);
+  });
+  ipcMain.on(QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL, () => {
+    clearPendingAttachment(captureHost);
+  });
+  setupQuickAskCapture(captureHost);
 
   const stored = quickAskStore.get("shortcut");
   const preferred =

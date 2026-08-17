@@ -27,6 +27,14 @@ export interface QuickAskInput {
   question: string;
   /** Continues an existing thread; omitted for the first question. */
   conversationId?: string;
+  /** Annotated screenshots to attach to this message. */
+  attachments?: QuickAskAttachment[];
+}
+
+export interface QuickAskAttachment {
+  name: string;
+  base64: string;
+  mimeType: string;
 }
 
 /**
@@ -104,6 +112,13 @@ interface RunResponse {
 interface WarmHandle {
   taskId: string;
   runId: string;
+}
+
+interface PrepareUploadResponse {
+  artifacts?: {
+    id: string;
+    presigned_post: { url: string; fields: Record<string, string> };
+  }[];
 }
 
 /** Terminal run statuses on `task_run_state` frames. */
@@ -374,6 +389,7 @@ export class QuickAskService {
     projectId: number,
     question: string,
     content: string,
+    pendingArtifactIds: string[],
     signal: AbortSignal,
   ): Promise<Response> {
     return this.post(
@@ -384,6 +400,7 @@ export class QuickAskService {
         repositories: [],
         branch: null,
         pending_user_message: content,
+        pending_user_artifact_ids: pendingArtifactIds,
       },
       signal,
     );
@@ -395,6 +412,7 @@ export class QuickAskService {
     projectId: number,
     taskId: string,
     content: string,
+    artifactIds: string[],
     signal: AbortSignal,
   ): Promise<string | null> {
     const createResponse = await this.post(
@@ -416,7 +434,10 @@ export class QuickAskService {
     const startResponse = await this.post(
       apiHost,
       `/api/projects/${projectId}/tasks/${taskId}/runs/${run.id}/start/`,
-      { pending_user_message: content },
+      {
+        pending_user_message: content,
+        pending_user_artifact_ids: artifactIds,
+      },
       signal,
     );
     return startResponse.ok ? run.id : null;
@@ -453,6 +474,7 @@ export class QuickAskService {
     taskId: string,
     runId: string,
     content: string,
+    artifactIds: string[],
     signal: AbortSignal,
   ): Promise<boolean> {
     const response = await this.post(
@@ -462,7 +484,9 @@ export class QuickAskService {
         jsonrpc: "2.0",
         id: globalThis.crypto.randomUUID(),
         method: "user_message",
-        params: { content },
+        params: artifactIds.length
+          ? { content, artifact_ids: artifactIds }
+          : { content },
       },
       signal,
     );
@@ -476,30 +500,42 @@ export class QuickAskService {
     session: QuickAskSession,
     question: string,
     content: string,
+    attachments: QuickAskAttachment[],
     signal: AbortSignal,
   ): Promise<{ ok: true } | { ok: false; status: number; detail: string }> {
     // A run that died since the last turn rejects the command; fall through
     // to a successor run.
     if (session.taskId && session.runId) {
-      const sent = await this.sendUserMessage(
+      const artifactIds = await this.uploadAttachments(
         apiHost,
         projectId,
-        session.taskId,
-        session.runId,
-        content,
+        `tasks/${session.taskId}/runs/${session.runId}/artifacts`,
+        attachments,
         signal,
       );
-      if (sent) return { ok: true };
+      if (artifactIds) {
+        const sent = await this.sendUserMessage(
+          apiHost,
+          projectId,
+          session.taskId,
+          session.runId,
+          content,
+          artifactIds,
+          signal,
+        );
+        if (sent) return { ok: true };
+      }
       session.runId = null;
       session.cursor = null;
     }
 
     if (session.taskId) {
-      const runId = await this.startRun(
+      const runId = await this.startStagedRun(
         apiHost,
         projectId,
         session.taskId,
         content,
+        attachments,
         signal,
       );
       if (!runId) {
@@ -510,8 +546,19 @@ export class QuickAskService {
       return { ok: true };
     }
 
+    let warmArtifactIds: string[] = [];
     if (this.warmHandle) {
       await this.setAutoMode(apiHost, projectId, this.warmHandle, signal);
+      // Warm reuse forwards the first message with run artifacts already on
+      // the warm run, so upload there before creating the task.
+      const uploaded = await this.uploadAttachments(
+        apiHost,
+        projectId,
+        `tasks/${this.warmHandle.taskId}/runs/${this.warmHandle.runId}/artifacts`,
+        attachments,
+        signal,
+      );
+      warmArtifactIds = uploaded ?? [];
       this.warmHandle = null;
     }
     const response = await this.createTask(
@@ -519,6 +566,7 @@ export class QuickAskService {
       projectId,
       question,
       content,
+      warmArtifactIds,
       signal,
     );
     if (!response.ok) {
@@ -538,11 +586,12 @@ export class QuickAskService {
       session.cursor = null;
       return { ok: true };
     }
-    const runId = await this.startRun(
+    const runId = await this.startStagedRun(
       apiHost,
       projectId,
       task.id,
       content,
+      attachments,
       signal,
     );
     if (!runId) {
@@ -551,6 +600,104 @@ export class QuickAskService {
     session.runId = runId;
     session.cursor = null;
     return { ok: true };
+  }
+
+  /**
+   * Uploads attachments through the tasks artifact store: prepare presigned
+   * S3 posts, upload the bytes, finalize. `basePath` picks run artifacts
+   * (live/warm run) or staged task artifacts (cold start). Returns the
+   * artifact ids, or null when any step fails.
+   */
+  private async uploadAttachments(
+    apiHost: string,
+    projectId: number,
+    basePath: string,
+    attachments: QuickAskAttachment[],
+    signal: AbortSignal,
+  ): Promise<string[] | null> {
+    if (!attachments.length) return [];
+    const files = attachments.map((attachment) => ({
+      bytes: Uint8Array.from(atob(attachment.base64), (c) => c.charCodeAt(0)),
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+    }));
+    const prefix = `/api/projects/${projectId}/${basePath}`;
+    const prepareResponse = await this.post(
+      apiHost,
+      `${prefix}/prepare_upload/`,
+      {
+        artifacts: files.map((file) => ({
+          name: file.name,
+          type: "user_attachment",
+          source: "posthog_code",
+          size: file.bytes.byteLength,
+          content_type: file.mimeType,
+        })),
+      },
+      signal,
+    );
+    if (!prepareResponse.ok) return null;
+    const prepared = ((await prepareResponse.json()) as PrepareUploadResponse)
+      .artifacts;
+    if (!prepared || prepared.length !== files.length) return null;
+    for (const [index, artifact] of prepared.entries()) {
+      const file = files[index];
+      const form = new FormData();
+      for (const [key, value] of Object.entries(
+        artifact.presigned_post.fields,
+      )) {
+        form.append(key, value);
+      }
+      form.append(
+        "file",
+        new Blob([file.bytes], { type: file.mimeType }),
+        file.name,
+      );
+      const uploadResponse = await this.fetchImpl(artifact.presigned_post.url, {
+        method: "POST",
+        body: form,
+        signal,
+      });
+      if (!uploadResponse.ok) return null;
+    }
+    const finalizeResponse = await this.post(
+      apiHost,
+      `${prefix}/finalize_upload/`,
+      { artifacts: prepared },
+      signal,
+    );
+    if (!finalizeResponse.ok) return null;
+    const finalized = ((await finalizeResponse.json()) as PrepareUploadResponse)
+      .artifacts;
+    if (!finalized || finalized.length !== files.length) return null;
+    return finalized.map((artifact) => artifact.id);
+  }
+
+  /** Stages attachments on the task, then creates and starts a cold run. */
+  private async startStagedRun(
+    apiHost: string,
+    projectId: number,
+    taskId: string,
+    content: string,
+    attachments: QuickAskAttachment[],
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const artifactIds = await this.uploadAttachments(
+      apiHost,
+      projectId,
+      `tasks/${taskId}/staged_artifacts`,
+      attachments,
+      signal,
+    );
+    if (!artifactIds) return null;
+    return this.startRun(
+      apiHost,
+      projectId,
+      taskId,
+      content,
+      artifactIds,
+      signal,
+    );
   }
 
   async *ask(input: QuickAskInput): AsyncGenerator<QuickAskEvent> {
@@ -585,6 +732,7 @@ export class QuickAskService {
         session,
         input.question,
         content,
+        input.attachments ?? [],
         controller.signal,
       );
     } catch (error) {

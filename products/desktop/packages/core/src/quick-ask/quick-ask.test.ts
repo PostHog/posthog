@@ -69,6 +69,7 @@ const SIMPLE_TURN = [`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`];
 interface MockedAuth {
   service: QuickAskService;
   fetchMock: ReturnType<typeof vi.fn>;
+  s3Mock: ReturnType<typeof vi.fn>;
 }
 
 interface MockRoutes {
@@ -84,6 +85,10 @@ interface MockRoutes {
   command?: Response[];
   /** Responses for `GET .../stream/`, consumed in order. */
   stream?: Response[];
+  /** Responses for `POST .../prepare_upload/`, consumed in order. */
+  prepare?: Response[];
+  /** Responses for `POST .../finalize_upload/`, consumed in order. */
+  finalize?: Response[];
 }
 
 /** URL-routed fetch mock - the warm call runs detached from ask generators. */
@@ -95,6 +100,8 @@ function serviceWith(routes: MockRoutes): MockedAuth {
     startRun: [...(routes.startRun ?? [])],
     command: [...(routes.command ?? [])],
     stream: [...(routes.stream ?? [])],
+    prepare: [...(routes.prepare ?? [])],
+    finalize: [...(routes.finalize ?? [])],
   };
   const route = (url: string): keyof typeof queues => {
     if (url.endsWith("/tasks/warm/")) return "warm";
@@ -103,6 +110,8 @@ function serviceWith(routes: MockRoutes): MockedAuth {
     if (url.endsWith("/start/")) return "startRun";
     if (url.endsWith("/command/")) return "command";
     if (url.includes("/stream/")) return "stream";
+    if (url.endsWith("/prepare_upload/")) return "prepare";
+    if (url.endsWith("/finalize_upload/")) return "finalize";
     throw new Error(`unrouted url: ${url}`);
   };
   const fetchMock = vi.fn(
@@ -112,6 +121,10 @@ function serviceWith(routes: MockRoutes): MockedAuth {
       );
     },
   );
+  // Presigned S3 uploads bypass authenticatedFetch.
+  const s3Mock = vi.fn(
+    async (): Promise<Response> => new Response(null, { status: 204 }),
+  );
   const authService = {
     getValidAccessToken: vi.fn().mockResolvedValue({
       accessToken: "t",
@@ -120,8 +133,33 @@ function serviceWith(routes: MockRoutes): MockedAuth {
     getState: vi.fn().mockReturnValue({ currentProjectId: 2 }),
     authenticatedFetch: fetchMock,
   } as unknown as AuthService;
-  return { service: new QuickAskService(authService), fetchMock };
+  return {
+    service: new QuickAskService(
+      authService,
+      s3Mock as unknown as typeof fetch,
+    ),
+    fetchMock,
+    s3Mock,
+  };
 }
+
+function preparedResponse(ids: string[]): Response {
+  return new Response(
+    JSON.stringify({
+      artifacts: ids.map((id) => ({
+        id,
+        presigned_post: { url: "https://s3.local/upload", fields: { k: "v" } },
+      })),
+    }),
+    { status: 200 },
+  );
+}
+
+const SHOT = {
+  name: "screenshot.png",
+  base64: btoa("png-bytes"),
+  mimeType: "image/png",
+};
 
 function callsTo(fetchMock: ReturnType<typeof vi.fn>, suffix: string) {
   return fetchMock.mock.calls.filter((call) =>
@@ -133,9 +171,14 @@ async function collect(
   service: QuickAskService,
   question = "how many signups?",
   conversationId?: string,
+  attachments?: { name: string; base64: string; mimeType: string }[],
 ): Promise<QuickAskEvent[]> {
   const events: QuickAskEvent[] = [];
-  for await (const event of service.ask({ question, conversationId })) {
+  for await (const event of service.ask({
+    question,
+    conversationId,
+    attachments,
+  })) {
     events.push(event);
   }
   return events;
@@ -258,6 +301,87 @@ describe("QuickAskService", () => {
     );
     expect(start.pending_user_message).toContain("how many signups?");
     expect(callsTo(fetchMock, "/stream/")[0][1]).toContain("/runs/run-9/");
+  });
+
+  it("stages an attachment onto a cold start", async () => {
+    const { service, fetchMock, s3Mock } = serviceWith({
+      createTask: [taskResponse("task-1", null)],
+      prepare: [preparedResponse(["art-1"])],
+      finalize: [preparedResponse(["art-1"])],
+      createRun: [
+        new Response(JSON.stringify({ id: "run-9" }), { status: 200 }),
+      ],
+      startRun: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    const events = await collect(service, QUESTION, undefined, [SHOT]);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    const prepareCall = callsTo(fetchMock, "/prepare_upload/")[0];
+    expect(prepareCall[1]).toContain("/tasks/task-1/staged_artifacts/");
+    expect(JSON.parse(prepareCall[2].body as string).artifacts[0]).toEqual({
+      name: "screenshot.png",
+      type: "user_attachment",
+      source: "posthog_code",
+      size: 9,
+      content_type: "image/png",
+    });
+    expect(s3Mock).toHaveBeenCalledWith(
+      "https://s3.local/upload",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const start = JSON.parse(
+      callsTo(fetchMock, "/start/")[0][2].body as string,
+    );
+    expect(start.pending_user_artifact_ids).toEqual(["art-1"]);
+  });
+
+  it("uploads an attachment to the warm run before creating the task", async () => {
+    const { service, fetchMock } = serviceWith({
+      warm: [
+        new Response(JSON.stringify({ task_id: "task-w", run_id: "run-w" }), {
+          status: 200,
+        }),
+      ],
+      command: [new Response("{}", { status: 200 })],
+      prepare: [preparedResponse(["art-1"])],
+      finalize: [preparedResponse(["art-1"])],
+      createTask: [taskResponse("task-w", "run-w")],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    await service.warm();
+    await collect(service, QUESTION, undefined, [SHOT]);
+    expect(callsTo(fetchMock, "/prepare_upload/")[0][1]).toContain(
+      "/tasks/task-w/runs/run-w/artifacts/",
+    );
+    const create = JSON.parse(
+      callsTo(fetchMock, "/tasks/")[0][2].body as string,
+    );
+    expect(create.pending_user_artifact_ids).toEqual(["art-1"]);
+  });
+
+  it("attaches run artifacts to a follow-up user_message", async () => {
+    const followUpTurn = [
+      `data: ${promptEcho("and yesterday?")}\n\ndata: ${TURN_COMPLETE}\n\n`,
+    ];
+    const { service, fetchMock } = serviceWith({
+      createTask: [taskResponse()],
+      command: [new Response("{}", { status: 200 })],
+      prepare: [preparedResponse(["art-2"])],
+      finalize: [preparedResponse(["art-2"])],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(followUpTurn)],
+    });
+    const first = await collect(service);
+    await collect(service, "and yesterday?", conversationIdOf(first), [SHOT]);
+    expect(callsTo(fetchMock, "/prepare_upload/")[0][1]).toContain(
+      "/tasks/task-1/runs/run-1/artifacts/",
+    );
+    const command = JSON.parse(
+      callsTo(fetchMock, "/command/")[0][2].body as string,
+    );
+    expect(command.params).toEqual({
+      content: "and yesterday?",
+      artifact_ids: ["art-2"],
+    });
   });
 
   it("falls back to a fresh run when the live run rejects a follow-up", async () => {

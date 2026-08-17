@@ -1,3 +1,6 @@
+// @vitest-environment node
+// The S3 upload posts real multipart FormData, which jsdom's FormData
+// polyfill cannot feed into undici's fetch.
 import type { AuthService } from "@posthog/core/auth/auth";
 import {
   type QuickAskEvent,
@@ -38,9 +41,14 @@ async function collect(
   service: QuickAskService,
   question: string,
   conversationId?: string,
+  attachments?: { name: string; base64: string; mimeType: string }[],
 ): Promise<QuickAskEvent[]> {
   const events: QuickAskEvent[] = [];
-  for await (const event of service.ask({ question, conversationId })) {
+  for await (const event of service.ask({
+    question,
+    conversationId,
+    attachments,
+  })) {
     events.push(event);
   }
   return events;
@@ -127,5 +135,31 @@ describe("quick-ask against a replayed production stream", () => {
 
     const command = server.requests.find((r) => r.path.endsWith("/command/"));
     expect((command?.body as { method?: string }).method).toBe("user_message");
+  });
+
+  it("uploads a screenshot and references it on the follow-up", async () => {
+    const first = await collect(service, REPLAY_QUESTION);
+    const conversation = first.find((event) => event.type === "conversation");
+    if (conversation?.type !== "conversation") throw new Error("no thread id");
+
+    const events = await collect(
+      service,
+      REPLAY_FOLLOW_UP,
+      conversation.conversationId,
+      [{ name: "screenshot.png", base64: btoa("png"), mimeType: "image/png" }],
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+
+    const prepare = server.requests.find((r) =>
+      r.path.endsWith("/prepare_upload/"),
+    );
+    expect(prepare?.path).toContain("/runs/run-1/artifacts/");
+    const upload = server.requests.find((r) => r.path.endsWith("/s3-upload/"));
+    expect(String(upload?.body)).toContain("screenshot.png");
+    const command = server.requests.find((r) => r.path.endsWith("/command/"));
+    expect(
+      (command?.body as { params?: { artifact_ids?: string[] } }).params
+        ?.artifact_ids,
+    ).toEqual(["art-1"]);
   });
 });

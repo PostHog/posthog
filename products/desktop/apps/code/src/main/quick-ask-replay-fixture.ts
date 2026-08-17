@@ -157,8 +157,44 @@ export async function startReplayServer(): Promise<ReplayServer> {
       raw += chunk;
     });
     request.on("end", () => {
-      const body = raw ? JSON.parse(raw) : null;
+      // The presigned S3 upload posts multipart form data, not JSON.
+      let body: unknown = null;
+      try {
+        body = raw ? JSON.parse(raw) : null;
+      } catch {
+        body = raw;
+      }
       requests.push({ path: url, body });
+
+      if (url.endsWith("/prepare_upload/")) {
+        const artifacts = (
+          (body as { artifacts?: object[] } | null)?.artifacts ?? []
+        ).map((artifact, index) => ({
+          ...artifact,
+          id: `art-${index + 1}`,
+          presigned_post: {
+            url: `http://${request.headers.host}/s3-upload/`,
+            fields: { key: `uploads/art-${index + 1}` },
+          },
+        }));
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ artifacts }));
+        return;
+      }
+      if (url.endsWith("/s3-upload/")) {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
+      if (url.endsWith("/finalize_upload/")) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            artifacts: (body as { artifacts?: object[] }).artifacts ?? [],
+          }),
+        );
+        return;
+      }
 
       if (url.endsWith("/tasks/warm/")) {
         response.writeHead(200, { "Content-Type": "application/json" });

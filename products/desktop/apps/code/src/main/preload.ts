@@ -6,8 +6,14 @@ import {
   ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+  QUICK_ASK_ANNOTATE_DONE_CHANNEL,
+  QUICK_ASK_ANNOTATE_SHOT_CHANNEL,
+  QUICK_ASK_ANNOTATE_WINDOW_ARG,
   QUICK_ASK_ASK_CHANNEL,
+  QUICK_ASK_ATTACHMENT_CHANNEL,
   QUICK_ASK_CANCEL_CHANNEL,
+  QUICK_ASK_CAPTURE_CHANNEL,
+  QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL,
   QUICK_ASK_DRAG_END_CHANNEL,
   QUICK_ASK_DRAG_START_CHANNEL,
   QUICK_ASK_EVENT_CHANNEL,
@@ -132,11 +138,32 @@ function setupQuickAskPreload(): void {
       ipcRenderer.on(QUICK_ASK_SHAKE_CHANNEL, listener);
       return () => ipcRenderer.off(QUICK_ASK_SHAKE_CHANNEL, listener);
     },
+    capture: () => ipcRenderer.send(QUICK_ASK_CAPTURE_CHANNEL),
+    discardAttachment: () =>
+      ipcRenderer.send(QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL),
+    onAttachment: (callback: (payload: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, payload: unknown): void =>
+        callback(payload);
+      ipcRenderer.on(QUICK_ASK_ATTACHMENT_CHANNEL, listener);
+      return () => ipcRenderer.off(QUICK_ASK_ATTACHMENT_CHANNEL, listener);
+    },
+  });
+}
+
+function setupQuickAskAnnotatePreload(): void {
+  contextBridge.exposeInMainWorld("quickAskAnnotate", {
+    shot: (): Promise<string | null> =>
+      ipcRenderer.invoke(QUICK_ASK_ANNOTATE_SHOT_CHANNEL),
+    done: (dataUrl: string) =>
+      ipcRenderer.send(QUICK_ASK_ANNOTATE_DONE_CHANNEL, { dataUrl }),
+    cancel: () => ipcRenderer.send(QUICK_ASK_ANNOTATE_DONE_CHANNEL, null),
   });
 }
 
 export function setupPreload(argv: string[]): void {
-  if (argv.includes(QUICK_ASK_WINDOW_ARG)) {
+  if (argv.includes(QUICK_ASK_ANNOTATE_WINDOW_ARG)) {
+    setupQuickAskAnnotatePreload();
+  } else if (argv.includes(QUICK_ASK_WINDOW_ARG)) {
     setupQuickAskPreload();
     // Answer rendering needs the host tRPC bridge for auth tokens and
     // external links.

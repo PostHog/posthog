@@ -248,6 +248,10 @@ export default defineConfig(({ mode }) => {
           input: {
             main_window: path.resolve(__dirname, "index.html"),
             quick_ask: path.resolve(__dirname, "quick-ask.html"),
+            quick_ask_annotate: path.resolve(
+              __dirname,
+              "quick-ask-annotate.html",
+            ),
           },
         },
       },

@@ -58,6 +58,8 @@ export function QuickAsk(): React.JSX.Element {
   const [flip, setFlip] = useState(false);
   const [hedgehog, setHedgehog] = useState(0);
   const [mini, setMini] = useState(false);
+  const [attachment, setAttachment] = useState<string | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const historyRef = useRef<string[]>([]);
   /** Position while walking history with the arrows; null = editing the draft. */
@@ -70,6 +72,8 @@ export function QuickAsk(): React.JSX.Element {
   const reset = useCallback((): void => {
     window.quickAsk?.reset();
     conversationIdRef.current = undefined;
+    setAttachment(null);
+    setAttachError(null);
     setPhase("idle");
     setThinkingLabel("Thinking…");
     setTextParts([]);
@@ -182,6 +186,25 @@ export function QuickAsk(): React.JSX.Element {
     return () => observer.disconnect();
   }, [reportSize]);
 
+  // Screenshot lifecycle: the main process owns the bytes and reports the
+  // chip preview (or why capture failed) here.
+  useEffect(() => {
+    return window.quickAsk?.onAttachment((payload) => {
+      const { previewDataUrl, error } = (payload ?? {}) as {
+        previewDataUrl?: string | null;
+        error?: string;
+      };
+      setAttachment(previewDataUrl ?? null);
+      setAttachError(error ?? null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!attachError) return;
+    const timer = setTimeout(() => setAttachError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [attachError]);
+
   // The hedgehog is the drag handle. Native `-webkit-app-region: drag`
   // swallows the mousedown that click-through relies on, so the panel moves
   // itself: report a grab offset and the main process follows the cursor.
@@ -230,6 +253,8 @@ export function QuickAsk(): React.JSX.Element {
     setErrorMessage("");
     setThinkingLabel("Thinking…");
     setPhase("thinking");
+    // The main process folds the pending screenshot into this ask.
+    setAttachment(null);
     window.quickAsk?.ask(question, conversationIdRef.current);
   }, [syncPillWidth]);
 
@@ -371,6 +396,28 @@ export function QuickAsk(): React.JSX.Element {
         )}
         <button
           type="button"
+          aria-label="Capture screen"
+          title="Capture and annotate the screen"
+          className="qa-shot"
+          onClick={() => window.quickAsk?.capture()}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M1.5 4.5a1 1 0 0 1 1-1h1.6l1-1.5h3.8l1 1.5h1.6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
+            <circle cx="7" cy="7.2" r="2.2" />
+          </svg>
+        </button>
+        <button
+          type="button"
           aria-label="Close"
           title="Close"
           className="qa-close"
@@ -392,6 +439,29 @@ export function QuickAsk(): React.JSX.Element {
         {/* Hidden mirror used to measure the typed text for the pill width. */}
         <span ref={measureRef} className="qa-measure" aria-hidden="true" />
       </div>
+
+      {(attachment || attachError) && (
+        <div className="qa-attach">
+          {attachment ? (
+            <>
+              <img src={attachment} alt="Screenshot to attach" />
+              <span className="qa-attach-label">Screenshot attached</span>
+              <button
+                type="button"
+                aria-label="Remove screenshot"
+                onClick={() => {
+                  window.quickAsk?.discardAttachment();
+                  setAttachment(null);
+                }}
+              >
+                ×
+              </button>
+            </>
+          ) : (
+            <span className="qa-attach-error">{attachError}</span>
+          )}
+        </div>
+      )}
 
       {phase === "thinking" && <ThinkingCard label={thinkingLabel} />}
       {phase === "error" && <ErrorCard message={errorMessage} />}

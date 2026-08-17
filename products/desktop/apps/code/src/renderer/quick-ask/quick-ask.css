@@ -243,6 +243,7 @@ html body {
 
 /* Pill-height circles so the controls read as part of the input row. */
 .qa-close,
+.qa-shot,
 .qa-new {
   width: 42px;
   height: 42px;
@@ -261,6 +262,7 @@ html body {
 }
 
 .qa-close:hover,
+.qa-shot:hover,
 .qa-new:hover {
   color: var(--qa-fg);
   background: #2a2b33;
@@ -271,6 +273,59 @@ html body {
   visibility: hidden;
   white-space: pre;
   font: 500 14.5px var(--qa-font);
+}
+
+/* Pending screenshot chip between the pill and the card. */
+.qa-attach {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: max-content;
+  max-width: 464px;
+  margin: 8px 0 0 53px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 10px;
+  background: rgba(30, 31, 37, 0.92);
+  border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.qa-attach img {
+  display: block;
+  height: 36px;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--qa-border);
+}
+
+.qa-attach-label {
+  font-size: 11.5px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-attach-error {
+  padding: 2px 4px;
+  font-size: 11.5px;
+  color: var(--qa-down);
+}
+
+.qa-attach button {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qa-fg-subtle);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qa-attach button:hover {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
 }
 
 /* ── Answer card ─────────────────────────────────────── */
@@ -990,6 +1045,7 @@ html body {
   .qa-status-busy,
   .qa-seg-in,
   .qa-mini-label,
+  .qa-attach,
   .qa-chart-line,
   .qa-chart-area,
   .qa-chart-bar,

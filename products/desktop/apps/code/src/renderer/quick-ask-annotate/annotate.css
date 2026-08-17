@@ -1,0 +1,99 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #101014;
+}
+
+.an-root {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  user-select: none;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.an-shot,
+.an-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.an-toolbar {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 12px;
+  background: rgba(24, 25, 31, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
+.an-hint {
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.an-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.an-tool {
+  font:
+    600 12.5px -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: rgba(255, 255, 255, 0.85);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 11px;
+  cursor: pointer;
+}
+
+.an-tool:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.an-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.an-active {
+  background: rgba(245, 78, 0, 0.22);
+  color: #ff8a5c;
+}
+
+.an-primary {
+  background: #f7a501;
+  color: #1d1f27;
+}
+
+.an-primary:hover:not(:disabled) {
+  background: #ffb92e;
+}

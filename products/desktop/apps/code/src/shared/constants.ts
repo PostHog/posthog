@@ -19,6 +19,21 @@ export const QUICK_ASK_EVENT_CHANNEL = "posthog-quick-ask-event";
 export const QUICK_ASK_LAYOUT_CHANNEL = "posthog-quick-ask-layout";
 export const QUICK_ASK_DRAG_START_CHANNEL = "posthog-quick-ask-drag-start";
 export const QUICK_ASK_DRAG_END_CHANNEL = "posthog-quick-ask-drag-end";
+export const QUICK_ASK_CAPTURE_CHANNEL = "posthog-quick-ask-capture";
+export const QUICK_ASK_ATTACHMENT_CHANNEL = "posthog-quick-ask-attachment";
+export const QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL =
+  "posthog-quick-ask-discard-attachment";
+export const QUICK_ASK_ANNOTATE_WINDOW_ARG = "--posthog-quick-ask-annotate";
+export const QUICK_ASK_ANNOTATE_SHOT_CHANNEL = "posthog-quick-ask-shot";
+export const QUICK_ASK_ANNOTATE_DONE_CHANNEL = "posthog-quick-ask-annotated";
+
+/** Sent to the panel when a screenshot is ready to attach (or cleared). */
+export interface QuickAskAttachmentPayload {
+  /** Preview for the chip; the full image stays in the main process. */
+  previewDataUrl: string | null;
+  /** Why capture produced nothing, e.g. missing screen-recording consent. */
+  error?: string;
+}
 
 /**
  * Payload contracts for the quick-ask IPC channels. The preload and the main
