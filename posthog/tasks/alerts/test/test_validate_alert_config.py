@@ -559,7 +559,7 @@ class TestForecastConfigValidation:
             ("unknown_condition", {**VALID_FORECAST, "condition": "nope"}, "condition"),
         ]
     )
-    def test_invalid_forecast_config_rejected(self, _name, forecast_config, match):
+    def test_invalid_forecast_config_rejected(self, _name: str, forecast_config: dict, match: str) -> None:
         with pytest.raises(ValueError, match=match):
             validate_alert_config(
                 TRENDS_QUERY,
@@ -570,7 +570,7 @@ class TestForecastConfigValidation:
                 forecast_config=forecast_config,
             )
 
-    def test_valid_forecast_config_accepted(self):
+    def test_valid_forecast_config_accepted(self) -> None:
         validate_alert_config(
             TRENDS_QUERY,
             {"type": "absolute_value"},
@@ -580,7 +580,7 @@ class TestForecastConfigValidation:
             forecast_config=VALID_FORECAST,
         )
 
-    def test_forecast_and_detector_mutually_exclusive(self):
+    def test_forecast_and_detector_mutually_exclusive(self) -> None:
         with pytest.raises(ValueError, match="both"):
             validate_alert_config(
                 TRENDS_QUERY,
@@ -592,7 +592,7 @@ class TestForecastConfigValidation:
                 forecast_config=VALID_FORECAST,
             )
 
-    def test_future_breach_requires_threshold_bounds(self):
+    def test_future_breach_requires_threshold_bounds(self) -> None:
         with pytest.raises(ValueError, match="threshold"):
             validate_alert_config(
                 TRENDS_QUERY,
@@ -603,7 +603,7 @@ class TestForecastConfigValidation:
                 forecast_config=VALID_FORECAST,
             )
 
-    def test_band_deviation_needs_no_threshold(self):
+    def test_band_deviation_needs_no_threshold(self) -> None:
         validate_alert_config(
             TRENDS_QUERY,
             {"type": "absolute_value"},
@@ -613,7 +613,7 @@ class TestForecastConfigValidation:
             forecast_config={"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
         )
 
-    def test_forecast_rejects_non_trends(self):
+    def test_forecast_rejects_non_trends(self) -> None:
         with pytest.raises(ValueError, match="[Ff]orecast"):
             validate_alert_config(
                 {"kind": "HogQLQuery", "query": "select 1"},
@@ -624,7 +624,7 @@ class TestForecastConfigValidation:
                 forecast_config=VALID_FORECAST,
             )
 
-    def test_forecast_rejects_breakdown(self):
+    def test_forecast_rejects_breakdown(self) -> None:
         query = {**TRENDS_QUERY, "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}}
         with pytest.raises(ValueError, match="breakdown"):
             validate_alert_config(

@@ -188,9 +188,8 @@ class DetectorConfigField(serializers.JSONField):
 @extend_schema_field(ForecastConfig)  # type: ignore[arg-type]
 class ForecastConfigField(serializers.JSONField):
     def to_internal_value(self, data):
+        # A null forecast_config never reaches here: allow_null short-circuits it in run_validation.
         value = super().to_internal_value(data)
-        if value is None:
-            return None
         try:
             ForecastConfig.model_validate(value)
         except Exception as e:
