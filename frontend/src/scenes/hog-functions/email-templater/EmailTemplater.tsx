@@ -13,9 +13,11 @@ import {
     LemonLabel,
     LemonModal,
     LemonSegmentedButton,
+    LemonSelect,
 } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -239,7 +241,7 @@ function DestinationEmailTemplaterForm({
     )
 }
 
-function NativeEmailIntegrationChoice({
+export function NativeEmailIntegrationChoice({
     label,
     onChange,
     value,
@@ -251,6 +253,7 @@ function NativeEmailIntegrationChoice({
 }): JSX.Element {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
+    const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
@@ -261,6 +264,14 @@ function NativeEmailIntegrationChoice({
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
+
+    const onChangeIntegration = (integrationId: number): void => {
+        if (integrationId === -1) {
+            window.open(urls.workflows('channels'), '_blank')
+            return
+        }
+        onChange({ ...value, integrationId, integrationIds: undefined })
+    }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
         onChange({
@@ -295,35 +306,67 @@ function NativeEmailIntegrationChoice({
         <div className="flex flex-col">
             <div className="flex gap-2 items-center">
                 {label}
-                <div className="flex flex-col flex-1">
-                    <LemonInputSelect<number>
+                {senderRotationEnabled ? (
+                    <div className="flex flex-col flex-1">
+                        <LemonInputSelect<number>
+                            className="m-1 flex-1"
+                            mode="multiple"
+                            placeholder="Choose email senders"
+                            loading={integrationsLoading}
+                            options={(integrationsOfKind || []).map((integration) => ({
+                                key: String(integration.id),
+                                label: integration.display_name,
+                                value: integration.id,
+                            }))}
+                            value={selectedIntegrationIds}
+                            size="small"
+                            fullWidth
+                            autoWidth={false}
+                            onChange={onChangeIntegrations}
+                            data-attr="workflow-email-sender-select"
+                            action={{
+                                children: 'Add new email sender',
+                                icon: <IconExternal />,
+                                onClick: () => window.open(urls.workflows('channels'), '_blank'),
+                            }}
+                        />
+                        {selectedIntegrationIds.length > 1 && (
+                            <span className="px-2 pb-1 text-xs text-muted">
+                                Each workflow run uses one sender from this list.
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <LemonSelect
                         className="m-1 flex-1"
-                        mode="multiple"
-                        placeholder="Choose email senders"
+                        type="tertiary"
+                        placeholder="Choose email sender"
                         loading={integrationsLoading}
-                        options={(integrationsOfKind || []).map((integration) => ({
-                            key: String(integration.id),
-                            label: integration.display_name,
-                            value: integration.id,
-                        }))}
-                        value={selectedIntegrationIds}
+                        options={[
+                            {
+                                title: 'Email senders',
+                                options: (integrationsOfKind || []).map((integration) => ({
+                                    label: integration.display_name,
+                                    value: integration.id,
+                                })),
+                            },
+                            {
+                                options: [
+                                    {
+                                        label: 'Add new email sender',
+                                        icon: <IconExternal />,
+                                        value: -1,
+                                    },
+                                ],
+                            },
+                        ]}
+                        value={value?.integrationId}
                         size="small"
                         fullWidth
-                        autoWidth={false}
-                        onChange={onChangeIntegrations}
+                        onChange={onChangeIntegration}
                         data-attr="workflow-email-sender-select"
-                        action={{
-                            children: 'Add new email sender',
-                            icon: <IconExternal />,
-                            onClick: () => window.open(urls.workflows('channels'), '_blank'),
-                        }}
                     />
-                    {selectedIntegrationIds.length > 1 && (
-                        <span className="px-2 pb-1 text-xs text-muted">
-                            Each workflow run uses one sender from this list.
-                        </span>
-                    )}
-                </div>
+                )}
                 {!overridesVisible && (
                     <LemonButton
                         size="xsmall"
