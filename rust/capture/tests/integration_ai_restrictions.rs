@@ -135,7 +135,7 @@ async fn setup_ai_router_with_restriction(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -165,7 +165,7 @@ async fn setup_ai_router_with_restriction(
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -456,7 +456,7 @@ async fn setup_ai_router_with_redirect_to_topic(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -486,7 +486,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -535,7 +535,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -565,7 +565,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         TokenDropper::default(),
         Some(service),
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,

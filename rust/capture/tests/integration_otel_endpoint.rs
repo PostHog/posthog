@@ -159,7 +159,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         .unwrap_or_else(|| Arc::new(MockRedisClient::new()));
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter = options.quota_limiter.unwrap_or_else(|| {
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7))
@@ -177,7 +177,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         TokenDropper::default(),
         options.event_restriction_service,
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,             // concurrency_limit
         25 * 1024 * 1024, // event_payload_size_limit
         false,            // enable_historical_rerouting

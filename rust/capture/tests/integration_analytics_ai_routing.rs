@@ -165,6 +165,27 @@ fn mixed_batch_payload() -> String {
     .to_string()
 }
 
+// Two allowlisted AI event names. capture-ai rejects a batch carrying anything
+// else, so its lane-assignment coverage has to use an all-AI batch.
+fn ai_only_batch_payload() -> String {
+    json!({
+        "api_key": TOKEN,
+        "batch": [
+            {
+                "event": "$ai_generation",
+                "distinct_id": DISTINCT_ID,
+                "properties": {"$ai_model": "gpt-4"}
+            },
+            {
+                "event": "$ai_span",
+                "distinct_id": DISTINCT_ID,
+                "properties": {}
+            }
+        ]
+    })
+    .to_string()
+}
+
 // The same mixed batch flagged as a historical migration — the only kind of
 // batch Import mode accepts.
 fn historical_mixed_batch_payload() -> String {
@@ -278,31 +299,58 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
     assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
-/// Capture mode does not change lane assignment: an Ai-mode deployment splits
-/// a mixed batch exactly like an analytics one. Pins the invariant end-to-end,
-/// so a deployment can never silently rejoin AI events to the analytics lane and
+/// Capture mode does not change lane assignment: an Ai-mode deployment stamps
+/// `AiEvents` exactly like an analytics one. Pins the invariant end-to-end, so
+/// a deployment can never silently rejoin AI events to the analytics lane and
 /// slip past every AI-lane gate (byte limiter, ai restrictions, AI overflow).
+///
+/// The batch is all-AI because capture-ai refuses anything else; the mixed-batch
+/// half of the old version of this test now lives below.
 #[tokio::test]
 async fn ai_mode_diverts_ai_events_like_every_other_mode() {
     let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
     let client = TestClient::new(router);
 
-    post_batch(&client, mixed_batch_payload()).await;
+    let response = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(ai_only_batch_payload())
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .all(|e| e.metadata.data_type == DataType::AiEvents),
+        "every allowlisted AI event must land on the AI lane under Ai mode"
+    );
+}
 
-    let ai_event = events
-        .iter()
-        .find(|e| e.metadata.event_name == "$ai_generation")
-        .expect("$ai_generation must reach the sink");
-    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+/// The endpoint-level half of the AI-lane gate. The unit tests in
+/// `events::analytics` call `process_events` directly, so only this proves the
+/// rejection is reachable through the router and surfaces as a 400.
+#[tokio::test]
+async fn ai_mode_rejects_a_mixed_batch_through_the_endpoint() {
+    let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
+    let client = TestClient::new(router);
 
-    let pageview = events
-        .iter()
-        .find(|e| e.metadata.event_name == "$pageview")
-        .expect("$pageview must reach the sink");
-    assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
+    let response = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(mixed_batch_payload())
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        sink.get_events().await.is_empty(),
+        "rejecting the batch must not publish the AI event ahead of the offender"
+    );
 }
 
 fn force_keyed_limiter() -> Arc<OverflowLimiter> {

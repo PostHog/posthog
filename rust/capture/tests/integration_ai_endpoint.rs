@@ -152,7 +152,7 @@ fn setup_ai_test_router() -> Router {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -168,7 +168,7 @@ fn setup_ai_test_router() -> Router {
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -205,7 +205,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -224,7 +224,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -1277,7 +1277,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1293,7 +1293,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -1946,7 +1946,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1962,7 +1962,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         token_dropper,
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,             // concurrency_limit
         25 * 1024 * 1024, // event_size_limit
         false,            // enable_historical_rerouting
@@ -2158,7 +2158,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
@@ -2174,7 +2174,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2316,7 +2316,7 @@ fn setup_ai_test_router_with_overflow_limiter(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -2332,7 +2332,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2473,7 +2473,7 @@ fn ai_router(
         TokenDropper::default(),
         None,
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2509,7 +2509,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
     ai_router(redis, quota_limiter)
@@ -2520,7 +2520,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
 fn setup_ai_router_with_secret() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
     ai_router(redis, quota_limiter)
@@ -2637,7 +2637,7 @@ fn setup_ai_router_global_quota_limited_with_secret(token: &str) -> (Router, Cap
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&events_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
     ai_router(redis, quota_limiter)
 }

@@ -393,35 +393,36 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
+    // Each deployment registers its own ingress and nothing else. The AI paths
+    // (`/i/v0/ai*`) belong to capture-ai and the analytics paths to
+    // capture-analytics; the ingress has always routed them that way, so a
+    // deployment serving the other set is surface no traffic reaches and no
+    // restriction slice covers. `Pipeline::for_capture_mode` loads exactly the
+    // pipelines each set can produce to, so the two must stay in step.
+    //
+    // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
+    // send everything to one endpoint. Those divert to the AI lane by event
+    // name; that is unrelated to which paths are registered here.
     let mut router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router)
-            .merge(ai_batch_router)
-            .merge(ai_router)
-            .merge(otel_router),
-        // Ai serves only the AI paths. The analytics batch and event routes are
-        // never reached there -- the ingress routes only `/i/v0/ai*` to this
-        // deployment -- and registering them would accept analytics traffic that
-        // `Pipeline::for_capture_mode(Ai)` no longer loads restrictions for.
-        // `process_events` rejects a non-AI event name on the batch path, so the
-        // only events this deployment produces are `DataType::AiEvents`.
+            .merge(test_router),
         CaptureMode::Ai => Router::new()
             .merge(ai_batch_router)
             .merge(ai_router)
             .merge(otel_router),
-        // Import must not register ai_router/otel_router: those handlers build
-        // their own ProcessingContext with historical_migration: false, so they
-        // sidestep both Import gates (historical-only drop and GRL bypass) and
-        // would return a false 200 for events this deployment silently discards.
-        // The /i/v0/ai/batch path stays reachable via ai_batch_router, which
-        // dispatches to the gated v0_endpoint::event handler.
+        // Import is an analytics deployment restricted to backfills, so it
+        // serves the analytics paths. It must never register ai_router or
+        // otel_router for a second reason on top of the split above: those
+        // handlers build their own ProcessingContext with
+        // `historical_migration: false`, so they sidestep both Import gates
+        // (historical-only drop and GRL bypass) and would return a false 200
+        // for events this deployment silently discards.
         CaptureMode::Import => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router)
-            .merge(ai_batch_router),
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
