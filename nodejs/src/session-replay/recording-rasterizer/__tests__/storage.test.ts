@@ -121,17 +121,27 @@ describe('uploadToS3', () => {
 
     it.each([
         {
-            failure: 'a modeled service error whose body parsed fine',
+            failure: 'a modeled 403 as non-retryable (credentials cannot heal on retry)',
             error: Object.assign(new Error('Access Denied'), {
                 name: 'AccessDenied',
                 $response: { statusCode: 403 },
                 $metadata: { httpStatusCode: 403 },
             }),
+            retryable: false,
         },
-        { failure: 'a failure carrying no HTTP response', error: new Error('socket hang up') },
-    ])('rethrows $failure untouched, so callers still see the SDK error', async ({ error }) => {
+        {
+            failure: 'a failure carrying no HTTP response as retryable',
+            error: new Error('socket hang up'),
+            retryable: true,
+        },
+    ])('wraps $failure into a typed S3_UPLOAD_FAILED', async ({ error, retryable }) => {
         mockDone.mockRejectedValue(error)
-        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toBe(error)
+        await expect(uploadToS3('/tmp/v.mp4', 'bucket', 'prefix', 'id')).rejects.toMatchObject({
+            name: 'RasterizationError',
+            code: 'S3_UPLOAD_FAILED',
+            retryable,
+            cause: error,
+        })
     })
 })
 

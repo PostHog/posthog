@@ -136,7 +136,10 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=dt.timedelta(minutes=30),
+                # Must exceed the child's 30m render start-to-close, or a first render that fails
+                # fast leaves no room to schedule a retry at all (matches the sweep workflow's
+                # budget in workflow.py).
+                execution_timeout=dt.timedelta(minutes=40),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),

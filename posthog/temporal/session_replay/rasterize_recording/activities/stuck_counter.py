@@ -5,7 +5,7 @@ import structlog
 from redis.asyncio import Redis as AsyncRedis
 from temporalio import activity
 
-from posthog.redis import get_async_client
+from posthog.redis import get_async_client, get_client
 
 logger = structlog.get_logger(__name__)
 
@@ -48,16 +48,12 @@ async def clear_stuck_counter_activity(inputs: BumpStuckCounterInput) -> None:
     await redis_client.delete(key)
 
 
-async def read_stuck_session_ids(
-    redis_client: AsyncRedis,
-    team_id: int,
-    session_ids: list[str],
-    threshold: int,
-) -> set[str]:
-    if not session_ids:
-        return set()
-    keys = [_stuck_key(team_id, sid) for sid in session_ids]
-    values = await redis_client.mget(keys)
+# A run only bumps the counter after its final scheduled attempt, so 2 means the session has burned
+# through two whole retry envelopes inside the TTL window without a success.
+STUCK_SESSION_THRESHOLD = 2
+
+
+def _filter_stuck(session_ids: list[str], values: list[bytes | str | None], threshold: int) -> set[str]:
     stuck: set[str] = set()
     for sid, val in zip(session_ids, values):
         if val is None:
@@ -69,3 +65,30 @@ async def read_stuck_session_ids(
         if count >= threshold:
             stuck.add(sid)
     return stuck
+
+
+async def read_stuck_session_ids(
+    redis_client: AsyncRedis,
+    team_id: int,
+    session_ids: list[str],
+    threshold: int = STUCK_SESSION_THRESHOLD,
+) -> set[str]:
+    if not session_ids:
+        return set()
+    keys = [_stuck_key(team_id, sid) for sid in session_ids]
+    values = await redis_client.mget(keys)
+    return _filter_stuck(session_ids, values, threshold)
+
+
+def read_stuck_session_ids_sync(
+    team_id: int,
+    session_ids: list[str],
+    threshold: int = STUCK_SESSION_THRESHOLD,
+) -> set[str]:
+    """Sync variant for callers inside synchronous activities (the replay_vision sweep)."""
+    if not session_ids:
+        return set()
+    redis_client = get_client()
+    keys = [_stuck_key(team_id, sid) for sid in session_ids]
+    values = redis_client.mget(keys)
+    return _filter_stuck(session_ids, values, threshold)

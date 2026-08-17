@@ -32,7 +32,10 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_EXECUTION_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
@@ -290,7 +293,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(hours=1),
+                        execution_timeout=RASTERIZE_WORKFLOW_EXECUTION_TIMEOUT,
                         search_attributes=TypedSearchAttributes(
                             search_attributes=[
                                 SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
