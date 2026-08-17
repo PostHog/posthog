@@ -709,7 +709,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             isMobileView={isMobileView}
                             disabled={resizingTileId !== null}
                             getMenuItems={getInsertMenuItems}
-                            onMenuOpen={() => reportDashboardAddMenuOpened('inline', dashboard.id)}
+                            onMenuOpen={() => {
+                                if (dashboard?.id) {
+                                    reportDashboardAddMenuOpened('inline', dashboard.id)
+                                }
+                            }}
                         />
                     )}
                 </div>
