@@ -35,6 +35,9 @@ interface QuickAskStoreSchema {
   defaultChannelId: string;
   defaultRepositories: string[];
   defaultGithubIntegrationId: number;
+  defaultAdapter: string;
+  defaultModel: string;
+  defaultEffort: string;
   warmOnSummon: boolean;
 }
 
@@ -72,6 +75,9 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
     defaultChannelId: "",
     defaultRepositories: [],
     defaultGithubIntegrationId: 0,
+    defaultAdapter: "",
+    defaultModel: "",
+    defaultEffort: "",
     warmOnSummon: true,
   },
 });

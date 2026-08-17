@@ -834,6 +834,9 @@ container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
     repositories,
     githubIntegrationId:
       repositories.length > 0 && integrationId ? integrationId : null,
+    adapter: quickAskStore.get("defaultAdapter") || null,
+    model: quickAskStore.get("defaultModel") || null,
+    reasoningEffort: quickAskStore.get("defaultEffort") || null,
   };
 });
 

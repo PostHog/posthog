@@ -20,6 +20,10 @@ export interface QuickAskState {
   /** Repos the sandbox clones; empty defers to the space's repositories. */
   defaultRepositories: string[];
   defaultGithubIntegrationId: number;
+  /** Empty strings follow the adapter/model defaults. */
+  defaultAdapter: string;
+  defaultModel: string;
+  defaultEffort: string;
   /** Boot a sandbox when the panel is summoned. */
   warmOnSummon: boolean;
 }
@@ -29,6 +33,9 @@ export interface QuickAskSettingsPatch {
   defaultChannelId?: string;
   defaultRepositories?: string[];
   defaultGithubIntegrationId?: number;
+  defaultAdapter?: string;
+  defaultModel?: string;
+  defaultEffort?: string;
   warmOnSummon?: boolean;
 }
 

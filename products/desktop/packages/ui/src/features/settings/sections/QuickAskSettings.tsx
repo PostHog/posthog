@@ -1,5 +1,12 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
+import {
+  type Adapter,
+  DEFAULT_CODEX_MODEL,
+  DEFAULT_GATEWAY_MODEL,
+  getReasoningEffortOptions,
+  isRestrictedModelOption,
+} from "@posthog/shared";
 import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
@@ -10,9 +17,16 @@ import {
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { QuickAskShortcutSetting } from "@posthog/ui/features/settings/sections/QuickAskShortcutSetting";
+import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
+
+const ADAPTER_OPTIONS = [
+  { value: "", label: "Claude (default)" },
+  { value: "codex", label: "Codex" },
+];
 
 export function QuickAskSettings() {
   const client = useServiceOptional<QuickAskSettingsClient>(
@@ -20,6 +34,19 @@ export function QuickAskSettings() {
   );
   const [state, setState] = useState<QuickAskState | null>(null);
   const { channels } = useChannels();
+  const adapterForQuery: Adapter =
+    state?.defaultAdapter === "codex" ? "codex" : "claude";
+  const models = useAuthenticatedQuery(
+    ["quick-ask-settings-models", adapterForQuery],
+    async (apiClient) => {
+      const options =
+        await apiClient.getCloudTaskConfigOptions(adapterForQuery);
+      return (
+        options.find((option) => option.category === "model")?.options ?? []
+      );
+    },
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false },
+  );
 
   useEffect(() => {
     if (!client) return;
@@ -57,6 +84,23 @@ export function QuickAskSettings() {
       ? (selectedSpace?.repositories ?? [])
       : [];
   const off = !state.active;
+  const adapter: Adapter =
+    state.defaultAdapter === "codex" ? "codex" : "claude";
+  const effortModel =
+    state.defaultModel ||
+    (adapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
+  const modelOptions = [
+    { value: "", label: "Harness default" },
+    ...(models.data ?? [])
+      .filter((option) => !isRestrictedModelOption(option._meta))
+      .map((option) => ({ value: option.value, label: option.name })),
+  ];
+  const effortOptions = [
+    { value: "", label: "Default" },
+    ...(getReasoningEffortOptions(adapter, effortModel) ?? []).map(
+      (option) => ({ value: option.value, label: option.name }),
+    ),
+  ];
 
   return (
     <Flex direction="column">
@@ -113,6 +157,59 @@ export function QuickAskSettings() {
                 defaultGithubIntegrationId: integrationId ?? 0,
               })
             }
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Default harness"
+          description="The agent that answers quick-ask questions."
+        >
+          <SettingsOptionSelect
+            value={state.defaultAdapter}
+            options={ADAPTER_OPTIONS}
+            onValueChange={(value) =>
+              apply({
+                defaultAdapter: value,
+                defaultModel: "",
+                defaultEffort: "",
+              })
+            }
+            ariaLabel="Default harness"
+            disabled={off}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Default model"
+          description="Follows the harness default when unset."
+        >
+          <SettingsOptionSelect
+            value={state.defaultModel}
+            options={modelOptions}
+            onValueChange={(value) =>
+              apply({ defaultModel: value, defaultEffort: "" })
+            }
+            ariaLabel="Default model"
+            disabled={off || models.isPending}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Default effort"
+          description="How much thinking the model spends per answer."
+        >
+          <SettingsOptionSelect
+            value={
+              effortOptions.some(
+                (option) => option.value === state.defaultEffort,
+              )
+                ? state.defaultEffort
+                : ""
+            }
+            options={effortOptions}
+            onValueChange={(value) => apply({ defaultEffort: value })}
+            ariaLabel="Default effort"
+            disabled={off || effortOptions.length <= 1}
           />
         </SettingRow>
 

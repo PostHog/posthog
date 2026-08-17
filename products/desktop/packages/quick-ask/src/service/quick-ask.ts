@@ -17,6 +17,9 @@ export interface QuickAskRunDefaults {
   channelId: string | null;
   repositories: string[];
   githubIntegrationId: number | null;
+  adapter: string | null;
+  model: string | null;
+  reasoningEffort: string | null;
 }
 
 export const QUICK_ASK_RUN_DEFAULTS = Symbol.for(
@@ -291,6 +294,9 @@ export class QuickAskService {
         channelId: null,
         repositories: [],
         githubIntegrationId: null,
+        adapter: null,
+        model: null,
+        reasoningEffort: null,
       }
     );
   }
@@ -375,6 +381,9 @@ export class QuickAskService {
           repositories: defaults.repositories,
           github_integration: defaults.githubIntegrationId,
           branch: null,
+          runtime_adapter: defaults.adapter,
+          model: defaults.model,
+          reasoning_effort: defaults.reasoningEffort,
         },
       );
       if (!response.ok) return;
@@ -427,6 +436,11 @@ export class QuickAskService {
           : defaults.channelId
             ? {}
             : { repositories: [] }),
+        ...(defaults.adapter ? { runtime_adapter: defaults.adapter } : {}),
+        ...(defaults.model ? { model: defaults.model } : {}),
+        ...(defaults.reasoningEffort
+          ? { reasoning_effort: defaults.reasoningEffort }
+          : {}),
       },
       signal,
     );
@@ -441,13 +455,18 @@ export class QuickAskService {
     artifactIds: string[],
     signal: AbortSignal,
   ): Promise<string | null> {
+    const defaults = this.defaults();
     const createResponse = await this.post(
       apiHost,
       `/api/projects/${projectId}/tasks/${taskId}/runs/`,
       {
         environment: "cloud",
         mode: "interactive",
-        runtime_adapter: "claude",
+        runtime_adapter: defaults.adapter ?? "claude",
+        ...(defaults.model ? { model: defaults.model } : {}),
+        ...(defaults.reasoningEffort
+          ? { reasoning_effort: defaults.reasoningEffort }
+          : {}),
         // "auto" lets the agent use safe tools without approval prompts the
         // panel has no surface for.
         initial_permission_mode: "auto",

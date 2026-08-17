@@ -15,6 +15,9 @@ const quickAskStateSchema = z.object({
   defaultChannelId: z.string(),
   defaultRepositories: z.array(z.string()),
   defaultGithubIntegrationId: z.number(),
+  defaultAdapter: z.string(),
+  defaultModel: z.string(),
+  defaultEffort: z.string(),
   warmOnSummon: z.boolean(),
 });
 
@@ -42,6 +45,9 @@ export const quickAskRouter = router({
         defaultChannelId: z.string().optional(),
         defaultRepositories: z.array(z.string()).optional(),
         defaultGithubIntegrationId: z.number().optional(),
+        defaultAdapter: z.enum(["", "claude", "codex"]).optional(),
+        defaultModel: z.string().max(120).optional(),
+        defaultEffort: z.string().max(32).optional(),
         warmOnSummon: z.boolean().optional(),
       }),
     )

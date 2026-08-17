@@ -672,6 +672,9 @@ describe("QuickAskService", () => {
       repositories: [],
       github_integration: null,
       branch: null,
+      runtime_adapter: null,
+      model: null,
+      reasoning_effort: null,
     });
 
     const failing = serviceWith({
@@ -733,6 +736,9 @@ describe("QuickAskService", () => {
         channelId: "chan-7",
         repositories: ["posthog/posthog"],
         githubIntegrationId: 42,
+        adapter: "codex",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
       }),
     );
     await service.warm();
@@ -745,6 +751,9 @@ describe("QuickAskService", () => {
       repository: "posthog/posthog",
       repositories: ["posthog/posthog"],
       github_integration: 42,
+      runtime_adapter: "codex",
+      model: "gpt-5.5",
+      reasoning_effort: "high",
     });
     const createBody = JSON.parse(
       callsTo(fetchMock, "/tasks/")[0][2].body as string,
@@ -753,6 +762,9 @@ describe("QuickAskService", () => {
       channel: "chan-7",
       repositories: ["posthog/posthog"],
       github_integration: 42,
+      runtime_adapter: "codex",
+      model: "gpt-5.5",
+      reasoning_effort: "high",
     });
   });
 
@@ -766,6 +778,9 @@ describe("QuickAskService", () => {
         channelId: "chan-7",
         repositories: [],
         githubIntegrationId: null,
+        adapter: null,
+        model: null,
+        reasoningEffort: null,
       }),
     );
     await collect(service);

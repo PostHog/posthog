@@ -100,6 +100,10 @@ export interface QuickAskState {
   defaultChannelId: string;
   defaultRepositories: string[];
   defaultGithubIntegrationId: number;
+  /** Empty strings follow the adapter/model defaults. */
+  defaultAdapter: string;
+  defaultModel: string;
+  defaultEffort: string;
   warmOnSummon: boolean;
 }
 
@@ -108,6 +112,9 @@ export interface QuickAskSettingsPatch {
   defaultChannelId?: string;
   defaultRepositories?: string[];
   defaultGithubIntegrationId?: number;
+  defaultAdapter?: string;
+  defaultModel?: string;
+  defaultEffort?: string;
   warmOnSummon?: boolean;
 }
 
@@ -142,6 +149,9 @@ export function getQuickAskState(): QuickAskState {
     defaultChannelId: quickAskStore.get("defaultChannelId"),
     defaultRepositories: quickAskStore.get("defaultRepositories"),
     defaultGithubIntegrationId: quickAskStore.get("defaultGithubIntegrationId"),
+    defaultAdapter: quickAskStore.get("defaultAdapter"),
+    defaultModel: quickAskStore.get("defaultModel"),
+    defaultEffort: quickAskStore.get("defaultEffort"),
     warmOnSummon: quickAskStore.get("warmOnSummon"),
   };
 }
@@ -168,6 +178,15 @@ export function setQuickAskSettings(
       "defaultGithubIntegrationId",
       patch.defaultGithubIntegrationId,
     );
+  }
+  if (patch.defaultAdapter !== undefined) {
+    quickAskStore.set("defaultAdapter", patch.defaultAdapter);
+  }
+  if (patch.defaultModel !== undefined) {
+    quickAskStore.set("defaultModel", patch.defaultModel);
+  }
+  if (patch.defaultEffort !== undefined) {
+    quickAskStore.set("defaultEffort", patch.defaultEffort);
   }
   if (patch.warmOnSummon !== undefined) {
     quickAskStore.set("warmOnSummon", patch.warmOnSummon);

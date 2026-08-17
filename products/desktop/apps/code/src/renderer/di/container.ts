@@ -256,7 +256,15 @@ const quickAskSettingsClient: QuickAskSettingsClient = {
   getState: () => trpcClient.quickAsk.getState.query(),
   setShortcut: (accelerator) =>
     trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
-  setSettings: (patch) => trpcClient.quickAsk.setSettings.mutate(patch),
+  setSettings: (patch) =>
+    trpcClient.quickAsk.setSettings.mutate({
+      ...patch,
+      defaultAdapter: patch.defaultAdapter as
+        | ""
+        | "claude"
+        | "codex"
+        | undefined,
+    }),
 };
 container
   .bind(QUICK_ASK_SETTINGS_CLIENT)
