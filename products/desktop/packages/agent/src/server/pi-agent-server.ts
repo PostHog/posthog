@@ -49,6 +49,8 @@ interface PiCloudSession {
 }
 
 const emptySchema = z.object({});
+// Bounds the liveness probe so a hung runtime cannot hold /health open.
+const TURN_STATE_PROBE_TIMEOUT_MS = 2_000;
 const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
@@ -290,12 +292,13 @@ export class PiAgentServer {
   private createApp(): Hono {
     const app = new Hono();
 
-    app.get("/health", (context) =>
+    app.get("/health", async (context) =>
       context.json({
         status: "ok",
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        turnInFlight: await this.readTurnInFlight(),
       }),
     );
 
@@ -698,6 +701,31 @@ export class PiAgentServer {
         }
         return runtime.sendCommand(command);
       }
+    }
+  }
+
+  /**
+   * Whether the runtime is part-way through a turn, for the orchestrator's idle check.
+   *
+   * Returns `undefined` rather than `false` when the runtime cannot say, keeping "don't know"
+   * distinct from "not working" for a caller that only defers on an explicit yes. Racing a
+   * timeout so an unanswered RPC cannot hold this route open.
+   */
+  private async readTurnInFlight(): Promise<boolean | undefined> {
+    const runtime = this.session?.runtime;
+    if (!runtime) {
+      return false;
+    }
+    try {
+      const state = await Promise.race([
+        runtime.client.getState(),
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), TURN_STATE_PROBE_TIMEOUT_MS),
+        ),
+      ]);
+      return state === null ? undefined : state.isStreaming;
+    } catch {
+      return undefined;
     }
   }
 

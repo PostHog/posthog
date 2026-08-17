@@ -547,6 +547,9 @@ describe("AgentServer HTTP Mode", () => {
         hasSession: true,
         bootMs: expect.any(Number),
         sessionInitMs: expect.any(Number),
+        // The orchestrator reads this before reclaiming a sandbox whose idle window has closed,
+        // and only an explicit true defers that. A session with no turn running must say so.
+        turnInFlight: false,
       });
     }, 30000);
 

@@ -667,6 +667,15 @@ export class AgentServer {
         hasSession: !!this.session,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        // Read before the orchestrator reclaims a sandbox whose idle window has closed. It has
+        // to be asked for rather than inferred from the event stream, because anything the
+        // server logs to prove it is alive re-arms that same window. This route logs nothing.
+        //
+        // Owned turns as well as deliveries: an autonomous run's first turn starts here rather
+        // than from a command, so deliveries alone report idle during long unattended work.
+        turnInFlight:
+          this.activeOwnedTurnCount > 0 ||
+          this.inFlightMessageDeliveries.size > 0,
       });
     });
 
