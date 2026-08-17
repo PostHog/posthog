@@ -1914,6 +1914,104 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
+class TestForecastFlagGate(APIBaseTest):
+    def test_existing_forecast_alert_can_be_disabled_once_the_flag_is_off(self) -> None:
+        """Gating an inherited forecast_config would 400 every edit to an existing alert when the
+        flag goes off, leaving no way to turn a firing alert off."""
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "ActionsLineGraph"},
+                    "interval": "day",
+                }
+            },
+        ).json()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            disabled = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", data={"enabled": False}
+            )
+            recreated = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "another forecast alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "daily",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+                },
+            )
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert disabled.json()["enabled"] is False
+        # Creating a new one still requires the flag.
+        assert recreated.status_code == status.HTTP_400_BAD_REQUEST, recreated.content
+
+
+class TestForecastSimulateGuards(APIBaseTest):
+    """The preview must reject the same insight shapes the save path rejects. Before this, a
+    breakdown insight previewed series[0] as if it were the whole insight, so a user could draw a
+    forecast they could not then save."""
+
+    def _insight(self, query_extra: dict) -> dict:
+        query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "trendsFilter": {"display": "ActionsLineGraph"},
+            **query_extra,
+        }
+        return self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query}).json()
+
+    @parameterized.expand(
+        [
+            (
+                "single_breakdown",
+                {"breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}},
+                "breakdown",
+            ),
+            (
+                "multi_breakdown",
+                {"breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]}},
+                "breakdown",
+            ),
+            ("minute_interval", {"interval": "minute"}, "hourly, daily, weekly"),
+            ("quarter_interval", {"interval": "quarter"}, "hourly, daily, weekly"),
+        ]
+    )
+    def test_simulate_forecast_rejects_unsupported_insights(self, _name: str, query_extra: dict, message: str) -> None:
+        insight = self._insight(query_extra)
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert message in response.content.decode()
+
+
 class TestAlertTestDelivery(APIBaseTest):
     def setUp(self):
         super().setUp()

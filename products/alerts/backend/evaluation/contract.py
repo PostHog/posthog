@@ -5,6 +5,7 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -101,7 +102,7 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
-@dataclass
+@frozen
 class SimulationContext:
     """Alert-less inputs for a read-only detector or forecast simulation. Each extractor reads only the
     fields its kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use

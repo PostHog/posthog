@@ -788,7 +788,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             forecast_config = None
 
-        if forecast_config and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
+        # Gate on the config this request sets, not on one inherited from the instance. Gating the
+        # inherited value would 400 every edit to an existing forecast alert once the flag is off,
+        # including disabling or snoozing it, leaving no way to turn a firing alert off.
+        if attrs.get("forecast_config") and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
             raise ValidationError("Forecast alerts are not enabled for your account.")
 
         require_threshold_bounds = (
@@ -1052,6 +1055,9 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
+        # Same gate as create/update and the detector preview, so a flag-gated insight kind can't
+        # reach the forecast preview through the one path that skips it.
+        _enforce_alert_feature_flags(self.context, value)
         return value
 
     def validate_forecast_config(self, value):
@@ -1079,6 +1085,13 @@ class ForecastFitQualitySerializer(serializers.Serializer):
     )
 
 
+class ForecastLatestDeviationSerializer(serializers.Serializer):
+    value = serializers.FloatField(help_text="The latest completed actual value.")
+    lower = serializers.FloatField(help_text="Lower bound of the expected range for that point.")
+    upper = serializers.FloatField(help_text="Upper bound of the expected range for that point.")
+    outside = serializers.BooleanField(help_text="Whether the value falls outside the range, which is what fires.")
+
+
 class ForecastSimulateResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.FloatField(), help_text="Historical data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each historical point.")
@@ -1103,6 +1116,23 @@ class ForecastSimulateResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast "
         "point. Present only when the forecast engine outputs a decomposition.",
+    )
+    history_lower = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Lower bound of the expected range for each historical point, aligned with `dates` and `data`. "
+        "Null when the engine produces no in-sample band.",
+    )
+    history_upper = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Upper bound of the expected range for each historical point, aligned with `dates` and `data`.",
+    )
+    latest_deviation = ForecastLatestDeviationSerializer(
+        allow_null=True,
+        help_text="The band-deviation check the alert itself runs on the latest completed point. Present only "
+        "for the band_deviation condition, and computed from a separate fit that excludes that point, so the "
+        "bounds here differ from the last entry of history_lower/history_upper.",
     )
     fit_quality = ForecastFitQualitySerializer(help_text="In-sample fit diagnostics for the forecast.")
 

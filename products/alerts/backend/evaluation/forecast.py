@@ -8,32 +8,38 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import ForecastConditionType
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
-from products.alerts.backend.evaluation.contract import (
-    AlertExtractionError,
-    ExtractionResult,
-    SimulationContext,
-    execution_mode_for_alert,
-)
+from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, SimulationContext
 from products.alerts.backend.evaluation.detector import extract_trends_series
 from products.alerts.backend.forecasting.engine import (
     DEFAULT_HORIZON,
     DEFAULT_INTERVAL_WIDTH,
     FORECAST_LOOKBACK_POINTS,
+    ForecastEngine,
     ForecastResult,
     get_forecast_engine,
     min_forecast_points,
+    validate_forecast_interval,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
 
+def _resolve_horizon(forecast_config: dict[str, Any]) -> int:
+    # `or` rather than a get() default so an explicit null or 0 falls back too.
+    return int(forecast_config.get("horizon") or DEFAULT_HORIZON)
+
+
+def _resolve_interval_width(forecast_config: dict[str, Any]) -> float:
+    return float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
+
+
 def _forecast_min_samples(forecast_config: dict[str, Any]) -> int:
     # Fetch a wide window: enough history for seasonality plus the horizon we predict past it.
-    horizon = int(forecast_config.get("horizon") or DEFAULT_HORIZON)
-    return max(FORECAST_LOOKBACK_POINTS, 4 * horizon) + 1
+    return max(FORECAST_LOOKBACK_POINTS, 4 * _resolve_horizon(forecast_config)) + 1
 
 
 def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
@@ -68,13 +74,13 @@ def _evaluate_band_deviation(
     dates: list[str],
     values: list[float],
     label: str,
-    engine: Any,
+    engine: ForecastEngine,
     interval_width: float,
     interval_type: IntervalType | None,
-    interval_value: str | None,
 ) -> AlertEvaluationResult:
     """Fit on history excluding the latest completed point, predict one interval, fire if that
     actual point sits outside the band."""
+    interval_value = interval_type.value if interval_type else None
     forecast = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
     actual = values[-1]
     lower, upper = forecast.lower[0], forecast.upper[0]
@@ -99,15 +105,15 @@ def _evaluate_future_breach(
     values: list[float],
     label: str,
     forecast_config: dict[str, Any],
-    engine: Any,
+    engine: ForecastEngine,
     interval_width: float,
     interval_type: IntervalType | None,
     threshold: InsightThreshold | None,
-    interval_value: str | None,
 ) -> AlertEvaluationResult:
     """Fit on the full history, predict `horizon` intervals, fire if the point forecast crosses
     the threshold bounds."""
-    horizon = int(forecast_config.get("horizon") or DEFAULT_HORIZON)
+    interval_value = interval_type.value if interval_type else None
+    horizon = _resolve_horizon(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
     bounds = threshold.bounds if threshold else None
     if bounds is None or (bounds.lower is None and bounds.upper is None):
@@ -169,13 +175,11 @@ def evaluate_with_forecast(
         )
 
     label = result.series[0].label
-    interval_width = float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
+    interval_width = _resolve_interval_width(forecast_config)
     engine = get_forecast_engine(forecast_config)
 
     if condition == ForecastConditionType.BAND_DEVIATION.value:
-        return _evaluate_band_deviation(
-            dates, values, label, engine, interval_width, result.interval_type, interval_value
-        )
+        return _evaluate_band_deviation(dates, values, label, engine, interval_width, result.interval_type)
     elif condition == ForecastConditionType.FUTURE_BREACH.value:
         return _evaluate_future_breach(
             dates,
@@ -186,7 +190,6 @@ def evaluate_with_forecast(
             interval_width,
             result.interval_type,
             threshold,
-            interval_value,
         )
     else:
         raise AlertExtractionError(f"Unknown forecast condition: {condition}")
@@ -216,7 +219,9 @@ class TrendsForecastExtractor:
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
-        execution_mode = execution_mode_for_alert(trends_query.interval, high_frequency=False)
+        # Simulate is an explicit user action, so recompute rather than serve a cached result. A stale
+        # cache here shows a preview that disagrees with what the alert would do on the same insight.
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         result = extract_trends_series(
             insight,
             ctx.team,
@@ -261,6 +266,14 @@ def simulate_forecast_on_insight(
     if extractor is None:
         raise ValueError(f"Forecast simulation isn't supported for {kind} insights")
 
+    # Reject the same shapes the save path rejects, before paying for the query. Otherwise the
+    # preview is more permissive than saving: a breakdown insight would forecast series[0] and
+    # present it as the whole insight.
+    trends_query = TrendsQuery.model_validate(query)
+    if _has_breakdown(trends_query):
+        raise ValueError("Forecast alerts don't support breakdowns yet")
+    validate_forecast_interval(trends_query.interval)
+
     ctx = SimulationContext(
         team=team, extractor_config=forecast_config, user=user, series_index=series_index, date_from=date_from
     )
@@ -278,11 +291,11 @@ def simulate_forecast_on_insight(
             f"Not enough history to forecast: need at least {min_points} completed intervals, got {len(values)}."
         )
 
-    horizon = int(forecast_config.get("horizon") or DEFAULT_HORIZON)
-    interval_width = float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
-    forecast = get_forecast_engine(forecast_config).forecast(
-        dates, values, horizon, interval_width, IntervalType(interval_value) if interval_value else None
-    )
+    horizon = _resolve_horizon(forecast_config)
+    interval_width = _resolve_interval_width(forecast_config)
+    interval_type = IntervalType(interval_value) if interval_value else None
+    engine = get_forecast_engine(forecast_config)
+    forecast = engine.forecast(dates, values, horizon, interval_width, interval_type, include_history=True)
     return {
         "data": values,
         "dates": dates,
@@ -292,12 +305,33 @@ def simulate_forecast_on_insight(
         "forecast_lower": forecast.lower,
         "forecast_upper": forecast.upper,
         "forecast_components": forecast.components,
+        "history_lower": forecast.history_lower,
+        "history_upper": forecast.history_upper,
+        "latest_deviation": _latest_deviation(dates, values, forecast_config, engine, interval_width, interval_type),
         "fit_quality": {
             "mape": forecast.fit_mape,
             "coverage": forecast.fit_coverage,
             "verdict": _fit_verdict(forecast.fit_mape, forecast.fit_coverage, interval_width),
         },
     }
+
+
+def _latest_deviation(
+    dates: list[str],
+    values: list[float],
+    forecast_config: dict[str, Any],
+    engine: ForecastEngine,
+    interval_width: float,
+    interval_type: IntervalType | None,
+) -> dict[str, Any] | None:
+    """The band-deviation check the alert would actually run, so the preview and the evaluation can't
+    disagree. Costs a second fit, so only the condition that uses it pays for it."""
+    if forecast_config.get("condition") != ForecastConditionType.BAND_DEVIATION.value:
+        return None
+    held_out = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
+    actual = values[-1]
+    lower, upper = held_out.lower[0], held_out.upper[0]
+    return {"value": actual, "lower": lower, "upper": upper, "outside": actual < lower or actual > upper}
 
 
 def _fit_verdict(mape: float | None, coverage: float | None, interval_width: float) -> str:

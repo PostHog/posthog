@@ -37311,6 +37311,17 @@ export namespace Schemas {
       verdict: ForecastFitQualityVerdictEnum;
     }
 
+    export interface ForecastLatestDeviation {
+      /** The latest completed actual value. */
+      value: number;
+      /** Lower bound of the expected range for that point. */
+      lower: number;
+      /** Upper bound of the expected range for that point. */
+      upper: number;
+      /** Whether the value falls outside the range, which is what fires. */
+      outside: boolean;
+    }
+
     export interface ForecastSimulateRequest {
       /** Insight ID to simulate the forecast on. */
       insight: number;
@@ -37354,6 +37365,18 @@ export namespace Schemas {
          * @nullable
          */
       forecast_components?: ForecastSimulateResponseForecastComponents;
+      /**
+         * Lower bound of the expected range for each historical point, aligned with `dates` and `data`. Null when the engine produces no in-sample band.
+         * @nullable
+         */
+      history_lower: number[] | null;
+      /**
+         * Upper bound of the expected range for each historical point, aligned with `dates` and `data`.
+         * @nullable
+         */
+      history_upper: number[] | null;
+      /** The band-deviation check the alert itself runs on the latest completed point. Present only for the band_deviation condition, and computed from a separate fit that excludes that point, so the bounds here differ from the last entry of history_lower/history_upper. */
+      latest_deviation: ForecastLatestDeviation | null;
       /** In-sample fit diagnostics for the forecast. */
       fit_quality: ForecastFitQuality;
     }

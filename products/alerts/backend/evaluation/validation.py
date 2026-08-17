@@ -23,12 +23,13 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
-from products.alerts.backend.forecasting.engine import MAX_FORECAST_HORIZON
+from products.alerts.backend.forecasting.engine import MAX_FORECAST_HORIZON, validate_forecast_interval
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -45,6 +46,12 @@ class _AlertConfigValidationContext:
     require_threshold_bounds: bool
     detector_config: dict | None
     forecast_config: dict | None
+
+    @property
+    def bounds_required(self) -> bool:
+        # Detector and forecast alerts derive their own trigger, so a threshold bound is only
+        # mandatory for the plain threshold path.
+        return self.require_threshold_bounds and self.detector_config is None and self.forecast_config is None
 
 
 def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
@@ -101,7 +108,7 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
         # series. Reject at config time so the alert can't be saved only to fail every check.
         raise ValueError("Anomaly detection isn't supported for any-row SQL alerts — use last-row or first-row")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -150,7 +157,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
                 f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} when upper threshold is specified"
             )
 
-    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -174,7 +181,7 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         raise ValueError("This funnel only supports absolute value conditions")
     strategy.validate_config(funnels_query, parsed)
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -202,7 +209,7 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
             f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} "
             "when upper threshold is specified"
         )
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.bounds_required:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -232,10 +239,19 @@ def _validate_forecast_config(
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
-    if trends_query.breakdownFilter and trends_query.breakdownFilter.breakdown is not None:
+    if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
+    validate_forecast_interval(trends_query.interval)
     if parsed.condition == ForecastConditionType.FUTURE_BREACH:
         validate_threshold_bounds_required(threshold_config)
+        # The evaluator compares the point forecast against the raw bound, so a percentage bound
+        # would be read as an absolute count and fire on every check.
+        if threshold_config is not None:
+            threshold = InsightThreshold.model_validate(threshold_config)
+            if threshold.type != InsightThresholdType.ABSOLUTE:
+                raise ValueError(
+                    "Forecast breach alerts need an absolute threshold. Switch the threshold from percentage to absolute."
+                )
 
 
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
