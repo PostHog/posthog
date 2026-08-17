@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .LinkPreview {
     --link-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -36,8 +38,7 @@
 
     &__on-a,
     &__on-b {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__head {
@@ -229,11 +230,10 @@
         }
     }
 
-    // The podcast page's play button meeps (the inbox onboarding easter egg). It sits
-    // stacked over the other link's CTA, so it only takes clicks while visible.
+    // The podcast page's play button meeps (the inbox onboarding easter egg). The swap
+    // mixins keep it out of reach, and out of the tab order, while its half is hidden.
     &__play {
         font: inherit;
-        pointer-events: none;
         cursor: pointer;
         border: none;
 
@@ -317,7 +317,7 @@
 
 #link-preview-a:checked ~ * .LinkPreview__on-a,
 #link-preview-b:checked ~ * .LinkPreview__on-b {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 #link-preview-a:checked ~ .LinkPreview__panel .LinkPreview__row--a,
@@ -329,10 +329,6 @@
 #link-preview-a:checked ~ .LinkPreview__panel .LinkPreview__vradio--a::after,
 #link-preview-b:checked ~ .LinkPreview__panel .LinkPreview__vradio--b::after {
     transform: scale(1);
-}
-
-#link-preview-b:checked ~ .LinkPreview__app .LinkPreview__play {
-    pointer-events: auto;
 }
 
 // The radios stay keyboard-focusable while visually hidden, so the link row they

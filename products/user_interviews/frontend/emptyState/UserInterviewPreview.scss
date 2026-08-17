@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .ResearchPreview {
     --research-preview-accent: var(--empty-state-accent, var(--color-primary-500));
     --research-preview-alt: var(--color-text-tertiary);
@@ -37,8 +39,7 @@
 
     &__on-a,
     &__on-b {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__head {
@@ -280,7 +281,7 @@
 
 #research-preview-a:checked ~ * .ResearchPreview__on-a,
 #research-preview-b:checked ~ * .ResearchPreview__on-b {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 #research-preview-a:checked ~ .ResearchPreview__panel .ResearchPreview__row--a,

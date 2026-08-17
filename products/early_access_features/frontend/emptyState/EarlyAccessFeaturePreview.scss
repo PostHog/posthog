@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .EafPreview {
     --eaf-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -35,13 +37,11 @@
     }
 
     &__when-on {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__when-off {
-        opacity: 1;
-        transition: opacity 250ms ease;
+        @include preview-swap-visible;
     }
 
     &__head {
@@ -318,11 +318,11 @@
 // Opted-in state (user flipped the hero switch)
 
 .EafPreview__checkbox:checked ~ * .EafPreview__when-on {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 .EafPreview__checkbox:checked ~ * .EafPreview__when-off {
-    opacity: 0;
+    @include preview-swap-hidden;
 }
 
 .EafPreview__checkbox:checked ~ .EafPreview__app .EafPreview__lab--hero .EafPreview__switch {

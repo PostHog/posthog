@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .PromptPreview {
     --prompt-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -35,13 +37,11 @@
     }
 
     &__when-v4 {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__when-v3 {
-        opacity: 1;
-        transition: opacity 250ms ease;
+        @include preview-swap-visible;
     }
 
     &__head {
@@ -316,11 +316,11 @@
 // `when-v4` layer everywhere; v3 (the default) shows `when-v3`.
 
 #prompt-preview-v4:checked ~ * .PromptPreview__when-v4 {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 #prompt-preview-v4:checked ~ * .PromptPreview__when-v3 {
-    opacity: 0;
+    @include preview-swap-hidden;
 }
 
 // Selected version row, mirroring the radio dot.

@@ -162,7 +162,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
             </div>
 
             <div
-                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary"
+                // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
+                // token here rather than asking every preview to branch on the theme itself.
+                className="hidden min-w-0 flex-col justify-center gap-3 p-10 md:flex rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
                 style={{
                     backgroundImage:
                         'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',

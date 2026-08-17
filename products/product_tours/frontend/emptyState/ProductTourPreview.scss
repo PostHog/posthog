@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .TourPreview {
     --tour-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -217,8 +219,8 @@
         border: 1px solid color-mix(in oklab, var(--tour-preview-accent) 45%, var(--color-border-primary));
         border-radius: var(--radius);
         box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
-        opacity: 0;
-        transition: opacity 250ms ease;
+
+        @include preview-swap-hidden;
     }
 
     &__tip--1 {
@@ -335,7 +337,8 @@
 .TourPreview__radio--1:checked ~ .TourPreview__app .TourPreview__tip--1,
 .TourPreview__radio--2:checked ~ .TourPreview__app .TourPreview__tip--2 {
     pointer-events: auto;
-    opacity: 1;
+
+    @include preview-swap-visible;
 }
 
 .TourPreview__radio--1:checked ~ .TourPreview__app .TourPreview__beacon--1,

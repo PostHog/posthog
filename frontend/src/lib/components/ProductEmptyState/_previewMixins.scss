@@ -1,0 +1,30 @@
+// Shared building blocks for the product empty-state previews.
+
+// Crossfading halves of a preview must leave the accessibility tree and the tab order while
+// hidden, not merely fade out. Under `opacity: 0` alone a screen reader announces both halves
+// of every swap at once ("0% 100%", ": false : true"), which contradicts the one thing the
+// preview demonstrates, and any control in the hidden half stays focusable, so a keyboard user
+// lands on an invisible button. `pointer-events` does not help, since it suppresses only mouse
+// and touch.
+//
+// `visibility` is delayed by the fade duration when hiding so the transition still plays, and
+// applied immediately when showing. A `visibility: hidden` grid item keeps its cell, so
+// swapping the two states causes no layout shift.
+
+$preview-swap-duration: 250ms;
+
+@mixin preview-swap-hidden($duration: $preview-swap-duration) {
+    visibility: hidden;
+    opacity: 0;
+    transition:
+        opacity $duration ease,
+        visibility 0s linear $duration;
+}
+
+@mixin preview-swap-visible($duration: $preview-swap-duration) {
+    visibility: visible;
+    opacity: 1;
+    transition:
+        opacity $duration ease,
+        visibility 0s;
+}

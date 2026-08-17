@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .SkillPreview {
     --skill-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -36,8 +38,7 @@
     &__when-deploy,
     &__when-migrate,
     &__when-review {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__head {
@@ -205,7 +206,7 @@
 #skill-preview-deploy:checked ~ * .SkillPreview__when-deploy,
 #skill-preview-migrate:checked ~ * .SkillPreview__when-migrate,
 #skill-preview-review:checked ~ * .SkillPreview__when-review {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 #skill-preview-deploy:checked ~ .SkillPreview__list .SkillPreview__row--deploy,

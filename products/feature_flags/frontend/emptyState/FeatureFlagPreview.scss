@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .FlagPreview {
     --flag-preview-accent: var(--empty-state-accent, var(--color-primary-500));
 
@@ -35,13 +37,11 @@
     }
 
     &__when-on {
-        opacity: 0;
-        transition: opacity 250ms ease;
+        @include preview-swap-hidden;
     }
 
     &__when-off {
-        opacity: 1;
-        transition: opacity 250ms ease;
+        @include preview-swap-visible;
     }
 
     &__head {
@@ -383,11 +383,11 @@
 // Pinned-on state (user clicked the flag row)
 
 .FlagPreview__checkbox:checked ~ * .FlagPreview__when-on {
-    opacity: 1;
+    @include preview-swap-visible;
 }
 
 .FlagPreview__checkbox:checked ~ * .FlagPreview__when-off {
-    opacity: 0;
+    @include preview-swap-hidden;
 }
 
 .FlagPreview__checkbox:checked ~ .FlagPreview__panel .FlagPreview__row--hero .FlagPreview__switch {
