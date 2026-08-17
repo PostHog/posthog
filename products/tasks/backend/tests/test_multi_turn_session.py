@@ -824,6 +824,53 @@ class TestPollForTurnTimeoutDiagnosis:
         assert exc_info.value.stage == "active_at_budget"
         assert exc_info.value.turn_relevant_lines == 3
 
+    @pytest.mark.asyncio
+    async def test_no_turn_output_fails_fast_before_the_wall(self):
+        # A sandbox that provisioned, wrote only side-channel noise, then went silent must not hold
+        # the poll budget to the wall — the turn never started, so waiting cannot help. It fails fast
+        # at the no-output floor, releasing the sandbox and starting the retry sooner.
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=_console_line("agentsh network events")),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            with pytest.raises(TurnPollTimeout) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+
+        assert exc_info.value.stage == "no_turn_output"
+        # Tripped at the floor (last side-channel line at 10s + 30s of silence), not the 900s wall.
+        assert exc_info.value.elapsed == 40
+
+    @pytest.mark.asyncio
+    async def test_ongoing_side_channel_activity_does_not_trip_the_floor(self):
+        # The floor keys on ANY log growth, not turn-relevant growth: a live-but-slow sandbox that
+        # keeps emitting setup/side-channel lines past the floor window must not be killed. It runs to
+        # completion once its first real turn output arrives.
+        base: list[str] = []
+        logs: list[str] = []
+        for i in range(6):  # six polls of side-channel-only growth, past the 30s floor
+            base = [*base, _console_line(f"audit {i}")]
+            logs.append("\n".join(base))
+        logs.append("\n".join([*base, _agent_message_line("done"), _end_turn_line()]))
+        poll_iter = iter(logs)
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *a, **k: next(poll_iter, logs[-1])),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 900),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.NO_TURN_OUTPUT_FLOOR_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "done"
+
 
 class TestPollForTurnTerminalDrain:
     """Terminal-status drain must recover an agent_message from *this* turn only.

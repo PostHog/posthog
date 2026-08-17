@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -45,6 +45,17 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
+
+# No-output floor. When a turn produces zero turn-relevant lines and the sandbox then falls fully
+# silent for this long, the turn never started — a broken sandbox provision, not a slow agent. Waiting
+# out the rest of the poll budget cannot recover it (the error class's own docstring says as much), so
+# the loop fails fast with stage=no_turn_output and lets the retry begin now instead of after the wall.
+# The window measures silence over *any* log growth, not turn-relevant growth alone: a healthy sandbox
+# keeps emitting setup and side-channel lines while it works, so a live-but-slow start keeps resetting
+# the window and never trips this floor. Sized well below STALE_TURN_SALVAGE_SECONDS so it never
+# pre-empts the dropped-finalization salvage, which only applies to turns that produced output and then
+# went quiet.
+NO_TURN_OUTPUT_FLOOR_SECONDS = 120
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -179,6 +190,37 @@ POLL_TIMEOUT_STALLED_AFTER_OUTPUT = "stalled_after_output"
 POLL_TIMEOUT_ACTIVE_AT_BUDGET = "active_at_budget"
 
 
+def _raise_poll_timeout(
+    task_run,
+    *,
+    stage: str,
+    elapsed: int,
+    stale_seconds: int,
+    high_water_lines: int,
+    turn_relevant_lines: int,
+) -> NoReturn:
+    logger.warning(
+        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
+        "total_lines=%d, turn_relevant_lines=%d",
+        elapsed,
+        task_run.id,
+        stage,
+        stale_seconds,
+        high_water_lines,
+        turn_relevant_lines,
+    )
+    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
+    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
+    raise TurnPollTimeout(
+        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+        stage=stage,
+        elapsed=elapsed,
+        stale_seconds=stale_seconds,
+        total_lines=high_water_lines,
+        turn_relevant_lines=turn_relevant_lines,
+    )
+
+
 def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> str:
     if turn_relevant_lines == 0:
         return POLL_TIMEOUT_NO_TURN_OUTPUT
@@ -307,8 +349,12 @@ async def poll_for_turn(
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
-    # Elapsed time when we last saw new log lines
+    # Elapsed time when we last saw new turn-relevant log lines
     last_new_lines_at = 0
+    # Elapsed time when we last saw ANY new log line, turn-relevant or a transient side-channel. The
+    # no-output floor measures silence against this so a healthy sandbox still emitting setup/side-channel
+    # lines never trips it, while one that provisioned and then went fully silent does.
+    last_activity_at = 0
     # Running tally of turn-relevant lines this turn produced. Zero at the wall means the agent
     # never got going at all, which `last_new_lines_at` alone can't distinguish from "went quiet
     # on the very first poll" — see `_classify_poll_timeout`.
@@ -355,6 +401,7 @@ async def poll_for_turn(
         # mirrors the side-channel discounting the tail check already does in
         # _ended_on_pending_finalization.
         if total_lines > skip_lines:
+            last_activity_at = elapsed
             new_lines = (full_log or "").strip().split("\n")[skip_lines:]
             relevant_growth = (total_lines - skip_lines) - _transient_growth(new_lines)
             if relevant_growth > 0:
@@ -436,6 +483,19 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
+        # No-output floor: the turn produced no turn-relevant line and the sandbox has gone fully
+        # silent. Grinding to the wall cannot start a turn that never began, so fail fast now with the
+        # same stage the wall would assign, releasing the sandbox and starting the retry sooner.
+        # last_new_lines_at is still 0 here, so the reported turn-relevant silence is the whole elapsed.
+        if turn_relevant_lines == 0 and elapsed - last_activity_at >= NO_TURN_OUTPUT_FLOOR_SECONDS:
+            _raise_poll_timeout(
+                task_run,
+                stage=POLL_TIMEOUT_NO_TURN_OUTPUT,
+                elapsed=elapsed,
+                stale_seconds=elapsed - last_new_lines_at,
+                high_water_lines=skip_lines,
+                turn_relevant_lines=turn_relevant_lines,
+            )
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
@@ -475,24 +535,12 @@ async def poll_for_turn(
         if salvaged is not None:
             return salvaged
     stage = _classify_poll_timeout(turn_relevant_lines=turn_relevant_lines, stale_seconds=stale_seconds)
-    logger.warning(
-        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
-        "total_lines=%d, turn_relevant_lines=%d",
-        elapsed,
-        task_run.id,
-        stage,
-        stale_seconds,
-        skip_lines,
-        turn_relevant_lines,
-    )
-    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
-    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
-    raise TurnPollTimeout(
-        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+    _raise_poll_timeout(
+        task_run,
         stage=stage,
         elapsed=elapsed,
         stale_seconds=stale_seconds,
-        total_lines=skip_lines,
+        high_water_lines=skip_lines,
         turn_relevant_lines=turn_relevant_lines,
     )
 
