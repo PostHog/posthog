@@ -42,3 +42,64 @@ $preview-swap-duration: 250ms;
         opacity $duration ease,
         visibility 0s;
 }
+
+// Every preview guards its ambient motion twice: `prefers-reduced-motion` for the user's own
+// setting, and a `--static` class the component adds under `inStorybook()` so visual-regression
+// snapshots don't catch a frame mid-animation. Both are the same two rules in every preview.
+@mixin preview-motion-guards($root) {
+    .#{$root}--static *,
+    .#{$root}--static *::after {
+        animation: none !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .#{$root} *,
+        .#{$root} *::after {
+            animation: none !important;
+        }
+    }
+}
+
+// The stat card that sits under most previews: a title and a value above a sparkline. Structure
+// only, so the sparkline's own line and fill stay with the preview that draws them. Include
+// inside the preview root, where `&` resolves to it.
+@mixin preview-sparkline {
+    &__spark-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__spark-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    &__spark-value {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin-top: 0.25rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    &__spark-svg {
+        display: block;
+        width: 100%;
+        height: 44px;
+        overflow: visible;
+    }
+}
+
+// One of the window dots in a preview's fake browser or app chrome.
+@mixin preview-chrome-dot {
+    &__chrome-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--color-fill-secondary);
+        border-radius: 50%;
+    }
+}

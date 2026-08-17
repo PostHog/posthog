@@ -212,27 +212,7 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    &__spark-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    &__spark-title {
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--color-text-secondary);
-    }
-
-    &__spark-value {
-        display: flex;
-        gap: 0.5rem;
-        align-items: baseline;
-        margin-top: 0.25rem;
-        font-size: 1.5rem;
-        font-weight: 700;
-        line-height: 1.1;
-    }
+    @include preview-sparkline;
 
     &__spark-note {
         font-size: 0.6875rem;
@@ -242,13 +222,6 @@
 
     &__spark-chart {
         margin-top: 0.5rem;
-    }
-
-    &__spark-svg {
-        display: block;
-        width: 100%;
-        height: 44px;
-        overflow: visible;
     }
 
     &__spark-g {
@@ -342,14 +315,4 @@
 
 // Storybook snapshots and reduced motion drop all ambient motion; picking a topic
 // still works (transitions only).
-.ResearchPreview--static *,
-.ResearchPreview--static *::after {
-    animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .ResearchPreview *,
-    .ResearchPreview *::after {
-        animation: none !important;
-    }
-}
+@include preview-motion-guards('ResearchPreview');

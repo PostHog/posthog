@@ -258,12 +258,7 @@
         border-bottom: 1px solid var(--color-border-primary);
     }
 
-    &__chrome-dot {
-        width: 7px;
-        height: 7px;
-        background: var(--color-fill-secondary);
-        border-radius: 50%;
-    }
+    @include preview-chrome-dot;
 
     &__url {
         margin-right: auto;
@@ -420,14 +415,4 @@
 
 // Storybook snapshots and reduced motion drop all ambient motion; selecting a
 // variant still works (transitions only).
-.ExpPreview--static *,
-.ExpPreview--static *::after {
-    animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .ExpPreview *,
-    .ExpPreview *::after {
-        animation: none !important;
-    }
-}
+@include preview-motion-guards('ExpPreview');
