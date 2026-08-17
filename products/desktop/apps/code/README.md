@@ -55,6 +55,16 @@ tccutil reset ScreenCapture com.github.Electron
 ```
 
 - Several checkouts share the same `com.github.Electron` identity, so a grant made from another project's Electron can shadow yours — the reset above clears all of them.
+- If that reset fails with `No such bundle identifier` (OSStatus -10814), LaunchServices has never seen the node_modules Electron as an app bundle. Register it first, or fall back to resetting Screen Recording for every app:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f node_modules/electron/dist/Electron.app
+tccutil reset ScreenCapture com.github.Electron
+
+# or, resets the permission for all apps:
+tccutil reset ScreenCapture
+```
 
 ### Building Distributables
 
