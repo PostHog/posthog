@@ -607,7 +607,6 @@ export interface sessionRecordingPlayerLogicValues {
     isWaitingForIngestion: boolean
     jumpTimeMs: number
     leadingUnplayableMs: number
-    unplayableSpans: UnplayableSpan[]
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
     pauseForced: boolean
@@ -642,6 +641,7 @@ export interface sessionRecordingPlayerLogicValues {
         timestampMatchesPrevious: number
     }
     toRRWebPlayerTime: (timestamp: number) => number | undefined
+    unplayableSpans: UnplayableSpan[]
     wasMarkedViewed: boolean
 }
 
