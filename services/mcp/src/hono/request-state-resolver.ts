@@ -12,12 +12,12 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
+import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
-import type { RedisLike } from './cache/RedisCache'
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
+import type { RedisLike } from './cache/RedisCache'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -35,6 +35,7 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
+    oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
     sessionContext: MCPSessionContext | null
@@ -167,6 +168,7 @@ export class RequestStateResolver {
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
+        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
@@ -236,6 +238,7 @@ export class RequestStateResolver {
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,
+            oauthClientId,
             clientProfile,
             requestContext,
             sessionContext,
