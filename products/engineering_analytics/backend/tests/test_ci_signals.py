@@ -700,6 +700,28 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert findings[0].source_id.endswith(":flaky")
         _assert_emittable(findings[0])
 
+    def test_flaky_query_keeps_same_commit_reruns_as_distinct_runs(self) -> None:
+        # Three separate runs of one job on one commit must come back as three rows. Grouping that
+        # drops run_id still compiles if run_id is wrapped in an aggregate, and then collapses them
+        # into one row, so flaky_count reads 1 and nothing clears min_flaky_runs. Only a multi-run
+        # seed on a shared head_sha catches that; the mocked detector tests supply the row shape
+        # rather than proving the SQL produces it.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [
+            _run_row(run_id, "CI", "shaR", "success", now - timedelta(hours=run_id + 1), 60, run_attempt=2)
+            for run_id in (1, 2, 3)
+        ]
+        jobs = []
+        for run_id in (1, 2, 3):
+            started = now - timedelta(hours=run_id + 1)
+            jobs.append(_job_row(run_id * 10, run_id, "flaky-job", "shaR", "failure", started, run_attempt=1))
+            jobs.append(_job_row(run_id * 10 + 1, run_id, "flaky-job", "shaR", "success", started, run_attempt=2))
+
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=3)
+
+        assert len(findings) == 1
+        assert findings[0].extra["flaky_count"] == 3
+
     @parameterized.expand(
         [
             # A `* Pass` gate fails only because a job it gates failed, so counting it emits a second
