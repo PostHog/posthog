@@ -267,6 +267,47 @@ class TestTeamLogsConfig(BaseTest):
         customized.refresh_from_db()
         assert customized.logs_distinct_id_attribute_keys == ["user.id"]
 
+    def test_migration_backfill_appends_the_key_the_sdks_emit(self):
+        # A team that never opened the setting carries 0015's ADD COLUMN default. The old key
+        # stays FIRST: a deliberate `["posthogSessionId"]` is indistinguishable from this row,
+        # and detection is first-match-wins, so leading with `sessionId` would move the teams
+        # that emit both onto a different attribute than they resolve on today.
+        untouched = get_or_create_team_extension(self.team, TeamLogsConfig)
+        untouched.logs_session_id_attribute_keys = ["posthogSessionId"]
+        untouched.save()
+
+        self._run_session_id_backfill()
+
+        untouched.refresh_from_db()
+        assert untouched.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    def test_migration_backfill_leaves_a_customized_value_alone(self):
+        customized = get_or_create_team_extension(self.team, TeamLogsConfig)
+        customized.logs_session_id_attribute_keys = ["my.session.key"]
+        customized.save()
+
+        self._run_session_id_backfill()
+
+        customized.refresh_from_db()
+        assert customized.logs_session_id_attribute_keys == ["my.session.key"]
+
+    def test_migration_backfill_is_idempotent(self):
+        already_backfilled = get_or_create_team_extension(self.team, TeamLogsConfig)
+        already_backfilled.logs_session_id_attribute_keys = ["posthogSessionId", "sessionId"]
+        already_backfilled.save()
+
+        self._run_session_id_backfill()
+
+        already_backfilled.refresh_from_db()
+        assert already_backfilled.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    @staticmethod
+    def _run_session_id_backfill():
+        backfill_module = importlib.import_module(
+            "products.logs.backend.migrations.0022_backfill_logs_session_id_attribute_keys"
+        )
+        backfill_module.backfill_session_id_attribute_keys(apps, None)
+
     def test_cascade_delete_with_team(self):
         get_or_create_team_extension(self.team, TeamLogsConfig)
         team_id = self.team.pk
