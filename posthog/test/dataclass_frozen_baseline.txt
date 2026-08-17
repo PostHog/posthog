@@ -56,7 +56,6 @@
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
-1 posthog/tasks/alerts/utils.py
 1 posthog/taxonomy/property_definition_api.py
 1 posthog/temporal/ai/anomaly_investigation/notebook.py
 1 posthog/temporal/ai/anomaly_investigation/runner.py
@@ -1373,7 +1372,7 @@
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 104 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
-12 products/signals/backend/temporal/grouping.py
+10 products/signals/backend/temporal/grouping.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 16 posthog/temporal/ai_observability/eval_reports/types.py
 17 products/exports/backend/temporal/subscriptions/types.py
