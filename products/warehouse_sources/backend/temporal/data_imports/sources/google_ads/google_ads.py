@@ -508,6 +508,7 @@ def google_ads_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
     db_backfill_floor_value: typing.Any = None,
+    db_incremental_field_lookback_seconds: int | None = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -587,14 +588,23 @@ def google_ads_source(
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
+                # The cursor arrives already shifted back by the schema's lookback so late edits are
+                # re-read. Those windows cover data the table has, so charging them to the per-run
+                # budget spends the run re-reading the overlap: a 30-day lookback against a 5-window,
+                # 7-day budget leaves 5 days of forward progress, and a schema that is behind crawls
+                # instead of catching up. Traverse them, but only charge windows that reach past the
+                # cursor, for the same reason empty windows aren't charged.
+                charge_from = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds or 0)
             elif db_backfill_floor_value is not None:
                 # Re-import of a table that already held history: the cursor is gone but the range
                 # it covered is known, so walk from there. Without this the backfill bound below
                 # would silently drop everything older than it, which a re-import was never asked
                 # to do.
                 start = _incremental_value_as_date(db_backfill_floor_value)
+                charge_from = start
             else:
                 start = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+                charge_from = start
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
             windows_with_data = 0
@@ -613,7 +623,7 @@ def google_ads_source(
 
                 # Empty windows don't count toward the per-run budget and don't stop the loop, so a
                 # gap in the data is crossed within a single run instead of stalling the cursor on it.
-                if had_data:
+                if had_data and window_end > charge_from:
                     windows_with_data += 1
                 first_window = False
                 start = window_end

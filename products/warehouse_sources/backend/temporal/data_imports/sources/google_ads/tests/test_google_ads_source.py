@@ -1508,6 +1508,47 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert all("1970-01-01" not in q for q in queries)
 
+    def test_lookback_overlap_does_not_consume_the_window_budget(self):
+        # The cursor arrives already shifted back by the schema's lookback, so the first windows
+        # re-read data the table has. Charging them to the budget left a 30-day lookback against a
+        # 35-day budget advancing 5 days a run, so a schema that fell behind crawled instead of
+        # catching up. The overlap must be traversed without spending the budget for new ground.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                # A 2026-05-04 cursor, already shifted back 30 days by the caller.
+                db_incremental_field_last_value=dt.date(2026, 4, 4),
+                db_incremental_field_lookback_seconds=30 * 86400,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+                window_rows=dict.fromkeys(
+                    (
+                        # Overlap the lookback re-reads: traversed, not charged.
+                        "2026-04-04",
+                        "2026-04-11",
+                        "2026-04-18",
+                        "2026-04-25",
+                        # New ground past the cursor, charged to the budget.
+                        "2026-05-02",
+                        "2026-05-09",
+                        "2026-05-16",
+                        "2026-05-23",
+                        "2026-05-30",
+                        "2026-06-06",
+                    ),
+                    5,
+                ),
+            )
+
+        assert queries[0].startswith(
+            "SELECT campaign.id,segments.date FROM campaign_stats WHERE segments.date >= '2026-04-04'"
+        )
+        # The four windows before the cursor are traversed unpaid, so the five charged ones carry the
+        # run through 2026-06-06. Charging the overlap stopped it at 2026-05-09, five days past the
+        # 2026-05-04 cursor.
+        assert "segments.date < '2026-06-06'" in queries[-1]
+
     def test_re_import_with_a_recorded_floor_resumes_at_the_old_history_start(self):
         # Deleting a schema's data clears the cursor, so the next run looks like a first sync and
         # takes the bounded backfill above. On a table that already held years of history that

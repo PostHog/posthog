@@ -255,6 +255,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
+        # How much of the value handed to the source is overlap, so a source that budgets its work
+        # per run can tell re-read from new ground. Stays 0 unless the lookback is actually applied.
+        applied_lookback_seconds = 0
 
         if reset_pipeline is not True:
             processed_incremental_last_value = process_incremental_value(
@@ -271,11 +274,14 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # overlap window and catches late or backdated rows. Incremental merge makes the
             # re-read idempotent — append would duplicate, so it's gated to incremental.
             if schema.is_incremental:
-                processed_incremental_last_value = apply_incremental_lookback(
+                shifted = apply_incremental_lookback(
                     processed_incremental_last_value,
                     schema.incremental_field_type,
                     schema.incremental_field_lookback_seconds,
                 )
+                if shifted != processed_incremental_last_value:
+                    applied_lookback_seconds = schema.incremental_field_lookback_seconds or 0
+                processed_incremental_last_value = shifted
 
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
@@ -325,6 +331,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 if schema.should_use_incremental_field
                 else None,
                 db_backfill_floor_value=schema.backfill_floor_value if schema.should_use_incremental_field else None,
+                db_incremental_field_lookback_seconds=applied_lookback_seconds,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
