@@ -42,6 +42,20 @@ pnpm run check:write       # Linting & typecheck
 - `⌘⇧[/]` - Switch between tabs
 - `⌘W` - Close current tab
 
+### Screen recording permission in development
+
+Quick ask's screen capture needs the macOS Screen Recording permission. In development the app runs inside the stock Electron binary (`node_modules/electron/dist/Electron.app`), so macOS attributes the consent to **Electron**, not PostHog:
+
+- Grant it to "Electron" in System Settings → Privacy & Security → Screen & System Audio Recording, then fully relaunch the dev app (a renderer reload is not enough).
+- The first capture attempt is what registers Electron in that list and fires the consent prompt — hit the camera button once if the entry is missing.
+- An Electron version bump replaces the binary, which invalidates the grant (macOS ties it to the code identity). If capture silently stops working after `pnpm install`, reset and re-grant:
+
+```bash
+tccutil reset ScreenCapture com.github.Electron
+```
+
+- Several checkouts share the same `com.github.Electron` identity, so a grant made from another project's Electron can shadow yours — the reset above clears all of them.
+
 ### Building Distributables
 
 To create production distributables (DMG, ZIP):

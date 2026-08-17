@@ -19,6 +19,7 @@ import {
   QUICK_ASK_SCREEN_SETTINGS_CHANNEL,
   type QuickAskAttachmentPayload,
 } from "../shared/constants";
+import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 
 const log = logger.scope("quick-ask");
@@ -69,12 +70,9 @@ async function grabScreen(display: Display): Promise<string | null> {
     const bytes = await readFile(fakePath);
     return `data:image/png;base64,${bytes.toString("base64")}`;
   }
-  if (
-    process.platform === "darwin" &&
-    systemPreferences.getMediaAccessStatus("screen") !== "granted"
-  ) {
-    return null;
-  }
+  // Ask before checking consent: this call is what registers the app in the
+  // macOS Screen Recording list and fires the consent prompt on first use
+  // (askForMediaAccess does not support "screen").
   const sources = await desktopCapturer.getSources({
     types: ["screen"],
     thumbnailSize: {
@@ -82,6 +80,12 @@ async function grabScreen(display: Display): Promise<string | null> {
       height: Math.round(display.size.height * display.scaleFactor),
     },
   });
+  if (
+    process.platform === "darwin" &&
+    systemPreferences.getMediaAccessStatus("screen") !== "granted"
+  ) {
+    return null;
+  }
   const source =
     sources.find((s) => s.display_id === String(display.id)) ?? sources[0];
   if (!source || source.thumbnail.isEmpty()) return null;
@@ -154,12 +158,15 @@ export async function beginCapture(host: CaptureHost): Promise<void> {
   }
   if (!dataUrl) {
     host.showPanel();
+    // Dev runs are the stock Electron binary; macOS attributes the consent
+    // to "Electron", and a version bump invalidates it (new code identity).
+    const consentIdentity = isDevBuild() ? "Electron" : "PostHog";
     sendAttachment(
       host,
       process.platform === "darwin"
         ? {
             previewDataUrl: null,
-            error: "PostHog needs screen recording permission.",
+            error: `Grant screen recording to ${consentIdentity}, then relaunch.`,
             canOpenSettings: true,
           }
         : { previewDataUrl: null, error: "Screen capture failed." },
