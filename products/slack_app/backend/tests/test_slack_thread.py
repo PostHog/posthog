@@ -359,7 +359,7 @@ class TestReplyFooterGate(SimpleTestCase):
         mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
         footer = RunFooter(
             task_url="https://app/project/1/tasks/t",
-            desktop_url="posthog-code://task/t",
+            desktop_url="https://us.posthog.com/code/task/t",
             model="claude-opus-5",
         )
 

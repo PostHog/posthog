@@ -699,7 +699,7 @@ class TestTasksCard:
         # The desktop link dead-ends for anyone without the app, so it rides alongside the
         # web one rather than replacing it.
         state = TasksState(
-            items=(self._item(desktop_url="posthog-code://task/abc"),),
+            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
             has_any_tasks=True,
             page=0,
             total_pages=1,
@@ -709,7 +709,7 @@ class TestTasksCard:
         _, sub = self._task_items(view, expected_count=1)[0]
 
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        assert "<posthog-code://task/abc|View on desktop>" in sub
+        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
 
     def test_both_task_links_are_withheld_from_a_viewer_without_code_access(self):
         # A task page is as much a dead end for them as the desktop app, so the pair goes
