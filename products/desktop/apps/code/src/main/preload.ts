@@ -22,6 +22,7 @@ import {
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESET_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SCREEN_SETTINGS_CHANNEL,
   QUICK_ASK_SHAKE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
@@ -141,6 +142,8 @@ function setupQuickAskPreload(): void {
     capture: () => ipcRenderer.send(QUICK_ASK_CAPTURE_CHANNEL),
     discardAttachment: () =>
       ipcRenderer.send(QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL),
+    openScreenSettings: () =>
+      ipcRenderer.send(QUICK_ASK_SCREEN_SETTINGS_CHANNEL),
     onAttachment: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_e: unknown, payload: unknown): void =>
         callback(payload);

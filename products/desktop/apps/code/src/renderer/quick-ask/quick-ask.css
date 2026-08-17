@@ -311,6 +311,21 @@ html body {
   color: var(--qa-down);
 }
 
+.qa-attach .qa-attach-settings {
+  font: 600 11.5px var(--qa-font);
+  color: var(--qa-accent);
+  background: rgba(247, 165, 1, 0.12);
+  border: 1px solid rgba(247, 165, 1, 0.3);
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qa-attach .qa-attach-settings:hover {
+  background: rgba(247, 165, 1, 0.2);
+}
+
 .qa-attach button {
   width: 18px;
   height: 18px;

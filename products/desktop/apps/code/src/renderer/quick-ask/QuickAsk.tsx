@@ -60,6 +60,7 @@ export function QuickAsk(): React.JSX.Element {
   const [mini, setMini] = useState(false);
   const [attachment, setAttachment] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [canOpenSettings, setCanOpenSettings] = useState(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const historyRef = useRef<string[]>([]);
   /** Position while walking history with the arrows; null = editing the draft. */
@@ -190,20 +191,24 @@ export function QuickAsk(): React.JSX.Element {
   // chip preview (or why capture failed) here.
   useEffect(() => {
     return window.quickAsk?.onAttachment((payload) => {
-      const { previewDataUrl, error } = (payload ?? {}) as {
+      const { previewDataUrl, error, canOpenSettings } = (payload ?? {}) as {
         previewDataUrl?: string | null;
         error?: string;
+        canOpenSettings?: boolean;
       };
       setAttachment(previewDataUrl ?? null);
       setAttachError(error ?? null);
+      setCanOpenSettings(canOpenSettings ?? false);
     });
   }, []);
 
   useEffect(() => {
     if (!attachError) return;
+    // A permission miss carries a settings link; leave it up until acted on.
+    if (canOpenSettings) return;
     const timer = setTimeout(() => setAttachError(null), 5000);
     return () => clearTimeout(timer);
-  }, [attachError]);
+  }, [attachError, canOpenSettings]);
 
   // The hedgehog is the drag handle. Native `-webkit-app-region: drag`
   // swallows the mousedown that click-through relies on, so the panel moves
@@ -458,7 +463,28 @@ export function QuickAsk(): React.JSX.Element {
               </button>
             </>
           ) : (
-            <span className="qa-attach-error">{attachError}</span>
+            <>
+              <span className="qa-attach-error">{attachError}</span>
+              {canOpenSettings && (
+                <button
+                  type="button"
+                  className="qa-attach-settings"
+                  onClick={() => {
+                    window.quickAsk?.openScreenSettings();
+                    setAttachError(null);
+                  }}
+                >
+                  Open settings
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => setAttachError(null)}
+              >
+                ×
+              </button>
+            </>
           )}
         </div>
       )}

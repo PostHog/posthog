@@ -25,6 +25,8 @@ export const QUICK_ASK_DISCARD_ATTACHMENT_CHANNEL =
   "posthog-quick-ask-discard-attachment";
 export const QUICK_ASK_ANNOTATE_WINDOW_ARG = "--posthog-quick-ask-annotate";
 export const QUICK_ASK_ANNOTATE_SHOT_CHANNEL = "posthog-quick-ask-shot";
+export const QUICK_ASK_SCREEN_SETTINGS_CHANNEL =
+  "posthog-quick-ask-screen-settings";
 export const QUICK_ASK_ANNOTATE_DONE_CHANNEL = "posthog-quick-ask-annotated";
 
 /** Sent to the panel when a screenshot is ready to attach (or cleared). */
@@ -33,6 +35,8 @@ export interface QuickAskAttachmentPayload {
   previewDataUrl: string | null;
   /** Why capture produced nothing, e.g. missing screen-recording consent. */
   error?: string;
+  /** The OS has a settings pane that grants the missing permission. */
+  canOpenSettings?: boolean;
 }
 
 /**

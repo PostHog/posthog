@@ -193,6 +193,7 @@ await page.addInitScript(`
     capture: () => window.__hostCapture(),
     discardAttachment: () => window.__hostDiscard(),
     onAttachment: (callback) => { attachListeners.push(callback); return () => {}; },
+    openScreenSettings: () => { window.__qaSettingsOpens = (window.__qaSettingsOpens ?? 0) + 1; },
   };
 `);
 
@@ -405,6 +406,18 @@ if (shot) {
 
 // Capture attaches a screenshot chip; remove discards it; a second capture
 // rides the follow-up.
+// A denied capture surfaces the permission error with a settings link.
+await page.evaluate(
+  'window.__qaAttach({ previewDataUrl: null, error: "PostHog needs screen recording permission.", canOpenSettings: true })',
+);
+await page.waitForSelector(".qa-attach-settings", { timeout: 5_000 });
+await page.click(".qa-attach-settings");
+await page.waitForSelector(".qa-attach", { state: "detached", timeout: 5_000 });
+if (((await page.evaluate("window.__qaSettingsOpens")) as number) !== 1) {
+  fail("settings link did not reach the bridge");
+}
+pass("permission error offers the settings link");
+
 await page.click(".qa-shot");
 await page.waitForSelector(".qa-attach img", { timeout: 5_000 });
 await page.click('.qa-attach button[aria-label="Remove screenshot"]');

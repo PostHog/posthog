@@ -8,6 +8,7 @@ import {
   desktopCapturer,
   ipcMain,
   screen,
+  shell,
   systemPreferences,
 } from "electron";
 import {
@@ -15,6 +16,7 @@ import {
   QUICK_ASK_ANNOTATE_SHOT_CHANNEL,
   QUICK_ASK_ANNOTATE_WINDOW_ARG,
   QUICK_ASK_ATTACHMENT_CHANNEL,
+  QUICK_ASK_SCREEN_SETTINGS_CHANNEL,
   type QuickAskAttachmentPayload,
 } from "../shared/constants";
 import { logger } from "./utils/logger";
@@ -152,13 +154,16 @@ export async function beginCapture(host: CaptureHost): Promise<void> {
   }
   if (!dataUrl) {
     host.showPanel();
-    sendAttachment(host, {
-      previewDataUrl: null,
-      error:
-        process.platform === "darwin"
-          ? "Allow screen recording for PostHog in System Settings."
-          : "Screen capture failed.",
-    });
+    sendAttachment(
+      host,
+      process.platform === "darwin"
+        ? {
+            previewDataUrl: null,
+            error: "PostHog needs screen recording permission.",
+            canOpenSettings: true,
+          }
+        : { previewDataUrl: null, error: "Screen capture failed." },
+    );
     return;
   }
   shotDataUrl = dataUrl;
@@ -169,6 +174,11 @@ export function setupQuickAskCapture(host: CaptureHost): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
   ipcMain.handle(QUICK_ASK_ANNOTATE_SHOT_CHANNEL, () => shotDataUrl);
+  ipcMain.on(QUICK_ASK_SCREEN_SETTINGS_CHANNEL, () => {
+    void shell.openExternal(
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    );
+  });
   ipcMain.on(QUICK_ASK_ANNOTATE_DONE_CHANNEL, (_event, result: unknown) => {
     shotDataUrl = null;
     closeAnnotator();

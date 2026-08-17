@@ -28,6 +28,8 @@ interface QuickAskBridge {
   /** Hides the panel, freezes the screen, and opens the annotator. */
   capture: () => void;
   discardAttachment: () => void;
+  /** Opens the OS pane that grants screen-recording permission. */
+  openScreenSettings: () => void;
   /** Payloads are `QuickAskAttachmentPayload`s from shared/constants. */
   onAttachment: (callback: (payload: unknown) => void) => () => void;
 }
