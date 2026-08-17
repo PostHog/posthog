@@ -628,6 +628,11 @@ def google_ads_source(
                 first_window = False
                 start = window_end
 
+            # Stopping on the budget rather than on `end` means range is still unimported, and the
+            # cursor only moves forward, so nothing revisits it: the next run has to. Report it so a
+            # run that finished its slice isn't presented as one that finished the table.
+            response.backfill_incomplete = start < end
+
             # The run walked its bounded set of windows; drop the checkpoint so the next job restarts
             # cleanly from the (now-advanced) DB cursor rather than a stale mid-window page token.
             resumable_source_manager.clear_state()
@@ -652,7 +657,8 @@ def google_ads_source(
             service, customer_id, compose_query(lower_literal, upper_literal), table, resumable_source_manager
         )
 
-    return SourceResponse(
+    # Bound before `get_rows` runs, so the drain above can report on it once the run is consumed.
+    response = SourceResponse(
         name=name,
         items=get_rows,
         primary_keys=table.primary_key,
@@ -662,6 +668,7 @@ def google_ads_source(
         partition_format="day" if table.requires_filter else None,
         partition_keys=table.partition_keys or (["segments_date"] if table.requires_filter else None),
     )
+    return response
 
 
 # Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never

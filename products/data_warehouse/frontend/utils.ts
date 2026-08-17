@@ -206,6 +206,7 @@ export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchema
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
     [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
+    [ExternalDataSchemaStatus.CatchingUp]: 'primary',
     [ExternalDataSchemaStatus.Paused]: 'warning',
     [ExternalDataSchemaStatus.Cancelled]: 'warning',
 }

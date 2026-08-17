@@ -6610,6 +6610,8 @@ export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
 export enum ExternalDataSchemaStatus {
     Running = 'Running',
     Completed = 'Completed',
+    /** Succeeded, but the table is still missing range the next sync has to import. */
+    CatchingUp = 'Catching up',
     Failed = 'Failed',
     Paused = 'Paused',
     Cancelled = 'Cancelled',

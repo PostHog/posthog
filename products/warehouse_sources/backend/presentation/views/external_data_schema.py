@@ -549,6 +549,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
             return "Billing limits too low"
 
+        # A source that drains in a bounded number of windows per run finishes its slice, advances the
+        # cursor and succeeds while the table is still missing range. Presenting that as Completed
+        # reads as "this table is done", which invites a resync that throws the progress away.
+        if schema.status == ExternalDataSchema.Status.COMPLETED and schema.backfill_incomplete:
+            return "Catching up"
+
         return schema.status
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:

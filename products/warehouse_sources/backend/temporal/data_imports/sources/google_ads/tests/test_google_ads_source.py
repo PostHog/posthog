@@ -1611,6 +1611,35 @@ class TestGoogleAdsQueryConstruction:
         assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
         assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
 
+    @pytest.mark.parametrize(
+        "cursor,expected",
+        [
+            # Stopped on the budget in January with months still to import.
+            (dt.date(2026, 1, 1), True),
+            # Started inside the final window, so the run reached today and the table is current.
+            (dt.date(2026, 7, 15), False),
+        ],
+    )
+    def test_run_reports_whether_range_is_left_to_import(self, cursor: dt.date, expected: bool) -> None:
+        # A budgeted run lands a chunk, advances the cursor and succeeds while still behind. Callers
+        # need to tell that apart from a run that finished the table, or a partial import gets
+        # presented as a complete one.
+        window_rows = {
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(30)
+        }
+
+        with freeze_time("2026-07-17"):
+            response, _queries = self._run_source(
+                self._stats_table(),
+                window_rows=window_rows,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=cursor,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert response.backfill_incomplete is expected
+
     def test_empty_windows_are_crossed_within_one_run(self):
         # Data only appears in the fourth window. The three empty windows before it must be
         # traversed within the same run (not counted toward the budget, not stopping the loop), so
