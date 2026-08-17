@@ -150,12 +150,12 @@ REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Re
 NUM_2FA_BACKUP_CODES = 10
 
 MAX_PIPELINE_NOTIFICATIONS = 1000
-_PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
 
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
     for pipeline_id in incoming:
-        if not isinstance(pipeline_id, str) or not _PIPELINE_ID_PATTERN.match(pipeline_id):
+        if not isinstance(pipeline_id, str) or not PIPELINE_ID_PATTERN.match(pipeline_id):
             raise serializers.ValidationError(
                 f"Invalid pipeline id: {pipeline_id!r}",
                 code="invalid_input",

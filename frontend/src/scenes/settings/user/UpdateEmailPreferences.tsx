@@ -10,7 +10,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
-import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
+import { PIPELINE_KIND_LABELS } from '../shared/pipelineDiscovery'
+import { pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
     Security = 'security',

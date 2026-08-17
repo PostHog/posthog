@@ -775,6 +775,36 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Subscribe or unsubscribe members from data pipeline failure emails for this project's pipelines. Each affected member is notified in the app that their settings changed.
+ */
+export const pipelineNotificationSubscriptionsBulkUpdateCreateBodyChangesItemPipelineIdRegExp = new RegExp(
+    '^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$'
+)
+export const pipelineNotificationSubscriptionsBulkUpdateCreateBodyChangesMax = 1000
+
+export const PipelineNotificationSubscriptionsBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    changes: zod
+        .array(
+            zod.object({
+                user_id: zod.number().describe('Numeric ID of the member to change.'),
+                pipeline_id: zod
+                    .string()
+                    .regex(pipelineNotificationSubscriptionsBulkUpdateCreateBodyChangesItemPipelineIdRegExp)
+                    .describe(
+                        'Pipeline identifier, one of \"hog_function:<uuid>\", \"batch_export:<uuid>\", or \"plugin_config:<id>\".'
+                    ),
+                subscribed: zod
+                    .boolean()
+                    .describe('True to send this member failure emails for this pipeline, false to stop sending them.'),
+            })
+        )
+        .max(pipelineNotificationSubscriptionsBulkUpdateCreateBodyChangesMax)
+        .describe(
+            'Only the member and pipeline pairs you changed. Pairs left out keep whatever the member has set, so a member editing their own settings concurrently is not overwritten.'
+        ),
+})
+
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
         .array(

@@ -61,6 +61,8 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    PipelineNotificationBulkUpdateApi,
+    PipelineNotificationMemberApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
     ProjectBackwardCompatApi,
@@ -1924,6 +1926,46 @@ export const notebooksSharingRefreshCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
     })
+}
+
+export const getPipelineNotificationSubscriptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/pipeline_notification_subscriptions/`
+}
+
+/**
+ * List the members who can receive data pipeline failure emails for this project, along with the pipelines each one has opted out of.
+ */
+export const pipelineNotificationSubscriptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PipelineNotificationMemberApi[]> => {
+    return apiMutator<PipelineNotificationMemberApi[]>(getPipelineNotificationSubscriptionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPipelineNotificationSubscriptionsBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/pipeline_notification_subscriptions/bulk_update/`
+}
+
+/**
+ * Subscribe or unsubscribe members from data pipeline failure emails for this project's pipelines. Each affected member is notified in the app that their settings changed.
+ */
+export const pipelineNotificationSubscriptionsBulkUpdateCreate = async (
+    projectId: string,
+    pipelineNotificationBulkUpdateApi: PipelineNotificationBulkUpdateApi,
+    options?: RequestInit
+): Promise<PipelineNotificationMemberApi[]> => {
+    return apiMutator<PipelineNotificationMemberApi[]>(
+        getPipelineNotificationSubscriptionsBulkUpdateCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(pipelineNotificationBulkUpdateApi),
+        }
+    )
 }
 
 export const getProductEnablementCreateUrl = (projectId: string) => {

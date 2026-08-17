@@ -95,6 +95,58 @@ export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environme
 
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
+export const SettingsEnvironmentDataPipelines: Story = {
+    args: { sectionId: 'environment-data-pipelines' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/hog_functions': {
+                    results: [
+                        { id: '01930000-0000-4000-8000-000000000001', name: 'Webhook', type: 'destination' },
+                        { id: '01930000-0000-4000-8000-000000000002', name: 'Drop bots', type: 'transformation' },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:id/pipeline_notification_subscriptions/': [
+                    {
+                        user_id: 1,
+                        uuid: '01930000-0000-4000-8000-000000000011',
+                        first_name: 'Ada',
+                        last_name: 'Kowalski',
+                        email: 'ada@posthog.com',
+                        organization_membership_level: 1,
+                        editable: true,
+                        pipeline_emails_enabled: true,
+                        unsubscribed_pipeline_ids: ['hog_function:01930000-0000-4000-8000-000000000001'],
+                    },
+                    {
+                        user_id: 2,
+                        uuid: '01930000-0000-4000-8000-000000000012',
+                        first_name: 'Bruno',
+                        last_name: 'Sato',
+                        email: 'bruno@posthog.com',
+                        organization_membership_level: 8,
+                        editable: true,
+                        pipeline_emails_enabled: false,
+                        unsubscribed_pipeline_ids: [],
+                    },
+                    {
+                        user_id: 3,
+                        uuid: '01930000-0000-4000-8000-000000000013',
+                        first_name: 'Chidi',
+                        last_name: 'Nwosu',
+                        email: 'chidi@posthog.com',
+                        organization_membership_level: 15,
+                        editable: false,
+                        pipeline_emails_enabled: true,
+                        unsubscribed_pipeline_ids: [],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
 
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {

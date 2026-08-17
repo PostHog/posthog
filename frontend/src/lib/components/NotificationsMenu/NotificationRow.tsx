@@ -73,6 +73,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
     },
+    notification_settings_changed: {
+        label: 'Notification settings changed',
+        description: 'When an admin changes which emails you receive',
+    },
 }
 
 export function NotificationTitle({

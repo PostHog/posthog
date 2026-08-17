@@ -9,6 +9,7 @@ import {
     IconDatabase,
     IconFlask,
     IconFolder,
+    IconGear,
     IconNotification,
     IconPieChart,
     IconPlug,
@@ -37,6 +38,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     web_analytics_digest: { Icon: IconPieChart, color: 'text-primary' },
     achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
+    notification_settings_changed: { Icon: IconGear, color: 'text-primary' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

@@ -3658,6 +3658,47 @@ export interface FileSystemShortcutReorderApi {
     ordered_ids: string[]
 }
 
+export interface PipelineNotificationMemberApi {
+    /** Numeric ID of the member, used as the key when saving changes. */
+    user_id: number
+    /** Stable public identifier of the member. */
+    uuid: string
+    /** Member's first name, for display in the members list. */
+    first_name: string
+    /** Member's last name, for display in the members list. */
+    last_name: string
+    /** Member's email address, which is where pipeline failure emails go. */
+    email: string
+    /** Member's organization membership level: 1 for member, 8 for admin, 15 for owner. */
+    organization_membership_level: number
+    /** False when the member's organization membership level is above yours, which means you cannot change their settings. */
+    editable: boolean
+    /** Whether the member has pipeline failure emails turned on at all. When false, per-pipeline subscriptions have no effect until the member turns their own setting back on. */
+    pipeline_emails_enabled: boolean
+    /** Pipeline IDs this member has opted out of. Any pipeline not listed here sends them failure emails. */
+    unsubscribed_pipeline_ids: string[]
+}
+
+export interface PipelineNotificationChangeApi {
+    /** Numeric ID of the member to change. */
+    user_id: number
+    /**
+     * Pipeline identifier, one of "hog_function:<uuid>", "batch_export:<uuid>", or "plugin_config:<id>".
+     * @pattern ^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$
+     */
+    pipeline_id: string
+    /** True to send this member failure emails for this pipeline, false to stop sending them. */
+    subscribed: boolean
+}
+
+export interface PipelineNotificationBulkUpdateApi {
+    /**
+     * Only the member and pipeline pairs you changed. Pairs left out keep whatever the member has set, so a member editing their own settings concurrently is not overwritten.
+     * @maxItems 1000
+     */
+    changes: PipelineNotificationChangeApi[]
+}
+
 /**
  * * `conversations` - conversations
  * * `error_tracking` - error_tracking

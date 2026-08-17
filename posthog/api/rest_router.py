@@ -74,6 +74,7 @@ from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
+from .pipeline_notification_subscriptions import PipelineNotificationSubscriptionViewSet
 from .session import SessionViewSet
 
 
@@ -147,6 +148,13 @@ projects_router.register(
     r"event_filter",
     EventFilterConfigViewSet,
     "project_event_filter",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"pipeline_notification_subscriptions",
+    PipelineNotificationSubscriptionViewSet,
+    "project_pipeline_notification_subscriptions",
     ["team_id"],
 )
 

@@ -117,6 +117,7 @@ import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyt
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { PipelineNotificationAdmin } from './environment/PipelineNotificationAdmin'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -497,6 +498,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WarehouseGroupPropertiesSetting />,
                 flag: 'WAREHOUSE_PERSON_PROPERTIES',
                 keywords: ['warehouse', 'group', 'properties', 'sync', 'backfill'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-data-pipelines',
+        title: 'Data pipelines',
+        group: 'Products',
+        flag: 'ADMIN_PIPELINE_NOTIFICATION_CONTROLS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'pipeline-notification-subscriptions',
+                title: 'Failure email recipients',
+                description:
+                    "Choose who receives failure emails for each of this project's pipelines. Members can change their own settings back afterwards.",
+                component: <PipelineNotificationAdmin />,
+                keywords: ['notification', 'email', 'pipeline', 'destination', 'batch export', 'mute', 'unsubscribe'],
             },
         ],
     },
