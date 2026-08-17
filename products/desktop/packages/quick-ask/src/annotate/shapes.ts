@@ -55,6 +55,31 @@ export function textFont(size: number): string {
 /** View pixels per pixelation block. */
 const PIXEL_BLOCK = 12;
 
+/**
+ * Arrowhead geometry shared by drawing, bounds, and hit testing, so the
+ * clickable and selectable area always matches the pixels on screen.
+ */
+export function arrowHead(
+  from: Point,
+  to: Point,
+): { wings: [Point, Point]; shaftEnd: Point } {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const length = Math.hypot(to.x - from.x, to.y - from.y);
+  const head = Math.min(Math.max(11, length * 0.22), 26);
+  const wing = (offset: number): Point => ({
+    x: to.x - head * Math.cos(angle + offset),
+    y: to.y - head * Math.sin(angle + offset),
+  });
+  return {
+    wings: [wing(-Math.PI / 7), wing(Math.PI / 7)],
+    // The shaft stops short of the tip so it never pokes past the head.
+    shaftEnd: {
+      x: to.x - head * 0.6 * Math.cos(angle),
+      y: to.y - head * 0.6 * Math.sin(angle),
+    },
+  };
+}
+
 export function normalizeRect(a: Point, b: Point): Rect {
   return {
     x: Math.min(a.x, b.x),
@@ -138,8 +163,17 @@ export function shapeBBox(shape: Shape): Rect {
     case "ellipse":
     case "pixelate":
       return shape.rect;
-    case "arrow":
-      return normalizeRect(shape.from, shape.to);
+    case "arrow": {
+      // The head's wings can stick out past the from->to box.
+      const { wings } = arrowHead(shape.from, shape.to);
+      const points = [shape.from, shape.to, ...wings];
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      return normalizeRect(
+        { x: Math.min(...xs), y: Math.min(...ys) },
+        { x: Math.max(...xs), y: Math.max(...ys) },
+      );
+    }
     case "pen": {
       const xs = shape.points.map((p) => p.x);
       const ys = shape.points.map((p) => p.y);
@@ -186,8 +220,17 @@ const HIT_SLACK = 6;
 
 export function hitShape(shape: Shape, point: Point): boolean {
   switch (shape.kind) {
-    case "arrow":
-      return segmentDistance(point, shape.from, shape.to) <= HIT_SLACK;
+    case "arrow": {
+      if (segmentDistance(point, shape.from, shape.to) <= HIT_SLACK) {
+        return true;
+      }
+      // The arrowhead wings extend outside the shaft's slack; a click on
+      // either head edge selects the arrow too.
+      const { wings } = arrowHead(shape.from, shape.to);
+      return wings.some(
+        (wing) => segmentDistance(point, shape.to, wing) <= HIT_SLACK,
+      );
+    }
     case "pen":
       return shape.points.some(
         (at, index) =>
@@ -267,29 +310,17 @@ export function drawShape(
     }
     case "arrow": {
       const { from, to } = shape;
-      const angle = Math.atan2(to.y - from.y, to.x - from.x);
-      const length = Math.hypot(to.x - from.x, to.y - from.y);
-      const head = Math.min(Math.max(11, length * 0.22), 26);
+      const { wings, shaftEnd } = arrowHead(from, to);
       ctx.strokeStyle = shape.color;
       ctx.fillStyle = shape.color;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
-      // Stop the shaft short of the tip so it never pokes past the head.
-      ctx.lineTo(
-        to.x - head * 0.6 * Math.cos(angle),
-        to.y - head * 0.6 * Math.sin(angle),
-      );
+      ctx.lineTo(shaftEnd.x, shaftEnd.y);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(to.x, to.y);
-      ctx.lineTo(
-        to.x - head * Math.cos(angle - Math.PI / 7),
-        to.y - head * Math.sin(angle - Math.PI / 7),
-      );
-      ctx.lineTo(
-        to.x - head * Math.cos(angle + Math.PI / 7),
-        to.y - head * Math.sin(angle + Math.PI / 7),
-      );
+      ctx.lineTo(wings[0].x, wings[0].y);
+      ctx.lineTo(wings[1].x, wings[1].y);
       ctx.closePath();
       ctx.fill();
       return;
