@@ -9,11 +9,10 @@ agent/model/tool path is stubbed.
 
 ## What it covers
 
-Five suites. The two adapter-parametrized ones loop with `describe.skipIf` over
+Four suites. The two adapter-parametrized ones loop with `describe.skipIf` over
 `["claude", "codex"]` (titles carry a `(claude)` / `(codex)` marker so
 `-t "(codex)"` selects one arm across files); `compaction.e2e.test.ts` runs the
-codex arm only, `plan-mode.e2e.test.ts` the claude arm only, and
-`guard.e2e.test.ts` always runs:
+codex arm only, and `guard.e2e.test.ts` always runs:
 
 `session-lifecycle.e2e.test.ts` — one shared golden turn plus focused scenarios:
 - **newSession config options** — model / effort selectors are offered.
@@ -46,15 +45,6 @@ the constrained decode.
 `compaction.e2e.test.ts` — codex only: a low `auto_compact_token_limit` plus a
 big input blob trips auto-compaction, and the adapter must surface
 `_posthog/compact_boundary`.
-
-`plan-mode.e2e.test.ts` — claude only: the CLI assigns a plan file and has the model
-build the plan up in it, so the plan under review exists only on disk (`ExitPlanMode`
-carries no plan of its own).
-Asserts the adapter publishes that file's content as the reviewed plan, that
-`planFilePath` travels with it, and that the text is a plan document rather than
-assistant chat.
-Cancels once the plan is out, so the cost stays at the planning phase.
-Codex is excluded: it plans through its own switch_mode flow with no plan file.
 
 `guard.e2e.test.ts` — always runs: fails loudly when the token is missing (every
 arm would self-skip) or the codex binary is absent despite a token, so the suite
