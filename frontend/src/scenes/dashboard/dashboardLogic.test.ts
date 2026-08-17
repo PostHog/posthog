@@ -410,6 +410,35 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('undoes and redoes completed layout changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialLayouts = logic.values.layouts
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const movedLayouts = {
+                ...initialLayouts,
+                sm: initialLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(movedLayouts, initialLayouts)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.undoLayoutChange(logic.values.undoLayout)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ layouts: initialLayouts, redoLayout: movedLayouts })
+
+            await expectLogic(logic, () => {
+                logic.actions.redoLayoutChange(logic.values.redoLayout)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ layouts: movedLayouts, undoLayout: initialLayouts })
+        })
+
         it('saving after filter change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

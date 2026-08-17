@@ -199,6 +199,31 @@ export interface PendingInsertion {
     w: number | null
 }
 
+interface LayoutHistory {
+    layouts: ResponsiveLayouts[]
+    position: number
+}
+
+function cloneLayouts(layouts: ResponsiveLayouts): ResponsiveLayouts {
+    return Object.fromEntries(
+        Object.entries(layouts).map(([size, layout]) => [size, layout?.map((item) => ({ ...item }))])
+    ) as ResponsiveLayouts
+}
+
+function updateDashboardTileLayouts(
+    dashboard: DashboardType<QueryBasedInsightModel> | null,
+    layouts: ResponsiveLayouts
+): DashboardType<QueryBasedInsightModel> {
+    const itemLayouts = layoutsByTile(layouts)
+    return {
+        ...dashboard,
+        tiles: dashboard?.tiles?.map((tile) => ({
+            ...tile,
+            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+        })),
+    } as DashboardType<QueryBasedInsightModel>
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -315,6 +340,7 @@ export interface dashboardLogicValues {
     layout: Layout | undefined
     layoutEditMode: boolean
     layoutForItem: Record<string, TileLayout>
+    layoutHistory: LayoutHistory
     layoutZoom: number
     layouts: Partial<Record<DashboardLayoutSize, Layout>>
     loadLayoutFromServerOnPreview: boolean
@@ -327,6 +353,7 @@ export interface dashboardLogicValues {
     pendingInsertion: PendingInsertion | null
     placement: DashboardPlacement
     projectTreeRef: ProjectTreeRef
+    redoLayout: ResponsiveLayouts | null
     refreshMetrics: {
         completed: number
         total: number
@@ -352,6 +379,7 @@ export interface dashboardLogicValues {
     textTileId: number | 'new' | null
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+    undoLayout: ResponsiveLayouts | null
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
         filters?: unknown
@@ -592,6 +620,9 @@ export interface dashboardLogicActions {
         order: number
         tile: any
     }
+    redoLayoutChange: (layouts: ResponsiveLayouts | null) => {
+        layouts: Partial<Record<string, Layout>> | null
+    }
     refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
     }
@@ -640,6 +671,7 @@ export interface dashboardLogicActions {
     resetInterval: () => {
         value: true
     }
+    resetLayoutHistory: () => boolean
     resetUrlFilters: () => boolean
     resetUrlVariables: () => {
         value: true
@@ -874,6 +906,9 @@ export interface dashboardLogicActions {
     triggerDashboardUpdate: (payload: any) => {
         payload: any
     }
+    undoLayoutChange: (layouts: ResponsiveLayouts | null) => {
+        layouts: Partial<Record<string, Layout>> | null
+    }
     updateContainerWidth: (
         containerWidth: number,
         columns: number
@@ -887,8 +922,12 @@ export interface dashboardLogicActions {
     updateDashboardTags: (tags: string[]) => {
         tags: string[]
     }
-    updateLayouts: (layouts: ResponsiveLayouts) => {
+    updateLayouts: (
+        layouts: ResponsiveLayouts,
+        previousLayouts?: ResponsiveLayouts
+    ) => {
         layouts: Partial<Record<string, Layout>>
+        previousLayouts: Partial<Record<string, Layout>> | undefined
     }
     updateTileColor: (
         tileId: number,
@@ -1091,6 +1130,8 @@ export interface dashboardLogicMeta {
             layouts: Partial<Record<DashboardLayoutSize, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
         ) => Layout | undefined
+        undoLayout: (layoutHistory: any) => ResponsiveLayouts | null
+        redoLayout: (layoutHistory: any) => ResponsiveLayouts | null
         layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
@@ -1308,6 +1349,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelEditMode: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
+        undoLayoutChange: (layouts: ResponsiveLayouts | null) => ({ layouts }),
+        redoLayoutChange: (layouts: ResponsiveLayouts | null) => ({ layouts }),
+        resetLayoutHistory: () => true,
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -1316,7 +1360,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        updateLayouts: (layouts: ResponsiveLayouts, previousLayouts?: ResponsiveLayouts) => ({
+            layouts,
+            previousLayouts,
+        }),
         setPendingInsertion: (pendingInsertion: PendingInsertion | null) => ({ pendingInsertion }),
         applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
@@ -1878,23 +1925,43 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateContainerWidth: (state: number, { columns }: { columns: number }) => (columns === 1 ? 1 : state),
             },
         ],
+        layoutHistory: [
+            { layouts: [], position: -1 } as LayoutHistory,
+            {
+                updateLayouts: (state, { layouts, previousLayouts }) => {
+                    if (!previousLayouts || equal(layouts, previousLayouts)) {
+                        return state
+                    }
+
+                    const history = state.layouts.slice(0, state.position + 1)
+                    const entries = history.length ? history : [cloneLayouts(previousLayouts)]
+                    if (equal(entries[entries.length - 1], layouts)) {
+                        return state
+                    }
+
+                    return { layouts: [...entries, cloneLayouts(layouts)], position: entries.length }
+                },
+                undoLayoutChange: (state, { layouts }) =>
+                    layouts && state.position > 0 ? { ...state, position: state.position - 1 } : state,
+                redoLayoutChange: (state, { layouts }) =>
+                    layouts && state.position < state.layouts.length - 1
+                        ? { ...state, position: state.position + 1 }
+                        : state,
+                resetLayoutHistory: () => ({ layouts: [], position: -1 }),
+            },
+        ],
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
                 updateLayouts: (state, { layouts }) => {
-                    const itemLayouts = layoutsByTile(layouts)
-
-                    // Only persist sm layouts; xs layouts are derived on the fly
-                    return {
-                        ...state,
-                        tiles: state?.tiles?.map((tile) => ({
-                            ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
-                        })),
-                    } as DashboardType<QueryBasedInsightModel>
+                    return updateDashboardTileLayouts(state, layouts)
                 },
+                undoLayoutChange: (state, { layouts }) =>
+                    layouts ? updateDashboardTileLayouts(state, layouts) : state,
+                redoLayoutChange: (state, { layouts }) =>
+                    layouts ? updateDashboardTileLayouts(state, layouts) : state,
                 setTileProperty: (state, { tileId, properties }) => {
                     return {
                         ...state,
@@ -2875,6 +2942,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
                 sizeKey ? layouts[sizeKey] : undefined,
+        ],
+        undoLayout: [
+            (s) => [s.layoutHistory],
+            (layoutHistory: LayoutHistory): ResponsiveLayouts | null =>
+                layoutHistory.position > 0 ? layoutHistory.layouts[layoutHistory.position - 1] : null,
+        ],
+        redoLayout: [
+            (s) => [s.layoutHistory],
+            (layoutHistory: LayoutHistory): ResponsiveLayouts | null =>
+                layoutHistory.position < layoutHistory.layouts.length - 1
+                    ? layoutHistory.layouts[layoutHistory.position + 1]
+                    : null,
         ],
         layoutForItem: [
             (s) => [s.layout],
@@ -4028,6 +4107,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardMode: async ({ mode, source }) => {
+            if (mode !== DashboardMode.Edit || isLayoutEditEventSource(source)) {
+                actions.resetLayoutHistory()
+            }
+
             if (
                 mode === DashboardMode.Edit &&
                 values.urlSearchParamsAtEditModeEntry === null &&

@@ -165,6 +165,10 @@ const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
+const mockUndoLayoutChange = jest.fn()
+const mockRedoLayoutChange = jest.fn()
+const layoutToUndo = { sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }] }
+const layoutToRedo = { sm: [{ i: '1', x: 1, y: 0, w: 6, h: 5 }] }
 
 describe('DashboardItems', () => {
     beforeEach(() => {
@@ -198,6 +202,8 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 0.75,
+                    undoLayout: layoutToUndo,
+                    redoLayout: layoutToRedo,
                 }
             }
 
@@ -225,6 +231,8 @@ describe('DashboardItems', () => {
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
                     setDashboardMode: jest.fn(),
+                    undoLayoutChange: mockUndoLayoutChange,
+                    redoLayoutChange: mockRedoLayoutChange,
                 }
             }
 
@@ -263,6 +271,18 @@ describe('DashboardItems', () => {
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it.each([
+        [{ key: 'z', ctrlKey: true }, mockUndoLayoutChange, layoutToUndo],
+        [{ key: 'z', ctrlKey: true, shiftKey: true }, mockRedoLayoutChange, layoutToRedo],
+        [{ key: 'y', ctrlKey: true }, mockRedoLayoutChange, layoutToRedo],
+    ])('applies layout history for keyboard shortcut %o', (event, action, layout) => {
+        render(<DashboardItems />)
+
+        fireEvent.keyDown(document.body, event)
+
+        expect(action).toHaveBeenCalledWith(layout)
     })
 
     it('shows widget tiles on public dashboards', () => {

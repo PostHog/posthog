@@ -13,6 +13,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -98,6 +99,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        undoLayout,
+        redoLayout,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -117,6 +120,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setDashboardMode,
         setAddWidgetModalOpen,
         setPendingInsertion,
+        undoLayoutChange,
+        redoLayoutChange,
     } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
@@ -239,6 +244,38 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
+    useKeyboardHotkeys(
+        {
+            z: {
+                willHandleEvent: true,
+                disabled: !layoutEditMode || (!undoLayout && !redoLayout),
+                action: (event) => {
+                    if (!event.metaKey && !event.ctrlKey) {
+                        return
+                    }
+                    event.preventDefault()
+                    if (event.shiftKey) {
+                        redoLayoutChange(redoLayout)
+                    } else {
+                        undoLayoutChange(undoLayout)
+                    }
+                },
+            },
+            y: {
+                willHandleEvent: true,
+                disabled: !layoutEditMode || !redoLayout,
+                action: (event) => {
+                    if (!event.metaKey && !event.ctrlKey) {
+                        return
+                    }
+                    event.preventDefault()
+                    redoLayoutChange(redoLayout)
+                },
+            },
+        },
+        [layoutEditMode, undoLayout, redoLayout, undoLayoutChange, redoLayoutChange]
+    )
+
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
@@ -357,15 +394,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 pendingLayouts.current = newLayouts
                 return
             }
-            updateLayouts(newLayouts)
+            updateLayouts(newLayouts, layouts)
         },
-        [layoutEditMode, updateLayouts]
+        [layoutEditMode, layouts, updateLayouts]
     )
 
     const flushPendingLayouts = useCallback(() => {
         interactionInProgress.current = false
         if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
+            updateLayouts(pendingLayouts.current, layouts)
             pendingLayouts.current = null
         }
         // Remeasure once the gesture settles, since height updates were suppressed during it.
@@ -375,7 +412,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }
         })
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [updateLayouts])
+    }, [layouts, updateLayouts])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
