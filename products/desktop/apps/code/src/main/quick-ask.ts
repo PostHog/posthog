@@ -215,6 +215,12 @@ async function streamAnswer(
       question,
       conversationId,
     })) {
+      if (event.type === "error") {
+        log.warn("Quick ask answered with an error", {
+          message: event.message,
+          detail: event.detail,
+        });
+      }
       send(event);
     }
   } catch (error) {

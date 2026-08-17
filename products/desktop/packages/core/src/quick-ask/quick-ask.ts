@@ -15,7 +15,7 @@ export type QuickAskEvent =
   | { type: "reasoning"; content: string }
   | { type: "text"; id: string; content: string; complete: boolean }
   | { type: "viz" }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; detail?: string }
   | { type: "done" };
 
 export interface QuickAskInput {
@@ -138,6 +138,12 @@ export class QuickAskService {
       return;
     }
 
+    // The API requires a client-minted conversation id on every request; it
+    // retrieves the existing conversation or creates a new one from it.
+    const conversationId =
+      input.conversationId ?? globalThis.crypto.randomUUID();
+    yield { type: "conversation", conversationId };
+
     const response = await this.authService.authenticatedFetch(
       fetch,
       `${apiHost}/api/environments/${projectId}/conversations/`,
@@ -146,9 +152,7 @@ export class QuickAskService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: input.question,
-          ...(input.conversationId
-            ? { conversation: input.conversationId }
-            : {}),
+          conversation: conversationId,
           trace_id: globalThis.crypto.randomUUID(),
         }),
         signal: controller.signal,
@@ -156,12 +160,17 @@ export class QuickAskService {
     );
 
     if (!response.ok || !response.body) {
+      const detail = await response
+        .text()
+        .then((text) => text.slice(0, 500))
+        .catch(() => "");
       yield {
         type: "error",
         message:
           response.status === 402
             ? "You are out of PostHog AI credits."
             : `PostHog AI is unavailable right now (${response.status}).`,
+        detail,
       };
       return;
     }
