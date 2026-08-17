@@ -958,15 +958,21 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     queryset it covers list, retrieve, update, and delete, since get_object() resolves detail routes
     from it. A dashboard subscription also requires every exported insight to be viewable — each one
     is rendered and delivered on its own, and can be restricted after the subscription was saved. An
-    empty dashboard_export_insights selection means the delivery renders every tile on the dashboard
-    (admin- and legacy-created rows look like this), so it is gated on the dashboard's tiles instead.
-    AI prompt subscriptions have no insight or dashboard, so the last clause always matches them;
-    their report content is gated on query access separately, by _should_hide_ai_report.
+    empty dashboard_export_insights selection means the delivery renders every live tile on the
+    dashboard (admin- and legacy-created rows look like this), so it is gated on those tiles instead.
+    AI prompt subscriptions have no insight or dashboard; their report content is gated on query
+    access separately, by _should_hide_ai_report.
 
-    Known limitation, shared with the alerts sibling: both the write gate and this filter resolve
-    object-level access control rows only. A project that denies a whole resource at the resource
-    level (an AccessControl row with resource_id=None) is not consulted by either — closing that
-    belongs in posthog/rbac/user_access_control.py, for both features at once.
+    Known limitations, shared with the alerts sibling: the write gate and this filter resolve
+    object-level access control rows only — a project that denies a whole resource at the resource
+    level (an AccessControl row with resource_id=None) is not consulted by either, and closing that
+    belongs in posthog/rbac/user_access_control.py for both features at once. The delivery pipeline
+    also doesn't re-check access at render time, so a hidden subscription keeps delivering until an
+    org admin turns it off.
+
+    Every multi-valued (M2M or reverse-FK) condition below must stay negated: Django compiles a
+    negated multi-valued lookup to a correlated NOT EXISTS subquery, while a positive one joins the
+    through table into the outer query and duplicates each subscription row per related row.
     """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         # Without the entitlement there are no rules to enforce, and org admins bypass every object
@@ -983,22 +989,24 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
         user_access_control, Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
     )
     blocked_insights = team_insights.exclude(id__in=viewable_insights.values("id"))
-    dashboards_with_blocked_tiles = Dashboard.objects_including_soft_deleted.filter(
-        team_id=team_id, tiles__insight__in=blocked_insights
-    )
+    # DashboardTile.objects skips soft-deleted tiles and dashboards (a relation-spanning lookup
+    # would not), and the renderer skips soft-deleted insights, so only tiles a delivery would
+    # actually render count as blocking.
+    blocked_tile_dashboard_ids = DashboardTile.objects.filter(
+        dashboard__team_id=team_id, insight__in=blocked_insights.exclude(deleted=True)
+    ).values("dashboard_id")
+
+    views_the_insight = Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
+    views_the_dashboard = Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
+    no_blocked_export = ~Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights.values("id")})
+    has_explicit_selection = ~Q(**{f"{prefix}dashboard_export_insights__isnull": True})
+    no_blocked_tile = ~Q(**{f"{prefix}dashboard_id__in": blocked_tile_dashboard_ids})
+    has_no_render_target = Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
+
     return (
-        Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
-        | (
-            Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
-            # Negated M2M: matches subscriptions with no export insight in the blocked set.
-            & ~Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights.values("id")})
-            # An empty selection exports every tile, so the dashboard must have no blocked tile.
-            & (
-                Q(**{f"{prefix}dashboard_export_insights__isnull": False})
-                | ~Q(**{f"{prefix}dashboard_id__in": dashboards_with_blocked_tiles.values("id")})
-            )
-        )
-        | Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
+        views_the_insight
+        | (views_the_dashboard & no_blocked_export & (has_explicit_selection | no_blocked_tile))
+        | has_no_render_target
     )
 
 

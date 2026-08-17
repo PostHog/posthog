@@ -3315,12 +3315,45 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
 
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
 
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert listed.json()["results"] == []
         retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
         assert retrieved.status_code == status.HTTP_404_NOT_FOUND
+
+        # A removed tile is no longer rendered, so it must stop hiding the subscription.
+        restricted_tile.deleted = True
+        restricted_tile.save(update_fields=["deleted"])
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+
+    def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self, mock_sync):
+        # The filter's M2M conditions must compile to subqueries, not joins — a join returns the
+        # row once per selected insight and makes detail routes 500 on queryset.get().
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=second_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.set([self.open_insight, second_insight])
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-multi",
+            idempotency_key="multi-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert len(deliveries.json()["results"]) == 1
 
     def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync):
         # Soft-deleting an insight must not hide its subscription: the owner still needs to see the
