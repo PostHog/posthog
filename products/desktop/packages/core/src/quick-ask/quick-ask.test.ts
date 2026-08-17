@@ -326,6 +326,62 @@ describe("QuickAskService", () => {
     expect(events).toContainEqual({ type: "reasoning", content: "by day" });
   });
 
+  it("reconnects from the cursor when the stream connection errors mid-read", async () => {
+    const encoder = new TextEncoder();
+    // Pull-based: erroring a stream discards queued chunks, so the frame must
+    // deliver on the first read and the error on the second.
+    let pulls = 0;
+    const broken = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(streamController) {
+          pulls += 1;
+          if (pulls === 1) {
+            streamController.enqueue(
+              encoder.encode(`id: 3-0\ndata: ${USER_ECHO}\n\n`),
+            );
+            return;
+          }
+          streamController.error(
+            new TypeError("net::ERR_HTTP2_PROTOCOL_ERROR"),
+          );
+        },
+      }),
+      { status: 200 },
+    );
+    const second = sseResponse([
+      `id: 4-0\ndata: ${agentText("Recovered.")}\n\nid: 5-0\ndata: ${TURN_COMPLETE}\n\n`,
+    ]);
+    const { service, fetchMock } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [broken, second],
+    });
+    const events = await collect(service);
+    expect(events).toContainEqual({
+      type: "text",
+      id: "turn-1",
+      content: "Recovered.",
+      complete: true,
+    });
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    const streamCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[1]).includes("/stream/"),
+    );
+    expect(streamCalls[1][2].headers["Last-Event-ID"]).toBe("3-0");
+  });
+
+  it("retries a stream connection that fails to open, then errors past the budget", async () => {
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [
+        new Response("bad gateway", { status: 502 }),
+        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
+      ],
+    });
+    const events = await collect(service);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.some((event) => event.type === "error")).toBe(false);
+  });
+
   it("resumes across a stream rotation with the last event id", async () => {
     const first = sseResponse([
       `id: 7-0\ndata: ${USER_ECHO}\n\nevent: end\ndata: {"type":"rotated"}\n\n`,
@@ -561,6 +617,11 @@ describe("translateFrame", () => {
     [
       "permission request",
       JSON.stringify({ type: "permission_request", requestId: "r1" }),
+      { kind: "reasoning", text: "Waiting for a tool approval…" },
+    ],
+    [
+      "permission request over the session",
+      notification("session/request_permission", { toolCallId: "t1" }),
       { kind: "reasoning", text: "Waiting for a tool approval…" },
     ],
   ])("%s", (_name, frame, expected) => {

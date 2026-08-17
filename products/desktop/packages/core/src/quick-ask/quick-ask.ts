@@ -111,6 +111,19 @@ interface WarmHandle {
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 /**
+ * Consecutive stream connection failures tolerated without any frame
+ * arriving. Long-lived SSE connections drop routinely (proxies reset HTTP/2
+ * streams), so drops reconnect from the cursor; progress resets the budget.
+ */
+const MAX_STREAM_ATTEMPTS = 8;
+
+function reconnectDelay(attempts: number): Promise<void> {
+  return new Promise((resolve) =>
+    setTimeout(resolve, Math.min(500 * attempts, 5000)),
+  );
+}
+
+/**
  * Per-thread state. `conversationId` is a client-minted key the renderer
  * echoes back so follow-ups land on the same task; `cursor` is the stream id
  * of the last ingested event, carried across turns and reconnects so no frame
@@ -174,6 +187,9 @@ export function translateFrame(parsed: unknown): TurnSignal {
       status: "failed",
       errorMessage: typeof message === "string" ? message : undefined,
     };
+  }
+  if (method === "session/request_permission") {
+    return { kind: "reasoning", text: "Waiting for a tool approval…" };
   }
   if (method !== "session/update") {
     return { kind: "ignore", detail: method || undefined };
@@ -627,32 +643,56 @@ export class QuickAskService {
         : [{ type: "done" }];
 
     try {
-      let rotations = 0;
+      let attempts = 0;
       while (true) {
-        const response = await this.authService.authenticatedFetch(
-          this.fetchImpl,
-          `${apiHost}/api/projects/${projectId}/tasks/${session.taskId}/runs/${session.runId}/stream/`,
-          {
-            method: "GET",
-            headers: {
-              Accept: "text/event-stream",
-              ...(session.cursor
-                ? { "Last-Event-ID": session.cursor }
-                : undefined),
+        let response: Response;
+        try {
+          response = await this.authService.authenticatedFetch(
+            this.fetchImpl,
+            `${apiHost}/api/projects/${projectId}/tasks/${session.taskId}/runs/${session.runId}/stream/`,
+            {
+              method: "GET",
+              headers: {
+                Accept: "text/event-stream",
+                ...(session.cursor
+                  ? { "Last-Event-ID": session.cursor }
+                  : undefined),
+              },
+              signal: controller.signal,
             },
-            signal: controller.signal,
-          },
-        );
+          );
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          attempts += 1;
+          if (attempts > MAX_STREAM_ATTEMPTS) {
+            yield {
+              type: "error",
+              message: UNAVAILABLE_MESSAGE,
+              detail: describeError(error),
+            };
+            return;
+          }
+          await reconnectDelay(attempts);
+          if (controller.signal.aborted) return;
+          continue;
+        }
         if (!response.ok || !response.body) {
-          yield {
-            type: "error",
-            message: UNAVAILABLE_MESSAGE,
-            detail: `stream failed with ${response.status}`,
-          };
-          return;
+          attempts += 1;
+          if (attempts > MAX_STREAM_ATTEMPTS) {
+            yield {
+              type: "error",
+              message: UNAVAILABLE_MESSAGE,
+              detail: `stream failed with ${response.status}`,
+            };
+            return;
+          }
+          await reconnectDelay(attempts);
+          if (controller.signal.aborted) return;
+          continue;
         }
 
         let rotated = false;
+        let dropped = false;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -671,118 +711,139 @@ export class QuickAskService {
           yield* parseSseChunk(buffer);
         };
 
-        for await (const frame of frames()) {
-          if (frame.id) {
-            session.cursor = frame.id;
-          }
-          if (frame.event === "end") {
-            rotated = true; // Server rotates long connections; resume below.
-            break;
-          }
-          if (frame.event === "stream-end") {
-            yield* finish();
-            return;
-          }
-          if (frame.event === "error") {
-            yield {
-              type: "error",
-              message: UNAVAILABLE_MESSAGE,
-              detail: frame.data.slice(0, 500),
-            };
-            return;
-          }
-          if (frame.event !== "message") {
-            continue; // keepalive and other named events carry nothing to fold.
-          }
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(frame.data);
-          } catch {
-            continue;
-          }
-          const signal = translateFrame(parsed);
-          switch (signal.kind) {
-            case "prompt":
-              if (matched) break; // Queued behind ours; not our concern.
-              if (signal.text.trim() === target) {
-                matched = true;
-                turnsAhead = Math.max(0, promptsBefore - completionsBefore);
-              } else {
-                promptsBefore += 1;
-              }
-              break;
-            case "agent-text":
-              if (!inOurTurn()) break;
-              if (toolSinceText && answerText) {
-                answerText += "\n\n";
-              }
-              toolSinceText = false;
-              answerText += signal.text;
-              yield {
-                type: "text",
-                id: turnId,
-                content: answerText,
-                complete: false,
-              };
-              break;
-            case "reasoning": {
-              if (!inOurTurn()) break;
-              thoughtBuffer += signal.text;
-              const label = reasoningLabel(thoughtBuffer);
-              if (label) {
-                yield { type: "reasoning", content: label };
-              }
+        try {
+          for await (const frame of frames()) {
+            if (frame.id) {
+              session.cursor = frame.id;
+              attempts = 0; // Progress restores the reconnect budget.
+            }
+            if (frame.event === "end") {
+              rotated = true; // Server rotates long connections; resume below.
               break;
             }
-            case "tool":
-              if (!inOurTurn()) break;
-              toolSinceText = true;
-              yield { type: "reasoning", content: `Running ${signal.label}…` };
-              break;
-            case "turn-complete":
-              if (matched) {
-                completionsAfter += 1;
-                if (completionsAfter > turnsAhead) {
-                  yield* finish();
-                  return;
+            if (frame.event === "stream-end") {
+              yield* finish();
+              return;
+            }
+            if (frame.event === "error") {
+              yield {
+                type: "error",
+                message: UNAVAILABLE_MESSAGE,
+                detail: frame.data.slice(0, 500),
+              };
+              return;
+            }
+            if (frame.event !== "message") {
+              continue; // keepalive and other named events carry nothing to fold.
+            }
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(frame.data);
+            } catch {
+              continue;
+            }
+            const signal = translateFrame(parsed);
+            switch (signal.kind) {
+              case "prompt":
+                if (matched) break; // Queued behind ours; not our concern.
+                if (signal.text.trim() === target) {
+                  matched = true;
+                  turnsAhead = Math.max(0, promptsBefore - completionsBefore);
+                } else {
+                  promptsBefore += 1;
+                }
+                break;
+              case "agent-text":
+                if (!inOurTurn()) break;
+                if (toolSinceText && answerText) {
+                  answerText += "\n\n";
+                }
+                toolSinceText = false;
+                answerText += signal.text;
+                yield {
+                  type: "text",
+                  id: turnId,
+                  content: answerText,
+                  complete: false,
+                };
+                break;
+              case "reasoning": {
+                if (!inOurTurn()) break;
+                thoughtBuffer += signal.text;
+                const label = reasoningLabel(thoughtBuffer);
+                if (label) {
+                  yield { type: "reasoning", content: label };
                 }
                 break;
               }
-              if (freshStream && promptsBefore === 0) {
-                yield* finish();
+              case "tool":
+                if (!inOurTurn()) break;
+                toolSinceText = true;
+                yield {
+                  type: "reasoning",
+                  content: `Running ${signal.label}…`,
+                };
+                break;
+              case "turn-complete":
+                if (matched) {
+                  completionsAfter += 1;
+                  if (completionsAfter > turnsAhead) {
+                    yield* finish();
+                    return;
+                  }
+                  break;
+                }
+                if (freshStream && promptsBefore === 0) {
+                  yield* finish();
+                  return;
+                }
+                completionsBefore += 1;
+                break;
+              case "run-terminal":
+                // The sandbox ended; the next question starts a successor run.
+                session.runId = null;
+                session.cursor = null;
+                if (signal.status === "failed") {
+                  yield {
+                    type: "error",
+                    message: "PostHog AI hit an error. Try asking again.",
+                    detail: signal.errorMessage,
+                  };
+                } else {
+                  yield* finish();
+                }
                 return;
-              }
-              completionsBefore += 1;
-              break;
-            case "run-terminal":
-              // The sandbox ended; the next question starts a successor run.
-              session.runId = null;
-              session.cursor = null;
-              if (signal.status === "failed") {
-                yield {
-                  type: "error",
-                  message: "PostHog AI hit an error. Try asking again.",
-                  detail: signal.errorMessage,
-                };
-              } else {
-                yield* finish();
-              }
-              return;
-            case "ignore":
-              if (signal.detail) {
-                yield {
-                  type: "trace",
-                  detail: `stream frame ignored (${signal.detail})`,
-                };
-              }
-              break;
+              case "ignore":
+                if (signal.detail) {
+                  yield {
+                    type: "trace",
+                    detail: `stream frame ignored (${signal.detail})`,
+                  };
+                }
+                break;
+            }
+          }
+        } catch (error) {
+          // A mid-read network failure (proxies reset long HTTP/2 streams);
+          // reconnect from the cursor like a rotation.
+          if (controller.signal.aborted) return;
+          dropped = true;
+          attempts += 1;
+          if (attempts > MAX_STREAM_ATTEMPTS) {
+            yield {
+              type: "error",
+              message: UNAVAILABLE_MESSAGE,
+              detail: describeError(error),
+            };
+            return;
           }
         }
 
-        if (!rotated) {
+        if (rotated) continue;
+        if (!dropped) {
           // Clean EOF without the stream-end sentinel: connection dropped.
-          rotations += 1;
-          if (rotations > 20) {
+          attempts += 1;
+          if (attempts > MAX_STREAM_ATTEMPTS) {
             yield {
               type: "error",
               message: UNAVAILABLE_MESSAGE,
@@ -790,9 +851,9 @@ export class QuickAskService {
             };
             return;
           }
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          if (controller.signal.aborted) return;
         }
+        await reconnectDelay(attempts);
+        if (controller.signal.aborted) return;
       }
     } finally {
       if (this.controller === controller) {
