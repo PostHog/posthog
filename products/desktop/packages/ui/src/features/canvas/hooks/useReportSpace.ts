@@ -25,16 +25,18 @@ export function useReportSpace(): {
     if (isLoading || reportSpace || creationStarted.current || creationFailed)
       return;
     creationStarted.current = true;
-    void createChannel(DEFAULT_REPORT_SPACE_NAME).catch((error: unknown) => {
-      creationStarted.current = false;
-      setCreationFailed(true);
-      toast.error("Couldn't create the report space", {
-        description:
-          error instanceof Error
-            ? error.message
-            : "Refresh the page to try again.",
-      });
-    });
+    void createChannel(DEFAULT_REPORT_SPACE_NAME, { star: true }).catch(
+      (error: unknown) => {
+        creationStarted.current = false;
+        setCreationFailed(true);
+        toast.error("Couldn't create the report space", {
+          description:
+            error instanceof Error
+              ? error.message
+              : "Refresh the page to try again.",
+        });
+      },
+    );
   }, [createChannel, creationFailed, isLoading, reportSpace]);
 
   return {
