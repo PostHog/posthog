@@ -1346,8 +1346,10 @@ class BatchQueue:
         The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
         the claim's per-run, schema-busy, and lease gates are deliberately not
         applied (they need per-row probes; this must stay one cheap partial-index
-        scan), so the count reads slightly high. Bounded by
-        ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim query can see.
+        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
+        config, and this probe stays parameter-free), so the count reads slightly
+        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
+        query can see.
         """
         async with conn.cursor() as cur:
             await cur.execute(

@@ -117,16 +117,24 @@ QUEUE_QUERY_DURATION_SECONDS = Histogram(
 
 QUEUE_QUERY_FAILURES_TOTAL = Counter(
     "warehouse_pg_queue_query_failures_total",
-    "Maintenance queue queries that raised or timed out before returning",
+    "Maintenance queue queries that raised or timed out before returning. "
+    "Probe timeouts count as reason=cancelled, not timeout: asyncio.timeout "
+    "cancels the timed block and only converts to TimeoutError outside it. "
+    "Worker-shutdown cancellations mid-query land under cancelled too, so "
+    "expect a small rate during deploys.",
     labelnames=["query", "reason"],
 )
 
 
 def _failure_reason(exc: BaseException) -> str:
     """Small, fixed label set: exception class names (psycopg has hundreds) would bloat cardinality."""
+    # Fires only for a TimeoutError raised inside the timed block, which psycopg
+    # never does (its timeouts are psycopg.Error subclasses, so reason=db).
+    # Kept as defensive coverage; alert on cancelled, not this.
     if isinstance(exc, TimeoutError):
         return "timeout"
-    # asyncio.timeout cancels the timed block; the CancelledError is what this code sees.
+    # asyncio.timeout cancels the timed block; the CancelledError is what this code
+    # sees. Worker-shutdown cancellation is indistinguishable and lands here too.
     if isinstance(exc, asyncio.CancelledError):
         return "cancelled"
     if isinstance(exc, psycopg.Error):
