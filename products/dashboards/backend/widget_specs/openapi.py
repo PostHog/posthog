@@ -311,7 +311,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     grid_compaction = serializers.ChoiceField(
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
-        help_text="Grid compaction mode. Use vertical, horizontal, or none.",
+        help_text="Grid compaction mode. Use vertical or horizontal.",
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,

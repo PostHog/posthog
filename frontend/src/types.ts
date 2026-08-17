@@ -2709,7 +2709,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
-export type DashboardGridCompaction = 'vertical' | 'horizontal' | 'none'
+export type DashboardGridCompaction = 'vertical' | 'horizontal'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',

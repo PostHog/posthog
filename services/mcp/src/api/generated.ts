@@ -19290,7 +19290,6 @@ export namespace Schemas {
     /**
      * * `vertical` - vertical
      * * `horizontal` - horizontal
-     * * `none` - none
      */
     export type LayoutCompactionEnum = typeof LayoutCompactionEnum[keyof typeof LayoutCompactionEnum];
 
@@ -19298,7 +19297,6 @@ export namespace Schemas {
     export const LayoutCompactionEnum = {
       Vertical: 'vertical',
       Horizontal: 'horizontal',
-      None: 'none',
     } as const;
 
     export interface DashboardCustomization {
@@ -19310,11 +19308,10 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       tile_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or none.
+      /** Grid compaction mode. Use vertical or horizontal.
        *
        * * `vertical` - vertical
-       * * `horizontal` - horizontal
-       * * `none` - none */
+       * * `horizontal` - horizontal */
       layout_compaction?: LayoutCompactionEnum;
     }
 
@@ -19396,11 +19393,10 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or none.
+      /** Grid compaction mode. Use vertical or horizontal.
        *
        * * `vertical` - vertical
-       * * `horizontal` - horizontal
-       * * `none` - none */
+       * * `horizontal` - horizontal */
       grid_compaction?: LayoutCompactionEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
@@ -59765,11 +59761,10 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or none.
+      /** Grid compaction mode. Use vertical or horizontal.
        *
        * * `vertical` - vertical
-       * * `horizontal` - horizontal
-       * * `none` - none */
+       * * `horizontal` - horizontal */
       grid_compaction?: LayoutCompactionEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];

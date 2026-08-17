@@ -118,7 +118,6 @@ jest.mock('./items/DashboardTextItem', () => ({
 jest.mock('react-grid-layout', () => {
     return {
         horizontalCompactor: { type: 'horizontal' },
-        noCompactor: { type: 'none' },
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
@@ -346,7 +345,6 @@ describe('DashboardItems', () => {
 
     it.each([
         ['horizontal', 'horizontal'],
-        ['none', 'none'],
         ['unknown', 'vertical'],
     ] as const)('uses %s layout compaction', (layoutCompaction, compactor) => {
         mockedUseValues.mockImplementation((logic) => {

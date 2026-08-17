@@ -425,12 +425,12 @@ describe('dashboardLogic', () => {
             jest.useFakeTimers()
 
             try {
+                logic.actions.setDashboardGridCompaction('vertical')
+                logic.actions.saveDashboardGridCompaction('vertical')
                 logic.actions.setDashboardGridCompaction('horizontal')
                 logic.actions.saveDashboardGridCompaction('horizontal')
-                logic.actions.setDashboardGridCompaction('none')
-                logic.actions.saveDashboardGridCompaction('none')
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe('none')
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe('horizontal')
                 expect(api.update).not.toHaveBeenCalled()
 
                 await jest.advanceTimersByTimeAsync(750)
@@ -438,9 +438,9 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    grid_compaction: 'none',
+                    grid_compaction: 'horizontal',
                 })
-                expect(reportGridCompactionConfigured).toHaveBeenCalledWith('none')
+                expect(reportGridCompactionConfigured).toHaveBeenCalledWith('horizontal')
             } finally {
                 jest.useRealTimers()
             }

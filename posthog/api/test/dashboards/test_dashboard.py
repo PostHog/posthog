@@ -675,7 +675,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    @parameterized.expand([("horizontal",), ("none",)])
+    @parameterized.expand([("horizontal",)])
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_grid_compaction_is_saved_and_duplicated(
         self, layout_compaction: str, _mock_enabled: MagicMock
@@ -740,7 +740,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"grid_compaction": "wrap"},
+            {"grid_compaction": "none"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "grid_compaction")

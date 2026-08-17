@@ -31,11 +31,6 @@ const GRID_COMPACTION_OPTIONS: {
         label: DASHBOARD_GRID_COMPACTION_LABELS.horizontal,
         description: 'Moves other tiles sideways so the tile fits in its row.',
     },
-    {
-        value: 'none',
-        label: DASHBOARD_GRID_COMPACTION_LABELS.none,
-        description: 'Leaves empty space when you move a tile.',
-    },
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {

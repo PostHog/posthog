@@ -1188,7 +1188,7 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     layout_compaction = serializers.ChoiceField(
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
-        help_text="Grid compaction mode. Use vertical, horizontal, or none.",
+        help_text="Grid compaction mode. Use vertical or horizontal.",
     )
 
 
@@ -1221,7 +1221,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
         write_only=True,
-        help_text="Grid compaction mode. Use vertical, horizontal, or none.",
+        help_text="Grid compaction mode. Use vertical or horizontal.",
     )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()

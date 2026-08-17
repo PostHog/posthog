@@ -339,14 +339,12 @@ export const TileSpacingEnumApi = {
 /**
  * * `vertical` - vertical
  * * `horizontal` - horizontal
- * * `none` - none
  */
 export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
 
 export const LayoutCompactionEnumApi = {
     Vertical: 'vertical',
     Horizontal: 'horizontal',
-    None: 'none',
 } as const
 
 export interface DashboardCustomizationApi {
@@ -358,11 +356,10 @@ export interface DashboardCustomizationApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     tile_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or none.
+    /** Grid compaction mode. Use vertical or horizontal.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal
-     * * `none` - none */
+     * * `horizontal` - horizontal */
     layout_compaction?: LayoutCompactionEnumApi
 }
 
@@ -444,11 +441,10 @@ export interface DashboardApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or none.
+    /** Grid compaction mode. Use vertical or horizontal.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal
-     * * `none` - none */
+     * * `horizontal` - horizontal */
     grid_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
@@ -1031,11 +1027,10 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or none.
+    /** Grid compaction mode. Use vertical or horizontal.
      *
      * * `vertical` - vertical
-     * * `horizontal` - horizontal
-     * * `none` - none */
+     * * `horizontal` - horizontal */
     grid_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
