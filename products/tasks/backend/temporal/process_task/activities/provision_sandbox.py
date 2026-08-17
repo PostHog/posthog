@@ -59,6 +59,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
     increment_snapshot_usage,
+    modal_sandbox_backend_label,
     record_network_enforcement,
     record_sandbox_created,
     sandbox_runtime_label,
@@ -685,6 +686,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             )
 
         runtime = sandbox_runtime_label(use_vm_sandbox)
+        sandbox_backend = modal_sandbox_backend_label()
         _apply_modal_network_policy(config, ctx, use_vm_sandbox=use_vm_sandbox)
         if config.outbound_domain_allowlist is not None:
             emit_agent_log(
@@ -699,6 +701,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 used_snapshot=prepared.used_snapshot,
                 origin_product=ctx.origin_product,
                 runtime=runtime,
+                sandbox_backend=sandbox_backend,
             ) as sandbox_creation_timer:
                 sandbox = Sandbox.create(config)
                 # The provider's TTL clock starts here — the usage ledger anchors its
@@ -746,6 +749,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             _sandbox_image_kind(prepared.image_source, config.custom_image_name),
             sandbox.config.image_fallback is not None,
             create_ms,
+            sandbox_backend=sandbox_backend,
         )
 
         credentials = sandbox.get_connect_credentials()

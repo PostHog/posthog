@@ -453,7 +453,7 @@ export type CanvasSourceProjectApiFiles = { [key: string]: string }
 export type CanvasSourceProjectApiAssets = { [key: string]: CanvasSourceAssetApi }
 
 /**
- * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+ * Exact-version dependencies, restricted to the platform-supported set at its pinned versions.
  */
 export type CanvasSourceProjectApiDependencies = { [key: string]: string }
 
@@ -469,11 +469,11 @@ export interface CanvasSourceProjectApi {
     assets?: CanvasSourceProjectApiAssets
     /** The project's entry HTML file. Currently always "index.html". */
     entryHtml: string
-    /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+    /** Exact-version dependencies, restricted to the platform-supported set at its pinned versions. */
     dependencies?: CanvasSourceProjectApiDependencies
     /** Version of the host-injected `ph` canvas SDK the project targets. */
     canvasSdkVersion?: string
-    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
     capabilities?: CanvasCapabilitiesApi
 }
 

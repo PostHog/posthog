@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -1255,12 +1255,10 @@ class InsightSerializer(InsightBasicSerializer):
                 )
                 # Same dashboard+tile+insight precedence the compute path applies in calculate_results.py,
                 # so the returned query matches what the cached result was actually computed with.
-                query, effective_filters = resolve_effective_dashboard_filters(
-                    query, base_filters, tile_filters_override
-                )
+                effective = resolve_effective_dashboard_filters(query, base_filters, tile_filters_override)
                 query = apply_dashboard_filters_to_dict(
-                    query,
-                    effective_filters,
+                    effective.query,
+                    effective.filters,
                     instance.team,
                 )
 
@@ -1421,60 +1419,71 @@ class InsightSerializer(InsightBasicSerializer):
                         )
                     return insight_result
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-                raise ValidationError(str(e), getattr(e, "code_name", None))
+                return self._degraded_insight_result(
+                    insight,
+                    dashboard,
+                    error_message=str(e),
+                    error_code=getattr(e, "code_name", None),
+                    last_refresh=None,
+                )
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
                 )
-                return InsightResult(
-                    result=None,
+                return self._degraded_insight_result(
+                    insight,
+                    dashboard,
+                    error_message="concurrency_limit_exceeded",
+                    error_code="concurrency_limit_exceeded",
                     last_refresh=now(),
-                    is_cached=False,
-                    query_status=dict(
-                        QueryStatus(
-                            # QueryStatus.id is a required str; without a client_query_id this
-                            # fallback used to crash pydantic validation and turn the degraded
-                            # error state into a 500.
-                            id=self.context["request"].query_params.get("client_query_id") or "",
-                            team_id=insight.team_id,
-                            insight_id=str(insight.id),
-                            dashboard_id=str(dashboard.id) if dashboard else None,
-                            error_message="concurrency_limit_exceeded",
-                            error=True,
-                        )
-                    ),
-                    cache_key=None,
-                    hogql=None,
-                    columns=None,
-                    has_more=None,
-                    timezone=self.context["get_team"]().timezone,
                 )
             except Exception as e:
                 # Capture unexpected crashes so the API list doesn't fail
                 logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
-                return InsightResult(
-                    result=None,
+                return self._degraded_insight_result(
+                    insight,
+                    dashboard,
+                    error_message=str(e),
+                    error_code=None,
                     last_refresh=None,
-                    is_cached=False,
-                    query_status=dict(
-                        QueryStatus(
-                            # QueryStatus.id is a required str; without a client_query_id this
-                            # fallback used to crash pydantic validation and turn the degraded
-                            # error state into a 500.
-                            id=self.context["request"].query_params.get("client_query_id") or "",
-                            team_id=insight.team_id,
-                            insight_id=str(insight.id),
-                            dashboard_id=str(dashboard.id) if dashboard else None,
-                            error_message=str(e),
-                            error=True,
-                        )
-                    ),
-                    cache_key=None,
-                    hogql=None,
-                    columns=None,
-                    has_more=None,
-                    timezone=self.context["get_team"]().timezone,
                 )
+
+    def _degraded_insight_result(
+        self,
+        insight: Insight,
+        dashboard: Dashboard | None,
+        *,
+        error_message: str,
+        error_code: str | None,
+        last_refresh: datetime | None,
+    ) -> InsightResult:
+        """A 200 response carrying the failure on query_status, so a failing insight degrades in
+        place rather than failing the whole request. `error_code` lets the client tell a
+        deterministic query failure from a transient one."""
+        return InsightResult(
+            result=None,
+            last_refresh=last_refresh,
+            is_cached=False,
+            query_status=dict(
+                QueryStatus(
+                    # QueryStatus.id is a required str; without a client_query_id this
+                    # fallback used to crash pydantic validation and turn the degraded
+                    # error state into a 500.
+                    id=self.context["request"].query_params.get("client_query_id") or "",
+                    team_id=insight.team_id,
+                    insight_id=str(insight.id),
+                    dashboard_id=str(dashboard.id) if dashboard else None,
+                    error_message=error_message,
+                    error_code=error_code,
+                    error=True,
+                )
+            ),
+            cache_key=None,
+            hogql=None,
+            columns=None,
+            has_more=None,
+            timezone=self.context["get_team"]().timezone,
+        )
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:

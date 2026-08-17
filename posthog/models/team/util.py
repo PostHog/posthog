@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.apps import apps
+from django.db import connections
 
 import structlog
 
@@ -35,6 +36,18 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # 30 min is orders of magnitude above any healthy single-batch DELETE yet 4x under the 2h
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
+
+# The retired session-summary tables. products/replay/backend/migrations/0002_remove_session_summary_models.py
+# dropped their models from Django state only, so both the tables and their foreign keys on
+# posthog_team still exist in Postgres. Django's cascade cannot see them any more, and the
+# constraints are DEFERRABLE INITIALLY DEFERRED, so a leftover row fails the team delete at COMMIT
+# with an IntegrityError instead of at the DELETE statement. All three tables are dead: no Django
+# model reads or writes them. This list goes away with the migration that drops them.
+RETIRED_SESSION_SUMMARY_TABLES = (
+    "ee_group_session_summary",
+    "ee_single_session_summary",
+    "ee_teamsessionsummariesconfig",
+)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -87,6 +100,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
+    _delete_retired_session_summaries_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -103,6 +117,32 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
     Evaluation.objects.filter(team_id__in=team_ids).delete()
+
+
+def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    """Batch-delete the teams' rows in the retired session-summary tables.
+
+    A table is skipped when it no longer exists, so team deletion keeps working once the migration
+    that drops these tables lands.
+    """
+    if not team_ids:
+        return
+
+    db_connection = connections["default"]
+    for table in RETIRED_SESSION_SUMMARY_TABLES:
+        # The table name is a module constant, never user input, so interpolating it is safe.
+        statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s)", [table])
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                continue
+
+            while True:
+                cursor.execute(statement, [team_ids, batch_size])
+                if cursor.rowcount < batch_size:
+                    break
+                time.sleep(0.1)
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
