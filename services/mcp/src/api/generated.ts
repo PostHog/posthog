@@ -27198,7 +27198,7 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
-      /** Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied. Only applies when the experiment creates its flag; an existing linked flag keeps its own contexts. */
+      /** Evaluation contexts to apply to a newly created flag, controlling where it evaluates at runtime. When omitted, the team's default evaluation contexts are applied; an explicit empty list applies none. Only accepted when the experiment creates its flag: sending it on update is rejected, since an existing linked flag keeps its own contexts. Edit the feature flag directly to change them. */
       evaluation_contexts?: string[];
     }
 

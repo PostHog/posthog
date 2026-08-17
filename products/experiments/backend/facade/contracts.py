@@ -32,7 +32,8 @@ class CreateExperimentInput:
     parameters: dict[str, Any] | None = None
 
     # Feature flag configuration in the flag's own write shape:
-    # {filters: {multivariate, groups, aggregation_group_type_index, payloads}, ensure_experience_continuity}
+    # {filters: {multivariate, groups, aggregation_group_type_index, payloads},
+    #  ensure_experience_continuity, evaluation_contexts}
     feature_flag_config: dict[str, Any] | None = None
 
     # Running-time calculator state (minimum_detectable_effect, recommended_running_time,

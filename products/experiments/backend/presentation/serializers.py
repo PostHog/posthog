@@ -567,6 +567,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
         config_serializer.is_valid(raise_exception=True)
         config = dict(config_serializer.validated_data)
+        if self.instance is not None and "evaluation_contexts" in config:
+            # The update path only forwards filters and ensure_experience_continuity, so accepting
+            # this key would return 200 while changing nothing.
+            raise serializers.ValidationError(
+                {
+                    "feature_flag": "evaluation_contexts only applies when the experiment creates its "
+                    "flag. Edit the feature flag directly to change its evaluation contexts."
+                }
+            )
         self._assert_flag_variants_valid(config)
         data["feature_flag"] = config
         return data
@@ -916,8 +925,10 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
         required=False,
         help_text=(
             "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at "
-            "runtime. When omitted, the team's default evaluation contexts are applied. Only applies "
-            "when the experiment creates its flag; an existing linked flag keeps its own contexts."
+            "runtime. When omitted, the team's default evaluation contexts are applied; an explicit "
+            "empty list applies none. Only accepted when the experiment creates its flag: sending it "
+            "on update is rejected, since an existing linked flag keeps its own contexts. Edit the "
+            "feature flag directly to change them."
         ),
     )
 
