@@ -1,4 +1,7 @@
-import { channelDisplayName } from "@posthog/core/canvas/channelName";
+import {
+  channelDisplayName,
+  GENERAL_CHANNEL_NAME,
+} from "@posthog/core/canvas/channelName";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
@@ -18,11 +21,12 @@ export {
 /**
  * Backend task channels — the single channel identity (feed, threads,
  * instructions and canvases all hang off the same UUID). Listing also lazily
- * provisions the requester's #me channel.
+ * provisions the requester's #me channel and the team's shared #general channel.
  */
 export function useTaskChannels(options?: { enabled?: boolean }): {
   channels: TaskChannel[];
   personalChannel: TaskChannel | undefined;
+  generalChannel: TaskChannel | undefined;
   isLoading: boolean;
 } {
   const query = useAuthenticatedQuery<TaskChannel[]>(
@@ -46,7 +50,19 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
     () => channels.find((c) => c.channel_type === "personal"),
     [channels],
   );
-  return { channels, personalChannel, isLoading: query.isLoading };
+  const generalChannel = useMemo(
+    () =>
+      channels.find(
+        (c) => c.channel_type === "public" && c.name === GENERAL_CHANNEL_NAME,
+      ),
+    [channels],
+  );
+  return {
+    channels,
+    personalChannel,
+    generalChannel,
+    isLoading: query.isLoading,
+  };
 }
 
 export function useUpdateTaskChannelRepositories() {
