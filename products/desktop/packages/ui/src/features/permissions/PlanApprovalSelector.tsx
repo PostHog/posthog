@@ -13,6 +13,7 @@ import {
 } from "@posthog/ui/primitives/ActionSelector";
 import { Box, Flex, Text } from "@radix-ui/themes";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { buildPlanReviewFeedback, usePlanReviewStore } from "./planReview";
 import { type BasePermissionProps, toSelectorOptions } from "./types";
 
 const TITLE = "Implementation Plan";
@@ -88,6 +89,13 @@ export function PlanApprovalSelector({
     setExplicitMode(undefined);
   }
   const selectedMode = explicitMode ?? initialMode;
+  const reviewComments = usePlanReviewStore(
+    (state) => state.comments[toolCall.toolCallId] ?? [],
+  );
+  const clearReview = usePlanReviewStore((state) => state.clear);
+  const activeReviewComments = reviewComments.filter(
+    (comment) => !comment.stale,
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -140,6 +148,7 @@ export function PlanApprovalSelector({
     if (!selectedMode) return;
     // Remember this choice so the next plan approval pre-selects it.
     setLastApprovalMode(selectedMode as ExecutionMode);
+    clearReview(toolCall.toolCallId);
     onSelect(selectedMode);
   };
 
@@ -147,8 +156,13 @@ export function PlanApprovalSelector({
     const text = feedback.trim();
     // Exactly as before: reject requires feedback text; empty Enter is a no-op
     // (use Esc to dismiss the request without feedback).
-    if (!rejectOption || !text) return;
-    onSelect(rejectOption.optionId, text);
+    if (!rejectOption || (!text && activeReviewComments.length === 0)) return;
+    const reviewFeedback =
+      activeReviewComments.length > 0
+        ? buildPlanReviewFeedback(activeReviewComments, text)
+        : text;
+    onSelect(rejectOption.optionId, reviewFeedback);
+    clearReview(toolCall.toolCallId);
   };
 
   const moveSelection = (delta: number) => {
@@ -303,7 +317,11 @@ export function PlanApprovalSelector({
                   <Box className="min-w-0 flex-1 leading-4">
                     <InlineEditableText
                       value={feedback}
-                      placeholder="Type here to tell the agent what to do differently"
+                      placeholder={
+                        activeReviewComments.length > 0
+                          ? `${activeReviewComments.length} review comment${activeReviewComments.length === 1 ? "" : "s"} ready. Add more feedback if needed.`
+                          : "Type here to tell the agent what to do differently"
+                      }
                       active={rejectSelected}
                       onChange={setFeedback}
                       onNavigateUp={() => selectRow(0)}

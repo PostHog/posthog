@@ -68,7 +68,7 @@ export function PlanApprovalView({
               <ModelSelector taskId={taskId} />
             </Flex>
           )}
-          <PlanContent id={toolCall.toolCallId} plan={planText} />
+          <PlanContent id={toolCall.toolCallId} plan={planText} reviewable />
         </>
       )}
 

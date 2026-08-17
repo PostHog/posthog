@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PlanApprovalSelector } from "./PlanApprovalSelector";
+import { usePlanReviewStore } from "./planReview";
 import type { PermissionToolCall } from "./types";
 
 const AUTO: PermissionOption = {
@@ -60,6 +61,7 @@ describe("PlanApprovalSelector", () => {
   beforeEach(() => {
     // Reset the remembered choice so tests don't leak through persistence.
     useSettingsStore.setState({ lastPlanApprovalMode: null });
+    usePlanReviewStore.getState().clear("plan-1");
   });
 
   it.each([
@@ -198,6 +200,33 @@ describe("PlanApprovalSelector", () => {
       "reject_with_feedback",
       "please use hooks",
     );
+  });
+
+  it("submits section comments as structured rejection feedback", async () => {
+    const user = userEvent.setup();
+    usePlanReviewStore.getState().addComment("plan-1", {
+      sectionId: "api",
+      sectionTitle: "Update the API",
+      sectionContent: "## Update the API\nChange the endpoint.",
+      text: "Keep the existing endpoint.",
+    });
+    const { onSelect } = renderSelector([DEFAULT_MODE, REJECT]);
+
+    await user.click(screen.getByText("2."));
+    await user.type(
+      screen.getByPlaceholderText(/review comment/i),
+      "also document the migration{Enter}",
+    );
+
+    expect(onSelect).toHaveBeenCalledWith(
+      "reject_with_feedback",
+      expect.stringContaining('Section "Update the API"'),
+    );
+    expect(onSelect).toHaveBeenCalledWith(
+      "reject_with_feedback",
+      expect.stringContaining("also document the migration"),
+    );
+    expect(usePlanReviewStore.getState().comments["plan-1"]).toBeUndefined();
   });
 
   it("does not reject on empty feedback (Enter is a no-op, exactly as before)", async () => {
