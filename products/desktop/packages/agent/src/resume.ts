@@ -53,6 +53,9 @@ export interface ResumeConfig {
   repositoryPath?: string;
   apiClient: PostHogAPIClient;
   logger?: Logger;
+  // Fold the log directly, ignoring any stored snapshot (used by the teardown
+  // write path so it refreshes the snapshot instead of rewriting a stale one).
+  skipSnapshot?: boolean;
 }
 
 /**
@@ -79,6 +82,7 @@ export async function resumeFromLog(
     repositoryPath: config.repositoryPath,
     apiClient: config.apiClient,
     logger,
+    skipSnapshot: config.skipSnapshot,
   });
 
   if (!result.success) {

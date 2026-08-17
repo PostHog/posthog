@@ -806,6 +806,34 @@ describe("ResumeSaga", () => {
       expect(mockApiClient.fetchTaskRunLogs).not.toHaveBeenCalled();
     });
 
+    it("folds the log and ignores the snapshot when skipSnapshot is set", async () => {
+      // The teardown write path reuses this saga to refresh the snapshot, so it
+      // must fold the current log rather than read back the stale snapshot it is
+      // about to overwrite.
+      (
+        mockApiClient.fetchTaskRunResumeState as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(snapshot);
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([createUserMessage("fresh")]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+        skipSnapshot: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockApiClient.fetchTaskRunResumeState).not.toHaveBeenCalled();
+      expect(mockApiClient.fetchTaskRunLogs).toHaveBeenCalled();
+    });
+
     it.each([
       ["a rejected request", undefined, true],
       ["a malformed payload", { conversation: "nope" }, false],

@@ -32,6 +32,10 @@ export interface ResumeInput {
   repositoryPath?: string;
   apiClient: PostHogAPIClient;
   logger?: Logger;
+  // Fold the log directly, ignoring any stored snapshot. The teardown write
+  // path sets this so it refreshes the snapshot from the current log instead of
+  // reading the stale object it is about to overwrite.
+  skipSnapshot?: boolean;
 }
 
 export interface ResumeOutput {
@@ -76,26 +80,30 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   protected async execute(input: ResumeInput): Promise<ResumeOutput> {
     const { taskId, runId, apiClient } = input;
 
-    // The prior run folded this at teardown; replaying its whole log is the fallback.
-    const snapshot = await this.readOnlyStep(
-      "fetch_resume_snapshot",
-      async () => {
-        try {
-          return parseResumeSnapshot(
-            await apiClient.fetchTaskRunResumeState(taskId, runId),
-          );
-        } catch {
-          return null;
-        }
-      },
-    );
+    // The prior run folded this at teardown; replaying its whole log is the
+    // fallback. Skipped on the teardown write path itself, which must fold the
+    // current log rather than re-read the snapshot it is refreshing.
+    if (!input.skipSnapshot) {
+      const snapshot = await this.readOnlyStep(
+        "fetch_resume_snapshot",
+        async () => {
+          try {
+            return parseResumeSnapshot(
+              await apiClient.fetchTaskRunResumeState(taskId, runId),
+            );
+          } catch {
+            return null;
+          }
+        },
+      );
 
-    if (snapshot) {
-      this.log.info("Resumed from snapshot", {
-        turns: snapshot.conversation.length,
-        logEntryCount: snapshot.logEntryCount,
-      });
-      return snapshot;
+      if (snapshot) {
+        this.log.info("Resumed from snapshot", {
+          turns: snapshot.conversation.length,
+          logEntryCount: snapshot.logEntryCount,
+        });
+        return snapshot;
+      }
     }
 
     // Step 1: Fetch task run (read-only)

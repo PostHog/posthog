@@ -889,6 +889,11 @@ export class AgentServer {
         repositoryPath: this.config.repositoryPath,
         apiClient: this.posthogAPI,
         logger: new Logger({ debug: true, prefix: "[ResumeSnapshot]" }),
+        // Always fold the current log. A run with more than one sandbox lifecycle
+        // (handoff resume reuses the same run id) reaches this a second time with a
+        // snapshot already stored; without this it would rewrite that stale snapshot
+        // and drop every turn appended since the first teardown.
+        skipSnapshot: true,
       });
 
       if (state.conversation.length === 0) return;
