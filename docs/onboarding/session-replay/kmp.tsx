@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent, snippets } = ctx
     const SessionReplayFinalSteps = snippets?.SessionReplayFinalSteps
 
     return [
@@ -57,9 +57,8 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             content: (
                 <>
                     <Markdown>
-                        Pass a `SessionRecordingConfig` to `PostHogConfig`. This is shared code – the only per-platform
-                        difference is how you build `PostHogContext` (`PostHogContext(application)` on Android,
-                        `PostHogContext()` everywhere else). Here are all the available options:
+                        Pass a `SessionRecordingConfig` to `PostHogConfig` from shared code. Here are all the available
+                        options:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -104,12 +103,52 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             debouncerDelayMs = 1000L,
                                         ),
                                     )
-
-                                    PostHog.setup(config = config, context = PostHogContext())
                                 `,
                             },
                         ]}
                     />
+                    <Markdown>
+                        Pass that config to `PostHog.setup()`. Android needs the `Application` instance, so it takes
+                        `PostHogContext(application)` – every other target takes the no-argument `PostHogContext()`.
+                    </Markdown>
+                    <Tab.Group tabs={['Android', 'iOS and web']}>
+                        <Tab.Panels>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    blocks={[
+                                        {
+                                            language: 'kotlin',
+                                            file: 'MyApplication.kt',
+                                            code: dedent`
+                                                import android.app.Application
+
+                                                class MyApplication : Application() {
+                                                    override fun onCreate() {
+                                                        super.onCreate()
+
+                                                        PostHog.setup(config = config, context = PostHogContext(this))
+                                                    }
+                                                }
+                                            `,
+                                        },
+                                    ]}
+                                />
+                            </Tab.Panel>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    blocks={[
+                                        {
+                                            language: 'kotlin',
+                                            file: 'Kotlin',
+                                            code: dedent`
+                                                PostHog.setup(config = config, context = PostHogContext())
+                                            `,
+                                        },
+                                    ]}
+                                />
+                            </Tab.Panel>
+                        </Tab.Panels>
+                    </Tab.Group>
                     <Markdown>
                         For more configuration options, see the [Kotlin Multiplatform session replay
                         docs](https://posthog.com/docs/libraries/kmp#session-replay).
