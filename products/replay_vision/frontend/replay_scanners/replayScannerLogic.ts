@@ -878,13 +878,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 } catch (error: any) {
                     // The API names the field it rejected, but the save button sits on the last step, so
                     // route back to the step rendering that field instead of leaving an unattributed toast.
-                    const erroredStep = error.attr && error.detail ? scannerStepForField(error.attr) : null
-                    if (erroredStep) {
-                        // scanner_config's form error is an object its sub-fields render, so it only routes.
-                        if (error.attr !== 'scanner_config') {
-                            actions.setScannerManualErrors({ [error.attr]: error.detail })
+                    // A nested serializer error arrives as `parent__child`, so the root picks the step.
+                    const attr: string | null = typeof error.attr === 'string' ? error.attr : null
+                    const attrRoot = attr ? attr.split('__')[0] : null
+                    const erroredStep = attrRoot && error.detail ? scannerStepForField(attrRoot) : null
+                    if (attrRoot && erroredStep) {
+                        // Only a flat field can display the API's string. scanner_config's form error is an
+                        // object its own sub-fields render, and a nested attr has no single field to hang on.
+                        if (attr === attrRoot && attrRoot !== 'scanner_config') {
+                            actions.setScannerManualErrors({ [attrRoot]: error.detail })
                         }
-                        router.actions.push(scannerStepUrl(erroredStep, props.id))
+                        // ?template drives the type selector, so the hop back has to keep it like every other.
+                        router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                         lemonToast.error(error.detail)
                         throw error
                     }

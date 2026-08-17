@@ -1,5 +1,8 @@
+import { visionScannersCreateBodyCreditLimitMax, visionScannersCreateBodyDescriptionMax } from '../generated/api.zod'
 import {
     type FailureKind,
+    MAX_CREDIT_LIMIT,
+    MAX_DESCRIPTION_LENGTH,
     type ModelNamingVariant,
     failureRetryGuidance,
     getModelOptions,
@@ -111,6 +114,18 @@ describe('scanner type helpers', () => {
         it('falls back to the raw id for retired models frozen in old observation snapshots', () => {
             expect(modelLabel('gemini-1.5-retired', 'test')).toBe('gemini-1.5-retired')
             expect(modelLabel('gemini-1.5-retired', null)).toBe('gemini-1.5-retired')
+        })
+    })
+
+    describe('API bounds', () => {
+        // Hand-mirrored rather than imported so the zod module stays out of the bundle, which leaves
+        // them free to drift. A stale cap is the bug the description counter exists to prevent: the
+        // field would stop short of, or run past, what the API actually accepts.
+        it.each([
+            ['MAX_DESCRIPTION_LENGTH', MAX_DESCRIPTION_LENGTH, visionScannersCreateBodyDescriptionMax],
+            ['MAX_CREDIT_LIMIT', MAX_CREDIT_LIMIT, visionScannersCreateBodyCreditLimitMax],
+        ])('%s still matches the generated schema', (_name, mirrored, generated) => {
+            expect(mirrored).toBe(generated)
         })
     })
 })

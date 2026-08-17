@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
+import type { ScannerFormValues } from './types'
+
 export type ScannerEditorStep = 'template' | 'details' | 'configure' | 'triggers' | 'budget'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
     'template',
@@ -52,16 +54,18 @@ export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEdit
 /**
  * Which step renders each field the API can reject on save. The save button lives on the last step,
  * so without this a rejected field two steps back surfaces as a toast naming no field at all.
+ * Keyed on the form values so a renamed or dropped API field fails typecheck here.
  */
-const SCANNER_FIELD_STEPS: Record<string, ScannerEditorStep> = {
+const SCANNER_FIELD_STEPS: Partial<Record<keyof ScannerFormValues, ScannerEditorStep>> = {
     name: 'details',
     description: 'details',
     tags: 'details',
     scanner_type: 'configure',
     scanner_config: 'configure',
     model: 'configure',
+    emits_signals: 'configure',
     query: 'triggers',
-    duration: 'triggers',
+    experiment_targeting: 'triggers',
     sampling_rate: 'budget',
     sampling_mode: 'budget',
     credit_limit: 'budget',
@@ -69,7 +73,7 @@ const SCANNER_FIELD_STEPS: Record<string, ScannerEditorStep> = {
 
 /** Step owning the field the API rejected, or null for a field the editor doesn't render. */
 export function scannerStepForField(field: string): ScannerEditorStep | null {
-    return SCANNER_FIELD_STEPS[field] ?? null
+    return SCANNER_FIELD_STEPS[field as keyof ScannerFormValues] ?? null
 }
 
 /**
