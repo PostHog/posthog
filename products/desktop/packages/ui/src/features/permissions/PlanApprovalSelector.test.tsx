@@ -59,7 +59,6 @@ function renderSelector(options: PermissionOption[]) {
 
 describe("PlanApprovalSelector", () => {
   beforeEach(() => {
-    // Reset the remembered choice so tests don't leak through persistence.
     useSettingsStore.setState({ lastPlanApprovalMode: null });
     usePlanReviewStore.getState().clear("plan-1");
   });

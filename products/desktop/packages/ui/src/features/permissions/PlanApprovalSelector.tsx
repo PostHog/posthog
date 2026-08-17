@@ -24,10 +24,14 @@ function isElementInDifferentCell(
   containerRef: React.RefObject<HTMLDivElement | null>,
 ): boolean {
   const el = document.activeElement;
-  if (!(el instanceof HTMLElement)) return false;
+  if (!(el instanceof HTMLElement)) {
+    return false;
+  }
   const activeCell = el.closest("[data-grid-cell]");
   const ownCell = containerRef.current?.closest("[data-grid-cell]");
-  if (activeCell && ownCell && activeCell !== ownCell) return true;
+  if (activeCell && ownCell && activeCell !== ownCell) {
+    return true;
+  }
   const isInteractive =
     el.tagName === "INPUT" ||
     el.tagName === "TEXTAREA" ||
@@ -96,6 +100,13 @@ export function PlanApprovalSelector({
   const activeReviewComments = reviewComments.filter(
     (comment) => !comment.stale,
   );
+  const activeReviewCommentCount = activeReviewComments.length;
+  const reviewCommentNoun =
+    activeReviewCommentCount === 1 ? "comment" : "comments";
+  const feedbackPlaceholder =
+    activeReviewCommentCount > 0
+      ? `${activeReviewCommentCount} review ${reviewCommentNoun} ready. Add more feedback if needed.`
+      : "Type here to tell the agent what to do differently";
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -141,12 +152,15 @@ export function PlanApprovalSelector({
   const selectRow = (index: number) => {
     setHoveredIndex(null);
     setSelectedIndex(index);
-    if (index !== rejectIndex) containerRef.current?.focus();
+    if (index !== rejectIndex) {
+      containerRef.current?.focus();
+    }
   };
 
   const approve = () => {
-    if (!selectedMode) return;
-    // Remember this choice so the next plan approval pre-selects it.
+    if (!selectedMode) {
+      return;
+    }
     setLastApprovalMode(selectedMode as ExecutionMode);
     clearReview(toolCall.toolCallId);
     onSelect(selectedMode);
@@ -154,13 +168,18 @@ export function PlanApprovalSelector({
 
   const submitReject = () => {
     const text = feedback.trim();
-    // Exactly as before: reject requires feedback text; empty Enter is a no-op
-    // (use Esc to dismiss the request without feedback).
-    if (!rejectOption || (!text && activeReviewComments.length === 0)) return;
-    const reviewFeedback =
-      activeReviewComments.length > 0
-        ? buildPlanReviewFeedback(activeReviewComments, text)
-        : text;
+    if (!rejectOption) {
+      return;
+    }
+    if (!text && activeReviewCommentCount === 0) {
+      return;
+    }
+
+    let reviewFeedback = text;
+    if (activeReviewCommentCount > 0) {
+      reviewFeedback = buildPlanReviewFeedback(activeReviewComments, text);
+    }
+
     onSelect(rejectOption.optionId, reviewFeedback);
     clearReview(toolCall.toolCallId);
   };
@@ -170,9 +189,13 @@ export function PlanApprovalSelector({
   };
 
   const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) {
+      return;
+    }
     // The reject textarea owns the keyboard while it's the selected row.
-    if (rejectSelected) return;
+    if (rejectSelected) {
+      return;
+    }
     switch (e.key) {
       case "ArrowUp":
         e.preventDefault();
@@ -196,8 +219,11 @@ export function PlanApprovalSelector({
           const idx = Number.parseInt(e.key, 10) - 1;
           if (idx < rowCount) {
             e.preventDefault();
-            if (idx === 0) approve();
-            else selectRow(idx);
+            if (idx === 0) {
+              approve();
+            } else {
+              selectRow(idx);
+            }
           }
         }
     }
@@ -255,7 +281,9 @@ export function PlanApprovalSelector({
       tabIndex={0}
       onKeyDown={handleContainerKeyDown}
       onClick={(e) => {
-        if (e.target === containerRef.current) containerRef.current?.focus();
+        if (e.target === containerRef.current) {
+          containerRef.current?.focus();
+        }
       }}
       p="3"
       className="rounded-(--radius-3) border border-(--gray-6) bg-(--gray-1) outline-none"
@@ -317,11 +345,7 @@ export function PlanApprovalSelector({
                   <Box className="min-w-0 flex-1 leading-4">
                     <InlineEditableText
                       value={feedback}
-                      placeholder={
-                        activeReviewComments.length > 0
-                          ? `${activeReviewComments.length} review comment${activeReviewComments.length === 1 ? "" : "s"} ready. Add more feedback if needed.`
-                          : "Type here to tell the agent what to do differently"
-                      }
+                      placeholder={feedbackPlaceholder}
                       active={rejectSelected}
                       onChange={setFeedback}
                       onNavigateUp={() => selectRow(0)}

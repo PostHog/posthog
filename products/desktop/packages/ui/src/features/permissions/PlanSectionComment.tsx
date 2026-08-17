@@ -27,7 +27,9 @@ export function PlanSectionComment({
 
   const submit = () => {
     const value = text.trim();
-    if (value) onSubmit(value);
+    if (value) {
+      onSubmit(value);
+    }
   };
 
   return (

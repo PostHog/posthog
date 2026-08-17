@@ -38,17 +38,15 @@ function uniqueId(value: string, seen: Set<string>): string {
 
 export function splitPlanSections(plan: string): PlanSection[] {
   const lines = plan.split("\n");
-  const starts = lines
+  const headingStarts = lines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) => /^(#{1,6})\s+\S/.test(line));
+  let starts = headingStarts;
 
   if (starts.length === 0) {
-    const stepStarts = lines
+    starts = lines
       .map((line, index) => ({ line, index }))
       .filter(({ line }) => /^\s*\d+[.)]\s+\S/.test(line));
-    if (stepStarts.length > 0) {
-      starts.push(...stepStarts.map(({ line, index }) => ({ line, index })));
-    }
   }
 
   if (starts.length === 0) {
@@ -127,22 +125,24 @@ export const usePlanReviewStore = create<PlanReviewState>()((set) => ({
     set((state) => ({
       comments: {
         ...state.comments,
-        [planId]: (state.comments[planId] ?? []).map((comment) =>
-          comment.id === commentId
-            ? {
-                ...comment,
-                text,
-                ...(section
-                  ? {
-                      sectionId: section.id,
-                      sectionTitle: section.title,
-                      sectionContent: section.content,
-                      stale: false,
-                    }
-                  : {}),
-              }
-            : comment,
-        ),
+        [planId]: (state.comments[planId] ?? []).map((comment) => {
+          if (comment.id !== commentId) {
+            return comment;
+          }
+
+          const updatedComment = { ...comment, text };
+          if (!section) {
+            return updatedComment;
+          }
+
+          return {
+            ...updatedComment,
+            sectionId: section.id,
+            sectionTitle: section.title,
+            sectionContent: section.content,
+            stale: false,
+          };
+        }),
       },
     })),
   removeComment: (planId, commentId) =>
@@ -157,20 +157,26 @@ export const usePlanReviewStore = create<PlanReviewState>()((set) => ({
   reconcile: (planId, sections) =>
     set((state) => {
       const existing = state.comments[planId];
-      if (!existing) return state;
+      if (!existing) {
+        return state;
+      }
+
       const sectionMap = new Map(
         sections.map((section) => [section.id, section]),
       );
       const next = existing.map((comment) => {
         const section = sectionMap.get(comment.sectionId);
+        const sectionChanged =
+          !section ||
+          section.content !== comment.sectionContent ||
+          section.title !== comment.sectionTitle;
+
         return {
           ...comment,
-          stale:
-            !section ||
-            section.content !== comment.sectionContent ||
-            section.title !== comment.sectionTitle,
+          stale: sectionChanged,
         };
       });
+
       return { comments: { ...state.comments, [planId]: next } };
     }),
   clear: (planId) =>
