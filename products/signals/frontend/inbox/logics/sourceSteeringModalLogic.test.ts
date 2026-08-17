@@ -13,7 +13,7 @@ const sourceConfig: SignalSourceConfig = {
     source_type: SignalSourceType.Ticket,
     enabled: true,
     // A key steering does not own, to prove saves merge rather than clobber.
-    config: { recording_filters: { events: [] }, steering: 'old rules' },
+    config: { recording_filters: { events: [] }, steering: 'old rules', default_not_actionable: true },
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     status: null,
@@ -54,11 +54,10 @@ describe('sourceSteeringModalLogic', () => {
         logic?.unmount()
     })
 
-    it('saves the whole config with trimmed steering keys merged in, keeping keys it does not own', async () => {
-        expect(logic.values.sourceSteering).toEqual({ steering: 'old rules', defaultNotActionable: false })
+    it('saves the whole config with trimmed steering merged in, keeping keys it does not own and dropping the retired posture flag', async () => {
+        expect(logic.values.sourceSteering).toEqual({ steering: 'old rules' })
 
         logic.actions.setSourceSteeringValue('steering', '  skip chores  ')
-        logic.actions.setSourceSteeringValue('defaultNotActionable', true)
         await expectLogic(logic, () => {
             logic.actions.submitSourceSteering()
         }).toDispatchActions(['submitSourceSteeringSuccess'])
@@ -68,7 +67,6 @@ describe('sourceSteeringModalLogic', () => {
                 config: {
                     recording_filters: { events: [] },
                     steering: 'skip chores',
-                    default_not_actionable: true,
                 },
             },
         ])
@@ -102,7 +100,6 @@ describe('sourceSteeringModalLogic', () => {
         expect(signalSourcesLogic.values.sourceConfigs?.[0]?.config).toEqual({
             recording_filters: { events: [] },
             steering: 'fresh rules',
-            default_not_actionable: false,
         })
         expect(signalSourcesLogic.values.sourceConfigs?.[0]?.status).toEqual('completed')
     })
@@ -111,13 +108,13 @@ describe('sourceSteeringModalLogic', () => {
         logic.unmount()
         const reloaded = {
             ...sourceConfig,
-            config: { ...sourceConfig.config, steering: 'saved rules', default_not_actionable: true },
+            config: { ...sourceConfig.config, steering: 'saved rules' },
             updated_at: '2026-08-02T00:00:00Z',
         }
         logic = sourceSteeringModalLogic({ sourceConfig: reloaded, onClose })
         logic.mount()
 
-        expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules', defaultNotActionable: true })
+        expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules' })
     })
 
     it('rejects rules over the server cap without issuing a request', async () => {
