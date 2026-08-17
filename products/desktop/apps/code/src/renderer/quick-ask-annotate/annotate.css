@@ -40,7 +40,8 @@ body,
 /* ── Floating chrome ─────────────────────────────────── */
 
 .an-hint,
-.an-toolbar {
+.an-toolbar,
+.an-subbar {
   position: fixed;
   background: var(--an-glass);
   backdrop-filter: blur(22px) saturate(1.4);
@@ -90,6 +91,65 @@ body,
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--an-fg-dim);
+}
+
+/* Contextual options row under the main toolbar. */
+.an-subbar {
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 11px;
+  cursor: default;
+  animation: an-hint-rise 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.an-sub-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--an-fg-dim);
+  margin-right: 2px;
+}
+
+.an-sub-size {
+  font: 600 10px var(--an-font);
+  color: var(--an-fg-dim);
+}
+
+.an-sub-size-big {
+  font-size: 15px;
+}
+
+.an-sub-value {
+  min-width: 20px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--an-fg);
+}
+
+.an-subbar input[type="range"] {
+  width: 120px;
+  height: 3px;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.an-subbar input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes an-hint-rise {
@@ -240,9 +300,22 @@ body,
   color: rgba(255, 255, 255, 0.35);
 }
 
+/* Background-on editing shows the pill exactly as it will export. */
+.an-text-solid {
+  margin: 0;
+  border: none;
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.an-text-solid::placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .an-hint,
-  .an-toolbar {
+  .an-toolbar,
+  .an-subbar {
     animation: none;
   }
 }

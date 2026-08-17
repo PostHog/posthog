@@ -1,16 +1,23 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  contrastInk,
   drawShape,
   hitShape,
-  LINE_WIDTH,
   normalizeRect,
   type Point,
   type Rect,
   type Shape,
   shapeBBox,
-  TEXT_FONT,
+  TEXT_BG_PAD_X,
+  TEXT_BG_PAD_Y,
+  TEXT_LINE,
+  TEXT_MAX_SIZE,
+  TEXT_MIN_SIZE,
+  TEXT_MIN_WIDTH,
+  TEXT_SIZE,
   type Tool,
+  textFont,
   translateShape,
 } from "./shapes";
 import { ToolIcon } from "./ToolIcon";
@@ -135,7 +142,29 @@ type Drag =
       index: number;
       orig: Shape[];
       moved: boolean;
+    }
+  | {
+      mode: "resize-text";
+      index: number;
+      edge: "e" | "w";
+      orig: Shape[];
+      moved: boolean;
     };
+
+function pointOf(event: React.MouseEvent): Point {
+  return { x: event.clientX, y: event.clientY };
+}
+
+/** Side-handle midpoints on a selected text shape's frame. */
+function textEdgePoints(shape: Shape): { e: Point; w: Point } | null {
+  if (shape.kind !== "text") return null;
+  const box = shapeBBox(shape);
+  const cy = box.y + box.h / 2;
+  return {
+    w: { x: box.x - 5, y: cy },
+    e: { x: box.x + box.w + 5, y: cy },
+  };
+}
 
 export function Annotate(): React.JSX.Element {
   const [shot, setShot] = useState<HTMLImageElement | null>(null);
@@ -144,7 +173,8 @@ export function Annotate(): React.JSX.Element {
   const [color, setColor] = useState(COLORS[0]);
   const [doc, setDoc] = useState<Doc>({ past: [], shapes: [], future: [] });
   const [selected, setSelected] = useState<number | null>(null);
-  const [textBg, setTextBg] = useState(false);
+  const [textBg, setTextBg] = useState(true);
+  const [textSize, setTextSize] = useState(TEXT_SIZE);
   const [draft, setDraft] = useState<Shape | null>(null);
   const [textDraft, setTextDraft] = useState<Point | null>(null);
   const [cursor, setCursor] = useState("crosshair");
@@ -211,10 +241,11 @@ export function Annotate(): React.JSX.Element {
           text: value.trimEnd(),
           color,
           bg: textBg,
+          size: textSize,
         });
       }
     },
-    [textDraft, color, textBg, pushShape],
+    [textDraft, color, textBg, textSize, pushShape],
   );
 
   const undo = useCallback((): void => {
@@ -274,6 +305,43 @@ export function Annotate(): React.JSX.Element {
     }
   }, [selected, shapes, commit]);
 
+  const pickTextSize = useCallback(
+    (value: number): void => {
+      setTextSize(value);
+      if (selected !== null && shapes[selected]?.kind === "text") {
+        // Live slider drags collapse into the last history entry.
+        setDoc((current) => ({
+          ...current,
+          shapes: current.shapes.map((shape, index) =>
+            index === selected && shape.kind === "text"
+              ? { ...shape, size: value }
+              : shape,
+          ),
+        }));
+      }
+    },
+    [selected, shapes],
+  );
+
+  // The slider's drag is one undo step: capture on grab, record on release.
+  const sizeDragOrig = useRef<Shape[] | null>(null);
+
+  const grabTextSize = useCallback((): void => {
+    sizeDragOrig.current =
+      selected !== null && shapes[selected]?.kind === "text" ? shapes : null;
+  }, [selected, shapes]);
+
+  const releaseTextSize = useCallback((): void => {
+    const orig = sizeDragOrig.current;
+    sizeDragOrig.current = null;
+    if (!orig) return;
+    setDoc((current) =>
+      current.shapes === orig
+        ? current
+        : { ...current, past: [...current.past, orig], future: [] },
+    );
+  }, []);
+
   const finish = useCallback((): void => {
     if (!shot) return;
     if (textDraft) commitText(true);
@@ -326,8 +394,12 @@ export function Annotate(): React.JSX.Element {
         }
         return;
       }
-      // The text editor owns every other key while open.
+      // The text editor or a focused control owns every other key.
       if (textDraft) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+        return;
+      }
       if (event.key === "Enter") {
         finish();
         return;
@@ -413,18 +485,21 @@ export function Annotate(): React.JSX.Element {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !shot) return;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Render at device resolution; 1x looks soft on Retina screens.
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
     const draftCrop =
       !crop && drag.current?.mode === "select" && draft?.kind === "rect"
         ? draft.rect
         : null;
     const hole = crop ?? draftCrop;
     ctx.fillStyle = "rgba(6, 7, 10, 0.52)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
     if (hole) {
       ctx.clearRect(hole.x, hole.y, hole.w, hole.h);
     }
@@ -443,6 +518,19 @@ export function Annotate(): React.JSX.Element {
       ctx.setLineDash([5, 4]);
       ctx.strokeRect(box.x - 5, box.y - 5, box.w + 10, box.h + 10);
       ctx.setLineDash([]);
+      const edges = textEdgePoints(active);
+      if (edges) {
+        // Side handles set the wrap width.
+        for (const at of [edges.w, edges.e]) {
+          ctx.beginPath();
+          ctx.arc(at.x, at.y, 4.5, 0, Math.PI * 2);
+          ctx.fillStyle = "#ffffff";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.45)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
     }
     if (hole) {
       // Hairline light frame with a soft halo, readable on any content.
@@ -466,11 +554,6 @@ export function Annotate(): React.JSX.Element {
       }
     }
   }, [shot, crop, shapes, draft, selected, scaleX, scaleY]);
-
-  const pointOf = (event: React.MouseEvent): Point => ({
-    x: event.clientX,
-    y: event.clientY,
-  });
 
   const topShapeAt = useCallback(
     (point: Point): number | null => {
@@ -505,6 +588,26 @@ export function Annotate(): React.JSX.Element {
         return;
       }
       if (tool === "select") {
+        const active = selected !== null ? shapes[selected] : null;
+        const edges = active ? textEdgePoints(active) : null;
+        if (edges && selected !== null) {
+          for (const edge of ["w", "e"] as const) {
+            const at = edges[edge];
+            if (
+              Math.abs(from.x - at.x) <= HANDLE_HIT_PX &&
+              Math.abs(from.y - at.y) <= HANDLE_HIT_PX
+            ) {
+              drag.current = {
+                mode: "resize-text",
+                index: selected,
+                edge,
+                orig: shapes,
+                moved: false,
+              };
+              return;
+            }
+          }
+        }
         const index = topShapeAt(from);
         setSelected(index);
         if (index !== null) {
@@ -553,6 +656,7 @@ export function Annotate(): React.JSX.Element {
       spaceHeld,
       textDraft,
       shapes,
+      selected,
       commitText,
       topShapeAt,
       pushShape,
@@ -567,18 +671,30 @@ export function Annotate(): React.JSX.Element {
         // Hover feedback only: resize cursors on handles, move over shapes.
         if (crop) {
           const handle = hitHandle(crop, to);
+          const activeShape = selected !== null ? shapes[selected] : null;
+          const edges = activeShape ? textEdgePoints(activeShape) : null;
+          const onTextEdge =
+            tool === "select" &&
+            edges &&
+            [edges.w, edges.e].some(
+              (at) =>
+                Math.abs(to.x - at.x) <= HANDLE_HIT_PX &&
+                Math.abs(to.y - at.y) <= HANDLE_HIT_PX,
+            );
           setCursor(
             handle
               ? HANDLE_CURSORS[handle]
-              : spaceHeld && inside(crop, to)
-                ? "grab"
-                : tool === "select"
-                  ? topShapeAt(to) !== null
-                    ? "move"
-                    : "default"
-                  : tool === "text"
-                    ? "text"
-                    : "crosshair",
+              : onTextEdge
+                ? "ew-resize"
+                : spaceHeld && inside(crop, to)
+                  ? "grab"
+                  : tool === "select"
+                    ? topShapeAt(to) !== null
+                      ? "move"
+                      : "default"
+                    : tool === "text"
+                      ? "text"
+                      : "crosshair",
           );
         }
         return;
@@ -611,6 +727,29 @@ export function Annotate(): React.JSX.Element {
         }));
         return;
       }
+      if (active.mode === "resize-text") {
+        active.moved = true;
+        setDoc((current) => ({
+          ...current,
+          shapes: active.orig.map((shape, index) => {
+            if (index !== active.index || shape.kind !== "text") return shape;
+            const pad = shape.bg ? TEXT_BG_PAD_X : 0;
+            const box = shapeBBox(shape);
+            const contentW = box.w - pad * 2;
+            if (active.edge === "e") {
+              const width = Math.max(
+                to.x - 5 - pad - shape.at.x,
+                TEXT_MIN_WIDTH,
+              );
+              return { ...shape, width };
+            }
+            const right = shape.at.x + contentW;
+            const x = Math.min(to.x + 5 + pad, right - TEXT_MIN_WIDTH);
+            return { ...shape, at: { ...shape.at, x }, width: right - x };
+          }),
+        }));
+        return;
+      }
       setDraft((current) => {
         if (!current) return current;
         if (current.kind === "pen") {
@@ -625,7 +764,7 @@ export function Annotate(): React.JSX.Element {
         return current;
       });
     },
-    [crop, tool, spaceHeld, topShapeAt],
+    [crop, tool, spaceHeld, selected, shapes, topShapeAt],
   );
 
   const onMouseUp = useCallback((): void => {
@@ -633,7 +772,7 @@ export function Annotate(): React.JSX.Element {
     drag.current = null;
     if (!active) return;
     if (active.mode === "resize" || active.mode === "move") return;
-    if (active.mode === "move-shape") {
+    if (active.mode === "move-shape" || active.mode === "resize-text") {
       // One history entry per completed move.
       if (active.moved) {
         setDoc((current) => ({
@@ -675,11 +814,15 @@ export function Annotate(): React.JSX.Element {
   const exportW = crop ? Math.round(crop.w * scaleX) : 0;
   const exportH = crop ? Math.round(crop.h * scaleY) : 0;
   const selectedShape = selected !== null ? shapes[selected] : null;
-  const showTextBg = tool === "text" || selectedShape?.kind === "text";
-  const textBgOn = selectedShape?.kind === "text" ? selectedShape.bg : textBg;
+  const selectedText = selectedShape?.kind === "text" ? selectedShape : null;
+  const showTextOptions = tool === "text" || selectedText !== null;
+  const textBgOn = selectedText ? selectedText.bg : textBg;
+  const textSizeOn = selectedText ? selectedText.size : textSize;
 
   return (
     <div
+      role="application"
+      aria-label="Screenshot annotator"
       className="an-root"
       style={{ cursor }}
       onMouseDown={onMouseDown}
@@ -700,6 +843,7 @@ export function Annotate(): React.JSX.Element {
 
       {crop && (
         <div
+          role="toolbar"
           className="an-toolbar"
           onMouseDown={(event) => event.stopPropagation()}
         >
@@ -715,17 +859,6 @@ export function Annotate(): React.JSX.Element {
               <ToolIcon tool={entry.tool} />
             </button>
           ))}
-          {showTextBg && (
-            <button
-              type="button"
-              aria-label="Text background"
-              title="Text background"
-              className={textBgOn ? "an-tool an-active" : "an-tool"}
-              onClick={toggleTextBg}
-            >
-              <ToolIcon tool="text-bg" />
-            </button>
-          )}
           <span className="an-sep" />
           {COLORS.map((value) => (
             <button
@@ -788,17 +921,64 @@ export function Annotate(): React.JSX.Element {
         </div>
       )}
 
+      {crop && showTextOptions && (
+        <div
+          role="toolbar"
+          className="an-subbar"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <span className="an-sub-label">Text</span>
+          <span className="an-sub-size" aria-hidden="true">
+            A
+          </span>
+          <input
+            type="range"
+            aria-label="Text size"
+            min={TEXT_MIN_SIZE}
+            max={TEXT_MAX_SIZE}
+            value={textSizeOn}
+            onPointerDown={grabTextSize}
+            onPointerUp={releaseTextSize}
+            onChange={(event) => pickTextSize(Number(event.target.value))}
+          />
+          <span className="an-sub-size an-sub-size-big" aria-hidden="true">
+            A
+          </span>
+          <span className="an-sub-value">{textSizeOn}</span>
+          <span className="an-sep" />
+          <button
+            type="button"
+            aria-label="Text background"
+            title="Text background"
+            className={textBgOn ? "an-tool an-active" : "an-tool"}
+            onClick={toggleTextBg}
+          >
+            <ToolIcon tool="text-bg" />
+          </button>
+        </div>
+      )}
+
       {textDraft && (
         <textarea
           ref={textRef}
-          className="an-text-input"
+          className={textBg ? "an-text-input an-text-solid" : "an-text-input"}
           style={{
-            left: textDraft.x,
-            top: textDraft.y,
-            color,
-            font: TEXT_FONT,
-            caretColor: color,
-            textShadow: `0 0 ${LINE_WIDTH}px rgba(0,0,0,0.4)`,
+            left: textBg ? textDraft.x - TEXT_BG_PAD_X : textDraft.x,
+            top: textBg ? textDraft.y - TEXT_BG_PAD_Y : textDraft.y,
+            font: textFont(textSize),
+            lineHeight: TEXT_LINE,
+            ...(textBg
+              ? {
+                  background: color,
+                  color: contrastInk(color),
+                  caretColor: contrastInk(color),
+                  padding: `${TEXT_BG_PAD_Y}px ${TEXT_BG_PAD_X}px`,
+                }
+              : {
+                  color,
+                  caretColor: color,
+                  textShadow: "0 0 3px rgba(0,0,0,0.4)",
+                }),
           }}
           rows={1}
           placeholder="Type…"

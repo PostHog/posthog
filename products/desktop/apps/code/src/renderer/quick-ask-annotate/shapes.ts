@@ -25,17 +25,32 @@ export type Shape =
   | { kind: "ellipse"; rect: Rect; color: string }
   | { kind: "arrow"; from: Point; to: Point; color: string }
   | { kind: "pen"; points: Point[]; color: string }
-  | { kind: "text"; at: Point; text: string; color: string; bg: boolean }
+  | {
+      kind: "text";
+      at: Point;
+      text: string;
+      color: string;
+      bg: boolean;
+      size: number;
+      /** Wrap width in view pixels; unset text stays on its typed lines. */
+      width?: number;
+    }
   | { kind: "counter"; at: Point; n: number; color: string }
   | { kind: "pixelate"; rect: Rect };
 
 export const LINE_WIDTH = 3;
 export const TEXT_SIZE = 17;
-export const TEXT_FONT = `600 ${TEXT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+export const TEXT_MIN_SIZE = 12;
+export const TEXT_MAX_SIZE = 48;
+export const TEXT_MIN_WIDTH = 48;
+export const TEXT_LINE = 1.25;
 export const COUNTER_RADIUS = 14;
-const TEXT_LINE_HEIGHT = TEXT_SIZE * 1.25;
-const TEXT_BG_PAD_X = 8;
-const TEXT_BG_PAD_Y = 5;
+export const TEXT_BG_PAD_X = 8;
+export const TEXT_BG_PAD_Y = 5;
+
+export function textFont(size: number): string {
+  return `600 ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+}
 /** View pixels per pixelation block. */
 const PIXEL_BLOCK = 12;
 
@@ -60,17 +75,51 @@ export function contrastInk(color: string): string {
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 
-function measureText(text: string): { w: number; h: number } {
+function measurer(size: number): CanvasRenderingContext2D | null {
   if (!measureCtx) {
     measureCtx = document.createElement("canvas").getContext("2d");
   }
-  if (!measureCtx) return { w: 0, h: 0 };
-  measureCtx.font = TEXT_FONT;
-  const lines = text.split("\n");
-  const w = Math.max(
-    ...lines.map((line) => measureCtx?.measureText(line).width ?? 0),
-  );
-  return { w, h: lines.length * TEXT_LINE_HEIGHT };
+  if (measureCtx) measureCtx.font = textFont(size);
+  return measureCtx;
+}
+
+/** Typed lines, word-wrapped to the shape's width when it has one. */
+export function textLines(
+  text: string,
+  size: number,
+  width?: number,
+): string[] {
+  const ctx = measurer(size);
+  const typed = text.split("\n");
+  if (!ctx || width === undefined) return typed;
+  const lines: string[] = [];
+  for (const raw of typed) {
+    let line = "";
+    for (const word of raw.split(" ")) {
+      const joined = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(joined).width > width) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = joined;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function measureText(
+  text: string,
+  size: number,
+  width?: number,
+): { w: number; h: number } {
+  const ctx = measurer(size);
+  if (!ctx) return { w: 0, h: 0 };
+  const lines = textLines(text, size, width);
+  const w =
+    width ?? Math.max(...lines.map((line) => ctx.measureText(line).width));
+  return { w, h: lines.length * size * TEXT_LINE };
 }
 
 export function shapeBBox(shape: Shape): Rect {
@@ -90,7 +139,7 @@ export function shapeBBox(shape: Shape): Rect {
       );
     }
     case "text": {
-      const size = measureText(shape.text);
+      const size = measureText(shape.text, shape.size, shape.width);
       return shape.bg
         ? {
             x: shape.at.x - TEXT_BG_PAD_X,
@@ -247,7 +296,7 @@ export function drawShape(
       return;
     }
     case "text": {
-      ctx.font = TEXT_FONT;
+      ctx.font = textFont(shape.size);
       ctx.textBaseline = "top";
       ctx.textAlign = "left";
       if (shape.bg) {
@@ -264,9 +313,9 @@ export function drawShape(
         ctx.fillStyle = shape.color;
       }
       let y = shape.at.y;
-      for (const line of shape.text.split("\n")) {
+      for (const line of textLines(shape.text, shape.size, shape.width)) {
         ctx.fillText(line, shape.at.x, y);
-        y += TEXT_LINE_HEIGHT;
+        y += shape.size * TEXT_LINE;
       }
       if (!shape.bg) ctx.restore();
       return;

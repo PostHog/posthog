@@ -575,8 +575,13 @@ await annotate.mouse.move(320, 240, { steps: 5 });
 await annotate.mouse.up();
 
 await annotate.click('[aria-label="Text (T)"]');
+// The text tool opens its options row, and the editor previews the
+// default background exactly as it exports.
+await annotate.waitForSelector(".an-subbar", { timeout: 5_000 });
 await annotate.mouse.click(200, 180);
-await annotate.waitForSelector(".an-text-input", { timeout: 5_000 });
+await annotate.waitForSelector(".an-text-input.an-text-solid", {
+  timeout: 5_000,
+});
 await annotate.keyboard.type("LGTM");
 await annotate.keyboard.press("Enter");
 // The editor commits into a shape; a lost focus race would leave it open.
@@ -621,6 +626,63 @@ await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
   timeout: 5_000,
 });
 pass("counter badges place; select tool moves, recolors, and deletes");
+
+// Text sizing and wrapping: a second label, resized via the options row,
+// then narrowed by its side handle until it breaks into two lines.
+await annotate.click('[aria-label="Text (T)"]');
+await annotate.mouse.click(140, 260);
+await annotate.waitForSelector(".an-text-input", { timeout: 5_000 });
+await annotate.keyboard.type("wrap me please now");
+await annotate.keyboard.press("Enter");
+await annotate.waitForSelector(".an-text-input", {
+  state: "detached",
+  timeout: 5_000,
+});
+await annotate.click('[aria-label="Select (V)"]');
+await annotate.mouse.click(160, 265);
+await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
+  timeout: 5_000,
+});
+const sizeBefore = await annotate.locator(".an-sub-value").textContent();
+const slider = await annotate.locator('[aria-label="Text size"]').boundingBox();
+if (!slider) {
+  fail("text size slider not visible for a selected text object");
+} else {
+  await annotate.mouse.click(slider.x + slider.width - 2, slider.y + 2);
+}
+const sizeAfter = await annotate.locator(".an-sub-value").textContent();
+if (Number(sizeAfter) <= Number(sizeBefore)) {
+  fail(`slider left size at ${sizeAfter}, expected above ${sizeBefore}`);
+}
+// Undo the size change so the wrap drag starts from known 17px metrics;
+// undo drops the selection, so pick the label up again.
+await annotate.click('[aria-label="Undo (\u2318Z)"]');
+await annotate.mouse.click(160, 265);
+await annotate.waitForSelector('[aria-label="Delete (\u232b)"]', {
+  timeout: 5_000,
+});
+const textW = (await annotate.evaluate(`(() => {
+  const ctx = document.createElement("canvas").getContext("2d");
+  ctx.font = '600 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  return ctx.measureText("wrap me please now").width;
+})()`)) as number;
+const probe = async (): Promise<number> =>
+  (await annotate.evaluate(`(() => {
+    const ctx = document.querySelector(".an-overlay").getContext("2d");
+    return ctx.getImageData(150, 295, 1, 1).data[3];
+  })()`)) as number;
+if ((await probe()) !== 0) {
+  fail("second text line is inked before the width drag");
+}
+const edgeX = 140 + textW + 13;
+await annotate.mouse.move(edgeX, 271);
+await annotate.mouse.down();
+await annotate.mouse.move(140 + textW / 2, 271, { steps: 5 });
+await annotate.mouse.up();
+if ((await probe()) === 0) {
+  fail("narrowing the text did not wrap it onto a second line");
+}
+pass("text options row sizes text; side handle wraps it to multi-line");
 
 await annotate.click(".an-attach");
 await annotate.waitForFunction("typeof window.__annotated === 'string'", {
