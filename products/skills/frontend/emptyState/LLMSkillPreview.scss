@@ -178,7 +178,7 @@
 
     &__cmd {
         font-weight: 600;
-        color: var(--skill-preview-accent);
+        @include preview-accent-text(var(--skill-preview-accent));
     }
 
     &__ok {

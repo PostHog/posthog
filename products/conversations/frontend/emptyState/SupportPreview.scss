@@ -66,7 +66,7 @@
 
     &__count--live {
         font-weight: 600;
-        color: var(--support-preview-accent);
+        @include preview-accent-text(var(--support-preview-accent));
     }
 
     &__listening {
@@ -152,7 +152,7 @@
 
     &__status--new,
     &__status--open {
-        color: var(--support-preview-accent);
+        @include preview-accent-text(var(--support-preview-accent));
         background: color-mix(in oklab, var(--support-preview-accent) 12%, transparent);
     }
 
@@ -171,7 +171,7 @@
 
     &__sla--due {
         font-weight: 600;
-        color: var(--support-preview-accent);
+        @include preview-accent-text(var(--support-preview-accent));
     }
 
     // Browser chrome for the fake site hosting the widget.
@@ -213,7 +213,7 @@
     &__widget-head {
         font-size: 0.6875rem;
         font-weight: 600;
-        color: var(--support-preview-accent);
+        @include preview-accent-text(var(--support-preview-accent));
     }
 
     &__bubble {

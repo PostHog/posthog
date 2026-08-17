@@ -1,3 +1,5 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
 .ExpPreview {
     --exp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
     --exp-preview-control: var(--color-text-tertiary);
@@ -277,7 +279,7 @@
         padding: 0 0.375rem;
         font-family: var(--font-mono);
         font-size: 0.625rem;
-        color: var(--exp-preview-accent);
+        @include preview-accent-text(var(--exp-preview-accent));
         background: color-mix(in oklab, var(--exp-preview-accent) 12%, transparent);
         border-radius: 999px;
     }

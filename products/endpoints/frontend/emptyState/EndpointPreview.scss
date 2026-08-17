@@ -118,7 +118,7 @@
     }
 
     &__mat--live {
-        color: var(--endpoint-preview-accent);
+        @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
     // Mini toggle, mimicking the materialize switch. The off track gets a darker fill
@@ -222,7 +222,7 @@
 
     &__timing--fast {
         font-weight: 700;
-        color: var(--endpoint-preview-accent);
+        @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
     // Latency stat card, dropping when the endpoint is materialized.
@@ -255,7 +255,7 @@
     &__spark-delta {
         font-size: 0.6875rem;
         font-weight: 600;
-        color: var(--endpoint-preview-accent);
+        @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
     &__spark-chart {
@@ -269,7 +269,7 @@
         left: 56%;
         font-size: 0.5625rem;
         font-weight: 700;
-        color: var(--endpoint-preview-accent);
+        @include preview-accent-text(var(--endpoint-preview-accent));
         text-transform: uppercase;
     }
 

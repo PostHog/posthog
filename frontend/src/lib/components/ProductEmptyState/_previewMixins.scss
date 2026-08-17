@@ -11,6 +11,20 @@
 // applied immediately when showing. A `visibility: hidden` grid item keeps its cell, so
 // swapping the two states causes no layout shift.
 
+// Product accents are sidebar icon tints, not text colors. On the light surface most of them
+// land well under the 4.5:1 AA floor as text (endpoints 2.19:1, feature flags 2.70:1), so a
+// preview painting a label, a code keyword, or a served-version marker in the raw accent is
+// unreadable for a low-vision reader. Each preview therefore derives a text-safe variant with
+// this mix and uses it for every `color:` declaration, keeping the raw accent for fills,
+// borders, and strokes where the floor is 3:1 for graphics.
+//
+// Mixing toward `--color-text-primary` moves the accent toward whatever contrasts the current
+// theme's background, so one formula covers light and dark. 60% keeps the hue recognizable
+// while leaving the worst token at 5.6:1.
+@mixin preview-accent-text($accent) {
+    color: color-mix(in oklab, #{$accent} 60%, var(--color-text-primary));
+}
+
 $preview-swap-duration: 250ms;
 
 @mixin preview-swap-hidden($duration: $preview-swap-duration) {

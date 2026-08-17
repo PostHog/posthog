@@ -93,7 +93,7 @@
     }
 
     &__stage--beta {
-        color: var(--eaf-preview-accent);
+        @include preview-accent-text(var(--eaf-preview-accent));
         background: color-mix(in oklab, var(--eaf-preview-accent) 12%, transparent);
     }
 
@@ -106,7 +106,7 @@
     }
 
     &__optins--live {
-        color: var(--eaf-preview-accent);
+        @include preview-accent-text(var(--eaf-preview-accent));
     }
 
     // Browser chrome for the mini app.
@@ -239,7 +239,7 @@
         overflow: hidden;
         font-size: 0.6875rem;
         font-weight: 600;
-        color: var(--eaf-preview-accent);
+        @include preview-accent-text(var(--eaf-preview-accent));
         text-overflow: ellipsis;
         white-space: nowrap;
     }
@@ -279,7 +279,7 @@
     &__spark-delta {
         font-size: 0.6875rem;
         font-weight: 600;
-        color: var(--eaf-preview-accent);
+        @include preview-accent-text(var(--eaf-preview-accent));
     }
 
     &__spark-chart {

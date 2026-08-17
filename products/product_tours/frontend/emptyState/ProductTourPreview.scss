@@ -78,7 +78,7 @@
     }
 
     &__kind--tour {
-        color: var(--tour-preview-accent);
+        @include preview-accent-text(var(--tour-preview-accent));
         background: color-mix(in oklab, var(--tour-preview-accent) 12%, transparent);
     }
 
@@ -101,7 +101,7 @@
 
     &__status--running {
         font-weight: 600;
-        color: var(--tour-preview-accent);
+        @include preview-accent-text(var(--tour-preview-accent));
     }
 
     &__status-dot {

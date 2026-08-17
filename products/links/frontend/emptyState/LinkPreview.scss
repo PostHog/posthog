@@ -195,7 +195,7 @@
 
     &__redirect-arrow {
         font-weight: 700;
-        color: var(--link-preview-accent);
+        @include preview-accent-text(var(--link-preview-accent));
     }
 
     &__screen {

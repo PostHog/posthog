@@ -148,7 +148,7 @@
         font-family: var(--font-mono);
         font-size: 0.625rem;
         font-weight: 700;
-        color: var(--prompt-preview-accent);
+        @include preview-accent-text(var(--prompt-preview-accent));
         background: color-mix(in oklab, var(--prompt-preview-accent) 12%, transparent);
         border-radius: 999px;
     }
@@ -198,7 +198,7 @@
     }
 
     &__kw {
-        color: var(--prompt-preview-accent);
+        @include preview-accent-text(var(--prompt-preview-accent));
     }
 
     &__fn {
@@ -232,7 +232,7 @@
     }
 
     &__fetched-version--live {
-        color: var(--prompt-preview-accent);
+        @include preview-accent-text(var(--prompt-preview-accent));
     }
 
     &__fetched-text {
@@ -276,7 +276,7 @@
     }
 
     &__spark-label--live {
-        color: var(--prompt-preview-accent);
+        @include preview-accent-text(var(--prompt-preview-accent));
     }
 
     &__spark-chart {
