@@ -60,7 +60,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.filters import compile_filters_expr, filter_cohort_ids
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
@@ -73,6 +73,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -193,6 +194,10 @@ EMAIL_SENDING_RATE_LIMIT_FLAG = "workflows-email-rate-limit"
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source", "cohort_ids")
+
+# Rollout gate for cohort filters in conditional branches. Targeted per organization so the
+# feature can be proven on a few teams before general availability.
+WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -1178,6 +1183,32 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    # Memoized per serializer instance: the same instance validates every action in the array,
+    # and the flag evaluation is a network call.
+    _cohort_conditions_flag: Optional[bool] = None
+
+    def _cohort_conditions_enabled(self) -> bool:
+        if self._cohort_conditions_flag is None:
+            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+        return self._cohort_conditions_flag
+
+    def _check_cohort_conditions_flag(self) -> bool:
+        try:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+                return False
+            return feature_enabled_or_false(
+                WORKFLOWS_COHORT_CONDITIONS_FLAG,
+                user.distinct_id,
+                groups={"organization": str(user.organization.id)},
+                group_properties={"organization": {"id": str(user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
+
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -1503,11 +1534,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                     # Cohort filters are allowed in conditional_branch only: the branch evaluates
                     # membership on arrival via a point lookup. A wait_until_condition would only
                     # ever notice a membership change through its polling backstop (the matcher has
-                    # no cohort membership wake stream), so cohorts stay rejected there.
+                    # no cohort membership wake stream), so cohorts stay rejected there. The flag
+                    # check runs only when the condition actually references a cohort, so ordinary
+                    # saves never pay for it; with the flag off, cohorts fail compilation as before.
+                    cohorts_supported = (
+                        is_conditional_branch and bool(filter_cohort_ids(filters)) and self._cohort_conditions_enabled()
+                    )
                     serializer = HogFunctionFiltersSerializer(
                         data=filters,
                         context={**self.context, "cohort_membership_supported": True}
-                        if is_conditional_branch
+                        if cohorts_supported
                         else self.context,
                     )
                     if not strict:

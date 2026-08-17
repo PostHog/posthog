@@ -1199,7 +1199,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("not_in_operator", "not_in", "notInCohort"),
         ]
     )
-    def test_hog_flow_conditional_branch_cohort_filter_compiles(self, _name, operator, expected_call):
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_cohort_filter_compiles(self, _name, operator, expected_call, _mock_flag):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         cohort_property: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.id}
         if operator:
@@ -1221,7 +1222,10 @@ class TestHogFlowAPI(APIBaseTest):
             ("missing_cohort", "missing", "doesn't exist in this project"),
         ]
     )
-    def test_hog_flow_conditional_branch_rejects_ineligible_cohorts(self, _name, cohort_kind, expected_detail):
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_rejects_ineligible_cohorts(
+        self, _name, cohort_kind, expected_detail, _mock_flag
+    ):
         if cohort_kind == "static":
             cohort_id = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True).id
         elif cohort_kind == "dynamic":
@@ -1238,6 +1242,19 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert expected_detail in response.json()["detail"]
+
+    def test_hog_flow_conditional_branch_rejects_cohort_filters_without_flag(self):
+        # Rollout gate: without workflows-cohort-conditions, an eligible cohort still fails
+        # compilation the way it always has, so nothing changes for unflagged teams.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
         # Cohort support is scoped to conditional_branch: a wait would only notice membership
