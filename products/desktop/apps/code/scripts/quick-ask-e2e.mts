@@ -276,13 +276,13 @@ pass(`hogql block tag drew the compact chart (latest ${stat})`);
 
 // Hovering a chip mounts the live preview card.
 await page.hover(".qa-answer .qa-ref");
-await page.waitForSelector("[data-radix-popper-content-wrapper]", {
+await page.waitForSelector("[data-testid=evidence-hover-card]", {
   timeout: 5_000,
 });
 // The card is styled by layered Tailwind utilities; an unscoped panel reset
 // would flatten its padding and surface to nothing.
 const cardStyle = (await page.evaluate(`(() => {
-  const wrapper = document.querySelector("[data-radix-popper-content-wrapper]");
+  const wrapper = document.querySelector("[data-testid=evidence-hover-card]");
   const card = wrapper?.querySelector(".w-80");
   const surface = card?.parentElement ? getComputedStyle(card.parentElement) : null;
   return {

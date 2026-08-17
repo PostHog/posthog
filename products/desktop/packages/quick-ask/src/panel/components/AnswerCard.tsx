@@ -3,19 +3,17 @@ import {
   baseComponents,
   MarkdownRenderer,
 } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
+import {
+  chartBlockKey,
+  isGeneratedChartBlock,
+  parseChartBlock,
+} from "@posthog/ui/utils/chartBlocks";
 import {
   type EvidenceLinkTarget,
   parseEvidenceLink,
 } from "@posthog/ui/utils/evidenceLinks";
 import type React from "react";
-import {
-  isValidElement,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import { PanelChartCard } from "./PanelChartCard";
 
@@ -63,8 +61,10 @@ const panelComponents: Partial<Components> = {
     }
     return <BaseAnchor href={href}>{children}</BaseAnchor>;
   },
-  code: ({ className, children }) => {
-    if (className?.match(/language-posthog-chart/)) {
+  code: ({ className, children, node }) => {
+    // The AST marker is the trust boundary: only plugin-generated blocks
+    // resolve to live queries; a hand-authored fence stays a code block.
+    if (isGeneratedChartBlock(node)) {
       const spec = parseChartBlock(String(children).replace(/\n$/, ""));
       if (!spec) return null;
       return (
@@ -73,15 +73,12 @@ const panelComponents: Partial<Components> = {
     }
     return <BaseCode className={className}>{children}</BaseCode>;
   },
-  pre: ({ children }) => {
+  pre: (props) => {
     // A chart block renders as a card, not inside a code block shell.
-    if (
-      isValidElement<{ className?: string }>(children) &&
-      children.props.className?.includes("language-posthog-chart")
-    ) {
-      return children;
+    if (isGeneratedChartBlock(props.node?.children[0])) {
+      return props.children;
     }
-    return <pre className="qa-pre">{children}</pre>;
+    return <pre className="qa-pre">{props.children}</pre>;
   },
 };
 
@@ -241,6 +238,7 @@ export function AnswerCard({
         >
           <MarkdownRenderer
             content={text}
+            renderObjectTags
             componentsOverride={panelComponents}
           />
         </div>
