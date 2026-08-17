@@ -649,15 +649,17 @@ describe("translateFrame", () => {
       }),
       { kind: "ignore", detail: "user_message_chunk" },
     ],
+    // Permission waits are status signals so repeats replace the label
+    // instead of accreting into the thought buffer.
     [
       "permission request",
       JSON.stringify({ type: "permission_request", requestId: "r1" }),
-      { kind: "reasoning", text: "Waiting for a tool approval…" },
+      { kind: "status", text: "Waiting for a tool approval…" },
     ],
     [
       "permission request over the session",
       notification("session/request_permission", { toolCallId: "t1" }),
-      { kind: "reasoning", text: "Waiting for a tool approval…" },
+      { kind: "status", text: "Waiting for a tool approval…" },
     ],
   ])("%s", (_name, frame, expected) => {
     expect(translateFrame(JSON.parse(frame))).toEqual(expected);

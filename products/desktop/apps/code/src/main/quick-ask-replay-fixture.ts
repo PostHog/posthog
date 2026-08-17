@@ -20,6 +20,7 @@ export const REPLAY_ANSWER = [
   "",
   '<hogql display="block" title="Signups per day, last 7 days">SELECT toDate(timestamp) AS day, count() FROM events WHERE event = \'signed_up\' GROUP BY day ORDER BY day</hogql>',
 ].join("\n");
+export const REPLAY_FOLLOW_UP_PRELUDE = "Comparing against last week.";
 export const REPLAY_FOLLOW_UP_ANSWER = "About 1,100, a touch below this week.";
 /** Output of the description turn; the panel must never show it. */
 export const REPLAY_STRAY_ANSWER = "Looking into signups now.";
@@ -104,9 +105,13 @@ export const REPLAY_FRAMES: object[] = [
 /** Frame index after which the first stream connection rotates. */
 export const REPLAY_ROTATE_AFTER = 15;
 
-/** Follow-up turn frames, appended once the follow-up command arrives. */
+/**
+ * Follow-up turn frames, appended once the follow-up command arrives. Text
+ * lands on both sides of the tool call, so the turn produces two segments.
+ */
 export const REPLAY_FOLLOW_UP_FRAMES: object[] = [
   prompt(REPLAY_FOLLOW_UP),
+  agentText(REPLAY_FOLLOW_UP_PRELUDE),
   sessionUpdate({
     sessionUpdate: "tool_call",
     toolCallId: "t2",

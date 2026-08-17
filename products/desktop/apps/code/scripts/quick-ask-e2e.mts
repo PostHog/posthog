@@ -9,6 +9,7 @@ import { QuickAskService } from "../../../packages/core/src/quick-ask/quick-ask"
 import {
   REPLAY_FOLLOW_UP,
   REPLAY_FOLLOW_UP_ANSWER,
+  REPLAY_FOLLOW_UP_PRELUDE,
   REPLAY_QUESTION,
   REPLAY_STRAY_ANSWER,
   startReplayServer,
@@ -380,6 +381,38 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 pass("follow-up answer rendered");
+
+// The follow-up turn has text on both sides of a tool call, so the answer
+// arrives as two segments with a pager pinned to the top of the card.
+await page.waitForSelector(".qa-actions", { timeout: 15_000 });
+await page.waitForSelector(".qa-status-row .qa-pager", { timeout: 5_000 });
+// Let the card's mount animation finish so bounding boxes are stable.
+await page.waitForTimeout(400);
+const pagerBefore = await page
+  .locator(".qa-status-row .qa-pager")
+  .boundingBox();
+await page.click('.qa-pager button[aria-label="Previous part"]');
+await page.waitForFunction(
+  `document.querySelector(".qa-answer")?.textContent?.includes(${JSON.stringify(REPLAY_FOLLOW_UP_PRELUDE)})`,
+  undefined,
+  { timeout: 5_000 },
+);
+const pagerAfter = await page.locator(".qa-status-row .qa-pager").boundingBox();
+if (!pagerBefore || !pagerAfter || pagerBefore.y !== pagerAfter.y) {
+  throw new Error(
+    `pager moved while paging: ${pagerBefore?.y} -> ${pagerAfter?.y}`,
+  );
+}
+if (
+  await page
+    .locator(".qa-actions")
+    .textContent()
+    .then((t) => t?.includes("PostHog AI"))
+) {
+  throw new Error("source label still present in the actions row");
+}
+await page.click('.qa-pager button[aria-label="Next part"]');
+pass("segment pager pages back without moving");
 
 // New chat clears the thread and hands focus back to the input.
 await page.click(".qa-new");

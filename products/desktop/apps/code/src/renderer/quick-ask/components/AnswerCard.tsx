@@ -211,16 +211,22 @@ export function AnswerCard({
 
   return (
     <div className="qa-card">
-      {streaming && (
+      {/* The pager lives up here: the card is top-anchored, so paging between
+          segments of different heights never moves it. */}
+      {(streaming || pager) && (
         <div className="qa-status-row">
-          <span className="qa-thinking-dots" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          <span key={statusLabel} className="qa-thinking-label">
-            {statusLabel || "Working…"}
-          </span>
+          {streaming && (
+            <>
+              <span className="qa-thinking-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span key={statusLabel} className="qa-thinking-label">
+                {statusLabel || "Working…"}
+              </span>
+            </>
+          )}
           {pager}
         </div>
       )}
@@ -242,8 +248,6 @@ export function AnswerCard({
 
       {!streaming && (
         <div className="qa-actions">
-          <span className="qa-source">PostHog AI</span>
-          {pager}
           <button type="button" className="qa-button" onClick={copyAnswer}>
             {copied ? "Copied" : "Copy"}
           </button>

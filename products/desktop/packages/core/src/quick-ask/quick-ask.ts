@@ -152,7 +152,7 @@ export type TurnSignal =
 export function translateFrame(parsed: unknown): TurnSignal {
   const frame = parsed as NotificationFrame;
   if (frame.type === "permission_request") {
-    return { kind: "reasoning", text: "Waiting for a tool approval…" };
+    return { kind: "status", text: "Waiting for a tool approval…" };
   }
   if (frame.type === "task_run_state") {
     const status = frame.status ?? "";
@@ -190,7 +190,7 @@ export function translateFrame(parsed: unknown): TurnSignal {
     };
   }
   if (method === "session/request_permission") {
-    return { kind: "reasoning", text: "Waiting for a tool approval…" };
+    return { kind: "status", text: "Waiting for a tool approval…" };
   }
   if (method === "_posthog/progress") {
     const params = frame.notification.params as

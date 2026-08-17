@@ -363,16 +363,10 @@ html body {
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   padding: 10px 16px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.qa-source {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--qa-fg-subtle);
-  margin-right: auto;
 }
 
 .qa-button {
@@ -478,7 +472,7 @@ html body {
 /* Chart */
 
 .qa-chart {
-  margin-top: 12px;
+  margin: 12px 0;
   padding: 11px 12px 9px;
   background: var(--qa-surface-raised);
   border: 1px solid var(--qa-border);
@@ -794,6 +788,7 @@ html body {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-height: 28px;
   padding: 10px 16px 0;
   overflow: hidden;
 }
@@ -801,6 +796,10 @@ html body {
 .qa-status-row .qa-thinking-label {
   flex: 1;
   min-width: 0;
+}
+
+.qa-status-row .qa-pager {
+  margin-left: auto;
 }
 
 .qa-pager {

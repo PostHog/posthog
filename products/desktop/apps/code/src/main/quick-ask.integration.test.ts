@@ -8,6 +8,7 @@ import {
   REPLAY_ANSWER,
   REPLAY_FOLLOW_UP,
   REPLAY_FOLLOW_UP_ANSWER,
+  REPLAY_FOLLOW_UP_PRELUDE,
   REPLAY_QUESTION,
   REPLAY_STRAY_ANSWER,
   type ReplayServer,
@@ -108,10 +109,17 @@ describe("quick-ask against a replayed production stream", () => {
       REPLAY_FOLLOW_UP,
       conversation.conversationId,
     );
+    // Text on both sides of the tool call arrives as two segments.
+    expect(events).toContainEqual({
+      type: "text",
+      id: "turn-2",
+      content: REPLAY_FOLLOW_UP_PRELUDE,
+      complete: true,
+    });
     const finalText = events.findLast((event) => event.type === "text");
     expect(finalText).toEqual({
       type: "text",
-      id: "turn-2",
+      id: "turn-2.2",
       content: REPLAY_FOLLOW_UP_ANSWER,
       complete: true,
     });
