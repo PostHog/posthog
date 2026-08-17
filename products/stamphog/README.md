@@ -19,7 +19,12 @@ On top of reviews, a repo can enable a daily Slack digest of its merged PRs (`ba
 
 ## Stacked PRs
 
-A stacked PR targets its parent's branch, not the repo's default branch, and depends on parent code that hasn't merged yet. The sandbox clones and checks out the PR head for every review, so the reviewer's Read/Grep/Glob already see the post-stack tree and parent symbols resolve; the engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch). The diff stays scoped `base...head`. When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base against the reviewed one before posting. Engine details: [`tools/pr-approval-agent/README.md`](../../tools/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+A stacked PR targets its parent's branch, not the repo's default branch, and depends on parent code that hasn't merged yet.
+The sandbox clones and checks out the PR head for every review, so the reviewer's Read/Grep/Glob already see the post-stack tree and parent symbols resolve.
+The engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch).
+The diff stays scoped `base...head`.
+When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base against the reviewed one before posting.
+Engine details: [`tools/pr-approval-agent/README.md`](../../tools/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
 
 ## Configuration
 
