@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from llm_gateway.auth.service import BEARER_PATTERN
 from llm_gateway.config import get_settings
 
 if TYPE_CHECKING:
@@ -29,6 +30,20 @@ DESKTOP_ACCESS_CACHE_PREFIX = "desktop_access"
 
 def _redis_key(user_id: int) -> str:
     return f"{DESKTOP_ACCESS_CACHE_PREFIX}:{user_id}"
+
+
+def _canonical_bearer(auth_header: str) -> str:
+    """Re-emit the caller's token as a literal ``Bearer <token>``.
+
+    The gateway matches the scheme case-insensitively; Django does not. Forwarding the
+    header verbatim lets a caller send ``bearer <token>``, draw a 401 from Django, and
+    turn a denial into an "unknown" that fails open.
+    """
+    match = BEARER_PATTERN.match(auth_header.strip())
+    if not match:
+        return auth_header
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+    return f"Bearer {match.group(1).strip()}"
 
 
 class DesktopAccessResolver:
@@ -53,8 +68,12 @@ class DesktopAccessResolver:
 
         None is distinct from False on purpose: the caller fails open on it, so a
         Django or network outage degrades to today's behaviour rather than taking
-        PostHog Desktop down for every entitled user. Only a definitive "no" from
-        Django blocks a request.
+        PostHog Desktop down for every entitled user.
+
+        Because failing open is a bypass whenever the caller can force it, "unavailable"
+        is limited to states a caller cannot induce: a 5xx, a transport error, or a
+        missing route. Anything the caller is responsible for — a rejected credential,
+        an exhausted per-user throttle — is a denial. See :meth:`_fetch_access`.
         """
         if not auth_header:
             return None
@@ -115,14 +134,21 @@ class DesktopAccessResolver:
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/code/invites/check-access/"
         resp = await self._http.get(
             url,
-            headers={"Authorization": auth_header},
+            headers={"Authorization": _canonical_bearer(auth_header)},
             timeout=settings.desktop_access_request_timeout,
         )
-        # 401/403 mean the token can't answer for itself, not that the user is
-        # unentitled — auth already vouched for this caller, so don't deny on it.
-        if resp.status_code in (401, 403):
-            logger.warning("desktop_access_check_unauthorized", status_code=resp.status_code)
+
+        if resp.status_code == 404:
+            # A missing route is deploy skew, not a verdict on this user. Denying here would
+            # lock every Desktop user out mid-rollout, and a caller can't induce it.
+            logger.warning("desktop_access_check_route_missing")
             return None
+        if 400 <= resp.status_code < 500:
+            # The caller is the reason for a 4xx, so treat it as a denial. Failing open here
+            # would be bypassable: an unentitled caller can draw a 401 with a malformed
+            # credential, or a 429 by exhausting their own per-user throttle on this endpoint.
+            logger.warning("desktop_access_check_rejected", status_code=resp.status_code)
+            return False
         resp.raise_for_status()
 
         data = resp.json()

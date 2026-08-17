@@ -8,6 +8,7 @@ from starlette.datastructures import Headers
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
 from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_product_access,
@@ -349,8 +350,6 @@ class TestFreeTierModelGateWiring:
     @pytest.mark.asyncio
     async def test_multipart_transcription_model_is_gated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # the gate must see form-encoded models, not just JSON ones
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = _make_form_request(
@@ -375,8 +374,6 @@ class TestFreeTierModelGateWiring:
     @pytest.mark.asyncio
     async def test_gated_model_is_rejected_on_the_enforcement_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_throttles actually consults the gate on the request path
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-fable-5", "messages": []}, path="/array/v1/messages")
@@ -517,8 +514,6 @@ class TestServerCredentialRequirementWiring:
     @pytest.mark.asyncio
     async def test_marker_less_oauth_token_rejected_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_product_access actually applies the server-credential check on the path
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
@@ -533,8 +528,6 @@ class TestServerCredentialRequirementWiring:
     async def test_marker_token_allowed_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_product_access forwards the token scopes; without scopes=user.scopes a
         # real server-minted token (carrying the marker) would be wrongly rejected here.
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
@@ -567,8 +560,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_unentitled_user_blocked(self) -> None:
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:
@@ -580,8 +571,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_entitled_user_allowed(self) -> None:
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             user = self._oauth_user()
@@ -592,8 +581,6 @@ class TestDesktopAccessGate:
     @pytest.mark.asyncio
     async def test_unknown_entitlement_fails_open(self) -> None:
         # A Django outage must not take PostHog Desktop down for every entitled user.
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             user = self._oauth_user()
@@ -605,8 +592,6 @@ class TestDesktopAccessGate:
     async def test_server_minted_token_exempt(self) -> None:
         # Sandbox runs already passed Django's own code_access_required_response gate,
         # including the deliberate Inbox exemptions that work without the flag.
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = self._request(False)
@@ -620,8 +605,6 @@ class TestDesktopAccessGate:
     async def test_alias_path_is_gated(self) -> None:
         # /array/ and /twig/ resolve to posthog_code; gating only the literal name
         # would leave the aliases wide open.
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:
@@ -635,8 +618,6 @@ class TestDesktopAccessGate:
 
     @pytest.mark.asyncio
     async def test_other_products_untouched(self) -> None:
-        from llm_gateway.config import get_settings
-
         get_settings.cache_clear()
         try:
             request = self._request(False, path="/wizard/v1/messages")
