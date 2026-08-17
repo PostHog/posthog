@@ -1,11 +1,9 @@
 /* Quick-ask cursor pill + answer card. Color values mirror the quill dark
- * theme tokens (packages/quill/packages/tokens) so it matches the app. The
- * pill and card chrome stay plain CSS; answer markdown renders through the
- * shared evidence pipeline, which brings the app's global styles along. */
+ * theme tokens (packages/quill/packages/tokens) so it matches the app. */
 
 /* The app's global styles paint opaque page backgrounds; the panel window is
- * transparent outside its content, so neutralize them (this file loads after
- * globals.css, so equal-specificity rules here win). */
+ * transparent outside its content, so neutralize them. This file loads after
+ * globals.css, so equal-specificity rules here win. */
 .radix-themes {
   min-height: 0;
   background: transparent;

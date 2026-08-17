@@ -78,8 +78,7 @@ export function AnswerCard({
     <div className="qa-card">
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
         <div className="qa-answer">
-          {/* The shared evidence pipeline: object tags in the agent's
-              markdown resolve into live reference chips and chart cards. */}
+          {/* Object tags in the markdown resolve into live chips and chart cards. */}
           <MarkdownRenderer content={text} />
           {streaming && <span className="qa-caret" />}
         </div>

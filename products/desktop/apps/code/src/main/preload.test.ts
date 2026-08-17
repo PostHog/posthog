@@ -51,8 +51,6 @@ describe("preload mode selection", () => {
   it("exposes the quickAsk bridge and the tRPC bridge to a quick-ask window", () => {
     setupPreload([QUICK_ASK_WINDOW_ARG]);
 
-    // The bridge for the panel protocol, plus host tRPC for the shared
-    // evidence pipeline (auth tokens, external links) - nothing else.
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(contextBridge.exposeInMainWorld).toHaveBeenCalledWith(
       "quickAsk",

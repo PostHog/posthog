@@ -15,8 +15,8 @@ export function ThemeWrapper({
 }: {
   children: React.ReactNode;
   /**
-   * Fixed appearance for surfaces with a hard-coded palette (the quick-ask
-   * panel is always dark); defaults to the user's theme preference.
+   * Fixed appearance for surfaces with a hard-coded palette; defaults to the
+   * user's theme preference.
    */
   appearance?: "light" | "dark";
 }) {

@@ -1,9 +1,8 @@
 /**
- * Prompt block teaching an agent the PostHog object-tag vocabulary that
- * desktop surfaces render as live references (chips, hover previews, chart
- * cards). One source of truth: the local agent's system prompt and the
- * quick-ask panel's message steering both embed this block, so the taught
- * syntax can never drift from what the renderer parses (`remarkObjectTags`).
+ * Prompt block teaching an agent the object-tag vocabulary the desktop
+ * renders as live references (chips, hover previews, chart cards). Embedded
+ * by the local agent's system prompt and the quick-ask steering, so the
+ * taught syntax stays in sync with what `remarkObjectTags` parses.
  */
 export const RICH_OUTPUT_TAGS_PROMPT = `Embed the PostHog objects behind your conclusions as XML tags, the same convention as \`<file path="..."/>\` attachments. Every tag is a live reference the app resolves when shown - never restate the object's data in your text, and never put tags inside code fences.
 - Inline reference: \`<kind id="...">short human label</kind>\` inside a sentence, e.g. \`The <insight id="9pQx3">checkout funnel</insight> dropped after <flag id="42">new-checkout-flow</flag> rolled out.\` Kinds: insight, dashboard, error, replay, flag, experiment, survey, ticket, trace, eval, event, cohort, action, person. Use the object's id (insights: the short id; feature flags: the numeric id, falling back to the key; persons: the uuid). It renders as a chip with a live hover preview that opens the object in PostHog.

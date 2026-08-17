@@ -12,10 +12,9 @@ export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
 export const QUICK_ASK_FETCH = Symbol.for("posthog.core.quickAsk.fetch");
 
 /**
- * Events the quick-ask panel renders, distilled from a prewarmed cloud task
- * run's SSE stream (the same task-run stream desktop cloud sessions consume).
- * Text arrives as growing snapshots keyed by a per-turn id; the renderer
- * replaces by id.
+ * Events the quick-ask panel renders, distilled from the task run's SSE
+ * stream. Text arrives as growing snapshots keyed by a per-turn id; the
+ * renderer replaces by id.
  */
 export type QuickAskEvent =
   | { type: "conversation"; conversationId: string }
@@ -32,23 +31,12 @@ export interface QuickAskInput {
 }
 
 /**
- * Everything about the transport is the raw tasks API rather than the PostHog
- * AI conversations opener: `/tasks/warm/` boots an idling repo-less sandbox,
- * `POST /tasks/` transparently reuses and activates it (delivering the first
- * message), and follow-ups ride the run command relay. Every endpoint here
- * declares token scopes the desktop's OAuth token already carries - the
- * conversations opener rejects token auth until PostHog/posthog#83442 deploys.
- */
-
-/**
- * Steering for the sandbox agent, sent after the user's first question (so
- * the task title and description stay the question). `<posthog_trusted_context>`
- * is the app-injected guidance convention the sandbox agents are taught to
- * follow. The tag vocabulary is the shared block the renderer's object-tag
- * pipeline parses.
+ * Sent after the user's first question, so the task title stays the question.
+ * The tag vocabulary is the shared block the renderer's object-tag pipeline
+ * parses.
  */
 const PANEL_STEERING = `<posthog_trusted_context>
-This question was asked from PostHog Desktop's compact quick-ask panel, not a full chat. For this whole conversation:
+This question was asked from PostHog Desktop's compact quick-ask panel. For this whole conversation:
 - Answer from PostHog data using the PostHog MCP tools. Do not clone repositories or modify code.
 - Keep the text answer short - a few sentences at most.
 - Never ask a blocking question; make reasonable assumptions and state them briefly.
@@ -117,10 +105,10 @@ interface RunResponse {
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 /**
- * Per-thread state. The conversation id is a client-minted key the renderer
- * echoes back so follow-ups land on the same task; `cursor` is the Redis
- * stream id of the last ingested event, carried across turns and stream
- * rotations so no frame is ever re-rendered or missed.
+ * Per-thread state. `conversationId` is a client-minted key the renderer
+ * echoes back so follow-ups land on the same task; `cursor` is the stream id
+ * of the last ingested event, carried across turns and reconnects so no frame
+ * is re-rendered or missed.
  */
 interface QuickAskSession {
   conversationId: string;
@@ -131,10 +119,7 @@ interface QuickAskSession {
   turns: number;
 }
 
-/**
- * What one stream frame means for the current turn. Split from the service so
- * the wire-format translation is testable without a live stream.
- */
+/** What one stream frame means for the current turn. */
 export type TurnSignal =
   | { kind: "user-echo" }
   | { kind: "agent-text"; text: string }
@@ -198,7 +183,7 @@ export function translateFrame(parsed: unknown): TurnSignal {
   }
 }
 
-/** Last non-empty line of the accumulated thought text - the live status label. */
+/** Last non-empty line of the accumulated thought text, shown as the live status label. */
 export function reasoningLabel(thoughtBuffer: string): string {
   const lines = thoughtBuffer
     .split("\n")
@@ -216,14 +201,14 @@ function describeError(error: unknown): string {
   return `${error.message}${cause}`;
 }
 
-const OPEN_UNAVAILABLE_MESSAGE =
+const UNAVAILABLE_MESSAGE =
   "PostHog AI tasks are unavailable right now. Try again.";
 
 /**
- * Streams PostHog AI answers for the quick-ask panel through the sandbox task
- * runtime: `open` warms/provisions a prewarmed sandbox run, each question is a
- * turn on that run, and the answer streams from the task-run SSE endpoint.
- * Business logic only - the host forwards events over IPC.
+ * Streams quick-ask answers through prewarmed cloud task runs: summoning the
+ * panel warms a repo-less sandbox, each question is a turn on the thread's
+ * run, and the answer streams from the run's SSE endpoint. Business logic
+ * only; the host forwards events over IPC.
  */
 @injectable()
 export class QuickAskService {
@@ -296,11 +281,9 @@ export class QuickAskService {
   }
 
   /**
-   * Boots a repo-less sandbox ahead of the first question (called on panel
-   * summon), so asking costs a model turn instead of a cold sandbox boot.
-   * `POST /tasks/` matches this idling run server-side and activates it.
-   * Best-effort: every failure (flag off, pool full) is swallowed - a cold
-   * ask still works without it.
+   * Boots a repo-less sandbox on panel summon, so the first ask starts at
+   * model speed. Best-effort: failures are swallowed and a cold ask still
+   * works.
    */
   warm(): Promise<void> {
     if (this.warmPromise) return this.warmPromise;
@@ -319,9 +302,7 @@ export class QuickAskService {
         },
       );
       if (!response.ok) return;
-      // An empty body means the flag is off or the pool is full; a handle
-      // means a sandbox is booting. Either way `POST /tasks/` decides - it
-      // re-runs the warm-run lookup itself at ask time.
+      // The body is unused: `POST /tasks/` re-runs the warm lookup at ask time.
       await response.text().catch(() => "");
     })()
       .catch(() => undefined)
@@ -332,11 +313,10 @@ export class QuickAskService {
   }
 
   /**
-   * First question: create the task. `branch` must be present (null) so the
-   * backend runs its warm-run lookup - a matching idle sandbox is reused and
-   * the pending message is delivered to it; otherwise the task comes back
-   * runless and the caller cold-starts a run. The task auto-files into the
-   * user's personal channel (repo-less user-created tasks always do).
+   * Creates the thread's task. `branch` must be present (null) to trigger the
+   * backend's warm-run lookup: a matching idle sandbox is activated with the
+   * pending message; otherwise the task returns runless and the caller starts
+   * a run. Repo-less user-created tasks file into the personal channel.
    */
   private async createTask(
     apiHost: string,
@@ -358,7 +338,7 @@ export class QuickAskService {
     );
   }
 
-  /** Cold start (no warm run matched): create + start an interactive cloud run. */
+  /** Creates and starts an interactive cloud run carrying the message. */
   private async startRun(
     apiHost: string,
     projectId: number,
@@ -384,7 +364,7 @@ export class QuickAskService {
     return startResponse.ok ? run.id : null;
   }
 
-  /** Follow-up: signal the question onto the live run via the command relay. */
+  /** Signals a follow-up question onto the live run. */
   private async sendUserMessage(
     apiHost: string,
     projectId: number,
@@ -416,8 +396,8 @@ export class QuickAskService {
     content: string,
     signal: AbortSignal,
   ): Promise<{ ok: true } | { ok: false; status: number; detail: string }> {
-    // Live run: follow-up over the command relay. A run that died since the
-    // last turn rejects the command; fall through to a fresh run then.
+    // A run that died since the last turn rejects the command; fall through
+    // to a successor run.
     if (session.taskId && session.runId) {
       const sent = await this.sendUserMessage(
         apiHost,
@@ -432,7 +412,6 @@ export class QuickAskService {
       session.cursor = null;
     }
 
-    // Existing task without a live run: start a successor run on it.
     if (session.taskId) {
       const runId = await this.startRun(
         apiHost,
@@ -449,8 +428,6 @@ export class QuickAskService {
       return { ok: true };
     }
 
-    // Fresh thread: create the task. A prewarmed sandbox is reused and the
-    // message delivered server-side; otherwise cold-start a run.
     const response = await this.createTask(
       apiHost,
       projectId,
@@ -502,8 +479,7 @@ export class QuickAskService {
     }
     const { apiHost, projectId } = context;
 
-    // Let an in-flight summon warm finish first so the create call sees the
-    // idling sandbox instead of racing its provisioning.
+    // The create call must see the idling sandbox, not race its provisioning.
     if (this.warmPromise) {
       await this.warmPromise;
     }
@@ -528,7 +504,7 @@ export class QuickAskService {
     } catch (error) {
       yield {
         type: "error",
-        message: OPEN_UNAVAILABLE_MESSAGE,
+        message: UNAVAILABLE_MESSAGE,
         detail: describeError(error),
       };
       return;
@@ -566,10 +542,10 @@ export class QuickAskService {
     let answerText = "";
     let thoughtBuffer = "";
     let toolSinceText = false;
-    // Frames before this turn's own user-message echo are a previous turn's
-    // tail (or warm boot noise) - skip them. A brand-new stream (no cursor)
-    // also opens the gate on the first agent activity, in case the harness
-    // does not echo the first message.
+    // Frames before this turn's user-message echo are a previous turn's tail
+    // or boot noise; skip them. A fresh stream (no cursor) also opens the
+    // gate on the first agent activity, in case the harness never echoes the
+    // first message.
     let gateOpen = false;
     const freshStream = session.cursor == null;
 
@@ -601,7 +577,7 @@ export class QuickAskService {
         if (!response.ok || !response.body) {
           yield {
             type: "error",
-            message: OPEN_UNAVAILABLE_MESSAGE,
+            message: UNAVAILABLE_MESSAGE,
             detail: `stream failed with ${response.status}`,
           };
           return;
@@ -641,7 +617,7 @@ export class QuickAskService {
           if (frame.event === "error") {
             yield {
               type: "error",
-              message: OPEN_UNAVAILABLE_MESSAGE,
+              message: UNAVAILABLE_MESSAGE,
               detail: frame.data.slice(0, 500),
             };
             return;
@@ -696,8 +672,7 @@ export class QuickAskService {
               yield* finish();
               return;
             case "run-terminal":
-              // The sandbox ended (timeout, failure, cancellation). The next
-              // question resumes into a successor run via `open`.
+              // The sandbox ended; the next question starts a successor run.
               session.runId = null;
               session.cursor = null;
               if (signal.status === "failed") {
@@ -727,7 +702,7 @@ export class QuickAskService {
           if (rotations > 20) {
             yield {
               type: "error",
-              message: OPEN_UNAVAILABLE_MESSAGE,
+              message: UNAVAILABLE_MESSAGE,
               detail: "stream kept dropping",
             };
             return;

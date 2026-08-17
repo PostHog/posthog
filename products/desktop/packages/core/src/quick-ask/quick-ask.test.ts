@@ -198,14 +198,13 @@ describe("QuickAskService", () => {
     });
     await collect(service);
     const body = JSON.parse(callsTo(fetchMock, "/tasks/")[0][2].body as string);
-    // The description stays the bare question (it becomes the task title);
-    // the steering block rides only the delivered message.
+    // The description becomes the task title; steering rides only the message.
     expect(body.description).toBe("how many signups?");
     expect(body.pending_user_message).toMatch(
       /^how many signups\?\n\n<posthog_trusted_context>/,
     );
     expect(body.pending_user_message).toContain('<hogql display="block"');
-    // `branch` present (null) opts into the backend's warm-run lookup, and the
+    // `branch` present (null) opts into the backend's warm-run lookup; the
     // repo-less shape matches what `warm()` provisioned.
     expect(body).toMatchObject({ branch: null, repositories: [] });
   });

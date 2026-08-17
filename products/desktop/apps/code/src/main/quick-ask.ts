@@ -162,8 +162,7 @@ function createQuickAskWindow(): BrowserWindow {
     },
   });
 
-  // The panel renders answers through the shared evidence pipeline, whose
-  // components fetch live data via the host tRPC bridge.
+  // Answer rendering fetches live data over the host tRPC bridge.
   attachWindowToTrpc(window);
 
   window.setAlwaysOnTop(true, "screen-saver");
@@ -288,8 +287,7 @@ function showQuickAsk(): void {
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
-  // Boot a sandbox while the user types, so the answer starts at model speed
-  // instead of waiting out a cold boot. Best-effort and idempotent.
+  // Boot a sandbox while the user types.
   void getQuickAskService().warm();
 }
 
@@ -467,8 +465,6 @@ export function setupQuickAsk(): void {
   ipcMain.on(QUICK_ASK_RESET_CHANNEL, () => {
     const service = getQuickAskService();
     service.reset();
-    // The dropped thread's sandbox idles out server-side; warm a fresh one
-    // for the next question.
     void service.warm();
   });
 

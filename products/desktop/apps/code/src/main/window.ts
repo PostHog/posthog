@@ -112,8 +112,8 @@ let mainWindow: BrowserWindow | null = null;
 let trpcIpcHandler: ReturnType<typeof createIPCHandler> | null = null;
 
 /**
- * Serve the host tRPC router to a secondary window (the quick-ask panel).
- * No-op until the main window - which creates the handler - exists.
+ * Serves the host tRPC router to a secondary window (the quick-ask panel).
+ * No-op until the main window creates the handler.
  */
 export function attachWindowToTrpc(window: BrowserWindow): void {
   trpcIpcHandler?.attachWindow(window);

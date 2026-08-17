@@ -17,7 +17,7 @@ interface QuickAskBridge {
   dragEnd: () => void;
   ask: (question: string, conversationId?: string) => void;
   cancel: () => void;
-  /** Drops the thread (main-side session) and pre-warms the next one. */
+  /** Drops the thread and pre-warms the next one. */
   reset: () => void;
   /** Events are `QuickAskEvent`s from @posthog/core/quick-ask/quick-ask. */
   onEvent: (callback: (event: unknown) => void) => () => void;

@@ -132,9 +132,8 @@ function setupQuickAskPreload(): void {
 export function setupPreload(argv: string[]): void {
   if (argv.includes(QUICK_ASK_WINDOW_ARG)) {
     setupQuickAskPreload();
-    // The panel renders agent answers through the shared evidence pipeline
-    // (live chips and chart cards), which talks to the main process over the
-    // host tRPC bridge for auth tokens and external links.
+    // Answer rendering needs the host tRPC bridge for auth tokens and
+    // external links.
     process.once("loaded", () => {
       exposeElectronTRPC();
     });

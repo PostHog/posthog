@@ -58,7 +58,6 @@ export function QuickAsk(): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const reset = useCallback((): void => {
-    // Drops the whole thread main-side (and pre-warms the next one).
     window.quickAsk?.reset();
     conversationIdRef.current = undefined;
     setPhase("idle");

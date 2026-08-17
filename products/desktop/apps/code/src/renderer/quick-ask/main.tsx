@@ -16,12 +16,8 @@ import ReactDOM from "react-dom/client";
 import superjson from "superjson";
 import { QuickAsk } from "./QuickAsk";
 
-/**
- * The panel boots a deliberately thin slice of the app: host tRPC (auth
- * tokens, external links) + react-query + the theme. That is exactly what the
- * shared evidence pipeline needs to resolve object tags into live chips and
- * chart cards - no app DI graph, no router, no workspace client.
- */
+// The panel boots only what answer rendering needs: host tRPC (auth tokens,
+// external links), react-query, and the theme.
 const hostTrpcClient = createTRPCClient<HostRouter>({
   links: [ipcLink({ transformer: superjson })],
 });
@@ -32,8 +28,7 @@ const container = new Container();
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
 setRootContainer(container);
 
-// Hydrate the auth store the evidence components read (project id, region,
-// tokens). Subscription first so no state change is missed while the initial
+// Subscription first so no auth state change is missed while the initial
 // query is in flight.
 hostTrpcClient.auth.onStateChanged.subscribe(undefined, {
   onData: (state) => useAuthStore.getState().setAuthState(state),
