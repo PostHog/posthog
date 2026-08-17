@@ -116,17 +116,13 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def extract_explicit_repo_from_scopes(scopes: list[str], all_repos: list[str]) -> str | None:
-    """Return the connected repo named by the first of `scopes` to name one.
+    """Return the connected repo named by the first of `scopes` to name one, callers ordering
+    them strongest evidence first.
 
-    Callers order `scopes` strongest evidence first, so the text someone wrote while asking
-    beats the text that happened to be nearby.
-
-    Each scope is matched on its own rather than joined into one string, which is what keeps
-    the ambiguity rule in `extract_explicit_repo` meaningful. Two repos named inside a single
-    scope is one person naming two things at once, so nothing resolves. Two repos named across
-    separate scopes is an ordinary thread accumulating links, so the stronger scope answers.
-    Joining them first would collapse that distinction and make a long thread resolve to
-    nothing almost every time.
+    Each scope is matched on its own rather than joined into one string, which keeps the
+    ambiguity rule in `extract_explicit_repo` meaningful: two repos named inside one scope is
+    someone naming two things at once and resolves to nothing, while two repos named across
+    separate scopes is a thread accumulating links and lets the stronger scope answer.
     """
     for scope in scopes:
         if match := extract_explicit_repo(scope, all_repos):

@@ -922,10 +922,10 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 def _extract_explicit_repo_from_thread(thread_messages: list[dict[str, str]], all_repos: list[str]) -> str | None:
     """Repo named by the thread around a mention, newest message first.
 
-    People paste the run or pull request link into the thread and then mention the bot in a
-    later reply that carries no link of its own. Reading only the mention hands those asks to
-    the discovery agent, which resolves them from the same thread text this never looked at.
-    Newest first because the link under discussion is the one most recently posted.
+    People paste the link into the thread and mention the bot in a later reply that carries no
+    link of its own. Reading only the mention hands those asks to the discovery agent, which
+    answers them from this same thread text. Newest first because the link under discussion is
+    the one most recently posted.
     """
     return extract_explicit_repo_from_scopes(
         [_strip_bot_mentions(message.get("text", "")) for message in reversed(thread_messages)], all_repos

@@ -452,9 +452,8 @@ class Command:
         self.stdout.write(f"  text:     {text}")
         self.stdout.write(f"  expected: {case.expected_stage}/{case.expected_outcome}")
 
-        # Stage 1: cascade (synchronous, no LLM). Mention first, then the thread, matching
-        # `cascade_posthog_code_repository_activity`; reading only the mention here would pass
-        # every case whose link sits in the thread while production sent them to the agent.
+        # Stage 1: cascade (synchronous, no LLM). Mirrors `cascade_posthog_code_repository_activity`,
+        # because reading only the mention here would pass cases that production sends to the agent.
         explicit = _extract_explicit_repo(text, ctx.all_repos) or _extract_explicit_repo_from_thread(
             thread_messages, ctx.all_repos
         )

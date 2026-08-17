@@ -70,10 +70,9 @@ def cascade_posthog_code_repository_activity(
     if len(all_repos) == 1:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
 
-    outcome = _resolve_from_text(event_text, thread_messages or [], all_repos)
-    # The reason carries which scope answered, and whether anything did. Without it the share of
-    # mentions the fast path saves from the discovery agent is only measurable by rerunning the
-    # resolution order over Slack text, which is not something to reconstruct in a query.
+    outcome = _resolve_explicit_repo(event_text, thread_messages or [], all_repos)
+    # Logged so the share of mentions the fast path saves from the discovery agent, and which
+    # scope produced it, is measurable without rerunning the resolution order over Slack text.
     logger.info(
         "posthog_code_cascade_outcome",
         reason=outcome.reason,
@@ -82,7 +81,7 @@ def cascade_posthog_code_repository_activity(
     return outcome
 
 
-def _resolve_from_text(
+def _resolve_explicit_repo(
     event_text: str, thread_messages: list[dict[str, str]], all_repos: list[str]
 ) -> PostHogCodeRepoCascadeOutcome:
     """Repo named by the mention, then by the thread, each reported under its own reason."""
