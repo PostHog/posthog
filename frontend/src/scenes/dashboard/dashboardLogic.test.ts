@@ -2644,7 +2644,7 @@ describe('dashboardLogic', () => {
 
             const { container, getByText: getDialogText } = render(dialogProps.description)
             expect(getDialogText('This insight is also used on:')).not.toBeNull()
-            expect(container.querySelector('a')).toHaveAttribute('href', urls.dashboard(6))
+            expect(container.querySelector('a')?.getAttribute('href')).toBe(urls.dashboard(6))
             expect(
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()
@@ -2655,12 +2655,10 @@ describe('dashboardLogic', () => {
         it('does not offer to delete an insight with view-only access', async () => {
             const { render } = await import('@testing-library/react')
             const insightTile = logic.values.insightTiles[0]
+            insightTile.insight!.user_access_level = AccessControlLevel.Viewer
 
             await expectLogic(logic, () => {
-                logic.actions.removeTile({
-                    ...insightTile,
-                    insight: { ...insightTile.insight!, user_access_level: AccessControlLevel.Viewer },
-                })
+                logic.actions.removeTile(insightTile)
             }).toFinishAllListeners()
 
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
