@@ -52,6 +52,60 @@ FAILURE_TYPE_SYSTEM = "system"
 FAILURE_TYPE_TIMEOUT_GENERATION = "timeout_generation"
 FAILURE_TYPE_UNKNOWN = "unknown"
 
+# Video renders fail with a code from the recording rasterizer rather than a Python exception, so they
+# classify by code (RASTERIZATION_ERROR_CODES in
+# nodejs/src/session-replay/recording-rasterizer/errors.ts). A code absent here classifies as
+# "unknown", which is the signal to add it rather than a bucket to grow silently.
+RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
+    "TIMEOUT": FAILURE_TYPE_TIMEOUT_GENERATION,
+    "CAPTURE_ABORTED": FAILURE_TYPE_TIMEOUT_GENERATION,
+    "BEGINFRAME_DEADLOCK": FAILURE_TYPE_TIMEOUT_GENERATION,
+    # A property of the recording or the request rather than a fault in our infrastructure. Bucketing
+    # these as "system" would put them in front of whoever watches infra alerts.
+    "NO_SNAPSHOTS": FAILURE_TYPE_USER,
+    "INVALID_INPUT": FAILURE_TYPE_USER,
+    # Reaching the recording's data failed, which nobody exporting it can do anything about.
+    "DATA_LOAD_FAILED": FAILURE_TYPE_SYSTEM,
+    "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
+    "INIT_FAILED": FAILURE_TYPE_SYSTEM,
+    "BLOCK_LISTING_FAILED": FAILURE_TYPE_SYSTEM,
+    # The render activity died without producing a code at all: heartbeat or start-to-close timeout
+    # from a lost or wedged worker. Not the renderer's own TIMEOUT, but still a render that ran out
+    # of time. Resolved in the workflow's _record_failure, not a rasterizer code.
+    "ACTIVITY_TIMEOUT": FAILURE_TYPE_TIMEOUT_GENERATION,
+    # The renderer's own catch-all codes: UNKNOWN wraps a non-RasterizationError, OTHER clamps an
+    # unrecognized browser code. Mapped explicitly because they carry no more classification to
+    # extract — "unknown" is their honest bucket, unlike a code missing from this map, which still
+    # means someone needs to add it.
+    "UNKNOWN": FAILURE_TYPE_UNKNOWN,
+    "OTHER": FAILURE_TYPE_UNKNOWN,
+}
+
+# Shown to whoever asked for the export, so each one says what happened and what to do next. A
+# recording with no data will never render, so telling that user to retry would send them in a loop.
+_RASTERIZATION_MESSAGES: dict[str, str] = {
+    "TIMEOUT": "This recording took too long to render. Try exporting a shorter part of it.",
+    "CAPTURE_ABORTED": "The render stopped before it finished. Try exporting a shorter part of the recording.",
+    "BEGINFRAME_DEADLOCK": "The render stopped responding. Try exporting a shorter part of the recording.",
+    "NO_SNAPSHOTS": "This recording has no playable data, so there is nothing to export.",
+    "INVALID_INPUT": "This export request was not valid. Contact support if it keeps happening.",
+    "DATA_LOAD_FAILED": "We could not load this recording's data. Try the export again in a few minutes.",
+    "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
+    "INIT_FAILED": "The video renderer could not start. Try the export again.",
+    "BLOCK_LISTING_FAILED": "We could not read this recording. Try the export again in a few minutes.",
+    "ACTIVITY_TIMEOUT": "This recording took too long to render. Try exporting a shorter part of it.",
+}
+
+_RASTERIZATION_FALLBACK_MESSAGE = "The video export failed. Try again, and contact support if it keeps failing."
+
+
+def classify_rasterization_failure(error_code: str | None) -> str:
+    return RASTERIZATION_CODE_TO_FAILURE_TYPE.get(error_code or "", FAILURE_TYPE_UNKNOWN)
+
+
+def rasterization_failure_message(error_code: str | None) -> str:
+    return _RASTERIZATION_MESSAGES.get(error_code or "", _RASTERIZATION_FALLBACK_MESSAGE)
+
 
 class ExportCancelled(Exception):
     """Raised when an export is canceled due to timeout."""
