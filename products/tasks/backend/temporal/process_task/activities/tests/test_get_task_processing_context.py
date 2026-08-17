@@ -12,7 +12,6 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -1163,44 +1162,18 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_event_ingest_enabled is True
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "legacy_resume_snapshots, directory_resume_snapshots, run_state, expected_resume_snapshots",
-        [
-            (True, False, {}, True),
-            (False, True, {}, True),
-            (False, False, {}, False),
-            (False, False, {"use_modal_directory_resume_snapshots": True}, False),
-            (False, True, {"use_modal_directory_resume_snapshots": False}, True),
-        ],
-    )
-    def test_get_task_processing_context_combines_legacy_and_directory_resume_snapshot_flags(
-        self,
-        activity_environment,
-        test_task,
-        legacy_resume_snapshots,
-        directory_resume_snapshots,
-        run_state,
-        expected_resume_snapshots,
-    ):
-        task_run = test_task.create_run(extra_state=run_state)
+    def test_get_task_processing_context_enables_directory_resume_snapshots(self, activity_environment, test_task):
+        task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, *args, **kwargs):
-            if flag_key == MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG:
-                return directory_resume_snapshots
-            return False
-
-        with (
-            override_settings(TASKS_USE_MODAL_RESUME_SNAPSHOTS=legacy_resume_snapshots),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                side_effect=feature_enabled,
-            ),
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
         ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.use_modal_resume_snapshots is expected_resume_snapshots
-        assert result.use_modal_directory_resume_snapshots is directory_resume_snapshots
+        assert result.use_modal_resume_snapshots is True
+        assert result.use_modal_directory_resume_snapshots is True
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_applies_org_default_custom_image(self, activity_environment, test_task):

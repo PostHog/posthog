@@ -810,7 +810,10 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDVerificationToken
+                              BillingAlertConfiguration
+                              |BillingAlertEvaluationClaim
+                              |BillingAlertEvent
+                              |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
@@ -878,7 +881,10 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDVerificationToken
+                        BillingAlertConfiguration
+                        |BillingAlertEvaluationClaim
+                        |BillingAlertEvent
+                        |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -2684,6 +2685,7 @@ def _settled_catalog_certifications(
         if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
             return {}, {}
 
+        record_catalog_read("schema_serialization")
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
@@ -2707,6 +2709,7 @@ def _settled_catalog_certifications(
                 by_saved_query_id[str(certification.saved_query_id)] = serialized
         return by_table_id, by_saved_query_id
     except Exception:
+        record_catalog_read_failure("schema_serialization")
         logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
         return {}, {}
 

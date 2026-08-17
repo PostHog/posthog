@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
@@ -38,10 +38,11 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
-    AwsS3Integration,
+    AWSS3Integration,
     Credentials,
     DatabricksIntegration,
     DatabricksIntegrationError,
+    DuplicateNameError,
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
@@ -50,12 +51,13 @@ from posthog.models.integration import (
     GoogleCloudServiceAccountIntegration,
     InstagramIntegration,
     Integration,
+    IntegrationError,
     JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    RedshiftIntegration,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
@@ -64,6 +66,7 @@ from posthog.models.integration import (
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
+    validate_aws_credentials,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -530,6 +533,26 @@ class TestOauthIntegrationModel(BaseTest):
                         "code": "code",
                         "state": "next=/projects/test",
                     },
+                )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_oauth_without_advertiser_accounts_raises_validation_error(self, mock_post):
+        # TikTok completes OAuth even when the user granted no advertiser account, leaving
+        # `advertiser_ids` empty. That must surface as a ValidationError (→ 400 with an actionable
+        # message) rather than the bare Exception (→ 500) the missing-id guard would otherwise raise.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "code": 0,
+                "data": {"access_token": "FAKE_ACCESS_TOKEN", "advertiser_ids": []},
+            }
+
+            with pytest.raises(ValidationError, match="ad accounts"):
+                OauthIntegration.integration_from_oauth_response(
+                    "tiktok-ads",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
                 )
 
     @patch("posthog.models.integration.requests.post")
@@ -3407,10 +3430,10 @@ class TestDatabricksIntegrationModel(BaseTest):
             )
 
 
-class TestAwsS3IntegrationModel(BaseTest):
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+class TestAWSS3IntegrationModel(BaseTest):
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_with_valid_config(self, mock_validate):
-        integration = AwsS3Integration.integration_from_config(
+        integration = AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
@@ -3430,27 +3453,27 @@ class TestAwsS3IntegrationModel(BaseTest):
         }
         # display_name surfaces AWS account so users can tell integrations apart.
         assert integration.display_name == "prod-aws (AWS account 123456789012)"
-        assert AwsS3Integration(integration).aws_account_id == "123456789012"
+        assert AWSS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
-        with pytest.raises(S3CredentialIntegrationError, match="A name is required"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(IntegrationError, match="A name is required"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="",
                 aws_access_key_id="AKIAEXAMPLE",
                 aws_secret_access_key="secret",
             )
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_rejects_duplicate_name(self, mock_validate):
-        AwsS3Integration.integration_from_config(
+        AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'prod-aws' already exists"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(DuplicateNameError, match="An integration named 'prod-aws' already exists"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="prod-aws",
                 aws_access_key_id="AKIAOTHER",
@@ -3459,36 +3482,34 @@ class TestAwsS3IntegrationModel(BaseTest):
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
     @patch("boto3.client")
-    def test_validate_credentials_returns_account_id(self, mock_boto_client):
+    def test_validate_aws_credentials_returns_account_id(self, mock_boto_client):
         mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
-        assert AwsS3Integration.validate_credentials("key", "secret") == "123456789012"
+        assert validate_aws_credentials("key", "secret") == "123456789012"
 
     @patch("boto3.client")
-    def test_validate_credentials_raises_on_invalid_credentials(self, mock_boto_client):
+    def test_validate_aws_credentials_raises_on_invalid_credentials(self, mock_boto_client):
         from botocore.exceptions import ClientError
 
         mock_boto_client.return_value.get_caller_identity.side_effect = ClientError(
             {"Error": {"Code": "InvalidClientTokenId", "Message": "The security token is invalid."}},
             "GetCallerIdentity",
         )
-        with pytest.raises(
-            S3CredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
-        ):
-            AwsS3Integration.validate_credentials("key", "secret")
+        with pytest.raises(IntegrationError, match="AWS credentials are not valid: The security token is invalid."):
+            validate_aws_credentials("key", "secret")
 
     def test_wrapping_wrong_kind_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
         )
-        with pytest.raises(S3CredentialIntegrationError, match="is not an AWS S3 integration"):
-            AwsS3Integration(integration)
+        with pytest.raises(IntegrationError, match="is not the expected AWS integration"):
+            AWSS3Integration(integration)
 
     def test_wrapping_missing_credentials_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x", sensitive_config={}
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing"):
-            AwsS3Integration(integration)
+        with pytest.raises(IntegrationError, match="missing"):
+            AWSS3Integration(integration)
 
 
 class TestS3CompatibleIntegrationModel(BaseTest):
@@ -3512,7 +3533,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
 
     def test_integration_from_config_requires_endpoint_url(self):
-        with pytest.raises(S3CredentialIntegrationError, match="endpoint URL is required"):
+        with pytest.raises(IntegrationError, match="Endpoint URL is required"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3529,7 +3550,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             aws_access_key_id="key",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'my-r2' already exists"):
+        with pytest.raises(DuplicateNameError, match="An integration named 'my-r2' already exists"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3542,7 +3563,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
     # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
     @override_settings(FORCE_URL_VALIDATION=True)
     def test_integration_from_config_rejects_internal_endpoint(self):
-        with pytest.raises(S3CredentialIntegrationError, match="Invalid endpoint URL"):
+        with pytest.raises(IntegrationError, match="Invalid endpoint URL"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3559,7 +3580,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             config={"name": "x"},
             sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
+        with pytest.raises(IntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
 
 
@@ -4375,7 +4396,22 @@ class TestGitLabIntegrationSSRFProtection:
         mock_post.assert_not_called()
 
 
+@parameterized_class(
+    [
+        {
+            "integration_cls": PostgreSQLIntegration,
+            "integration_kind": Integration.IntegrationKind.POSTGRESQL,
+        },
+        {
+            "integration_cls": RedshiftIntegration,
+            "integration_kind": Integration.IntegrationKind.AWS_REDSHIFT,
+        },
+    ]
+)
 class TestPostgreSQLIntegrationModel(BaseTest):
+    integration_kind: Integration.IntegrationKind
+    integration_cls: type[RedshiftIntegration] | type[PostgreSQLIntegration]
+
     @parameterized.expand(
         [
             (
@@ -4419,13 +4455,13 @@ class TestPostgreSQLIntegrationModel(BaseTest):
 
         integration = Integration.objects.create(
             team=self.team,
-            kind=Integration.IntegrationKind.POSTGRESQL,
+            kind=self.integration_kind,
             integration_id=f"{self.team.pk}-db.example.com-5432-exporter",
             config=config,
             sensitive_config=sensitive_config,
         )
 
-        pq = PostgreSQLIntegration(integration)
+        pq = self.integration_cls(integration)
         assert pq.tls() == expected_tls
 
     @parameterized.expand(
@@ -4450,23 +4486,24 @@ class TestPostgreSQLIntegrationModel(BaseTest):
     def test_integration_from_config(self, _name, overrides, expected_tls):
         kwargs = {
             "team_id": self.team.pk,
-            "host": "db.example.com",
+            "host": "localhost",
             "port": 5432,
             "user": "exporter",
             "password": "super-secret",
         }
         kwargs.update(overrides)
 
-        integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
-        pq = PostgreSQLIntegration(integration)
+        integration = self.integration_cls.integration_from_config(**kwargs)  # type: ignore
+        pq = self.integration_cls(integration)
 
-        assert pq.authority() == Authority(host="db.example.com", port=5432)
+        assert pq.authority() == Authority(host="localhost", port=5432)
         assert pq.credentials() == Credentials(user="exporter", password="super-secret")
         assert pq.tls() == expected_tls
 
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+        assert pq.integration_kind == self.integration_kind
 
 
 def _make_resend_jwt(payload: dict) -> str:
