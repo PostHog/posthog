@@ -142,6 +142,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
+    TaskRunResumeStateSyncResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
     TaskRunStartRequestSerializer,
@@ -168,8 +169,14 @@ from ee.hogai.utils.aio import async_to_sync
 
 class OctetStreamParser(BaseParser):
     media_type = "application/octet-stream"
+    size_error_message = "The task session content size is invalid"
+
+    @property
+    def max_size_bytes(self) -> int:
+        return tasks_facade.TASK_SESSION_MAX_SIZE_BYTES
 
     def parse(self, stream, media_type=None, parser_context=None):
+        max_size_bytes = self.max_size_bytes
         request = (parser_context or {}).get("request")
         raw_content_length = request.META.get("CONTENT_LENGTH") if request is not None else None
         if not isinstance(raw_content_length, str):
@@ -178,13 +185,21 @@ class OctetStreamParser(BaseParser):
             content_length = int(raw_content_length)
         except ValueError as error:
             raise ParseError("A valid Content-Length header is required") from error
-        if content_length < 0 or content_length > tasks_facade.TASK_SESSION_MAX_SIZE_BYTES:
-            raise ParseError("The task session content size is invalid")
+        if content_length < 0 or content_length > max_size_bytes:
+            raise ParseError(self.size_error_message)
 
-        content = stream.read(tasks_facade.TASK_SESSION_MAX_SIZE_BYTES + 1)
-        if len(content) > tasks_facade.TASK_SESSION_MAX_SIZE_BYTES:
-            raise ParseError("The task session content size is invalid")
+        content = stream.read(max_size_bytes + 1)
+        if len(content) > max_size_bytes:
+            raise ParseError(self.size_error_message)
         return content
+
+
+class ResumeStateOctetStreamParser(OctetStreamParser):
+    size_error_message = "The resume state content size is invalid"
+
+    @property
+    def max_size_bytes(self) -> int:
+        return tasks_facade.RESUME_STATE_MAX_SIZE_BYTES
 
 
 logger = logging.getLogger(__name__)
@@ -1192,6 +1207,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "logs",
         "session_logs",
         "task_session",
+        "resume_state",
         "stream",
         "stream_token",
         "artifacts_presign",
@@ -1670,6 +1686,58 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         session_id, content_sha256 = result
         return Response(TaskSessionSyncResponseSerializer({"id": session_id, "content_sha256": content_sha256}).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiTypes.OBJECT,
+            404: OpenApiResponse(description="Resume state not found"),
+        },
+        summary="Get the stored resume state for a task run",
+    )
+    @action(detail=True, methods=["get"], url_path="resume_state", required_scopes=["task:read"])
+    def resume_state(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        content = tasks_facade.read_task_run_resume_state(pk, task_id, self.team_id)
+        if content is None:
+            raise NotFound()
+        response = HttpResponse(content, content_type="application/json")
+        response["Cache-Control"] = "no-cache"
+        return response
+
+    @extend_schema(
+        request=OpenApiTypes.BINARY,
+        responses={
+            200: TaskRunResumeStateSyncResponseSerializer,
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid resume state content"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Replace the stored resume state for a task run",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="resume_state_sync",
+        required_scopes=["task:write"],
+        parser_classes=[ResumeStateOctetStreamParser],
+    )
+    def sync_resume_state(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+
+        try:
+            written = tasks_facade.write_task_run_resume_state(
+                pk,
+                task_id,
+                self.team_id,
+                content=request.data,
+            )
+        except ValueError as error:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": str(error)}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not written:
+            raise NotFound()
+        return Response(TaskRunResumeStateSyncResponseSerializer({"ok": True}).data)
 
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,

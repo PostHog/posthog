@@ -64,6 +64,7 @@ from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    RESUME_STATE_MAX_SIZE_BYTES,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -2912,6 +2913,33 @@ def sync_task_run_session(
     except Exception:
         _delete_task_session_object(visible_run.active_task_session_id, object_storage_key)
         raise
+
+
+def write_task_run_resume_state(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    content: bytes,
+) -> bool:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return False
+    if not content or len(content) > RESUME_STATE_MAX_SIZE_BYTES:
+        raise ValueError("The resume state content size is invalid")
+    object_storage.write(run.resume_state_url, content)
+    return True
+
+
+def read_task_run_resume_state(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return object_storage.read(run.resume_state_url, missing_ok=True)
 
 
 def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:

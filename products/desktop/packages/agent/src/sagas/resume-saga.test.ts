@@ -775,4 +775,67 @@ describe("ResumeSaga", () => {
       }
     });
   });
+
+  describe("resume snapshot", () => {
+    const snapshot = {
+      conversation: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      latestGitCheckpoints: [{ checkpointId: "cp-1", checkpointRef: "ref-1" }],
+      logEntryCount: 42,
+      sessionId: "session-1",
+    };
+
+    it("resumes from the snapshot without fetching the log", async () => {
+      (
+        mockApiClient.fetchTaskRunResumeState as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(snapshot);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.sessionId).toBe("session-1");
+        expect(result.data.logEntryCount).toBe(42);
+        expect(result.data.latestGitCheckpoint?.checkpointId).toBe("cp-1");
+      }
+      expect(mockApiClient.fetchTaskRunLogs).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a rejected request", undefined, true],
+      ["a malformed payload", { conversation: "nope" }, false],
+      ["an empty conversation", { conversation: [] }, false],
+    ])("falls back to the log on %s", async (_case, value, rejects) => {
+      const mock = mockApiClient.fetchTaskRunResumeState as ReturnType<
+        typeof vi.fn
+      >;
+      if (rejects) {
+        mock.mockRejectedValue(new Error("boom"));
+      } else {
+        mock.mockResolvedValue(value);
+      }
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([createUserMessage("one")]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockApiClient.fetchTaskRunLogs).toHaveBeenCalled();
+    });
+  });
 });

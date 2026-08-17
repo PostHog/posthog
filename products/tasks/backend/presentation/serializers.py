@@ -866,6 +866,10 @@ class TaskSessionSyncResponseSerializer(serializers.Serializer):
     content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
 
 
+class TaskRunResumeStateSyncResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(help_text="Whether the resume state was stored")
+
+
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
     relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")

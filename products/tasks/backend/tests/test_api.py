@@ -10001,6 +10001,109 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(task_session.id))
 
+    def _resume_state_url(self, task, run):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_state/"
+
+    def _resume_state_sync_url(self, task, run):
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_state_sync/"
+
+    @patch("posthog.storage.object_storage.read")
+    @patch("posthog.storage.object_storage.write")
+    def test_resume_state_write_then_read_round_trip(self, mock_write, mock_read):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+        self._open_sandbox_session(run)
+        content = b'{"last_event_id":"42"}'
+
+        write_response = self.client.generic(
+            "POST",
+            self._resume_state_sync_url(task, run),
+            cast(str, content),
+            content_type="application/octet-stream",
+            HTTP_X_SANDBOX_ID="sandbox-1",
+            HTTP_X_TASK_RUN_TOKEN=create_sandbox_event_ingest_token(run),
+        )
+
+        self.assertEqual(write_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(write_response.json(), {"ok": True})
+        mock_write.assert_called_once_with(run.resume_state_url, content)
+
+        mock_read.return_value = content.decode()
+        read_response = self.client.get(self._resume_state_url(task, run))
+
+        self.assertEqual(read_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(read_response["Content-Type"], "application/json")
+        self.assertEqual(read_response["Cache-Control"], "no-cache")
+        self.assertEqual(read_response.content, content)
+        mock_read.assert_called_once_with(run.resume_state_url, missing_ok=True)
+
+    @patch("posthog.storage.object_storage.read", return_value=None)
+    def test_resume_state_read_returns_404_when_never_written(self, mock_read):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.get(self._resume_state_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthog.storage.object_storage.write")
+    def test_resume_state_sync_rejects_oversized_content_length(self, mock_write):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.generic(
+            "POST",
+            self._resume_state_sync_url(task, run),
+            cast(str, b"x"),
+            content_type="application/octet-stream",
+            CONTENT_LENGTH=str(tasks_facade.RESUME_STATE_MAX_SIZE_BYTES + 1),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "The resume state content size is invalid")
+        mock_write.assert_not_called()
+
+    @patch("posthog.storage.object_storage.write")
+    def test_resume_state_sync_rejects_empty_content(self, mock_write):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+        self._open_sandbox_session(run)
+
+        response = self.client.generic(
+            "POST",
+            self._resume_state_sync_url(task, run),
+            cast(str, b""),
+            content_type="application/octet-stream",
+            HTTP_X_SANDBOX_ID="sandbox-1",
+            HTTP_X_TASK_RUN_TOKEN=create_sandbox_event_ingest_token(run),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "The resume state content size is invalid")
+        mock_write.assert_not_called()
+
+    @patch("posthog.storage.object_storage.write")
+    def test_resume_state_sync_rejects_a_run_from_another_team(self, mock_write):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other team task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.generic(
+            "POST",
+            f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/resume_state_sync/",
+            cast(str, b'{"conversation":[]}'),
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_write.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_pi_user_message(self, mock_signal_followup):
         task = self.create_task(runtime=Task.Runtime.PI)

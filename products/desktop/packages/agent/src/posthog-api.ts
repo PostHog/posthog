@@ -20,6 +20,9 @@ export { getGatewayUsageUrl, getLlmGatewayUrl };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
 
+// Read sits inside the backend's bounded wait for the agent to open a session.
+const RESUME_STATE_TIMEOUT_MS = 15_000;
+
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
@@ -595,6 +598,55 @@ export class PostHogAPIClient {
     } catch (error) {
       throw new Error(
         `Failed to fetch task run logs: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Fetch the resume state a prior run persisted at teardown.
+   * @returns The parsed snapshot, or null when the run never wrote one.
+   */
+  async fetchTaskRunResumeState(
+    taskId: string,
+    runId: string,
+  ): Promise<unknown | null> {
+    const teamId = this.getTeamId();
+    const response = await this.performRequestWithRetry(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_state`,
+      { signal: AbortSignal.timeout(RESUME_STATE_TIMEOUT_MS) },
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch resume state: [${response.status}] ${response.statusText}`,
+      );
+    }
+    return response.json();
+  }
+
+  async putTaskRunResumeState(
+    taskId: string,
+    runId: string,
+    content: string,
+  ): Promise<void> {
+    const teamId = this.getTeamId();
+    const response = await this.performRequestWithRetry(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_state_sync/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: content,
+        signal: AbortSignal.timeout(RESUME_STATE_TIMEOUT_MS),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.text().catch(() => response.statusText);
+      throw new Error(
+        `Failed to write resume state: [${response.status}] ${error}`,
       );
     }
   }

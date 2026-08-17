@@ -2162,6 +2162,11 @@ class TaskRun(models.Model):
         """Generate the S3 path for this run's logs."""
         return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
 
+    @property
+    def resume_state_url(self) -> str:
+        """Stable S3 path for this run's resume state cache, overwritten in place."""
+        return f"{self.get_task_s3_prefix()}/run_{self.id}_resume_state.json"
+
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER

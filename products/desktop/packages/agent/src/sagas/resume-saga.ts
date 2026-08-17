@@ -45,11 +45,58 @@ export interface ResumeOutput {
   nativeGoal?: NativeGoalState | null;
 }
 
+/**
+ * Validate a stored snapshot. Anything malformed or empty returns null so the
+ * caller replays the log instead of resuming from a partial write.
+ */
+export function parseResumeSnapshot(value: unknown): ResumeOutput | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<ResumeOutput>;
+  if (!Array.isArray(candidate.conversation)) return null;
+  if (!Array.isArray(candidate.latestGitCheckpoints)) return null;
+  if (candidate.conversation.length === 0) return null;
+
+  return {
+    conversation: candidate.conversation,
+    latestGitCheckpoint: candidate.latestGitCheckpoints.at(-1) ?? null,
+    latestGitCheckpoints: candidate.latestGitCheckpoints,
+    interrupted: false,
+    lastDevice: candidate.lastDevice,
+    logEntryCount:
+      typeof candidate.logEntryCount === "number" ? candidate.logEntryCount : 0,
+    sessionId:
+      typeof candidate.sessionId === "string" ? candidate.sessionId : null,
+    nativeGoal: candidate.nativeGoal,
+  };
+}
+
 export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   readonly sagaName = "ResumeSaga";
 
   protected async execute(input: ResumeInput): Promise<ResumeOutput> {
     const { taskId, runId, apiClient } = input;
+
+    // The prior run folded this at teardown; replaying its whole log is the fallback.
+    const snapshot = await this.readOnlyStep(
+      "fetch_resume_snapshot",
+      async () => {
+        try {
+          return parseResumeSnapshot(
+            await apiClient.fetchTaskRunResumeState(taskId, runId),
+          );
+        } catch {
+          return null;
+        }
+      },
+    );
+
+    if (snapshot) {
+      this.log.info("Resumed from snapshot", {
+        turns: snapshot.conversation.length,
+        logEntryCount: snapshot.logEntryCount,
+      });
+      return snapshot;
+    }
 
     // Step 1: Fetch task run (read-only)
     const taskRun = await this.readOnlyStep("fetch_task_run", () =>

@@ -131,6 +131,8 @@ export function createMockApiClient(
     downloadArtifact: vi.fn(),
     getTaskRun: vi.fn(),
     fetchTaskRunLogs: vi.fn(),
+    fetchTaskRunResumeState: vi.fn().mockResolvedValue(null),
+    putTaskRunResumeState: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as PostHogAPIClient;
 }

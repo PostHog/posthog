@@ -875,6 +875,40 @@ export class AgentServer {
     await this.autoInitializeSession();
   }
 
+  /**
+   * Fold this run's log once at teardown so the next run reads one small object
+   * instead of replaying the whole log inside its boot health check.
+   */
+  private async persistResumeSnapshot(): Promise<void> {
+    const { taskId, runId } = this.config;
+
+    try {
+      const state = await resumeFromLog({
+        taskId,
+        runId,
+        repositoryPath: this.config.repositoryPath,
+        apiClient: this.posthogAPI,
+        logger: new Logger({ debug: true, prefix: "[ResumeSnapshot]" }),
+      });
+
+      if (state.conversation.length === 0) return;
+
+      await this.posthogAPI.putTaskRunResumeState(
+        taskId,
+        runId,
+        JSON.stringify(state),
+      );
+      this.logger.debug("Persisted resume snapshot", {
+        turns: state.conversation.length,
+        logEntries: state.logEntryCount,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to persist resume snapshot", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async loadResumeState(
     taskId: string,
     resumeRunId: string,
@@ -4877,6 +4911,8 @@ ${commonInstructions}
     } catch (error) {
       this.logger.error("Failed to flush session logs", error);
     }
+
+    await this.persistResumeSnapshot();
 
     if (this.mcpRelayServer) {
       await this.mcpRelayServer.stop();
