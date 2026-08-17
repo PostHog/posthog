@@ -4159,6 +4159,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
 
             posthog.capture('survey created', {
+                // The web app is the only place this event is emitted from — there is no backend
+                // equivalent — so stamping the surface here is what puts surveys in a `source`
+                // breakdown at all, rather than showing up as unattributed.
+                source: 'web',
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,

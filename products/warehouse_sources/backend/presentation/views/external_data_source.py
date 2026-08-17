@@ -2114,13 +2114,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
-        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
-        # Upgrade that machine-injected value when the transport identifies one of them, so their
-        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        # The setup wizard and PostHog's agent surfaces drive creation through the MCP tools, which
+        # inject `created_via=mcp` before the request reaches us — the agent can't set the field
+        # itself. Upgrade that machine-injected value when the transport identifies one of them, so
+        # their runs are distinguishable from other MCP clients. Explicit `web`/`api` values are
+        # left alone. The PostHog apps and the headless agents all map to `self_driving`: the
+        # distinction between them is an analytics one, and splitting it here would need a new
+        # stored value.
         if created_via == ExternalDataSource.CreatedVia.MCP:
             transport_created_via = {
                 EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
