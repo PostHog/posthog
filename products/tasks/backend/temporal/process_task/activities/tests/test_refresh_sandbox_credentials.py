@@ -31,7 +31,7 @@ class TestRefreshSandboxCredentialsActivity:
         return fake
 
     def test_refreshes_github_credentials_and_reports_interval(
-        self, activity_environment, task_context, test_task, sandbox
+        self, activity_environment, task_context, test_task, test_task_run, sandbox
     ):
         with (
             patch(
@@ -45,6 +45,11 @@ class TestRefreshSandboxCredentialsActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
             ) as track_event,
+            patch(
+                "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+                return_value="jwt",
+            ),
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as send_agent_command,
         ):
             output = async_to_sync(activity_environment.run)(
                 refresh_sandbox_credentials,
@@ -54,6 +59,11 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == ["github"]
         assert output.next_refresh_seconds == 20 * 60
         assert output.sandbox_gone is False
+
+        # Announcing the refresh to the agent-server makes the sandbox log a line, and any line
+        # re-arms the run's inactivity timer on a cadence shorter than the window, so an idle
+        # sandbox never times out. Patched at the chokepoint every agent command routes through.
+        send_agent_command.assert_not_called()
 
         # git remote rewrite + env-file read both ran against the sandbox.
         assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)
@@ -89,73 +99,6 @@ class TestRefreshSandboxCredentialsActivity:
             )
 
         assert get_token.call_args.kwargs["state"]["pr_authorship_mode"] == "user"
-
-    def test_unchanged_authorship_never_notifies_the_agent_server(
-        self, activity_environment, task_context, test_task, test_task_run, sandbox
-    ):
-        # The notice makes the sandbox log a line, and any line re-arms the workflow's inactivity
-        # timer while the agent-active latch is set. On a cadence shorter than that window, a run
-        # whose agent already stopped would never time out and would bill to the run-duration cap.
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
-                return_value="ghs_fresh",
-            ),
-            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.send_refresh_session"
-            ) as send_refresh_session,
-        ):
-            outputs = [
-                async_to_sync(activity_environment.run)(
-                    refresh_sandbox_credentials,
-                    RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-unchanged"),
-                )
-                for _ in range(2)
-            ]
-
-        # Guards the assertion below against going vacuous if the refresh stops reporting a kind.
-        assert [o.refreshed_kinds for o in outputs] == [["github"], ["github"]]
-        send_refresh_session.assert_not_called()
-
-    def test_promotion_notifies_the_agent_server_once(
-        self, activity_environment, task_context, test_task, test_task_run, sandbox
-    ):
-        # Git author/committer vars are read once at sandbox boot, so this notice is the only way a
-        # mid-run promotion reaches a running agent-server. It has to survive, and it has to be sent
-        # once rather than on every later refresh.
-        TaskRun.objects.filter(id=test_task_run.id).update(state={"pr_authorship_mode": "user"})
-
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
-                return_value="ghu_user",
-            ),
-            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.create_sandbox_connection_token",
-                return_value="jwt",
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.send_refresh_session"
-            ) as send_refresh_session,
-        ):
-            for _ in range(2):
-                async_to_sync(activity_environment.run)(
-                    refresh_sandbox_credentials,
-                    RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-promoted"),
-                )
-
-        assert send_refresh_session.call_count == 1
-        assert send_refresh_session.call_args.kwargs["authorship"] == "user"
 
     def test_retries_transient_db_connection_drop(self, activity_environment, task_context, test_task, sandbox):
         # A pooled pgbouncer connection dropped mid-request raises OperationalError on the

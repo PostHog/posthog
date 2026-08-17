@@ -3,13 +3,10 @@ from dataclasses import dataclass, field
 
 from temporalio import activity
 
-from posthog.redis import get_client
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
-from products.tasks.backend.logic.services.agent_command import send_refresh_session
-from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
@@ -18,19 +15,10 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
     build_sandbox_credentials,
 )
-from products.tasks.backend.temporal.process_task.utils import (
-    get_actor_distinct_id,
-    get_task_run_credential_user,
-    is_slack_interaction_state,
-)
 
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
-
-# Outlives the longest run the duration cap allows, so the marker cannot expire mid-run and
-# re-open the every-pass notice that keeps an idle sandbox alive.
-_AUTHORSHIP_NOTICE_TTL_SECONDS = 24 * 60 * 60
 
 
 def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
@@ -47,65 +35,6 @@ def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContex
     if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
         return ctx
     return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
-
-
-def _authorship_notice_key(sandbox_id: str) -> str:
-    return f"tasks:sandbox_authorship_notified:{sandbox_id}"
-
-
-def _authorship_notice_due(sandbox_id: str, authorship: str | None) -> bool:
-    """Whether this authorship value still needs sending, or a previous pass already sent it.
-
-    Authorship is the only part of the refresh notice the agent-server acts on: the token itself
-    reaches the sandbox through the git remote and the credential env file, but the git
-    author/committer vars are read once at boot, so a mid-run promotion to user authorship only
-    reaches a running agent-server over this channel. It therefore has to keep working.
-
-    What it must not do is repeat. The notice makes the sandbox log a line, that line arrives as a
-    stream event, and any event re-arms the workflow's inactivity timer while the agent-active latch
-    is still set — which it stays for a run whose agent stopped without signalling the end of its
-    turn. The refresh cadence is shorter than the inactivity window, so a notice on every pass holds
-    that window open for as long as the run is allowed to live, and an idle sandbox bills to the hard
-    run-duration cap.
-
-    A read failure returns ``True``: re-sending a redundant notice is cheap next to dropping a real
-    authorship change on the floor.
-    """
-    try:
-        client = get_client()
-        previous = client.get(_authorship_notice_key(sandbox_id))
-        if isinstance(previous, bytes):
-            previous = previous.decode()
-        if previous == (authorship or ""):
-            return False
-        client.set(_authorship_notice_key(sandbox_id), authorship or "", ex=_AUTHORSHIP_NOTICE_TTL_SECONDS)
-        return True
-    except Exception:
-        logger.warning("sandbox_authorship_notice_state_unavailable", sandbox_id=sandbox_id, exc_info=True)
-        return True
-
-
-def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
-    """Tell the running agent-server which credentials were re-injected so it logs them.
-    This is best-effort since the sandbox may be unreachable, so a failure here never fails the refresh itself.
-    """
-    try:
-        task_run = TaskRun.objects.get(id=ctx.run_id)
-        auth_token = None
-        actor_user = get_task_run_credential_user(task, ctx.state)
-        if is_slack_interaction_state(ctx.state) and actor_user is None:
-            logger.warning("sandbox_credentials_refresh_notify_missing_slack_actor", run_id=ctx.run_id)
-            return
-        if actor_user and actor_user.id:
-            auth_token = create_sandbox_connection_token(
-                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
-            )
-        authorship = (ctx.state or {}).get("pr_authorship_mode")
-        send_refresh_session(
-            task_run, [], auth_token=auth_token, refreshed_credentials=refreshed_kinds, authorship=authorship
-        )
-    except Exception:
-        logger.warning("sandbox_credentials_refresh_notify_failed", run_id=ctx.run_id, exc_info=True)
 
 
 @dataclass
@@ -140,10 +69,17 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
     token-mint error) is logged and skipped rather than failing the run, since
     the sandbox may still be doing useful non-git work. The returned interval
     drives the workflow's refresh cadence.
+
+    Deliberately silent towards the agent-server. The token reaches the sandbox through
+    the git remote and the credential env file, so a refresh needs no announcing. Telling
+    it anyway makes the sandbox log a line, and any line re-arms the workflow's inactivity
+    timer while the agent-active latch is set — which it stays for a run whose agent
+    stopped without signalling the end of its turn. Since this cadence is shorter than the
+    inactivity window, that held the window open until the hard run-duration cap. What was
+    refreshed is recorded here instead, via `increment_credential_refresh` and the
+    `sandbox_credentials_refreshed` event.
     """
     ctx = input.context
-    # The authorship the sandbox booted against, before the persisted value is overlaid below.
-    booted_authorship = (ctx.state or {}).get("pr_authorship_mode")
 
     with log_activity_execution(
         "refresh_sandbox_credentials",
@@ -260,14 +196,6 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
 
         if intervals:
             next_refresh = min(intervals)
-
-        current_authorship = (ctx.state or {}).get("pr_authorship_mode")
-        if (
-            refreshed_kinds
-            and current_authorship != booted_authorship
-            and _authorship_notice_due(input.sandbox_id, current_authorship)
-        ):
-            _notify_agent_server_of_refresh(ctx, task, refreshed_kinds)
 
         track_event(
             "sandbox_credentials_refreshed",
