@@ -24,8 +24,8 @@
             "type": "string"
         },
         "grid_compaction": {
-            "description": "Grid compaction mode. Use vertical, horizontal, or none.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `none` - none",
-            "enum": ["vertical", "horizontal", "none"],
+            "description": "Grid compaction mode. Use vertical or horizontal.\n\n* `vertical` - vertical\n* `horizontal` - horizontal",
+            "enum": ["vertical", "horizontal"],
             "type": "string"
         },
         "grid_spacing": {
