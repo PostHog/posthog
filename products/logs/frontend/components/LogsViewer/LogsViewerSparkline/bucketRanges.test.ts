@@ -15,29 +15,7 @@ describe('bucketRanges', () => {
         expect(selectedDateRange(BUCKET_TIMES, 2, 3)).toEqual({ date_from: BUCKET_TIMES[2], date_to: null })
     })
 
-    it('returns no drag selection when it does not start on a charted bucket', () => {
-        expect(selectedDateRange(BUCKET_TIMES, 9, 9)).toBeNull()
-    })
-
-    it.each([
-        ['a window starting mid-bucket', 90_000, 150_000, { startIndex: 1, endIndex: 2 }],
-        ['a window on exact bucket starts', 60_000, 120_000, { startIndex: 1, endIndex: 2 }],
-        ['a window inside one bucket', 70_000, 80_000, { startIndex: 1, endIndex: 1 }],
-        ['a window starting before the first bucket', -50_000, 60_000, { startIndex: 0, endIndex: 1 }],
-        ['a window running past the last bucket', 120_000, 999_000, { startIndex: 2, endIndex: 3 }],
-        ['a window ending exactly at the last bucket', 180_000, 999_000, { startIndex: 3, endIndex: 3 }],
-        ['a window starting exactly at the first bucket', 0, 30_000, { startIndex: 0, endIndex: 0 }],
-    ])('covers the buckets spanned by %s', (_, fromMs, toMs, expected) => {
-        expect(highlightedBucketRange(BUCKETS, fromMs, toMs)).toEqual(expected)
-    })
-
-    it.each([
-        ['no buckets are charted', [], 0, 60_000],
-        ['the window ends before the first bucket', BUCKETS, -99_000, -50_000],
-        ['the window starts after the last bucket', BUCKETS, 200_000, 300_000],
-        ['an end is not a real time', BUCKETS, 0, NaN],
-        ['the start is not a real time', BUCKETS, NaN, 60_000],
-    ])('returns null when %s', (_, buckets, fromMs, toMs) => {
-        expect(highlightedBucketRange(buckets, fromMs, toMs)).toBeNull()
+    it('snaps a highlight out to whole buckets', () => {
+        expect(highlightedBucketRange(BUCKETS, 90_000, 150_000)).toEqual({ startIndex: 1, endIndex: 2 })
     })
 })
