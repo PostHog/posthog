@@ -485,7 +485,7 @@ class TestBackfillTickActivities:
         # tick died, the minute schedule refired forever, and the backfill sat RUNNING until cancelled.
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
-        with patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls:
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
             query_cls.return_value.run.return_value = []
             result = find_backfill_candidates_activity(
                 FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
@@ -506,7 +506,7 @@ class TestBackfillTickActivities:
             CandidateSession(session_id="blocked", session_end=timezone.now() - dt.timedelta(hours=1)),
         ]
         with (
-            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
             patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
         ):
             query_cls.return_value.run.return_value = fetched
@@ -524,7 +524,7 @@ class TestBackfillTickActivities:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
         with (
-            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
             patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
         ):
             query_cls.return_value.run.return_value = [
@@ -569,7 +569,7 @@ class TestBackfillsApi(APIBaseTest):
         }
 
     @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_create_freezes_config_clamps_window_to_settle_horizon_and_rejects_second_active(
         self, mock_query: MagicMock, mock_upsert: AsyncMock
     ) -> None:
@@ -597,7 +597,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "active backfill" in response.json()["detail"]
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_returns_exact_ceiling_without_creating_rows(self, mock_query: MagicMock) -> None:
         mock_query.return_value.count.return_value = 40
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
@@ -607,7 +607,7 @@ class TestBackfillsApi(APIBaseTest):
         assert body["total_credits"] == 40 * body["credits_per_observation"]
         assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_window_stops_at_the_settle_horizon_the_sweep_waits_for(self, mock_query: MagicMock) -> None:
         # A session inside the settle window is still recording or still merging. Scanning it yields a
         # truncated observation, and the unique (scanner, session) constraint means that is the only
@@ -644,7 +644,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "365 days" in str(response.json())
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_rejects_when_every_candidate_is_already_observed(self, mock_query: MagicMock) -> None:
         # Excluded run returns 0 while the unfiltered run finds rows: nothing left for a backfill to do.
         mock_query.return_value.count.side_effect = [0, 5]
@@ -660,7 +660,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "already been scanned" in str(response.json())
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_rejects_when_nothing_matches_the_scanner(self, mock_query: MagicMock) -> None:
         mock_query.return_value.count.return_value = 0
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
