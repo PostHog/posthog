@@ -127,6 +127,8 @@ settings:
     bot_events:
       - app_mention
       - app_home_opened
+      - message.channels
+      - message.groups
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -141,6 +143,12 @@ Django must be up at that moment.
 
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
+
+> `message.channels` and `message.groups` deliver plain channel messages, not only ones that
+> mention the bot. They need `channels:history` and `groups:history`, which are already in the
+> scopes above, so adding them costs nothing. Without them Slack sends nothing for a message that
+> doesn't tag the bot, so untagged thread follow-ups and any channel-message trigger never fire.
+> Drop them if you only want to test `@PostHog` mentions.
 
 > The `app_home` block + `app_home_opened` bot event power the App Home tab; the
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
@@ -259,9 +267,10 @@ should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the co
 
 The walls we actually hit and fixed:
 
-| Symptom                                                              | Cause / fix                                                                                                                                      |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `curl /_preflight` returns `200` with an empty body, `server: Caddy` | The tunnel reaches Caddy but isn't sending `Host: localhost`, so Caddy doesn't match its site block. Add `host_header: localhost` to the tunnel. |
-| OAuth → browser `ERR_SSL_PROTOCOL_ERROR` on `localhost:8010`         | `SITE_URL` is still the localhost default. Point it at your https tunnel and restart django (Step 3).                                            |
-| OAuth → "redirect_uri did not match any configured URIs"             | The Slack app's **Redirect URLs** must include `https://<tunnel>/integrations/slack/callback` — add it **and click Save URLs**.                  |
-| Manifest won't save: "link_shared is missing scope links:read"       | Remove `link_shared` from `bot_events` (Step 2).                                                                                                 |
+| Symptom                                                                            | Cause / fix                                                                                                                                          |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `curl /_preflight` returns `200` with an empty body, `server: Caddy`               | The tunnel reaches Caddy but isn't sending `Host: localhost`, so Caddy doesn't match its site block. Add `host_header: localhost` to the tunnel.     |
+| OAuth → browser `ERR_SSL_PROTOCOL_ERROR` on `localhost:8010`                       | `SITE_URL` is still the localhost default. Point it at your https tunnel and restart django (Step 3).                                                |
+| OAuth → "redirect_uri did not match any configured URIs"                           | The Slack app's **Redirect URLs** must include `https://<tunnel>/integrations/slack/callback` — add it **and click Save URLs**.                      |
+| Manifest won't save: "link_shared is missing scope links:read"                     | Remove `link_shared` from `bot_events` (Step 2).                                                                                                     |
+| A plain channel message never reaches `/slack/event-callback`, but `@mention` does | `bot_events` is missing `message.channels` (or `message.groups` for a private channel). Add it in Step 2, save, and reinstall the app if Slack asks. |
