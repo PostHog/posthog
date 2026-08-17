@@ -19,11 +19,11 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
-    InboxPlanCreateApi,
-    InboxPlanCreatedApi,
-    InboxPlanFinishedApi,
-    InboxPlanImplementationStartedApi,
-    PaginatedInboxPlanReportListApi,
+    InboxFeatureCreateApi,
+    InboxFeatureCreatedApi,
+    InboxFeatureImplementationStartedApi,
+    InboxFeaturePlanningFinishedApi,
+    PaginatedInboxFeatureReportListApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
@@ -77,7 +77,7 @@ import type {
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
-    SignalsPlansListParams,
+    SignalsFeaturesListParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
@@ -112,7 +112,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSignalsPlansListUrl = (projectId: string, params?: SignalsPlansListParams) => {
+export const getSignalsFeaturesListUrl = (projectId: string, params?: SignalsFeaturesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -124,85 +124,87 @@ export const getSignalsPlansListUrl = (projectId: string, params?: SignalsPlansL
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/plans/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/plans/`
+        ? `/api/projects/${projectId}/signals/features/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/features/`
 }
 
 /**
- * The inbox Plan tab's surface — plan reports ("projects").
+ * The inbox Features tab's API surface.
  *
- * List membership and ordering come from ClickHouse (the backing `inbox`/`plan` signals,
- * most-recent-first); rows are enriched from Postgres. `create` starts the interactive planning
- * conversation; `finish` finalizes a draft plan (user-driven defaults, backing signal, owner scout).
+ * `create` starts a feature's interactive planning phase. `finish_planning` activates its owner
+ * scout and first implementation pass without ending the feature's lifecycle.
  */
-export const signalsPlansList = async (
+export const signalsFeaturesList = async (
     projectId: string,
-    params?: SignalsPlansListParams,
+    params?: SignalsFeaturesListParams,
     options?: RequestInit
-): Promise<PaginatedInboxPlanReportListApi> => {
-    return apiMutator<PaginatedInboxPlanReportListApi>(getSignalsPlansListUrl(projectId, params), {
+): Promise<PaginatedInboxFeatureReportListApi> => {
+    return apiMutator<PaginatedInboxFeatureReportListApi>(getSignalsFeaturesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsPlansCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/plans/`
+export const getSignalsFeaturesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/features/`
 }
 
 /**
- * Create a draft plan report and start its interactive planning conversation with a cloud agent. The plan stays a draft until it is finalized via the finish endpoint.
- * @summary Create a new plan
+ * Create a feature report and start an interactive planning conversation with a cloud agent. The feature remains in planning until the finish planning endpoint is called.
+ * @summary Create a new feature
  */
-export const signalsPlansCreate = async (
+export const signalsFeaturesCreate = async (
     projectId: string,
-    inboxPlanCreateApi: InboxPlanCreateApi,
+    inboxFeatureCreateApi: InboxFeatureCreateApi,
     options?: RequestInit
-): Promise<InboxPlanCreatedApi> => {
-    return apiMutator<InboxPlanCreatedApi>(getSignalsPlansCreateUrl(projectId), {
+): Promise<InboxFeatureCreatedApi> => {
+    return apiMutator<InboxFeatureCreatedApi>(getSignalsFeaturesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inboxPlanCreateApi),
+        body: JSON.stringify(inboxFeatureCreateApi),
     })
 }
 
-export const getSignalsPlansFinishCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/plans/${id}/finish/`
+export const getSignalsFeaturesFinishPlanningCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/features/${id}/finish_planning/`
 }
 
 /**
- * Finalize a draft plan: write the user-driven defaults (P1, safe, immediately actionable), create the plan's owner scout, and auto-start the first implementation pass (best-effort; the owner scout progresses the work on its schedule regardless). Requires title, summary, repository selection, owners, and priority to be in place. Idempotent — finishing again never starts a second pass.
- * @summary Finish a plan
+ * Complete the feature's initial planning phase, activate its owner scout, and start the first implementation pass when possible. The feature remains active for ongoing monitoring and optimization. Requires title, summary, repository selection, owners, and priority. Calling this again never starts a second first pass.
+ * @summary Finish planning a feature
  */
-export const signalsPlansFinishCreate = async (
+export const signalsFeaturesFinishPlanningCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<InboxPlanFinishedApi> => {
-    return apiMutator<InboxPlanFinishedApi>(getSignalsPlansFinishCreateUrl(projectId, id), {
+): Promise<InboxFeaturePlanningFinishedApi> => {
+    return apiMutator<InboxFeaturePlanningFinishedApi>(getSignalsFeaturesFinishPlanningCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
 }
 
-export const getSignalsPlansStartImplementationCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/plans/${id}/start_implementation/`
+export const getSignalsFeaturesStartImplementationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/features/${id}/start_implementation/`
 }
 
 /**
- * Manually start one implementation pass for the plan — the same in-flight-guarded path the owner scout and Finish plan use. Fails (400) while a previous pass is still running.
+ * Manually start one implementation pass for the feature. This uses the same guarded path as the owner scout and finish planning action. It fails while a previous pass is still running.
  * @summary Start an implementation pass
  */
-export const signalsPlansStartImplementationCreate = async (
+export const signalsFeaturesStartImplementationCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<InboxPlanImplementationStartedApi> => {
-    return apiMutator<InboxPlanImplementationStartedApi>(getSignalsPlansStartImplementationCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<InboxFeatureImplementationStartedApi> => {
+    return apiMutator<InboxFeatureImplementationStartedApi>(
+        getSignalsFeaturesStartImplementationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {

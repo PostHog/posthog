@@ -14,7 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
-import { PlanDetail } from './components/detail/plan/PlanDetail'
+import { FeatureDetail } from './components/detail/feature/FeatureDetail'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
@@ -24,8 +24,8 @@ import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ArchivedTab } from './components/tabs/ArchivedTab'
+import { FeaturesTab } from './components/tabs/FeaturesTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
-import { PlanTab } from './components/tabs/PlanTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
@@ -93,8 +93,8 @@ function ActiveTabBody({
             return <PullRequestsTab />
         case 'reports':
             return <ReportsTab />
-        case 'plan':
-            return <PlanTab />
+        case 'features':
+            return <FeaturesTab />
         case 'not-actionable':
             return <NotActionableTab />
         case 'archived':
@@ -213,10 +213,10 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     // so a fast native scroll doesn't dispatch an action on every frame.
     const scrolledReportRef = useRef<string | null>(null)
 
-    if (activeTab === 'plan') {
+    if (activeTab === 'features') {
         return (
             <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-                <PlanDetail report={report} />
+                <FeatureDetail report={report} />
             </div>
         )
     }

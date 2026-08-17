@@ -35,6 +35,7 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_urls_for_reports,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.report_content_limits import MAX_EMBEDDABLE_REPORT_TOKENS, embedding_token_count
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -2250,8 +2251,6 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         # Pipeline/LLM writers don't go through the 400-validating API paths — the model's save()
         # backstop must truncate so every persisted report stays embeddable (title + summary within
         # the 8,000-token cap) instead of crashing a workflow or poisoning the embedding write.
-        from products.signals.backend.report_content_limits import MAX_EMBEDDABLE_REPORT_TOKENS, embedding_token_count
-
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -2259,6 +2258,8 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
             summary="🦔" * 4000,  # ~12,000 tokens
         )
         report.refresh_from_db()
+        assert report.title is not None
+        assert report.summary is not None
         combined = embedding_token_count(report.title) + embedding_token_count(report.summary)
         assert combined <= MAX_EMBEDDABLE_REPORT_TOKENS
         assert len(report.summary) > 0

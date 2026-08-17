@@ -1029,9 +1029,9 @@ class TestStartImplementationAPI(APIBaseTest):
     def _url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/start-implementation/"
 
-    def _make_plan_report(self, *, with_repo: bool = True, with_owner: bool = True) -> SignalReport:
+    def _make_feature_report(self, *, with_repo: bool = True, with_owner: bool = True) -> SignalReport:
         report = SignalReport.objects.create(
-            team=self.team, status=SignalReport.Status.READY, title="Plan: widget", summary="Build the widget"
+            team=self.team, status=SignalReport.Status.READY, title="Feature: widget", summary="Build the widget"
         )
         attribution = ArtefactAttribution.system()
         if with_repo:
@@ -1055,7 +1055,7 @@ class TestStartImplementationAPI(APIBaseTest):
     def _mock_created_task(self):
         task = Task.objects.create(
             team=self.team,
-            title="Implement: Plan: widget",
+            title="Implement: Feature: widget",
             description="impl",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             created_by=self.user,
@@ -1068,7 +1068,7 @@ class TestStartImplementationAPI(APIBaseTest):
 
     def test_start_implementation_creates_task_and_records_artefact(self) -> None:
         run = _make_run(self.team)
-        report = self._make_plan_report()
+        report = self._make_feature_report()
         with patch(CREATE_AND_RUN_PATH, return_value=self._mock_created_task()) as create_mock:
             response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1083,7 +1083,7 @@ class TestStartImplementationAPI(APIBaseTest):
 
     def test_start_implementation_refuses_while_pass_in_flight(self) -> None:
         run = _make_run(self.team)
-        report = self._make_plan_report()
+        report = self._make_feature_report()
         existing = self._mock_created_task()
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(existing.task_id))
         in_flight_run = MagicMock()
@@ -1102,7 +1102,7 @@ class TestStartImplementationAPI(APIBaseTest):
         self, _name: str, with_repo: bool, with_owner: bool, expected_error: str
     ) -> None:
         run = _make_run(self.team)
-        report = self._make_plan_report(with_repo=with_repo, with_owner=with_owner)
+        report = self._make_feature_report(with_repo=with_repo, with_owner=with_owner)
         response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_error in response.json()["detail"]
@@ -1111,7 +1111,7 @@ class TestStartImplementationAPI(APIBaseTest):
         self.skill.allowed_tools = ["emit_report", "edit_report"]
         self.skill.save(update_fields=["allowed_tools"])
         run = _make_run(self.team)
-        report = self._make_plan_report()
+        report = self._make_feature_report()
         response = self.client.post(self._url(str(run.id)), data={"report_id": str(report.id)}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 

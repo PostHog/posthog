@@ -431,7 +431,7 @@ class AssociatedReport(BaseModel):
 
     Written to BOTH sides of the association — each report carries an entry pointing at the other.
     Advisory only: it doesn't move signals, merge reports, or change either lifecycle. Used e.g. by a
-    plan's owner scout when an auto-detected signal report looks related to the plan's feature.
+    feature owner scout when an auto-detected signal report looks related to the feature.
     """
 
     report_id: str = Field(description="Id of the other report this one is associated with.")

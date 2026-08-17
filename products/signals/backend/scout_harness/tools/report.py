@@ -1390,7 +1390,7 @@ def edit_report_sync(
 
 # --- start_implementation -------------------------------------------------
 #
-# The deterministic implementation trigger for report-channel scouts (the plan "owner" scout in
+# The deterministic implementation trigger for report-channel scouts (the feature owner scout in
 # particular). Deliberately NOT the autostart path: `maybe_autostart_implementation_task` is gated
 # to once-per-report and by per-user autonomy thresholds, so it can never drive increment N+1. This
 # tool always starts a pass, with exactly one guard — it refuses while a previous implementation
@@ -1435,7 +1435,7 @@ def start_implementation_for_report(*, team: Team, report_id: str, triggered_by:
 
     Fail-closed on team scope. Refuses while a previous implementation pass is in flight (any
     implementation task whose latest run is non-terminal); otherwise always starts — the caller's
-    own gate (scout config, the user's Finish plan click) is the control plane, not the autostart
+    own gate (scout config, the user's Finish planning click) is the control plane, not the autostart
     autonomy thresholds. The task is recorded as a `task_run` artefact so the report's feed shows
     the pass. `triggered_by` is a label for logs only.
     """
@@ -1482,11 +1482,14 @@ def start_implementation_for_report(*, team: Team, report_id: str, triggered_by:
         )
 
     reviewers_content = _latest_artefact_content(report_id, "suggested_reviewers")
-    logins = [
-        entry.get("github_login")
-        for entry in (reviewers_content if isinstance(reviewers_content, list) else [])
-        if isinstance(entry, dict) and entry.get("github_login")
-    ]
+    logins: list[str] = []
+    if isinstance(reviewers_content, list):
+        for entry in reviewers_content:
+            if not isinstance(entry, dict):
+                continue
+            login = entry.get("github_login")
+            if isinstance(login, str) and login.strip():
+                logins.append(login)
     users_by_login = resolve_org_github_login_to_users(team.id, logins)
     acting_user = next(
         (users_by_login[login.strip().lower()] for login in logins if login.strip().lower() in users_by_login), None

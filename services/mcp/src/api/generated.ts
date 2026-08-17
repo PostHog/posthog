@@ -41685,21 +41685,21 @@ export namespace Schemas {
     }
 
     /**
-     * Body for creating a new plan: the user's brief initial description of the idea.
+     * Body for creating a feature from the user's initial idea.
      */
-    export interface InboxPlanCreate {
+    export interface InboxFeatureCreate {
       /**
-         * A brief initial description of the feature or change to plan. Seeds the plan's summary and the planning agent's first message.
+         * A brief description of the feature. Seeds its summary and the planning agent's first message.
          * @maxLength 4000
          */
       initial_description: string;
     }
 
     /**
-     * Response for a created plan: the new report and its planning conversation.
+     * Response for a created feature and its planning conversation.
      */
-    export interface InboxPlanCreated {
-      /** The new plan report's id. */
+    export interface InboxFeatureCreated {
+      /** The new feature report's id. */
       report_id: string;
       /** The planning conversation's task id. */
       task_id: string;
@@ -41711,24 +41711,9 @@ export namespace Schemas {
     }
 
     /**
-     * Response for a finished plan.
-     */
-    export interface InboxPlanFinished {
-      /** Always true on success. */
-      finished: boolean;
-      /** The owner scout's skill name (signals-scout-plan-*). */
-      scout_skill_name: string;
-      /**
-         * Id of the auto-started first implementation task, or null when kickoff wasn't possible (the owner scout starts the work on its next activation instead).
-         * @nullable
-         */
-      implementation_task_id: string | null;
-    }
-
-    /**
      * Response for a manually started implementation pass.
      */
-    export interface InboxPlanImplementationStarted {
+    export interface InboxFeatureImplementationStarted {
       /** Id of the implementation task that was created. */
       task_id: string;
       /**
@@ -41741,39 +41726,53 @@ export namespace Schemas {
     }
 
     /**
-     * 400 response when a plan can't be finished yet.
+     * Response when a feature completes its initial planning phase.
      */
-    export interface InboxPlanNotReady {
-      /** Human-readable labels of what the plan still needs (e.g. title, repository selection). */
+    export interface InboxFeaturePlanningFinished {
+      /** Always true on success. */
+      planning_finished: boolean;
+      /** The feature owner scout's skill name. */
+      scout_skill_name: string;
+      /**
+         * Id of the auto-started first implementation task, or null when kickoff wasn't possible (the owner scout starts the work on its next activation instead).
+         * @nullable
+         */
+      implementation_task_id: string | null;
+    }
+
+    /**
+     * 400 response when the feature cannot complete planning yet.
+     */
+    export interface InboxFeaturePlanningNotReady {
+      /** Labels for feature details that planning still needs, such as title or repository selection. */
       missing: string[];
     }
 
     /**
-     * List representation of a plan report ("project").
+     * List representation of a feature report.
      *
-     * A plan report is an ordinary `SignalReport` surfaced in the Plan tab; this serializer exposes only
-     * the fields the list needs. Ordering (most-recent-first) is established upstream from the backing
-     * `inbox`/`plan` signal timestamps, not from these fields.
+     * A feature is an ordinary `SignalReport` surfaced in the Features tab. This serializer exposes
+     * only the fields the list needs.
      */
-    export interface InboxPlanReport {
+    export interface InboxFeatureReport {
       readonly id: string;
       /**
-         * The plan's title. Placeholder until the planning agent finalizes it.
+         * The feature's title. Placeholder while planning begins.
          * @nullable
          */
       readonly title: string | null;
       /**
-         * The plan's summary/description. Seeded from the user's initial description.
+         * The feature's current summary, seeded from the initial description.
          * @nullable
          */
       readonly summary: string | null;
       /** Report lifecycle status (e.g. ready, resolved, suppressed). */
       readonly status: string;
-      /** Whether the plan is still a draft (its planning conversation hasn't been finished). */
-      readonly is_draft: boolean;
-      /** When the plan report was created. */
+      /** Whether the feature is still in its initial planning phase. */
+      readonly is_planning: boolean;
+      /** When the feature report was created. */
       readonly created_at: string;
-      /** When the plan report was last updated. */
+      /** When the feature report was last updated. */
       readonly updated_at: string;
     }
 
@@ -49369,13 +49368,13 @@ export namespace Schemas {
       results: IdentityProviderConfig[];
     }
 
-    export interface PaginatedInboxPlanReportList {
+    export interface PaginatedInboxFeatureReportList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: InboxPlanReport[];
+      results: InboxFeatureReport[];
     }
 
     export interface PaginatedInsightList {
@@ -70699,7 +70698,7 @@ export namespace Schemas {
       readonly description: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
-      /** Human-facing name for this scout, sourced from the scout skill's `metadata.display_name` (plan owner scouts carry `Owner - <plan title>`). Empty when unset — fall back to the `skill_name`. */
+      /** Human-facing name for this scout, sourced from the scout skill's `metadata.display_name` (feature owner scouts carry `Owner - <feature title>`). Empty when unset — fall back to the `skill_name`. */
       readonly display_name: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
       readonly enabled: boolean;
@@ -89947,7 +89946,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalsPlansListParams = {
+    export type SignalsFeaturesListParams = {
     /**
      * Number of results to return per page.
      */

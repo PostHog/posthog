@@ -169,12 +169,12 @@ export const SOURCE_STEERING_MAX_LENGTH = 2000
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'plan' | 'not-actionable' | 'runs' | 'archived' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'features' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
 export const INBOX_TAB_KEYS: InboxTabKey[] = [
     'pulls',
     'reports',
-    'plan',
+    'features',
     'not-actionable',
     'runs',
     'archived',
@@ -184,7 +184,7 @@ export const INBOX_TAB_KEYS: InboxTabKey[] = [
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
-    plan: 'Plans',
+    features: 'Features',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
@@ -195,7 +195,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
-    plan: 'Features and changes you are planning with PostHog agents.',
+    features: 'Features PostHog agents help you plan, build, monitor, and improve over time.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',

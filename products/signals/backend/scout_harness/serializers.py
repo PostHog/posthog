@@ -2209,7 +2209,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     display_name = serializers.SerializerMethodField(
         help_text=(
             "Human-facing name for this scout, sourced from the scout skill's "
-            "`metadata.display_name` (plan owner scouts carry `Owner - <plan title>`). Empty "
+            "`metadata.display_name` (feature owner scouts carry `Owner - <feature title>`). Empty "
             "when unset — fall back to the `skill_name`."
         ),
     )

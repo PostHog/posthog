@@ -19,8 +19,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { featureDetailLogic, FeatureDetailSubTab } from '../../../logics/featureDetailLogic'
 import { inboxReportDetailLogic } from '../../../logics/inboxReportDetailLogic'
-import { planDetailLogic, PlanDetailSubTab } from '../../../logics/planDetailLogic'
 import { SignalReport, SignalReportArtefact } from '../../../types'
 import { SignalReportStatusBadge } from '../../badges/SignalReportStatusBadge'
 import { ScoutDetailView } from '../../config/scouts/ScoutDetailView'
@@ -42,7 +42,7 @@ const MARKDOWN_BODY_CLASSES =
 
 /** The summary body: rendered markdown that swaps to a textarea on click. */
 function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
+    const logic = featureDetailLogic({ reportId: report.id, report })
     const { editingField, fieldDraft, fieldSaving } = useValues(logic)
     const { startEditingField, setFieldDraft, cancelEditingField, saveField } = useActions(logic)
 
@@ -53,7 +53,7 @@ function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
                     value={fieldDraft}
                     onChange={setFieldDraft}
                     minRows={6}
-                    placeholder="Describe the plan in markdown…"
+                    placeholder="Describe the feature in markdown…"
                     autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
@@ -102,7 +102,7 @@ function EditableSummary({ report }: { report: SignalReport }): JSX.Element {
 
 /** One open question: the question text, with an in-place answer surface. */
 function OpenQuestionItem({ report, artefact }: { report: SignalReport; artefact: SignalReportArtefact }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
+    const logic = featureDetailLogic({ reportId: report.id, report })
     const { answeringQuestionId, answerDraft, answerSaving } = useValues(logic)
     const { startAnswering, setAnswerDraft, cancelAnswering, saveAnswer } = useActions(logic)
 
@@ -191,8 +191,8 @@ function AnsweredQuestionItem({ artefact }: { artefact: SignalReportArtefact }):
  * is carried by attribution: user-authored questions are answered by agents, agent-authored ones
  * by the user.
  */
-function PlanFeedbackComposer({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
+function FeatureFeedbackComposer({ report }: { report: SignalReport }): JSX.Element {
+    const logic = featureDetailLogic({ reportId: report.id, report })
     const { feedbackDraft, feedbackSaving } = useValues(logic)
     const { setFeedbackDraft, saveFeedback } = useActions(logic)
 
@@ -239,9 +239,9 @@ function OutstandingFeedbackItem({ artefact }: { artefact: SignalReportArtefact 
 }
 
 /** Status sub-tab: editable summary on the left; questions, feedback, owners, and runs on the right. */
-function PlanStatusTab({ report }: { report: SignalReport }): JSX.Element {
+function FeatureStatusTab({ report }: { report: SignalReport }): JSX.Element {
     const { openQuestions, outstandingFeedback, answeredQuestions } = useValues(
-        planDetailLogic({ reportId: report.id, report })
+        featureDetailLogic({ reportId: report.id, report })
     )
 
     return (
@@ -284,7 +284,7 @@ function PlanStatusTab({ report }: { report: SignalReport }): JSX.Element {
                         {outstandingFeedback.map((artefact) => (
                             <OutstandingFeedbackItem key={artefact.id} artefact={artefact} />
                         ))}
-                        <PlanFeedbackComposer report={report} />
+                        <FeatureFeedbackComposer report={report} />
                     </div>
                 </DetailSection>
                 {answeredQuestions.length > 0 && (
@@ -313,9 +313,9 @@ function PlanStatusTab({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
-/** Owner sub-tab: the scout that acts on this plan, resolved by its deterministic skill name. */
-function PlanOwnerTab({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
+/** Owner sub-tab: the scout that acts on this feature, resolved by its deterministic skill name. */
+function FeatureOwnerTab({ report }: { report: SignalReport }): JSX.Element {
+    const logic = featureDetailLogic({ reportId: report.id, report })
     const { ownerScoutConfig, ownerScoutConfigLoading } = useValues(logic)
 
     if (ownerScoutConfigLoading && !ownerScoutConfig) {
@@ -329,10 +329,8 @@ function PlanOwnerTab({ report }: { report: SignalReport }): JSX.Element {
                     <div className="flex flex-col gap-1">
                         <span className="font-semibold">No owner yet</span>
                         <span className="text-sm">
-                            The owner is a scout that keeps this plan moving: progressing implementation once changes
-                            merge, folding in feedback notes, and instrumenting or measuring the feature after it ships.
-                            The planning agent sets it up during the conversation, and finishing the plan creates one
-                            automatically if it's still missing.
+                            The owner is a scout that implements, monitors, and improves this feature over time.
+                            Finishing planning creates one automatically.
                         </span>
                     </div>
                 </LemonBanner>
@@ -349,15 +347,15 @@ function PlanOwnerTab({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
-/** Feed sub-tab: the full chronological artefact log for the plan, with a feedback composer on top. */
-function PlanFeedTab({ report }: { report: SignalReport }): JSX.Element {
+/** Feed sub-tab: the full chronological artefact log for the feature, with a feedback composer on top. */
+function FeatureFeedTab({ report }: { report: SignalReport }): JSX.Element {
     const { reportArtefacts, reportTasks } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
 
     return (
         <div className="max-w-[100ch] flex flex-col gap-4">
             <div className="rounded border border-primary bg-surface-primary p-3">
-                <PlanFeedbackComposer report={report} />
+                <FeatureFeedbackComposer report={report} />
             </div>
             {reportArtefacts && reportArtefacts.length > 0 ? (
                 <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} knownTasks={knownTasks} />
@@ -368,9 +366,9 @@ function PlanFeedTab({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
-/** The plan's title: an h1 that swaps to an input on the pencil affordance. */
+/** The feature's title: an h1 that swaps to an input on the pencil affordance. */
 function EditableTitle({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
+    const logic = featureDetailLogic({ reportId: report.id, report })
     const { editingField, fieldDraft, fieldSaving } = useValues(logic)
     const { startEditingField, setFieldDraft, cancelEditingField, saveField } = useActions(logic)
 
@@ -380,7 +378,7 @@ function EditableTitle({ report }: { report: SignalReport }): JSX.Element {
                 <LemonInput
                     value={fieldDraft}
                     onChange={setFieldDraft}
-                    placeholder="Plan title"
+                    placeholder="Feature title"
                     className="flex-1"
                     autoFocus
                     onPressEnter={saveField}
@@ -403,7 +401,7 @@ function EditableTitle({ report }: { report: SignalReport }): JSX.Element {
     return (
         <div className="group flex items-center gap-2 min-w-0">
             <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                {report.title || 'Untitled plan'}
+                {report.title || 'Untitled feature'}
             </h1>
             <LemonButton
                 size="xsmall"
@@ -418,15 +416,13 @@ function EditableTitle({ report }: { report: SignalReport }): JSX.Element {
 }
 
 /**
- * Draft ("planning") view: shown while the plan is being worked out with the planning agent —
- * before the user hits Finish plan. Left: a live, read-only overview (summary + artefact log,
- * polled while the agent writes). Right: the embedded planning conversation. Finish plan (top
- * right) enables once every required artefact is in place; its hover state lists what's missing.
+ * Initial planning view. The conversation leads while a live feature summary and artefact log show
+ * the durable output. Finish planning becomes available once the required context exists.
  */
-function PlanDraftView({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
-    const { missingForFinish, finishing } = useValues(logic)
-    const { finishPlan } = useActions(logic)
+function FeaturePlanningView({ report }: { report: SignalReport }): JSX.Element {
+    const logic = featureDetailLogic({ reportId: report.id, report })
+    const { missingForPlanningCompletion, finishingPlanning } = useValues(logic)
+    const { finishPlanning } = useActions(logic)
     const { reportArtefacts, primaryTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     const planningTaskId = primaryTask?.task.id
@@ -439,19 +435,19 @@ function PlanDraftView({ report }: { report: SignalReport }): JSX.Element {
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={urls.inbox('plan')}
+                    to={urls.inbox('features')}
                     className="-ml-2 w-fit"
                 >
-                    Plans
+                    Features
                 </LemonButton>
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex flex-col gap-2 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                             <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {report.title || 'Untitled plan'}
+                                {report.title || 'Untitled feature'}
                             </h1>
                             <LemonTag type="warning" size="small">
-                                Draft
+                                Planning
                             </LemonTag>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary leading-none select-none">
@@ -464,18 +460,20 @@ function PlanDraftView({ report }: { report: SignalReport }): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={finishPlan}
-                        loading={finishing}
+                        onClick={finishPlanning}
+                        loading={finishingPlanning}
                         disabledReason={
-                            missingForFinish.length > 0 ? `Still needed: ${missingForFinish.join(', ')}` : undefined
+                            missingForPlanningCompletion.length > 0
+                                ? `Still needed: ${missingForPlanningCompletion.join(', ')}`
+                                : undefined
                         }
                         tooltip={
-                            missingForFinish.length === 0
-                                ? 'Finalize the plan: emit its signal and create its owner scout'
+                            missingForPlanningCompletion.length === 0
+                                ? 'Complete planning and activate the feature owner'
                                 : undefined
                         }
                     >
-                        Finish plan
+                        Finish planning
                     </LemonButton>
                 </div>
             </div>
@@ -503,7 +501,7 @@ function PlanDraftView({ report }: { report: SignalReport }): JSX.Element {
                             </LemonMarkdown>
                         ) : (
                             <p className="m-0 text-sm italic text-tertiary">
-                                No summary yet. Plan with the agent and it will fill this in.
+                                No summary yet. Plan the feature with the agent and it will fill this in.
                             </p>
                         )}
                     </DetailSection>
@@ -521,26 +519,24 @@ function PlanDraftView({ report }: { report: SignalReport }): JSX.Element {
 }
 
 /**
- * Dedicated detail view for plan reports ("projects"): its own header and Status / Owner / Feed
- * sub-tabs instead of the generic report detail. Title and summary are click-to-edit, agent
- * questions surface as an answerable list on the right, the reviewer set reads "Owners", and
- * there is no Evidence section. Draft plans (not yet finished) render the planning view instead.
+ * Dedicated feature report detail with Status, Owner, and Feed surfaces. Initial planning uses the
+ * live conversation view; the same report remains active afterward.
  */
-export function PlanDetail({ report }: { report: SignalReport }): JSX.Element {
-    const logic = planDetailLogic({ reportId: report.id, report })
-    const { activeSubTab, isDraft, hasImplementationRun, startingImplementation } = useValues(logic)
+export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element {
+    const logic = featureDetailLogic({ reportId: report.id, report })
+    const { activeSubTab, isPlanning, hasImplementationRun, startingImplementation } = useValues(logic)
     const { setActiveSubTab, startImplementation } = useActions(logic)
 
-    if (isDraft) {
-        return <PlanDraftView report={report} />
+    if (isPlanning) {
+        return <FeaturePlanningView report={report} />
     }
 
-    const planPath = urls.inboxReport('plan', report.id)
+    const featurePath = urls.inboxReport('features', report.id)
 
-    const tabs: { key: PlanDetailSubTab; label: string; content: JSX.Element }[] = [
-        { key: 'status', label: 'Status', content: <PlanStatusTab report={report} /> },
-        { key: 'owner', label: 'Owner', content: <PlanOwnerTab report={report} /> },
-        { key: 'feed', label: 'Feed', content: <PlanFeedTab report={report} /> },
+    const tabs: { key: FeatureDetailSubTab; label: string; content: JSX.Element }[] = [
+        { key: 'status', label: 'Status', content: <FeatureStatusTab report={report} /> },
+        { key: 'owner', label: 'Owner', content: <FeatureOwnerTab report={report} /> },
+        { key: 'feed', label: 'Feed', content: <FeatureFeedTab report={report} /> },
     ]
 
     return (
@@ -550,10 +546,10 @@ export function PlanDetail({ report }: { report: SignalReport }): JSX.Element {
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={urls.inbox('plan')}
+                    to={urls.inbox('features')}
                     className="-ml-2 w-fit"
                 >
-                    Plans
+                    Features
                 </LemonButton>
                 <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
                     <div className="flex flex-col gap-2 min-w-0 flex-1">
@@ -578,7 +574,7 @@ export function PlanDetail({ report }: { report: SignalReport }): JSX.Element {
                                 size="small"
                                 onClick={startImplementation}
                                 loading={startingImplementation}
-                                tooltip="Start the first implementation pass. A cloud agent reads the plan and builds the latest described work item."
+                                tooltip="Start the first implementation pass. A cloud agent reads the feature and builds the latest described work item."
                             >
                                 Start implementing
                             </LemonButton>
@@ -587,11 +583,11 @@ export function PlanDetail({ report }: { report: SignalReport }): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconLink />}
-                            tooltip="Copy a link to this plan"
+                            tooltip="Copy a link to this feature"
                             onClick={() =>
                                 void copyToClipboard(
-                                    `${window.location.origin}${addProjectIdIfMissing(planPath)}`,
-                                    'plan link'
+                                    `${window.location.origin}${addProjectIdIfMissing(featurePath)}`,
+                                    'feature link'
                                 )
                             }
                         >
@@ -601,7 +597,7 @@ export function PlanDetail({ report }: { report: SignalReport }): JSX.Element {
                 </div>
             </div>
 
-            <LemonTabs<PlanDetailSubTab>
+            <LemonTabs<FeatureDetailSubTab>
                 activeKey={activeSubTab}
                 onChange={setActiveSubTab}
                 tabs={tabs.map(({ key, label }) => ({

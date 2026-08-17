@@ -849,18 +849,18 @@ tools:
             before calling this, so the implementation agent knows exactly what to build. The task is recorded as a
             task_run artefact on the report, so the pass shows in the report's feed. Unlike autostart (which is
             once-per-report and threshold-gated), this is the sanctioned way for an owning scout to drive increment
-            after increment of a plan.
-    signals-plans-create:
-        operation: signals_plans_create
+            after increment of a feature over its implementation and optimization lifecycle.
+    signals-features-create:
+        operation: signals_features_create
         enabled: false
-    signals-plans-finish-create:
-        operation: signals_plans_finish_create
+    signals-features-finish-planning-create:
+        operation: signals_features_finish_planning_create
         enabled: false
-    signals-plans-list:
-        operation: signals_plans_list
+    signals-features-list:
+        operation: signals_features_list
         enabled: false
-    signals-plans-start-implementation-create:
-        operation: signals_plans_start_implementation_create
+    signals-features-start-implementation-create:
+        operation: signals_features_start_implementation_create
         enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff

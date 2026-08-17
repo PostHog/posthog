@@ -5,30 +5,32 @@ from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
+from posthog.models import Organization, Team, User
+
 from products.signals.backend.artefact_schemas import (
     Priority,
     PriorityAssessment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutConfig
-from products.signals.backend.plan_mode.service import (
-    PlanNotReadyError,
-    create_plan,
-    finish_plan,
+from products.signals.backend.features.service import (
+    FeaturePlanningNotReadyError,
+    create_feature,
+    feature_planning_readiness,
+    finish_feature_planning,
     owner_scout_skill_name,
-    plan_readiness,
 )
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutConfig
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task  # tach-ignore
 
 
-def _mock_created_task(team, user):
+def _mock_created_task(team: Team, user: User) -> MagicMock:
     # The task_run artefact FKs to posthog_task, so the mocked facade must return a real row's id.
     task = Task.objects.create(
         team=team,
-        title="Plan a new project",
+        title="Plan a new feature",
         description="planning",
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         created_by=user,
@@ -40,38 +42,45 @@ def _mock_created_task(team, user):
     return created
 
 
-class TestPlanModeService(APIBaseTest):
-    def _make_ready_plan(self) -> SignalReport:
-        report = SignalReport.objects.create(
-            team=self.team,
-            status=SignalReport.Status.READY,
-            title="Plan: something",
-            summary="A summary",
-        )
-        attribution = ArtefactAttribution.from_user(self.user.id)
-        common = {"team_id": self.team.id, "report_id": str(report.id), "attribution": attribution}
-        SignalReportArtefact.append_status(
-            content=RepoSelectionResult(repository="posthog/posthog", reason="test"),
-            reevaluate_autostart=False,
-            **common,
-        )
-        SignalReportArtefact.append_status(
-            content=SuggestedReviewers([SuggestedReviewerEntry(github_login="me", relevant_commits=[])]),
-            reevaluate_autostart=False,
-            **common,
-        )
-        SignalReportArtefact.append_status(
-            content=PriorityAssessment(explanation="user plan", priority=Priority.P1),
-            reevaluate_autostart=False,
-            **common,
-        )
-        return report
+def _make_ready_feature(team: Team, user: User) -> SignalReport:
+    report = SignalReport.objects.create(
+        team=team,
+        status=SignalReport.Status.READY,
+        title="Feature: something",
+        summary="A summary",
+    )
+    attribution = ArtefactAttribution.from_user(user.id)
+    report_id = str(report.id)
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=report_id,
+        content=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+        attribution=attribution,
+        reevaluate_autostart=False,
+    )
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=report_id,
+        content=SuggestedReviewers([SuggestedReviewerEntry(github_login="me", relevant_commits=[])]),
+        attribution=attribution,
+        reevaluate_autostart=False,
+    )
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=report_id,
+        content=PriorityAssessment(explanation="user feature", priority=Priority.P1),
+        attribution=attribution,
+        reevaluate_autostart=False,
+    )
+    return report
 
-    @patch("products.signals.backend.plan_mode.service.tasks_facade.create_and_run_task")
-    def test_create_plan_creates_report_groundskeeping_note_and_planning_task(self, mock_create):
+
+class TestFeatureService(APIBaseTest):
+    @patch("products.signals.backend.features.service.tasks_facade.create_and_run_task")
+    def test_create_feature_creates_report_groundskeeping_note_and_planning_task(self, mock_create):
         mock_create.return_value = _mock_created_task(self.team, self.user)
 
-        created = create_plan(team=self.team, user=self.user, initial_description="Build a widget")
+        created = create_feature(team=self.team, user=self.user, initial_description="Build a widget")
 
         report = SignalReport.objects.get(id=created.report_id)
         assert report.summary == "Build a widget"
@@ -83,7 +92,7 @@ class TestPlanModeService(APIBaseTest):
         # The groundskeeping note is the full operating contract: it must carry the report id, the
         # MCP write tool, and the owner scout's exact skill name.
         note = artefacts[0].content
-        assert "About this plan report" in note
+        assert "About this feature report" in note
         assert created.report_id in note
         assert "inbox-report-artefacts-create" in note
         assert owner_scout_skill_name(created.report_id) in note
@@ -99,34 +108,36 @@ class TestPlanModeService(APIBaseTest):
         assert created.report_id in first_message
         assert "inbox-report-artefacts-list" in first_message
         assert "system of record" in first_message
+        assert "planning agent for a software feature" in first_message
+        assert "monitor, and optimize" in first_message
         assert "Build a widget" in first_message
 
-    def test_plan_readiness_lists_missing_pieces(self):
+    def test_feature_planning_readiness_lists_missing_pieces(self):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
-        readiness = plan_readiness(team_id=self.team.id, report=report)
+        readiness = feature_planning_readiness(team_id=self.team.id, report=report)
         assert not readiness.ready
         assert set(readiness.missing) == {"title", "summary", "repository selection", "owners", "priority"}
-        assert not readiness.finished
+        assert not readiness.planning_finished
 
-    def test_finish_plan_rejects_unready_plan(self):
+    def test_finish_feature_planning_rejects_unready_feature(self):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
-        with self.assertRaises(PlanNotReadyError) as ctx:
-            finish_plan(team=self.team, user=self.user, report=report)
+        with self.assertRaises(FeaturePlanningNotReadyError) as ctx:
+            finish_feature_planning(team=self.team, user=self.user, report=report)
         assert "owners" in ctx.exception.missing
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_finish_plan_writes_defaults_and_creates_scout_idempotently(self, mock_create_task):
+    def test_finish_feature_planning_writes_defaults_and_creates_scout_idempotently(self, mock_create_task):
         # Owner "me" must resolve to an org member for the implementation kickoff to attribute the task.
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me", extra_data={"login": "me"})
         mock_create_task.return_value = _mock_created_task(self.team, self.user)
-        report = self._make_ready_plan()
+        report = _make_ready_feature(self.team, self.user)
 
-        finished = finish_plan(team=self.team, user=self.user, report=report)
-        skill_name = finished.scout_skill_name
+        completion = finish_feature_planning(team=self.team, user=self.user, report=report)
+        skill_name = completion.scout_skill_name
 
         assert skill_name == owner_scout_skill_name(str(report.id))
-        # The first implementation pass auto-starts at finish (the owner scout only runs daily).
-        assert finished.implementation_task_id == str(mock_create_task.return_value.task_id)
+        # The first implementation pass auto-starts when planning finishes (the owner scout only runs daily).
+        assert completion.implementation_task_id == str(mock_create_task.return_value.task_id)
         assert mock_create_task.call_args.kwargs["ai_stage"] == "implementation"
         assert mock_create_task.call_args.kwargs["repository"] == "posthog/posthog"
         types = set(SignalReportArtefact.objects.filter(report_id=report.id).values_list("type", flat=True))
@@ -136,11 +147,13 @@ class TestPlanModeService(APIBaseTest):
         skill = LLMSkill.objects.get(team=self.team, name=skill_name, is_latest=True)
         assert skill.allowed_tools == ["edit_report", "start_implementation"]
         assert str(report.id) in skill.body
+        assert "Monitor and optimize" in skill.body
+        assert "PostHog" in skill.body
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=skill_name)
         assert config.enabled
 
-        # Second finish: no duplicate skill/config, no second implementation pass.
-        second = finish_plan(team=self.team, user=self.user, report=report)
+        # Second planning completion: no duplicate skill/config, no second implementation pass.
+        second = finish_feature_planning(team=self.team, user=self.user, report=report)
         assert second.scout_skill_name == skill_name
         assert second.implementation_task_id is None
         assert mock_create_task.call_count == 1
@@ -148,12 +161,12 @@ class TestPlanModeService(APIBaseTest):
         assert SignalReportArtefact.objects.filter(report_id=report.id, type="safety_judgment").count() == 1
 
 
-class TestPlanModeAPI(APIBaseTest):
-    @patch("products.signals.backend.plan_mode.service.tasks_facade.create_and_run_task")
+class TestFeatureAPI(APIBaseTest):
+    @patch("products.signals.backend.features.service.tasks_facade.create_and_run_task")
     def test_create_endpoint_returns_ids(self, mock_create):
         mock_create.return_value = _mock_created_task(self.team, self.user)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/signals/plans/",
+            f"/api/projects/{self.team.id}/signals/features/",
             {"initial_description": "Build a widget"},
         )
         assert response.status_code == 201, response.content
@@ -161,33 +174,33 @@ class TestPlanModeAPI(APIBaseTest):
         assert body["report_id"]
         assert body["task_id"]
 
-    @patch("products.signals.backend.plan_mode.service.tasks_facade.create_and_run_task")
-    def test_list_surfaces_drafts_via_postgres_marker(self, mock_create):
-        # Plans have no backing signal — the Postgres planning marker is the sole membership source,
-        # so a draft must appear in the list from the moment of creation.
+    @patch("products.signals.backend.features.service.tasks_facade.create_and_run_task")
+    def test_list_surfaces_features_in_planning_via_postgres_marker(self, mock_create):
+        # The Postgres planning marker is the sole membership source, so a feature appears from the
+        # moment of creation without entering the signal grouping pipeline.
         mock_create.return_value = _mock_created_task(self.team, self.user)
-        created = create_plan(team=self.team, user=self.user, initial_description="Build a widget")
+        created = create_feature(team=self.team, user=self.user, initial_description="Build a widget")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/plans/")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/features/")
         assert response.status_code == 200, response.content
         rows = response.json()["results"]
         assert [r["id"] for r in rows] == [created.report_id]
-        assert rows[0]["is_draft"] is True
+        assert rows[0]["is_planning"] is True
 
-    def test_finish_endpoint_returns_missing_on_unready_plan(self):
+    def test_finish_planning_endpoint_returns_missing_on_unready_feature(self):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
-        response = self.client.post(f"/api/projects/{self.team.id}/signals/plans/{report.id}/finish/")
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/finish_planning/")
         assert response.status_code == 400, response.content
         assert "title" in response.json()["missing"]
 
     @patch("products.tasks.backend.facade.api.create_and_run_task")
-    def test_finish_converges_divergent_owner_scout_to_template(self, mock_create_task):
+    def test_finish_planning_converges_divergent_owner_scout_to_template(self, mock_create_task):
         # An agent-authored skill under the deterministic name is overwritten with the canonical
-        # body at finish — plan tailoring belongs in the playbook note, not the skill body, so
-        # core scout behaviors (signal sweep, start_implementation protocol) can never drift.
+        # body. Feature tailoring belongs in the playbook so monitoring and implementation behavior
+        # cannot drift.
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me3", extra_data={"login": "me"})
         mock_create_task.return_value = _mock_created_task(self.team, self.user)
-        report = TestPlanModeService._make_ready_plan(self)
+        report = _make_ready_feature(self.team, self.user)
         LLMSkill.objects.create(
             team=self.team,
             name=owner_scout_skill_name(str(report.id)),
@@ -196,9 +209,11 @@ class TestPlanModeAPI(APIBaseTest):
             allowed_tools=["edit_report"],
         )
 
-        finished = finish_plan(team=self.team, user=self.user, report=report)
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/finish_planning/")
+        assert response.status_code == 200, response.content
+        assert response.json()["planning_finished"] is True
 
-        skill = LLMSkill.objects.get(team=self.team, name=finished.scout_skill_name, is_latest=True)
+        skill = LLMSkill.objects.get(team=self.team, name=response.json()["scout_skill_name"], is_latest=True)
         assert "Owner scout playbook" in skill.body
         assert "associated_report" in skill.body
         assert skill.allowed_tools == ["edit_report", "start_implementation"]
@@ -207,20 +222,18 @@ class TestPlanModeAPI(APIBaseTest):
     def test_start_implementation_endpoint_starts_a_pass(self, mock_create):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me2", extra_data={"login": "me"})
         mock_create.return_value = _mock_created_task(self.team, self.user)
-        report = TestPlanModeService._make_ready_plan(self)  # repo + owners + priority, no impl run yet
+        report = _make_ready_feature(self.team, self.user)  # repo + owners + priority, no impl run yet
 
-        response = self.client.post(f"/api/projects/{self.team.id}/signals/plans/{report.id}/start_implementation/")
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/start_implementation/")
         assert response.status_code == 200, response.content
         body = response.json()
         assert body["task_id"] == str(mock_create.return_value.task_id)
         assert body["repository"] == "posthog/posthog"
         assert mock_create.call_args.kwargs["ai_stage"] == "implementation"
 
-    def test_finish_endpoint_404_for_other_team_report(self):
-        from posthog.models import Organization, Team
-
+    def test_finish_planning_endpoint_404_for_other_team_report(self):
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
         report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
-        response = self.client.post(f"/api/projects/{self.team.id}/signals/plans/{report.id}/finish/")
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/finish_planning/")
         assert response.status_code == 404

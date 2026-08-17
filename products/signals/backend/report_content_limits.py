@@ -1,7 +1,7 @@
 """The embeddability cap on report content (title + summary).
 
 A report's title + summary feed the embedding pipeline (the report's backing signals — scout
-reports, plan reports), and the text-embedding-3 family rejects inputs over 8191 tokens. Every
+reports and feature reports), and the text-embedding-3 family rejects inputs over 8191 tokens. Every
 report must stay embeddable, so report content is capped at MAX_EMBEDDABLE_REPORT_TOKENS = 8000
 tokens combined (headroom for the separator the emit paths add):
 

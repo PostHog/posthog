@@ -10,21 +10,19 @@
 import * as zod from 'zod'
 
 /**
- * Create a draft plan report and start its interactive planning conversation with a cloud agent. The plan stays a draft until it is finalized via the finish endpoint.
- * @summary Create a new plan
+ * Create a feature report and start an interactive planning conversation with a cloud agent. The feature remains in planning until the finish planning endpoint is called.
+ * @summary Create a new feature
  */
-export const signalsPlansCreateBodyInitialDescriptionMax = 4000
+export const signalsFeaturesCreateBodyInitialDescriptionMax = 4000
 
-export const SignalsPlansCreateBody = /* @__PURE__ */ zod
+export const SignalsFeaturesCreateBody = /* @__PURE__ */ zod
     .object({
         initial_description: zod
             .string()
-            .max(signalsPlansCreateBodyInitialDescriptionMax)
-            .describe(
-                "A brief initial description of the feature or change to plan. Seeds the plan's summary and the planning agent's first message."
-            ),
+            .max(signalsFeaturesCreateBodyInitialDescriptionMax)
+            .describe("A brief description of the feature. Seeds its summary and the planning agent's first message."),
     })
-    .describe("Body for creating a new plan: the user's brief initial description of the idea.")
+    .describe("Body for creating a feature from the user's initial idea.")
 
 /**
  * View and control signal processing pipeline state for a team.

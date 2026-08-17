@@ -1,9 +1,9 @@
-"""Dev-only seeding for the Plan tab UI. Run via:
+"""Dev-only seeding for the Features tab UI. Run via:
 
-    DJANGO_SETTINGS_MODULE=posthog.settings python -m products.signals.backend.plan_mode.seed_dev_data
+    DJANGO_SETTINGS_MODULE=posthog.settings python -m products.signals.backend.features.seed_dev_data
 
-Creates plan reports with realistic artefacts in Postgres, including the planning `task_run` marker
-artefact that drives Plan tab membership (plans have no backing signal). Idempotent-ish: reports are
+Creates feature reports with realistic artefacts in Postgres, including the planning `task_run` marker
+artefact that drives Features tab membership (features have no backing signal). Idempotent-ish: reports are
 keyed by title, so re-running skips ones that already exist.
 """
 
@@ -35,7 +35,7 @@ from products.tasks.backend.models import Task  # noqa: E402
 TEAM_ID = 1
 
 
-def _seed_plan(
+def _seed_feature(
     *,
     team: Team,
     user: User,
@@ -66,36 +66,45 @@ def _seed_plan(
     SignalReport.objects.filter(id=report.id).update(created_at=now - created_ago, updated_at=now - created_ago)
     report_id = str(report.id)
 
-    common = {"team_id": team.id, "report_id": report_id, "attribution": attribution}
     # reevaluate_autostart=False: seeded reviewers on a P1 immediately-actionable report must not
     # trip the real auto-start machinery.
     SignalReportArtefact.append(
-        content=PriorityAssessment(explanation="User-driven plan: always P1.", priority=Priority.P1),
+        team_id=team.id,
+        report_id=report_id,
+        content=PriorityAssessment(explanation="User-created feature: always P1.", priority=Priority.P1),
+        attribution=attribution,
         reevaluate_autostart=False,
-        **common,
     )
     SignalReportArtefact.append(
+        team_id=team.id,
+        report_id=report_id,
         content=ActionabilityAssessment(
-            explanation="User-driven plan: actionable by definition.",
+            explanation="User-created feature: actionable by definition.",
             actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
             already_addressed=False,
         ),
+        attribution=attribution,
         reevaluate_autostart=False,
-        **common,
     )
     SignalReportArtefact.append(
-        content=SafetyJudgment(choice=True, explanation=None), reevaluate_autostart=False, **common
+        team_id=team.id,
+        report_id=report_id,
+        content=SafetyJudgment(choice=True, explanation=None),
+        attribution=attribution,
+        reevaluate_autostart=False,
     )
     SignalReportArtefact.append(
+        team_id=team.id,
+        report_id=report_id,
         content=SuggestedReviewers(
             [SuggestedReviewerEntry(github_login="oliver-posthog", github_name="Oliver Browne", relevant_commits=[])]
         ),
+        attribution=attribution,
         reevaluate_autostart=False,
-        **common,
     )
     for note in notes:
         SignalReportArtefact.add_log(
-            content=NoteArtefact(note=note, author="planning agent"),
+            content=NoteArtefact(note=note, author="feature planning agent"),
             team_id=team.id,
             report_id=report_id,
             attribution=attribution,
@@ -103,10 +112,10 @@ def _seed_plan(
     for ref in code_refs:
         SignalReportArtefact.add_log(content=ref, team_id=team.id, report_id=report_id, attribution=attribution)
 
-    # The planning task_run artefact is the Plan tab membership marker (see plan_mode/queries.py).
+    # The planning task_run artefact is the Features tab membership marker (see features/queries.py).
     task = Task.objects.create(
         team=team,
-        title="Plan a new project",
+        title="Plan a new feature",
         description="seeded planning conversation",
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         created_by=user,
@@ -131,10 +140,10 @@ def main() -> None:
     user = User.objects.filter(is_active=True).order_by("id").first()
     assert user is not None
 
-    _seed_plan(
+    _seed_feature(
         team=team,
         user=user,
-        title="Plan: burndown chart widget for dashboards",
+        title="Feature: burndown chart widget for dashboards",
         summary=(
             "Add a burndown chart widget type to dashboards, so sprint-style progress can be tracked "
             "against error-tracking issue counts. Widget config picks an issue filter and a time "
@@ -173,10 +182,10 @@ def main() -> None:
         ],
     )
 
-    _seed_plan(
+    _seed_feature(
         team=team,
         user=user,
-        title="Plan: self-serve data deletion requests",
+        title="Feature: self-serve data deletion requests",
         summary=(
             "Let end users file GDPR deletion requests from the account page, tracked as a queue with "
             "a 30-day SLA. Backend queue model + Celery worker that calls the deletion APIs, plus an "
