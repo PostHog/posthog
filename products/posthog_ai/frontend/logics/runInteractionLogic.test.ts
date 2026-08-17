@@ -217,7 +217,8 @@ describe('runInteractionLogic', () => {
 
     it('syncs a changed permission mode to the agent right before the message, and only when it changed', async () => {
         setThinking(false)
-        logic.actions.setMode('plan')
+        // Not `plan` — that's the runtime's default, so it would be no change to sync.
+        logic.actions.setMode('bypassPermissions')
         logic.actions.setComposerFormValues({ draft: 'ship it' })
 
         await expectLogic(logic, () => {
@@ -226,7 +227,7 @@ describe('runInteractionLogic', () => {
 
         // The mode sync is a `set_config_option { configId: 'mode' }` command that lands before the message.
         expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
-            setConfigCommand('mode', 'plan'),
+            setConfigCommand('mode', 'bypassPermissions'),
             userMessageCommand('ship it'),
         ])
 
@@ -260,19 +261,19 @@ describe('runInteractionLogic', () => {
         expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('go on')])
     })
 
-    it('seeds the picker from the stored launch mode and ignores unrecognized wire modes', () => {
+    it('seeds the picker from the stored launch mode and coerces the other runtime\u2019s modes', () => {
         // No live `current_mode_update` yet — the run's REST-stored launch mode drives the display.
         logic = runInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted, currentMode: 'plan' })
         expect(logic.values.selectedMode).toBe('plan')
 
-        // An unrecognized wire mode (a future mode, another runtime's vocabulary) must not leak out as a
-        // fake PermissionMode — it degrades to the stored launch mode.
+        // A wire mode in the other runtime's vocabulary (a run started from desktop or Slack on Codex)
+        // is coerced to this runtime's nearest ceiling rather than shown — or sent — as-is.
         stream.actions.setCurrentMode('full-access')
-        expect(logic.values.selectedMode).toBe('plan')
+        expect(logic.values.selectedMode).toBe('bypassPermissions')
 
-        // The retired acceptEdits wire mode (older runs, resumed snapshots) normalizes to auto.
+        // `acceptEdits` is one of Claude's own modes, so it stays put.
         stream.actions.setCurrentMode('acceptEdits')
-        expect(logic.values.selectedMode).toBe('auto')
+        expect(logic.values.selectedMode).toBe('acceptEdits')
     })
 
     it('seeds a fresh run with the picked permission mode when the run is terminal', async () => {
@@ -366,7 +367,7 @@ describe('runInteractionLogic', () => {
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            initial_permission_mode: 'auto',
+            initial_permission_mode: 'plan',
             resume_from_run_id: RUN_ID,
             pending_user_message: 'continue from here',
         })

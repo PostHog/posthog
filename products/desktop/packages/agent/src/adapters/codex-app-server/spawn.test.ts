@@ -1,7 +1,11 @@
 import { delimiter, dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../utils/logger";
-import { buildAppServerArgs, spawnCodexAppServerProcess } from "./spawn";
+import {
+  buildAppServerArgs,
+  SANDBOX_STREAM_IDLE_TIMEOUT_MS,
+  spawnCodexAppServerProcess,
+} from "./spawn";
 
 const BINARY_PATH = "/bundle/codex";
 
@@ -136,6 +140,19 @@ describe("buildAppServerArgs", () => {
 
     expect(args).toContain("auto_compact_token_limit=16000");
     expect(args).toContain('model_verbosity="low"');
+  });
+
+  it("shortens the gateway stream idle timeout only in cloud sandboxes", () => {
+    const idleTimeoutArg = `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`;
+    const options = {
+      binaryPath: "/bundle/codex",
+      apiBaseUrl: "https://gateway.example/v1",
+    };
+
+    expect(buildAppServerArgs(options, { IS_SANDBOX: "1" })).toContain(
+      idleTimeoutArg,
+    );
+    expect(buildAppServerArgs(options, {})).not.toContain(idleTimeoutArg);
   });
 
   it("pins the cloud BASH_ENV into tool shells for secondary checkouts", () => {
