@@ -1062,6 +1062,17 @@ export interface TaskActivityMarkReadResponseApi {
 }
 
 /**
+ * * `personal` - Personal
+ * * `general` - General
+ */
+export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+
+export const SystemRoleEnumApi = {
+    Personal: 'personal',
+    General: 'general',
+} as const
+
+/**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
 export interface ChannelDTOApi {
@@ -1074,6 +1085,11 @@ export interface ChannelDTOApi {
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
     starred?: boolean
+    /** Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.
+     *
+     * * `personal` - Personal
+     * * `general` - General */
+    readonly system_role: SystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
