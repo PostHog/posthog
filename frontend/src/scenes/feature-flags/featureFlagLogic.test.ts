@@ -805,6 +805,38 @@ describe('featureFlagLogic', () => {
             }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
         })
 
+        // These land while the page is interactive: the background refresh has its own loader key
+        // so it never shows the skeleton, and the toggles are one click away. Each persists only a
+        // couple of server-owned fields, so taking the whole server flag would drop an in-progress
+        // edit and re-baseline over it, leaving the guard clean and the edit gone without a prompt.
+        it.each([
+            ['refreshFeatureFlagSuccess', () => logic.actions.refreshFeatureFlagSuccess({ ...MOCK_FEATURE_FLAG })],
+            [
+                'updateFeatureFlagActiveSuccess',
+                () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
+            ],
+            [
+                'updateFeatureFlagArchivedSuccess',
+                () => logic.actions.updateFeatureFlagArchivedSuccess({ ...MOCK_FEATURE_FLAG, archived: true }),
+            ],
+        ])('keeps an in-progress release-condition edit after %s reconciles', async (_label, reconcile) => {
+            const editedGroups = [
+                ...logic.values.featureFlag.filters.groups,
+                { properties: [], rollout_percentage: 100, variant: null },
+            ]
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: editedGroups,
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, reconcile).toFinishAllListeners()
+
+            expect(logic.values.featureFlag.filters.groups).toHaveLength(editedGroups.length)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
         it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
             await expectLogic(logic, () => {
                 // Form `defaults` narrow `ensure_experience_continuity` to `boolean`, but

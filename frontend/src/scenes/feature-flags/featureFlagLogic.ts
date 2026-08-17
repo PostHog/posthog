@@ -3524,8 +3524,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
-                actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                // Only active/version were persisted, so fold just those onto the working copy and
+                // the baseline. Taking the whole server flag would drop any in-progress edit and
+                // re-baseline over it, leaving the guard clean.
+                const persisted = { active: featureFlagActiveUpdate.active, version: featureFlagActiveUpdate.version }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
@@ -3564,16 +3572,41 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Reconcile the cache-painted flag with the freshly fetched server state, and keep
             // the list cache in sync so the two views agree.
             if (featureFlagRefresh) {
-                actions.setFeatureFlag(featureFlagRefresh)
-                actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+                if (values.originalFeatureFlag) {
+                    // This refresh exists to correct a stale cached `active`, and it lands while the
+                    // page is already interactive (its own loader key means no skeleton). Replacing
+                    // the whole flag here would discard an edit made during the request and
+                    // re-baseline over it, so the guard would read clean and lose it silently.
+                    const persisted = {
+                        active: featureFlagRefresh.active,
+                        archived: featureFlagRefresh.archived,
+                        version: featureFlagRefresh.version,
+                    }
+                    actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setFeatureFlag(featureFlagRefresh)
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+                }
                 actions.updateFlag(featureFlagRefresh)
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
-                actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                // Archiving also disables the flag, so archived/active/version are the persisted
+                // fields. Fold only those, for the same reason as the active toggle above.
+                const persisted = {
+                    archived: featureFlagActiveUpdate.archived,
+                    active: featureFlagActiveUpdate.active,
+                    version: featureFlagActiveUpdate.version,
+                }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
@@ -4057,8 +4090,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // New flag — compare against form defaults via featureFlagChanged instead
                     return false
                 }
-                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
-                return !objectsEqual(currentCleaned, originalFeatureFlag)
+                // Same transform as the baseline, so both sides of the diff stay in step by
+                // construction rather than by keeping two copies of it in sync.
+                return !objectsEqual(toFeatureFlagBaseline(featureFlag), originalFeatureFlag)
             },
         ],
         isFormDirty: [
