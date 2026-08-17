@@ -19,6 +19,11 @@
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
   --qa-accent: #f1a82c; /* quill primary (dark) */
+  /* Chart series 2 and 3 (series 1 is the accent). CVD-validated against
+   * --qa-surface with the dataviz palette checker. */
+  --qa-series-2: #5b86de;
+  --qa-series-3: #3aa658;
+  --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
   --qa-hover: rgba(255, 255, 255, 0.08);
   --qa-font:
@@ -364,6 +369,295 @@ html body {
   font-size: 13px;
   line-height: 1.5;
   color: var(--qa-down);
+}
+
+/* Chart */
+
+.qa-chart {
+  margin-top: 12px;
+  padding: 11px 12px 9px;
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-border);
+  border-radius: 10px;
+}
+
+.qa-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.qa-chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--qa-fg-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.qa-chart-stat-value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-delta {
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-delta-up {
+  color: var(--qa-up);
+}
+
+.qa-delta-down {
+  color: var(--qa-down);
+}
+
+.qa-chart-plot {
+  position: relative;
+  /* Room for the tooltip; hover geometry maps onto this box. */
+  touch-action: none;
+}
+
+.qa-chart-svg {
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+
+.qa-chart-ytick {
+  position: absolute;
+  left: 0;
+  transform: translateY(-110%);
+  font-size: 9px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.qa-chart-crosshair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+
+.qa-chart-hover-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--qa-surface);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.qa-chart-tip {
+  position: absolute;
+  top: -4px;
+  transform: translateX(10px);
+  min-width: 92px;
+  max-width: 190px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: #26272e;
+  border: 1px solid var(--qa-border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.qa-chart-tip-left {
+  transform: translateX(calc(-100% - 10px));
+}
+
+.qa-chart-tip-label {
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  margin-bottom: 3px;
+}
+
+.qa-chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-chart-tip-row + .qa-chart-tip-row {
+  margin-top: 2px;
+}
+
+.qa-chart-tip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qa-chart-tip-value {
+  margin-left: auto;
+  color: var(--qa-fg);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.qa-chart-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-labels span {
+  flex: 1;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.qa-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 7px;
+}
+
+.qa-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--qa-fg-muted);
+}
+
+.qa-chart-title-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  /* Buttons don't inherit typography; .qa-chart-title supplies size/weight. */
+  font-family: var(--qa-font);
+  color: inherit;
+}
+
+.qa-chart-title-link:hover {
+  color: var(--qa-fg);
+  text-decoration: underline;
+}
+
+.qa-chart-number {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--qa-fg);
+  font-variant-numeric: tabular-nums;
+  padding: 4px 0 6px;
+}
+
+.qa-chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.qa-chart-table th,
+.qa-chart-table td {
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  color: var(--qa-fg-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-chart-table th {
+  font-weight: 600;
+  color: var(--qa-fg-subtle);
+  text-transform: uppercase;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+}
+
+.qa-chart-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.qa-chart-note {
+  font-size: 12px;
+  color: var(--qa-fg-muted);
+  padding: 2px 0 4px;
+}
+
+/* Inline object reference: icon + label, click opens PostHog. */
+.qa-ref {
+  color: var(--qa-fg);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.35);
+  padding-bottom: 1px;
+  cursor: pointer;
+}
+
+.qa-ref:hover {
+  border-bottom-style: solid;
+}
+
+.qa-ref svg {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 3px;
+  color: var(--qa-fg-subtle);
+}
+
+/* The shared markdown components render at app sizes; tighten to the
+ * panel's 13px rhythm. */
+.qa-answer .rt-Text {
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 7px;
+}
+
+.qa-answer .rt-Text:last-child {
+  margin-bottom: 0;
+}
+
+.qa-answer .rt-Code {
+  font-size: 11.5px;
+}
+
+.qa-pre {
+  margin: 8px 0;
+  padding: 9px 11px;
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-border);
+  border-radius: 9px;
+  overflow-x: auto;
+  font: 11.5px var(--qa-mono);
+  color: var(--qa-fg-muted);
 }
 
 /* ── Thinking skeleton ───────────────────────────────── */

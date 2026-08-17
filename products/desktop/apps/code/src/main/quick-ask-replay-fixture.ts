@@ -16,7 +16,7 @@ export const REPLAY_FIRST_TURN_CONTENT = `${REPLAY_QUESTION}\n\n${PANEL_STEERING
 export const REPLAY_FOLLOW_UP = "And the week before?";
 
 export const REPLAY_ANSWER = [
-  "Signups held steady this week. The spike on Tuesday matches the launch email.",
+  "Signups held steady this week. The <hogql label=\"Tuesday spike\">SELECT count() FROM events WHERE event = 'signed_up' AND toDayOfWeek(timestamp) = 2</hogql> matches the launch email.",
   "",
   '<hogql display="block" title="Signups per day, last 7 days">SELECT toDate(timestamp) AS day, count() FROM events WHERE event = \'signed_up\' GROUP BY day ORDER BY day</hogql>',
 ].join("\n");

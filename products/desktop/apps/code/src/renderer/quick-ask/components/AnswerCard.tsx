@@ -1,8 +1,95 @@
-import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import {
+  baseComponents,
+  MarkdownRenderer,
+} from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
+import {
+  type EvidenceLinkTarget,
+  parseEvidenceLink,
+} from "@posthog/ui/utils/evidenceLinks";
+import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  isValidElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { Components } from "react-markdown";
+import { PanelChartCard } from "./PanelChartCard";
 
 const AUTOSCROLL_SLACK_PX = 48;
+
+/**
+ * Object references as plain click-to-open chips. Hover preview cards need
+ * more room than a window whose bounds hug the content can give them.
+ */
+function PanelChip({
+  target,
+  children,
+}: {
+  target: EvidenceLinkTarget;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const KindIcon = getObjectKind(target.kind).icon;
+  const url = useEvidenceUrl(target.kind, target.id);
+  return (
+    <a
+      href={url ?? "#"}
+      className="qa-ref"
+      title="Open in PostHog"
+      onClick={(event) => {
+        event.preventDefault();
+        if (url) openExternalUrl(url);
+      }}
+    >
+      <KindIcon size={12} aria-hidden />
+      {children}
+    </a>
+  );
+}
+
+const BaseAnchor = baseComponents.a as React.ComponentType<{
+  href?: string;
+  children?: React.ReactNode;
+}>;
+const BaseCode = baseComponents.code as React.ComponentType<{
+  className?: string;
+  children?: React.ReactNode;
+}>;
+/** Panel rendering for the shared tag pipeline: compact charts, plain chips. */
+const panelComponents: Partial<Components> = {
+  a: ({ href, children }) => {
+    const target = parseEvidenceLink(href);
+    if (target) {
+      return <PanelChip target={target}>{children}</PanelChip>;
+    }
+    return <BaseAnchor href={href}>{children}</BaseAnchor>;
+  },
+  code: ({ className, children }) => {
+    if (className?.match(/language-posthog-chart/)) {
+      const spec = parseChartBlock(String(children).replace(/\n$/, ""));
+      if (!spec) return null;
+      return (
+        <PanelChartCard key={chartBlockKey(String(children))} spec={spec} />
+      );
+    }
+    return <BaseCode className={className}>{children}</BaseCode>;
+  },
+  pre: ({ children }) => {
+    // A chart block renders as a card, not inside a code block shell.
+    if (
+      isValidElement<{ className?: string }>(children) &&
+      children.props.className?.includes("language-posthog-chart")
+    ) {
+      return children;
+    }
+    return <pre className="qa-pre">{children}</pre>;
+  },
+};
 
 export function ThinkingCard({ label }: { label: string }): React.JSX.Element {
   return (
@@ -79,7 +166,10 @@ export function AnswerCard({
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
         <div className="qa-answer">
           {/* Object tags in the markdown resolve into live chips and chart cards. */}
-          <MarkdownRenderer content={text} />
+          <MarkdownRenderer
+            content={text}
+            componentsOverride={panelComponents}
+          />
           {streaming && <span className="qa-caret" />}
         </div>
       </div>

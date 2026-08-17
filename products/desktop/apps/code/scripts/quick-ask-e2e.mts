@@ -105,10 +105,47 @@ await page.exposeFunction(
     })();
   },
 );
+// The panel's chart cards resolve data through the authenticated client,
+// which forms from auth state served over the tRPC bridge. Stub the bridge
+// wire protocol so the real client forms, and intercept its API calls below.
 // A string, not a function: tsx's esbuild transform injects helpers that do
 // not exist inside the page.
 await page.addInitScript(`
-  window.electronTRPC = { sendMessage: () => {}, onMessage: () => {} };
+  window.electronTRPC = {
+    handlers: [],
+    sendMessage(message) {
+      if (message.method !== "request") return;
+      const { id, type, path } = message.operation;
+      if (type === "subscription") return;
+      const respond = (data) => {
+        for (const handler of window.electronTRPC.handlers) {
+          handler({ id, result: { type: "data", data: { json: data } } });
+        }
+      };
+      if (path === "auth.getState") {
+        respond({
+          status: "authenticated",
+          bootstrapComplete: true,
+          cloudRegion: "us",
+          orgProjectsMap: {},
+          currentOrgId: "org-1",
+          currentProjectId: 2,
+          hasCodeAccess: true,
+          needsScopeReauth: false,
+          sessionType: "desktop",
+          sessionExpiresAt: null,
+          sessionEndReason: null,
+        });
+      } else if (path === "auth.getValidAccessToken") {
+        respond({ accessToken: "e2e-token", apiHost: "https://us.posthog.com" });
+      } else {
+        respond({});
+      }
+    },
+    onMessage(callback) {
+      window.electronTRPC.handlers.push(callback);
+    },
+  };
   const listeners = [];
   window.__qaEmit = (event) => { for (const listener of listeners) listener(event); };
   window.quickAsk = {
@@ -125,6 +162,30 @@ await page.addInitScript(`
     onShown: () => () => {},
   };
 `);
+
+// The chart card's live query, canned: a date-keyed grid that shapes into a
+// line chart.
+await page.route("https://us.posthog.com/**", async (route) => {
+  if (route.request().url().includes("/query/")) {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        columns: ["day", "count()"],
+        results: [
+          ["2026-08-08", 34000],
+          ["2026-08-09", 48000],
+          ["2026-08-10", 86000],
+          ["2026-08-11", 84000],
+          ["2026-08-12", 82000],
+          ["2026-08-13", 79000],
+          ["2026-08-14", 68000],
+        ],
+      }),
+    });
+    return;
+  }
+  await route.fulfill({ status: 404, body: "" });
+});
 
 await page.goto(`${renderer.origin}/quick-ask.html`);
 await page.waitForSelector(".qa-pill input", { timeout: 15_000 });
@@ -150,15 +211,60 @@ if (answer.includes(REPLAY_STRAY_ANSWER)) {
 if (/<\/?hogql/.test(answer)) {
   fail("raw object tag leaked into the rendered answer");
 }
-pass("answer rendered, stray turn skipped, no raw tags");
+const chip = (await page.evaluate(
+  'document.querySelector(".qa-answer .qa-ref")?.textContent ?? ""',
+)) as string;
+if (!chip.includes("Tuesday spike")) {
+  fail(`inline tag did not render as a chip: ${JSON.stringify(chip)}`);
+}
+pass("answer rendered, inline tag is a chip, stray turn skipped, no raw tags");
 
+await page.waitForSelector(".qa-chart .qa-chart-svg path", { timeout: 15_000 });
 const chartTitle = (await page.evaluate(
-  'document.querySelector("figure[data-testid=report-chart] span")?.textContent ?? ""',
+  'document.querySelector(".qa-chart .qa-chart-title")?.textContent ?? ""',
 )) as string;
 if (chartTitle !== "Signups per day, last 7 days") {
   fail(`chart card missing or mistitled: ${JSON.stringify(chartTitle)}`);
 }
-pass("hogql block tag rendered as a chart card");
+const stat = (await page.evaluate(
+  'document.querySelector(".qa-chart-stat-value")?.textContent ?? ""',
+)) as string;
+if (!stat) {
+  fail("chart headline stat missing");
+}
+pass(`hogql block tag drew the compact chart (latest ${stat})`);
+
+if (process.env.QUICK_ASK_E2E_METRICS) {
+  const metrics = await page.evaluate(`(() => {
+    const rect = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return { w: Math.round(r.width), h: Math.round(r.height), font: cs.fontSize, mt: cs.marginTop, mb: cs.marginBottom, pad: cs.padding };
+    };
+    return JSON.stringify({
+      card: rect(".qa-card"),
+      answer: rect(".qa-answer"),
+      chart: rect(".qa-chart"),
+      chartSvg: rect(".qa-chart-svg"),
+      chartTitle: rect(".qa-chart-title"),
+      stat: rect(".qa-chart-stat-value"),
+      text: rect(".qa-answer .rt-Text"),
+      code: rect(".qa-answer .rt-Code"),
+      chip: rect(".qa-ref"),
+      labels: rect(".qa-chart-labels"),
+    }, null, 1);
+  })()`);
+  console.log("metrics:", metrics);
+}
+
+const shot = process.env.QUICK_ASK_E2E_SCREENSHOT;
+if (shot) {
+  const box = await page.locator(".qa-root").boundingBox();
+  if (box) await page.screenshot({ path: shot, clip: box });
+  pass(`screenshot written to ${shot}`);
+}
 
 // Follow-up through the same input.
 await page.fill(".qa-pill input", REPLAY_FOLLOW_UP);
