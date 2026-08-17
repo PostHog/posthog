@@ -17,6 +17,7 @@ import {
   EmptyTitle,
   Spinner,
 } from "@posthog/quill";
+import type { SignalReport } from "@posthog/shared/types";
 import { ReportSessionCard } from "@posthog/ui/features/canvas/reports/ReportSessionCard";
 import {
   partitionReportSessions,
@@ -47,7 +48,27 @@ export function ReportSessions({ channelId }: { channelId: string }) {
     ...active.allReports,
     ...archived.allReports,
   ]);
-  const loading = active.isLoading || archived.isLoading;
+  return (
+    <ReportSessionsView
+      channelId={channelId}
+      sections={sections}
+      loading={active.isLoading || archived.isLoading}
+      error={active.isError || archived.isError}
+    />
+  );
+}
+
+export function ReportSessionsView({
+  channelId,
+  sections,
+  loading = false,
+  error = false,
+}: {
+  channelId: string;
+  sections: Record<ReportSessionSection, SignalReport[]>;
+  loading?: boolean;
+  error?: boolean;
+}) {
   const hasReports = Object.values(sections).some(
     (reports) => reports.length > 0,
   );
@@ -60,7 +81,7 @@ export function ReportSessions({ channelId }: { channelId: string }) {
     );
   }
 
-  if ((active.isError || archived.isError) && !hasReports) {
+  if (error && !hasReports) {
     return (
       <Empty className="flex-1">
         <EmptyHeader>
