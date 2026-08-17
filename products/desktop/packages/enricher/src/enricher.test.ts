@@ -239,6 +239,52 @@ describeWithGrammars("PostHogEnricher", () => {
       expect(enriched.events[0].verified).toBe(true);
     });
 
+    test("omits descriptions from inline comments when requested", async () => {
+      const code = `posthog.capture('purchase');`;
+      const result = await enricher.parse(code, "javascript");
+
+      mockApiResponses({
+        eventDefs: [
+          makeEventDef("purchase", {
+            description: "Project-controlled event description",
+          }),
+        ],
+      });
+      const enriched = await result.enrichFromApi(API_CONFIG);
+
+      expect(enriched.events[0].definition?.description).toBe(
+        "Project-controlled event description",
+      );
+      expect(enriched.toInlineComments()).toContain(
+        "Project-controlled event description",
+      );
+      expect(
+        enriched.toInlineComments({ includeEventDescriptions: false }),
+      ).not.toContain("Project-controlled event description");
+    });
+
+    test("omits experiment names from inline comments when requested", async () => {
+      const code = `posthog.getFeatureFlag('experiment-flag');`;
+      const result = await enricher.parse(code, "javascript");
+
+      mockApiResponses({
+        flags: [makeFlag("experiment-flag")],
+        experiments: [
+          makeExperiment("experiment-flag", {
+            name: "Project-controlled experiment name",
+          }),
+        ],
+      });
+      const enriched = await result.enrichFromApi(API_CONFIG);
+
+      expect(enriched.toInlineComments()).toContain(
+        "Project-controlled experiment name",
+      );
+      expect(
+        enriched.toInlineComments({ includeExperimentNames: false }),
+      ).not.toContain("Project-controlled experiment name");
+    });
+
     test("toList returns enriched items", async () => {
       const code = [
         `posthog.capture('purchase');`,
