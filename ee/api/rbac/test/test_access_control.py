@@ -2620,3 +2620,61 @@ class TestAccessControlAcrossEnvironments(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self.client.get(f"/api/projects/{self.team.id}/dashboards/{object_id}/")
         assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_a_write_collapses_legacy_rows_from_other_environments(self):
+        # One row per environment could accumulate while writes were environment-scoped
+        object_id = self.object_ids_by_resource["dashboards"]
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=object_id, access_level="none")
+        AccessControl.objects.create(
+            team=self.sibling_team, resource="dashboard", resource_id=object_id, access_level="viewer"
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.sibling_team.id}/dashboards/{object_id}/access_controls",
+            {"access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rows = AccessControl.objects.filter(resource="dashboard", resource_id=object_id)
+        assert rows.count() == 1
+        assert rows.get().access_level == "editor"
+
+    def test_listing_shows_the_level_in_force_across_environments(self):
+        object_id = self.object_ids_by_resource["dashboards"]
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=object_id, access_level="none")
+        AccessControl.objects.create(
+            team=self.sibling_team, resource="dashboard", resource_id=object_id, access_level="viewer"
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get(f"/api/projects/{self.team.id}/dashboards/{object_id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [ac["access_level"] for ac in res.json()["access_controls"]] == ["viewer"]
+
+    def test_resource_level_write_collapses_rows_across_environments(self):
+        AccessControl.objects.create(
+            team=self.sibling_team, resource="dashboard", resource_id=None, access_level="viewer"
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.team.id}/resource_access_controls",
+            {"resource": "dashboard", "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rows = AccessControl.objects.filter(resource="dashboard", resource_id=None)
+        assert rows.count() == 1
+        assert rows.get().access_level == "editor"
+
+    def test_settings_page_lists_rules_from_a_sibling_environment(self):
+        object_id = self.object_ids_by_resource["dashboards"]
+        AccessControl.objects.create(
+            team=self.sibling_team, resource="dashboard", resource_id=object_id, access_level="none"
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_control_default_objects")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["resource"], r["resource_id"], r["access_level"]) for r in res.json()["results"]] == [
+            ("dashboard", object_id, "none")
+        ]

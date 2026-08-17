@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from django.db import transaction
 from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status
@@ -23,6 +24,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     default_access_level,
     highest_access_level,
+    highest_access_level_from,
     minimum_access_level,
     ordered_access_levels,
 )
@@ -47,6 +49,44 @@ def _rule_scope_for_resource(team: Team, resource: str) -> Q:
     if resource in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES:
         return Q(team__project_id=team.project_id)
     return Q(team=team)
+
+
+def rule_rows_for_team(team: Team, *extra_filters: Q, **filters: Any) -> list[AccessControl]:
+    """AccessControl rows spanning several resources that govern anything addressed through
+    `team`: its own rows, plus the sibling environments' rows for the project-level resources.
+
+    Two queries combined with UNION rather than one OR-ed WHERE, for the same reason as
+    UserAccessControl._cached_access_controls: an OR spanning this table's team_id and the
+    joined team's project_id has no single usable index. Single-resource lookups don't need
+    this - filtered by `resource` (the unique index's leading column), a plain
+    `_rule_scope_for_resource` filter plans fine.
+    """
+    team_rows = AccessControl.objects.filter(*extra_filters, team=team, **filters)
+    project_rows = AccessControl.objects.filter(
+        *extra_filters,
+        team__project_id=team.project_id,
+        resource__in=PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES,
+        **filters,
+    )
+    return list(team_rows.union(project_rows))
+
+
+def collapse_cross_environment_rows(rows: list[AccessControl]) -> list[AccessControl]:
+    """One row per (resource, resource_id, subject), keeping the loosest level.
+
+    The per-environment unique constraint allows one row per environment for the same subject of
+    a project-level resource, and resolution takes the loosest across them - so the loosest is
+    the one in force, and the one a rules listing must show.
+    """
+    in_force: dict[tuple, AccessControl] = {}
+    for row in rows:
+        key = (row.resource, row.resource_id, row.organization_member_id, row.role_id)
+        current = in_force.get(key)
+        if current is None or highest_access_level_from(row.resource, [row.access_level, current.access_level]) == (
+            row.access_level
+        ):
+            in_force[key] = row
+    return list(in_force.values())
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -233,15 +273,19 @@ def upsert_access_control(
             user_access_control._clear_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    if instance:
-        # The per-environment unique constraint allows one row per environment for the same
-        # subject of a project-level resource; the resolver takes the loosest across them, so
-        # any row left behind here would outrank the level being written.
-        matching.exclude(pk=instance.pk).delete()
-        serializer = build_serializer(instance)
-        serializer.is_valid(raise_exception=True)
-    serializer.validated_data["team"] = team
-    serializer.save()
+    with transaction.atomic():
+        if instance:
+            # The per-environment unique constraint allows one row per environment for the same
+            # subject of a project-level resource; the resolver takes the loosest across them, so
+            # any row left behind here would outrank the level being written. Atomic so a failed
+            # save can't leave the siblings deleted with the new level unwritten. Two concurrent
+            # writers from different environments can still each insert their own row - the
+            # constraint doesn't span environments - and the next write collapses them.
+            matching.exclude(pk=instance.pk).delete()
+            serializer = build_serializer(instance)
+            serializer.is_valid(raise_exception=True)
+        serializer.validated_data["team"] = team
+        serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
 
@@ -342,16 +386,16 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # If resource level then we are getting all controls for the project that aren't specific
             # to a resource. Rows for the project-level resources are matched project-wide, so pick
             # them up from every environment - the same scope the resolver's preload uses.
-            access_controls = AccessControl.objects.filter(
-                Q(team=team)
-                | Q(team__project_id=team.project_id, resource__in=PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES),
-                resource_id=None,
-            ).all()
+            access_controls = collapse_cross_environment_rows(rule_rows_for_team(team, resource_id=None))
         else:
             # Otherwise we are getting all controls for the specific resource
-            access_controls = AccessControl.objects.filter(
-                _rule_scope_for_resource(team, resource), resource=resource, resource_id=resource_id
-            ).all()
+            access_controls = collapse_cross_environment_rows(
+                list(
+                    AccessControl.objects.filter(
+                        _rule_scope_for_resource(team, resource), resource=resource, resource_id=resource_id
+                    )
+                )
+            )
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = user_access_control.get_user_access_level(obj)
@@ -397,10 +441,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
                         role=None,
                     )
                 ]
-                # Mirrors _highest_access_level_from_rows: with one row per environment possible
-                # for a project-level resource, the loosest is the one in force.
+                # One row per environment is possible for a project-level resource, and the
+                # loosest is the one in force.
                 payload["inherited_access_level"] = (
-                    max(everyone_levels, key=ordered_access_levels(inherited_resource).index)
+                    highest_access_level_from(inherited_resource, everyone_levels)
                     if everyone_levels
                     else default_access_level(inherited_resource)
                 )

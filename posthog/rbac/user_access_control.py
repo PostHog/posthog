@@ -254,6 +254,12 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
+def highest_access_level_from(resource: APIScopeObject, levels: Sequence[AccessControlLevel]) -> AccessControlLevel:
+    """The loosest of `levels` for `resource` - the one resolution puts in force when several
+    rows apply to the same check."""
+    return max(levels, key=ordered_access_levels(resource).index)
+
+
 @dataclass(frozen=True)
 class EffectiveAccessResult:
     effective_access_level: AccessControlLevel | None
@@ -1481,7 +1487,9 @@ class UserAccessControl:
         # A rule on a project-level resource governs the object from every environment in the
         # project, so match those project-wide - see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES. The
         # tree only ever lists one project's rows, so the environment ids come from this
-        # instance's own team rather than from an OuterRef.
+        # instance's own team rather than from an OuterRef. Unlike the preload, this OR is safe
+        # to plan: the subquery stays anchored on (resource, resource_id), the unique index's
+        # leading columns, via the OuterRefs below.
         team_match = Q(team_id=OuterRef("team_id"))
         if self._team is not None:
             team_match |= Q(
@@ -1570,10 +1578,7 @@ class UserAccessControl:
     def _highest_access_level_from_rows(
         resource: APIScopeObject, access_controls: list[_AccessControl]
     ) -> AccessControlLevel:
-        return max(
-            access_controls,
-            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        ).access_level
+        return highest_access_level_from(resource, [access_control.access_level for access_control in access_controls])
 
     def _object_access_level_from_rows(
         self,

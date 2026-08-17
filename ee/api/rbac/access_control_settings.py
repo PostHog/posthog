@@ -36,6 +36,7 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
+    PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES,
     AccessControlLevel,
     UserAccessControl,
     default_access_level,
@@ -47,8 +48,13 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from ee.api.rbac.access_control import AccessControlSerializer, AccessControlViewSetMixin, upsert_access_control
-from ee.models.rbac.access_control import AccessControl
+from ee.api.rbac.access_control import (
+    AccessControlSerializer,
+    AccessControlViewSetMixin,
+    collapse_cross_environment_rows,
+    rule_rows_for_team,
+    upsert_access_control,
+)
 from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
@@ -93,17 +99,26 @@ class _ResolvedObjectName:
     short_id: str | None = None
 
 
-def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, _ResolvedObjectName]:
+def _object_home_scope(team: Team, resource: str) -> Q:
+    """Where `resource` objects addressed through `team` can live: any of the project's
+    environments for the project-level resources, this environment alone for the rest."""
+    if resource in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES:
+        return Q(team__project_id=team.project_id)
+    return Q(team_id=team.id)
+
+
+def _resolve_object_names(resource: str, resource_ids: list[str], team: Team) -> dict[str, _ResolvedObjectName]:
     """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
 
     Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
-    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
+    exactly the rows someone opens this page to clean up. Tenant isolation holds via the team, or
+    the whole project for the project-level resources, whose rules and objects span it.
     """
     display = _display_model(resource) if resource_ids else None
     if display is None:
         return {}
     try:
-        rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
+        rows = display.model._base_manager.filter(_object_home_scope(team, resource), pk__in=resource_ids)
         if resource == "insight":
             # Insight.name is nullable and saved insights often carry only derived_name, and insight
             # URLs address short_ids rather than the pk rules store
@@ -260,7 +275,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
 
-        default_access_controls = AccessControl.objects.filter(team=team, organization_member=None, role=None)
+        default_access_controls = collapse_cross_environment_rows(
+            rule_rows_for_team(team, organization_member=None, role=None)
+        )
 
         project_access_level: AccessControlLevel = default_access_level("project")
         saved_resource_levels: dict[str, str] = {}
@@ -310,7 +327,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
 
-        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
+        access_controls = collapse_cross_environment_rows(
+            rule_rows_for_team(team, Q(resource="project") | Q(resource_id=None))
+        )
 
         # Build lookup dicts from saved access controls
         project_default_level: AccessControlLevel = default_access_level("project")
@@ -408,7 +427,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
 
-        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
+        access_controls = collapse_cross_environment_rows(
+            rule_rows_for_team(team, Q(resource="project") | Q(resource_id=None))
+        )
 
         # Build lookup dicts from saved access controls
         project_default_level: AccessControlLevel = default_access_level("project")
@@ -598,10 +619,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         else:
             # Project-wide rules are the rows with no subject at all
             rule_filter = {"organization_member": None, "role": None}
-        rows = list(
-            AccessControl.objects.filter(team=team, resource_id__isnull=False, **rule_filter).exclude(
-                resource="project"
-            )
+        rows = collapse_cross_environment_rows(
+            rule_rows_for_team(team, ~Q(resource="project"), resource_id__isnull=False, **rule_filter)
         )
         if not rows:
             return Response({"results": []})
@@ -613,7 +632,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # rules lists show what is configured, while the picker search and the rule write are the
         # surfaces that hide inaccessible objects
         names_by_resource = {
-            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+            resource: _resolve_object_names(resource, ids, team) for resource, ids in ids_by_resource.items()
         }
 
         results = []
@@ -736,7 +755,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         search = request.query_params.get("search") or ""
         lookup = request.query_params.get("id") or ""
-        qs = display.model._default_manager.filter(team_id=team.id)
+        qs = display.model._default_manager.filter(_object_home_scope(team, resource))
         # Objects the requester cannot see are not theirs to find or configure. Org admins see
         # everything, matching how they can already configure access anywhere
         qs = user_access_control.filter_queryset_by_access_level(
@@ -778,7 +797,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             # A lookup id of the wrong shape for the model's pk matches nothing
             pks = []
         # One place builds display names, so the picker shows exactly what the rules list will
-        names = _resolve_object_names(resource, pks, team.id)
+        names = _resolve_object_names(resource, pks, team)
         results = [{"id": pk, "name": (resolved.name if (resolved := names.get(pk)) else None) or pk} for pk in pks]
         return Response({"results": results})
 
@@ -803,7 +822,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._default_manager.filter(team_id=team.id),
+            display.model._default_manager.filter(_object_home_scope(team, resource)),
             include_all_if_admin=True,
             resource=cast(APIScopeObject, resource),
         )
