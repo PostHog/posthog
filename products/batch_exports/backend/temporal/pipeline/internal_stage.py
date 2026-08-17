@@ -741,6 +741,8 @@ async def _kill_query_on_cancellation(client: ClickHouseClient, query_id: str) -
             await asyncio.wait_for(client.acancel_query(query_id), timeout=30)
         except asyncio.CancelledError:
             logger.warning("Cancelled again while cancelling query")
+        except TimeoutError:
+            logger.warning("Timed out cancelling query", timeout=30)
         except Exception:
             logger.warning("Failed to cancel query after cancellation", exc_info=True)
         raise
