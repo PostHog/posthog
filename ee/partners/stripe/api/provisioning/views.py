@@ -104,6 +104,21 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     permission_classes: list = []
     spec_envelope: ClassVar[Envelope] = "flat"
 
+    def check_throttles(self, request: Request) -> None:
+        """Reject in the view's spec envelope: DRF's default ``{"detail": ...}``
+        shape is not part of this namespace's wire contract and must not leak
+        out of it, whichever throttle refuses."""
+        for throttle in self.get_throttles():
+            if throttle.allow_request(request, self):
+                continue
+            wait = throttle.wait()
+            raise SpecError(
+                "rate_limited",
+                "Rate limit exceeded. Try again later.",
+                status=429,
+                retry_after=int(wait) if wait else None,
+            )
+
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, PreRenderedError):
             return exc.response
