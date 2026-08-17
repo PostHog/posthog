@@ -52,9 +52,7 @@ jobs:
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     local=$(cd common/hogql_parser && python setup.py --version)
                     # 200 = version already on PyPI, 404 = needs release.
-                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' \
-                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-                      "https://pypi.org/pypi/hogql-parser/$local/json")
+                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
                     if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
                       # Version was bumped — mark any reminder from an earlier push resolved.
