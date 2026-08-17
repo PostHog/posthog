@@ -1,4 +1,4 @@
-import { cloneLayoutItem, getAllCollisions, horizontalCompactor, verticalCompactor } from 'react-grid-layout'
+import { cloneLayoutItem, getAllCollisions, verticalCompactor } from 'react-grid-layout'
 import type { Compactor, Layout } from 'react-grid-layout'
 
 import type { DashboardGridCompaction, DashboardTileSpacing } from '~/types'
@@ -49,6 +49,45 @@ export const preservePositionsCompactor: Compactor = {
     },
 }
 
+export const makeRoomInRowCompactor: Compactor = {
+    type: 'horizontal',
+    allowOverlap: false,
+    compact: (layout: Layout, cols: number): Layout => {
+        const items = layout.map((item) => cloneLayoutItem(item))
+        const placedItems = items.filter((item) => item.static)
+        const movableItems = items.filter((item) => !item.static).sort((a, b) => a.y - b.y || a.x - b.x)
+
+        for (const item of movableItems) {
+            if (item.x + item.w > cols) {
+                const rowItems = placedItems.filter(
+                    (placedItem) => placedItem.y < item.y + item.h && placedItem.y + placedItem.h > item.y
+                )
+                item.x = 0
+                item.y = Math.max(item.y + 1, ...rowItems.map((rowItem) => rowItem.y + rowItem.h))
+            }
+
+            let collisions = getAllCollisions(placedItems, item)
+
+            while (collisions.length > 0) {
+                const nextX = Math.max(...collisions.map((collision) => collision.x + collision.w))
+
+                if (nextX + item.w <= cols) {
+                    item.x = nextX
+                } else {
+                    item.x = 0
+                    item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
+                }
+
+                collisions = getAllCollisions(placedItems, item)
+            }
+
+            placedItems.push(item)
+        }
+
+        return items
+    },
+}
+
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {
     return DASHBOARD_TILE_SPACING_GAPS[tileSpacing as DashboardTileSpacing] ?? DASHBOARD_TILE_SPACING_GAPS.standard
 }
@@ -56,7 +95,7 @@ export function getDashboardTileSpacingGap(tileSpacing?: string): number {
 export function getDashboardGridCompactor(layoutCompaction?: string): Compactor {
     switch (layoutCompaction) {
         case 'horizontal':
-            return horizontalCompactor
+            return makeRoomInRowCompactor
         case 'stable':
             return preservePositionsCompactor
         default:

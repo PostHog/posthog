@@ -29,7 +29,7 @@ const GRID_COMPACTION_OPTIONS: {
     {
         value: 'horizontal',
         label: DASHBOARD_GRID_COMPACTION_LABELS.horizontal,
-        description: 'Moves other tiles sideways so the tile fits in its row.',
+        description: 'Moves tiles to the right. If a tile does not fit, moves it below the row.',
     },
     {
         value: 'stable',
