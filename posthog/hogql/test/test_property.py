@@ -59,7 +59,7 @@ class TestProperty(BaseTest):
 
     def _property_to_expr(
         self,
-        property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
+        property: Union[PropertyGroup, Property, BehavioralPropertyFilter, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
         scope: Optional[
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
