@@ -50,6 +50,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     CompareFilter,
@@ -68,6 +69,7 @@ import {
     Breadcrumb,
     ChoiceQuestionProcessedResponses,
     ChoiceQuestionResponseData,
+    CohortType,
     ConsolidatedSurveyResults,
     CyclotronJobFiltersType,
     EventPropertyFilter,
@@ -138,6 +140,7 @@ import {
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
+    cohortHasBehavioralFilter,
     createAnswerFilterHogQLExpression,
     getExpressionCommentForQuestion,
     getResponseFieldWithId,
@@ -648,6 +651,7 @@ export interface surveyLogicValues {
     enabledFlags: FeatureFlagsSet // enabledFlagLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     propertyDefinitionsByType: (type: string, groupTypeIndex?: number | null) => PropertyDefinition[] // propertyDefinitionsModel
+    cohortsById: Partial<Record<string | number, CohortType>> // cohortsModel
     data: SurveyDataState // surveysLogic
     teamSdkVersions: TeamSdkVersions // surveysLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -750,6 +754,7 @@ export interface surveyLogicValues {
     surveyUsesLimit: boolean
     surveyValidationErrors: DeepPartialMap<NewSurvey | Survey, ValidationErrorType>
     surveyWarnings: SurveyFeatureWarning[]
+    targetingCohortLaunchError: string | null
     targetingFlagFilters: FeatureFlagFilters | undefined
     timestampFilter: string
     translationErrorsByQuestion: (questionIndex: number) => TranslationValidationError[]
@@ -1510,6 +1515,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['propertyDefinitionsByType'],
             maxGlobalLogic,
             ['dataProcessingAccepted'],
+            cohortsModel,
+            ['cohortsById'],
         ],
     })),
     actions({
@@ -3036,6 +3043,35 @@ export const surveyLogic = kea<surveyLogicType>([
                     (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0)
                 const hasOtherConditions = survey.conditions && Object.keys(survey.conditions).length > 0
                 return !!hasLinkedFlag || !!hasTargetingFlag || !!hasOtherConditions
+            },
+        ],
+        targetingCohortLaunchError: [
+            (s) => [s.survey, s.cohortsById, s.enabledFlags],
+            (
+                survey: Survey,
+                cohortsById: Partial<Record<string | number, CohortType>>,
+                enabledFlags: FeatureFlagsSet
+            ): string | null => {
+                // With realtime cohort flag targeting on, the save path accepts backfilled realtime
+                // behavioral cohorts. The client can't tell those apart, so leave that case to the
+                // save-time error and only warn when every behavioral cohort is rejected.
+                if (enabledFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING]) {
+                    return null
+                }
+                const groups = survey.targeting_flag_filters?.groups ?? []
+                for (const group of groups) {
+                    for (const property of group.properties ?? []) {
+                        if (property.type !== PropertyFilterType.Cohort) {
+                            continue
+                        }
+                        const cohort = cohortsById[property.value as string | number]
+                        if (cohortHasBehavioralFilter(cohort)) {
+                            const cohortName = cohort?.name ?? `#${property.value}`
+                            return `Targeting uses cohort "${cohortName}", which has an event-based condition that can't be used in surveys. Remove it from targeting to launch.`
+                        }
+                    }
+                }
+                return null
             },
         ],
         breadcrumbs: [

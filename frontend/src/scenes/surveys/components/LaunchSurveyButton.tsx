@@ -16,7 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
-    const { survey, surveyWarnings } = useValues(surveyLogic)
+    const { survey, surveyWarnings, targetingCohortLaunchError } = useValues(surveyLogic)
     const { launchSurvey } = useActions(surveyLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -35,6 +35,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 type="primary"
                 data-attr="launch-survey"
                 size="small"
+                disabledReason={targetingCohortLaunchError ?? undefined}
                 onClick={() => {
                     LemonDialog.open({
                         title: 'Launch this survey?',
