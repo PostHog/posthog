@@ -1956,6 +1956,15 @@ class TaskUsageResponseSerializer(serializers.Serializer):
     compute_cost_usd = serializers.FloatField(
         help_text="Estimated cloud compute cost attributed to this task in US dollars."
     )
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
     total_cost_usd = serializers.FloatField(
         help_text="Estimated combined model and cloud compute cost for this task in US dollars."
     )

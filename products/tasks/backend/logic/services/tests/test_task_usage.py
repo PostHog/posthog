@@ -86,3 +86,28 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert usage.compute_cost_usd == Decimal("0.20")
+
+    def test_eu_token_cost_uses_cross_region_source(self) -> None:
+        with (
+            self.settings(
+                CLOUD_DEPLOYMENT="EU",
+                PERSONAL_SPEND_CROSS_REGION_SECRET="secret",
+                DEBUG=False,
+            ),
+            patch.object(task_usage.requests, "post") as post,
+        ):
+            post.return_value.json.return_value = {"token_cost_usd": 1.25}
+            token_cost = task_usage._get_task_token_cost(
+                task_id=self.task.id,
+                task_created_at=self.task.created_at,
+            )
+
+        assert token_cost == Decimal("1.25")
+        assert post.call_args.args[0] == "https://us.posthog.com/api/code/internal/task_usage/"
+
+    def test_eu_token_cost_is_unavailable_without_cross_region_secret(self) -> None:
+        with (
+            self.settings(CLOUD_DEPLOYMENT="EU", PERSONAL_SPEND_CROSS_REGION_SECRET=""),
+            self.assertRaises(task_usage.TaskTokenUsageUnavailable),
+        ):
+            task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
