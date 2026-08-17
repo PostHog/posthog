@@ -324,6 +324,11 @@ describe('dashboardLogic', () => {
     })
 
     describe('inline tile insertion experiment', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
         it.each([
             ['control', false],
             ['test', true],
