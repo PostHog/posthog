@@ -281,9 +281,6 @@ export interface productToursLogicActions {
     createTour: (name: string) => {
         name: string
     }
-    setCreating: (creating: boolean) => {
-        creating: boolean
-    }
     deleteProductTour: (id: string) => string
     deleteProductTourFailure: (
         error: string,
@@ -328,6 +325,9 @@ export interface productToursLogicActions {
     ) => {
         productTours: ProductTour[]
         payload?: any
+    }
+    setCreating: (creating: boolean) => {
+        creating: boolean
     }
     setFilters: (filters: Partial<ProductToursFilters>) => {
         filters: Partial<ProductToursFilters>
