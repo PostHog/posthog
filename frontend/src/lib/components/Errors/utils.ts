@@ -266,6 +266,11 @@ export function formatFunctionName(
         .otherwise(() => functionName)
 }
 
+export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
+    const address = frame.junk_drawer?.raw_frame?.instruction_addr
+    return typeof address === 'string' && address.length > 0 ? address : null
+}
+
 export function formatResolvedName(
     frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
 ): string | null {

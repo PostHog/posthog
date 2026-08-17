@@ -14,8 +14,10 @@ import { cn } from 'lib/utils/css-classes'
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
-import { formatFunctionName } from '../utils'
+import { formatFunctionName, getInstructionAddress } from '../utils'
 import { FrameDropDownMenu } from './FrameDropDownMenu'
+
+const UNKNOWN_FRAME_LABEL = 'Unknown frame'
 
 export function CollapsibleFrameHeader({
     frame,
@@ -35,7 +37,12 @@ export function CollapsibleFrameHeader({
     const hasRecordContext = !!record && !!record.context
     const sourceRef = useRef<HTMLSpanElement>(null)
     const functionRef = useRef<HTMLSpanElement>(null)
-    const sourceContent = formatSourceLine(source, line, column)
+    const sourceLine = formatSourceLine(source, line, column)
+    const instructionAddress = getInstructionAddress(frame)
+    // Native frames can arrive with no name and no file. Falling back to the raw address, and then
+    // to a label, keeps the row identifiable instead of rendering as a blank strip.
+    const isUnsymbolicated = !functionName && !sourceLine
+    const sourceContent = sourceLine ?? instructionAddress ?? (functionName ? undefined : UNKNOWN_FRAME_LABEL)
 
     useEffect(() => {
         // If sourceRef is scrollable scroll to the end and add scrollable attribute
@@ -69,17 +76,29 @@ export function CollapsibleFrameHeader({
                         {functionName}
                     </span>
                 )}
-                <span ref={sourceRef} className="font-light frame-source px-1" title={sourceContent!}>
+                <span
+                    ref={sourceRef}
+                    className={cn('font-light frame-source px-1', {
+                        'italic text-muted-foreground': isUnsymbolicated,
+                    })}
+                    title={sourceContent!}
+                >
                     {sourceContent}
                 </span>
                 <div className="gap-x-1 frame-icons">
                     {part && <FingerprintRecordPartDisplay part={part} />}
-                    {match([in_app, resolved, recordLoading, hasRecordContext])
-                        .with([false, P.any, P.any, P.any], () => <VendorIcon />)
-                        .with([true, false, P.any, P.any], () => <UnresolvedIcon resolve_failure={resolve_failure} />)
-                        .with([true, true, true, false], () => <SpinnerIcon />)
-                        .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
-                        .otherwise(() => null)}
+                    {isUnsymbolicated ? (
+                        <UnsymbolicatedIcon in_app={in_app} resolve_failure={resolve_failure} />
+                    ) : (
+                        match([in_app, resolved, recordLoading, hasRecordContext])
+                            .with([false, P.any, P.any, P.any], () => <VendorIcon />)
+                            .with([true, false, P.any, P.any], () => (
+                                <UnresolvedIcon resolve_failure={resolve_failure} />
+                            ))
+                            .with([true, true, true, false], () => <SpinnerIcon />)
+                            .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
+                            .otherwise(() => null)
+                    )}
                 </div>
             </Collapsible.Trigger>
             <div className="border-l-1 border-l-[color:var(--frame-border,var(--color-border-primary))] shrink-0 w-7">
@@ -109,6 +128,33 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
             }
         >
             <IconWarning className="text-red-500" fontSize={15} />
+        </Tooltip>
+    )
+}
+
+function UnsymbolicatedIcon({
+    in_app,
+    resolve_failure,
+}: {
+    in_app: boolean
+    resolve_failure: string | null
+}): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <h5>{UNKNOWN_FRAME_LABEL}</h5>
+                    <p>The SDK sent only a memory address for this frame, with no function or file name.</p>
+                    <p>
+                        PostHog found no debug image covering that address, so it has nothing to match against your
+                        symbol sets.
+                    </p>
+                    {resolve_failure && <p className="text-xs text-muted-foreground">{resolve_failure}</p>}
+                </>
+            }
+        >
+            {/* An in-app frame we cannot name is a real gap in the user's own stack; a vendor one is routine. */}
+            <IconWarning className={in_app ? 'text-red-500' : 'text-muted-foreground'} fontSize={15} />
         </Tooltip>
     )
 }
