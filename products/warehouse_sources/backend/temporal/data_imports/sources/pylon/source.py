@@ -19,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
+    PYLON_EU_BASE_URL,
+    PYLON_US_BASE_URL,
     PylonResumeConfig,
     pylon_source,
     validate_credentials as validate_pylon_credentials,
@@ -67,13 +69,17 @@ You can create an API token from your Pylon dashboard under **Settings > API tok
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            # A bad/revoked token surfaces as an HTTPError from `raise_for_status()`; retrying can never
-            # fix a credential problem. Match the stable status text and base host, not the per-request
-            # path/query.
-            "401 Client Error: Unauthorized for url: https://api.usepylon.com": "Your Pylon API token is invalid or has been revoked. Create a new token in Settings > API tokens and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.usepylon.com": "Your Pylon API token is missing the permissions needed to sync this data. Recreate the token with the required access and reconnect.",
-        }
+        # A bad/revoked token surfaces as an HTTPError from `raise_for_status()`; retrying can never
+        # fix a credential problem. Match the stable status text and base host, not the per-request
+        # path/query. Cover both region hosts, since an EU-token sync raises against the EU host and
+        # the US substring wouldn't match it.
+        invalid = "Your Pylon API token is invalid or has been revoked. Create a new token in Settings > API tokens and reconnect."
+        forbidden = "Your Pylon API token is missing the permissions needed to sync this data. Recreate the token with the required access and reconnect."
+        errors: dict[str, str | None] = {}
+        for host in (PYLON_US_BASE_URL, PYLON_EU_BASE_URL):
+            errors[f"401 Client Error: Unauthorized for url: {host}"] = invalid
+            errors[f"403 Client Error: Forbidden for url: {host}"] = forbidden
+        return errors
 
     def get_schemas(
         self,

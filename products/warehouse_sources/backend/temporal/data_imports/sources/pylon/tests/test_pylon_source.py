@@ -80,6 +80,12 @@ class TestPylonNonRetryableErrors:
         assert any(k.startswith("401 Client Error") and "api.usepylon.com" in k for k in keys)
         assert any(k.startswith("403 Client Error") and "api.usepylon.com" in k for k in keys)
 
+    def test_covers_both_region_hosts(self) -> None:
+        # An EU-token sync raises `... for url: https://api.eu.usepylon.com`, which the US substring
+        # would not match, so both hosts must be present for the credential error to fail fast.
+        keys = list(PylonSource().get_non_retryable_errors().keys())
+        assert any("api.eu.usepylon.com" in k for k in keys)
+
 
 class TestPylonResumableManager:
     def test_returns_manager_bound_to_resume_config(self) -> None:

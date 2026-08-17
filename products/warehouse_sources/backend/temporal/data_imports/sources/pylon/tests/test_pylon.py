@@ -105,6 +105,45 @@ class TestValidateCredentials:
         called_url = session.get.call_args.args[0]
         assert called_url == "https://api.usepylon.com/me"
 
+    def test_validate_credentials_uses_eu_host_for_eu_token(self) -> None:
+        # An EU-region token ("pylon_api_eu_...") only authenticates against Pylon's EU API host;
+        # validating it against the US host is what surfaced "Invalid Pylon API token" for EU workspaces.
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=200)
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: session)
+            pylon.validate_credentials("pylon_api_eu_secret")
+        called_url = session.get.call_args.args[0]
+        assert called_url == "https://api.eu.usepylon.com/me"
+
+
+class TestBaseUrlForToken:
+    @parameterized.expand(
+        [
+            ("us_default", "pylon_api_abc123", "https://api.usepylon.com"),
+            ("eu_prefixed", "pylon_api_eu_abc123", "https://api.eu.usepylon.com"),
+        ]
+    )
+    def test_base_url_for_token(self, _name: str, api_token: str, expected: str) -> None:
+        assert pylon._base_url_for_token(api_token) == expected
+
+    def test_get_rows_requests_eu_host_for_eu_token(self) -> None:
+        fetch = MagicMock(side_effect=[_page([{"id": "1"}])])
+        manager = _no_resume_manager()
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
+            mp.setattr(pylon, "_fetch_page", fetch)
+            list(
+                get_rows(
+                    api_token="pylon_api_eu_secret",
+                    endpoint="teams",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        called_url = fetch.call_args.args[1]
+        assert called_url.startswith("https://api.eu.usepylon.com/")
+
 
 class TestSimpleEndpointPagination:
     def test_follows_cursor_until_exhausted(self) -> None:
