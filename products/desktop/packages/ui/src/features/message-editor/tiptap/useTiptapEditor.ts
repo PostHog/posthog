@@ -28,7 +28,8 @@ import type { PromptRecallHandler } from "@posthog/ui/features/sessions/componen
 import { sessionStoreSetters } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore as useFeatureSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
-import { type ToastOptions, toast } from "@posthog/ui/primitives/toast";
+import { hintToast } from "@posthog/ui/primitives/hintToast";
+import { toast } from "@posthog/ui/primitives/toast";
 import { isSendMessageSubmitKey } from "@posthog/ui/utils/sendMessageKey";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
@@ -214,19 +215,8 @@ function hasVisibleSuggestionPopup(sessionId: string): boolean {
   );
 }
 
-function showHintOnce(
-  key: string,
-  title: string,
-  detail: string | ToastOptions,
-): void {
-  const store = useFeatureSettingsStore.getState();
-  if (!store.shouldShowHint(key)) return;
-  store.recordHintShown(key);
-  toast.info(title, detail);
-}
-
 function showMessageNavHint(): void {
-  showHintOnce(
+  hintToast(
     TIP_KEYS.recallMessageNav,
     "Recalled a sent prompt",
     `Use ${formatHotkey(SHORTCUTS.MESSAGE_PREV)} and ${formatHotkey(SHORTCUTS.MESSAGE_NEXT)} to jump between your messages in the conversation.`,
@@ -238,13 +228,7 @@ function showPasteHint(message: string, description: string): void {
     message === "Pasted as file attachment"
       ? TIP_KEYS.pasteAsFile
       : TIP_KEYS.pasteInline;
-  showHintOnce(key, message, {
-    description,
-    action: {
-      label: "Got it",
-      onClick: () => useFeatureSettingsStore.getState().markHintLearned(key),
-    },
-  });
+  hintToast(key, message, description);
 }
 
 export function useTiptapEditor(options: UseTiptapEditorOptions) {

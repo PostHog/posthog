@@ -17,6 +17,8 @@ export const TIP_KEYS = {
   pasteAsFile: "paste-as-file",
   /** Arrow keys walk back through your sent messages. */
   recallMessageNav: "recall-message-nav",
+  /** A steered message waits for the run to reach a safe boundary. */
+  steerSafeBoundary: "steer-safe-boundary",
 } as const;
 
 export type TipKey = (typeof TIP_KEYS)[keyof typeof TIP_KEYS];

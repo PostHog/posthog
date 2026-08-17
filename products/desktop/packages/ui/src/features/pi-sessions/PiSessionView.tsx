@@ -43,8 +43,10 @@ import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { hintToast } from "@posthog/ui/primitives/hintToast";
 import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
@@ -331,10 +333,12 @@ function usePiSubmit(
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
         .then((result) => {
           if (result === "steer") {
-            toast.info("Steering waits for a safe boundary", {
-              description:
-                "Pi will apply it at the next safe boundary. The run stays active until then.",
-            });
+            hintToast(
+              TIP_KEYS.steerSafeBoundary,
+              "Steering waits for a safe boundary",
+              "Pi will apply it at the next safe boundary. The run stays active until then.",
+              1,
+            );
           }
           onSuccess(action);
         })
