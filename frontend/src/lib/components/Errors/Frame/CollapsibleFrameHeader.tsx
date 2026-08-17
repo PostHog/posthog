@@ -150,11 +150,8 @@ function UnsymbolicatedIcon({
                     <h5>{UNKNOWN_FRAME_LABEL}</h5>
                     {instructionAddress ? (
                         <>
-                            <p>The SDK sent only a memory address for this frame, with no function or file name.</p>
-                            <p>
-                                PostHog found no debug image covering that address, so it has nothing to match against
-                                your symbol sets.
-                            </p>
+                            <p>The SDK sent only a memory address for this frame.</p>
+                            <p>PostHog couldn't resolve that address to a function or file name.</p>
                         </>
                     ) : (
                         <p>

@@ -268,7 +268,12 @@ export function formatFunctionName(
 
 export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
     const address = frame.junk_drawer?.raw_frame?.instruction_addr
-    return typeof address === 'string' && address.length > 0 ? address : null
+    if (typeof address !== 'string') {
+        return null
+    }
+    // SDKs can send a padded or blank address, which would render as an empty frame row
+    const trimmed = address.trim()
+    return trimmed.length > 0 ? trimmed : null
 }
 
 export function formatResolvedName(

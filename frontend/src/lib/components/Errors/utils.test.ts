@@ -242,6 +242,8 @@ describe('Error Display', () => {
         ['a raw frame with no address', { raw_frame: { colno: 12 } }, null],
         ['a null address', { raw_frame: { instruction_addr: null } }, null],
         ['a non-string address', { raw_frame: { instruction_addr: 4311089892 } }, null],
+        ['a whitespace-only address', { raw_frame: { instruction_addr: '   ' } }, null],
+        ['a padded address', { raw_frame: { instruction_addr: '  0x00000001010444e4 ' } }, '0x00000001010444e4'],
     ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
         expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
     })
