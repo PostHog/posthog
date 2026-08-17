@@ -38,6 +38,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { canAccessBilling, canOnlyViewBillingUsage } = useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
@@ -57,6 +58,17 @@ export function BillingSection(): JSX.Element {
             router.actions.replace(urls.organizationBillingSection('overview'))
         }
     }, [alertsRequested, billingAlertsEnabled, receivedFeatureFlags])
+
+    // View-only members have no access to the Overview tab, so send them to Usage instead.
+    // canOnlyViewBillingUsage is only true once org membership and flags are loaded, so admins never bounce.
+    useEffect(() => {
+        if (section === 'overview' && canOnlyViewBillingUsage) {
+            router.actions.replace(urls.organizationBillingSection('usage'))
+        }
+    }, [section, canOnlyViewBillingUsage])
+
+    // Overview and Alerts are admin surfaces; only Usage and Spend are readable by view-only members.
+    const visibleTabs = tabs.filter((tab) => (tab.key === 'usage' || tab.key === 'spend' ? true : canAccessBilling))
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -87,7 +99,7 @@ export function BillingSection(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
+            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={visibleTabs} />
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
