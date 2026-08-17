@@ -334,7 +334,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 class _BaselineOverviewRaw:
     """Internal raw shape — the facade layer reshapes this into the public DTOs.
 
-    Kept private to logic.py so that contract changes don't ripple through here.
+    Kept private to this package so that contract changes don't ripple through here.
     """
 
     entries: list[RunSnapshot]
