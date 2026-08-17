@@ -5,6 +5,11 @@ import {
   type ChannelSessionFacts,
 } from "@posthog/core/canvas/channelItems";
 import type { WorkspaceMode } from "@posthog/shared";
+import {
+  INBOX_DISMISSED_STATUS_FILTER,
+  INBOX_PIPELINE_STATUS_FILTER,
+  INBOX_REFETCH_INTERVAL_MS,
+} from "@posthog/core/inbox/reportFiltering";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -18,6 +23,8 @@ import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { DEFAULT_REPORT_SPACE_NAME } from "@posthog/ui/features/canvas/hooks/useReportSpace";
+import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
@@ -51,10 +58,27 @@ export function useChannelItems(channelId: string): {
   const channel = channels.find((c) => c.id === channelId);
   const identityKnown = channel !== undefined;
   const isPersonal = channel?.channelType === "personal";
+  const isReportSpace =
+    channel?.channelType === "public" &&
+    channel.name === DEFAULT_REPORT_SPACE_NAME;
 
   const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
   const { tasks: feedTasks, isLoading: feedLoading } =
     useChannelFeed(channelId);
+  const activeReports = useInboxReportsInfinite(
+    { status: INBOX_PIPELINE_STATUS_FILTER, ordering: "-updated_at" },
+    {
+      enabled: isReportSpace,
+      refetchInterval: INBOX_REFETCH_INTERVAL_MS,
+    },
+  );
+  const archivedReports = useInboxReportsInfinite(
+    { status: INBOX_DISMISSED_STATUS_FILTER, ordering: "-updated_at" },
+    {
+      enabled: isReportSpace,
+      refetchInterval: INBOX_REFETCH_INTERVAL_MS,
+    },
+  );
   const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
     useChannelTasks(channelId);
   const { data: allTasks = [], isLoading: allTasksLoading } = useTasks({
@@ -118,6 +142,9 @@ export function useChannelItems(channelId: string): {
     return buildChannelItems({
       dashboards,
       feedTasks: mergedTasks,
+      reports: isReportSpace
+        ? [...activeReports.allReports, ...archivedReports.allReports]
+        : [],
       archivedTaskIds,
       pinnedTaskIds,
       // The personal channel is yours — but don't filter until we know
@@ -134,6 +161,9 @@ export function useChannelItems(channelId: string): {
     allTasks,
     archivedTaskIds,
     pinnedTaskIds,
+    activeReports.allReports,
+    archivedReports.allReports,
+    isReportSpace,
     isPersonal,
     viewerKnown,
     me,
@@ -147,6 +177,11 @@ export function useChannelItems(channelId: string): {
             to: "/website/$channelId/dashboards/$dashboardId",
             params: { channelId, dashboardId: item.id },
           });
+        } else if (item.kind === "report") {
+          void navigate({
+            to: "/website/$channelId/reports/$reportId",
+            params: { channelId, reportId: item.id },
+          });
         } else {
           void navigate({
             to: "/website/$channelId/tasks/$taskId",
@@ -155,6 +190,7 @@ export function useChannelItems(channelId: string): {
         }
       },
       togglePin: (item) => {
+        if (item.kind === "report") return;
         const pin =
           item.kind === "canvas"
             ? setCanvasPinned(item.id, !item.pinned)
@@ -164,6 +200,7 @@ export function useChannelItems(channelId: string): {
         });
       },
       archive: (item) => {
+        if (item.kind !== "task") return;
         void archiveTask({ taskId: item.id });
       },
       // Canvases only, and through the shared undo window: the row disappears at
@@ -204,6 +241,8 @@ export function useChannelItems(channelId: string): {
         !identityKnown ||
         dashboardsLoading ||
         feedLoading ||
+        (isReportSpace &&
+          (activeReports.isLoading || archivedReports.isLoading)) ||
         filedTasksLoading ||
         allTasksLoading ||
         (isPersonal && viewerLoading)),

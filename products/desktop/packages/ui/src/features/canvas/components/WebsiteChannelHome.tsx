@@ -27,7 +27,10 @@ import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
+import {
+  DEFAULT_REPORT_SPACE_NAME,
+  useReportSpace,
+} from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { ReportSessions } from "@posthog/ui/features/canvas/reports/ReportSessionsList";
 import { useChannelIntroStore } from "@posthog/ui/features/canvas/stores/channelIntroStore";
@@ -61,7 +64,10 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const channel = channels.find((c) => c.id === channelId);
   const channelName = channel?.name;
   const { reportSpaceId } = useReportSpace();
-  const isReportSpace = channelId === reportSpaceId;
+  const isReportSpace =
+    channelId === reportSpaceId ||
+    (channel?.channel_type === "public" &&
+      channelName === DEFAULT_REPORT_SPACE_NAME);
   const { fileTask } = useChannelTaskMutations();
 
   // Poll while empty so the intro's context.md card flips to "created" when

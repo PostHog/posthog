@@ -354,6 +354,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const activeKey = useMemo(() => {
     const dashboard = pathname.match(/\/dashboards\/([^/]+)$/);
     if (dashboard) return `canvas:${dashboard[1]}`;
+    const report = pathname.match(/\/reports\/([^/]+)$/);
+    if (report) return `report:${report[1]}`;
     const task = pathname.match(/\/tasks\/([^/]+)$/);
     return task ? `task:${task[1]}` : null;
   }, [pathname]);

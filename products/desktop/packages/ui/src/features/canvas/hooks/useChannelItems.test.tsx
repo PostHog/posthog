@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   allTasks: { data: [] as unknown[], isLoading: false },
   currentUser: undefined as { uuid: string; first_name?: string } | undefined,
   currentUserLoading: false,
+  activeReports: { allReports: [] as unknown[], isLoading: false },
+  archivedReports: { allReports: [] as unknown[], isLoading: false },
   useTasks: vi.fn(),
   // Stable identities, mirroring the real hooks — a fresh function per render
   // would hide the very memoization this file asserts.
@@ -29,6 +31,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => mocks.channels,
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
+  useInboxReportsInfinite: (params: { status: string }) =>
+    params.status.includes("suppressed")
+      ? mocks.archivedReports
+      : mocks.activeReports,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboards: () => mocks.dashboards,
@@ -122,6 +130,8 @@ describe("useChannelItems", () => {
     mocks.allTasks = { data: [], isLoading: false };
     mocks.currentUser = undefined;
     mocks.currentUserLoading = false;
+    mocks.activeReports = { allReports: [], isLoading: false };
+    mocks.archivedReports = { allReports: [], isLoading: false };
   });
 
   it("reports loading and no items until the channel's identity is known", () => {
@@ -236,5 +246,38 @@ describe("useChannelItems", () => {
     mocks.feed = { tasks: [filedTask], isLoading: false };
     rerender();
     expect(result.current.items.map((item) => item.id)).toEqual(["task-1"]);
+  });
+
+  it("includes reports only in the default report space", () => {
+    mocks.channels = {
+      channels: [channel({ name: "general" })],
+      isLoading: false,
+    };
+    mocks.activeReports = {
+      allReports: [
+        {
+          id: "report-1",
+          title: "Signup friction",
+          status: "ready",
+          updated_at: "2026-08-01T00:00:00Z",
+        },
+      ],
+      isLoading: false,
+    };
+
+    const { result, rerender } = renderHook(() => useChannelItems("c1"));
+
+    expect(result.current.items.map((item) => item.key)).toEqual([
+      "report:report-1",
+    ]);
+    result.current.actions.open(result.current.items[0]);
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/website/$channelId/reports/$reportId",
+      params: { channelId: "c1", reportId: "report-1" },
+    });
+
+    mocks.channels = { channels: [channel({ name: "eng" })], isLoading: false };
+    rerender();
+    expect(result.current.items).toEqual([]);
   });
 });
