@@ -574,6 +574,11 @@ await annotate.mouse.click(200, 180);
 await annotate.waitForSelector(".an-text-input", { timeout: 5_000 });
 await annotate.keyboard.type("LGTM");
 await annotate.keyboard.press("Enter");
+// The editor commits into a shape; a lost focus race would leave it open.
+await annotate.waitForSelector(".an-text-input", {
+  state: "detached",
+  timeout: 5_000,
+});
 
 await annotate.click('[aria-label="Pixelate (X)"]');
 await annotate.mouse.move(250, 210);
@@ -590,6 +595,27 @@ if (!redoEnabled) {
   fail("undo did not enable redo");
 }
 await annotate.click('[aria-label="Redo (⇧⌘Z)"]');
+
+// Counter drops numbered badges; the select tool moves and deletes objects.
+await annotate.click('[aria-label="Counter (N)"]');
+await annotate.mouse.click(180, 320);
+await annotate.mouse.click(220, 320);
+await annotate.click('[aria-label="Select (V)"]');
+await annotate.mouse.click(220, 320);
+await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
+  timeout: 5_000,
+});
+await annotate.mouse.move(220, 320);
+await annotate.mouse.down();
+await annotate.mouse.move(262, 332, { steps: 4 });
+await annotate.mouse.up();
+await annotate.click('[aria-label="Ink #3b82f6"]');
+await annotate.click('[aria-label="Delete (⌫)"]');
+await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
+  state: "detached",
+  timeout: 5_000,
+});
+pass("counter badges place; select tool moves, recolors, and deletes");
 
 await annotate.click(".an-attach");
 await annotate.waitForFunction("typeof window.__annotated === 'string'", {

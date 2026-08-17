@@ -1,6 +1,27 @@
 import type React from "react";
 
 const PATHS: Record<string, React.JSX.Element> = {
+  select: <path d="M4 2.5l8 7-3.6.7 2 3.6-2 1-2-3.7-2.4 2.6z" />,
+  counter: (
+    <>
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M6.8 6.2L8.3 5.2v5.6" />
+    </>
+  ),
+  "text-bg": (
+    <>
+      <rect x="2" y="2.5" width="12" height="11" rx="2.5" />
+      <path d="M5.5 6V5h5v1M8 5v6M6.8 11h2.4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 4.5h10" />
+      <path d="M6.5 4.5V3h3v1.5" />
+      <path d="M4.5 4.5l.7 8a1 1 0 0 0 1 .9h3.6a1 1 0 0 0 1-.9l.7-8" />
+      <path d="M6.7 7v4M9.3 7v4" />
+    </>
+  ),
   arrow: (
     <>
       <path d="M3.5 12.5L12 4" />

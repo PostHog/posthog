@@ -10,19 +10,32 @@ export interface Rect {
   h: number;
 }
 
-export type Tool = "arrow" | "rect" | "ellipse" | "pen" | "text" | "pixelate";
+export type Tool =
+  | "select"
+  | "arrow"
+  | "rect"
+  | "ellipse"
+  | "pen"
+  | "text"
+  | "counter"
+  | "pixelate";
 
 export type Shape =
   | { kind: "rect"; rect: Rect; color: string }
   | { kind: "ellipse"; rect: Rect; color: string }
   | { kind: "arrow"; from: Point; to: Point; color: string }
   | { kind: "pen"; points: Point[]; color: string }
-  | { kind: "text"; at: Point; text: string; color: string }
+  | { kind: "text"; at: Point; text: string; color: string; bg: boolean }
+  | { kind: "counter"; at: Point; n: number; color: string }
   | { kind: "pixelate"; rect: Rect };
 
 export const LINE_WIDTH = 3;
 export const TEXT_SIZE = 17;
 export const TEXT_FONT = `600 ${TEXT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+export const COUNTER_RADIUS = 14;
+const TEXT_LINE_HEIGHT = TEXT_SIZE * 1.25;
+const TEXT_BG_PAD_X = 8;
+const TEXT_BG_PAD_Y = 5;
 /** View pixels per pixelation block. */
 const PIXEL_BLOCK = 12;
 
@@ -33,6 +46,131 @@ export function normalizeRect(a: Point, b: Point): Rect {
     w: Math.abs(a.x - b.x),
     h: Math.abs(a.y - b.y),
   };
+}
+
+/** Ink readable on top of the given ink color: dark on light, white on dark. */
+export function contrastInk(color: string): string {
+  const hex = color.replace("#", "");
+  if (hex.length !== 6) return "#ffffff";
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#1c1d22" : "#ffffff";
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null;
+
+function measureText(text: string): { w: number; h: number } {
+  if (!measureCtx) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+  }
+  if (!measureCtx) return { w: 0, h: 0 };
+  measureCtx.font = TEXT_FONT;
+  const lines = text.split("\n");
+  const w = Math.max(
+    ...lines.map((line) => measureCtx?.measureText(line).width ?? 0),
+  );
+  return { w, h: lines.length * TEXT_LINE_HEIGHT };
+}
+
+export function shapeBBox(shape: Shape): Rect {
+  switch (shape.kind) {
+    case "rect":
+    case "ellipse":
+    case "pixelate":
+      return shape.rect;
+    case "arrow":
+      return normalizeRect(shape.from, shape.to);
+    case "pen": {
+      const xs = shape.points.map((p) => p.x);
+      const ys = shape.points.map((p) => p.y);
+      return normalizeRect(
+        { x: Math.min(...xs), y: Math.min(...ys) },
+        { x: Math.max(...xs), y: Math.max(...ys) },
+      );
+    }
+    case "text": {
+      const size = measureText(shape.text);
+      return shape.bg
+        ? {
+            x: shape.at.x - TEXT_BG_PAD_X,
+            y: shape.at.y - TEXT_BG_PAD_Y,
+            w: size.w + TEXT_BG_PAD_X * 2,
+            h: size.h + TEXT_BG_PAD_Y * 2,
+          }
+        : { x: shape.at.x, y: shape.at.y, w: size.w, h: size.h };
+    }
+    case "counter":
+      return {
+        x: shape.at.x - COUNTER_RADIUS,
+        y: shape.at.y - COUNTER_RADIUS,
+        w: COUNTER_RADIUS * 2,
+        h: COUNTER_RADIUS * 2,
+      };
+  }
+}
+
+function segmentDistance(p: Point, a: Point, b: Point): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lengthSq = abx * abx + aby * aby;
+  const t = lengthSq
+    ? Math.min(
+        Math.max(((p.x - a.x) * abx + (p.y - a.y) * aby) / lengthSq, 0),
+        1,
+      )
+    : 0;
+  return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
+}
+
+const HIT_SLACK = 6;
+
+export function hitShape(shape: Shape, point: Point): boolean {
+  switch (shape.kind) {
+    case "arrow":
+      return segmentDistance(point, shape.from, shape.to) <= HIT_SLACK;
+    case "pen":
+      return shape.points.some(
+        (at, index) =>
+          index > 0 &&
+          segmentDistance(point, shape.points[index - 1], at) <= HIT_SLACK,
+      );
+    default: {
+      const box = shapeBBox(shape);
+      return (
+        point.x >= box.x - HIT_SLACK &&
+        point.x <= box.x + box.w + HIT_SLACK &&
+        point.y >= box.y - HIT_SLACK &&
+        point.y <= box.y + box.h + HIT_SLACK
+      );
+    }
+  }
+}
+
+export function translateShape(shape: Shape, dx: number, dy: number): Shape {
+  switch (shape.kind) {
+    case "rect":
+    case "ellipse":
+    case "pixelate":
+      return {
+        ...shape,
+        rect: { ...shape.rect, x: shape.rect.x + dx, y: shape.rect.y + dy },
+      };
+    case "arrow":
+      return {
+        ...shape,
+        from: { x: shape.from.x + dx, y: shape.from.y + dy },
+        to: { x: shape.to.x + dx, y: shape.to.y + dy },
+      };
+    case "pen":
+      return {
+        ...shape,
+        points: shape.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      };
+    case "text":
+    case "counter":
+      return { ...shape, at: { x: shape.at.x + dx, y: shape.at.y + dy } };
+  }
 }
 
 /** How shapes sample the underlying shot (for pixelate). */
@@ -111,12 +249,42 @@ export function drawShape(
     case "text": {
       ctx.font = TEXT_FONT;
       ctx.textBaseline = "top";
-      ctx.fillStyle = shape.color;
+      ctx.textAlign = "left";
+      if (shape.bg) {
+        const box = shapeBBox(shape);
+        ctx.fillStyle = shape.color;
+        ctx.beginPath();
+        ctx.roundRect(box.x, box.y, box.w, box.h, 7);
+        ctx.fill();
+        ctx.fillStyle = contrastInk(shape.color);
+      } else {
+        ctx.save();
+        ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+        ctx.shadowBlur = 3;
+        ctx.fillStyle = shape.color;
+      }
       let y = shape.at.y;
       for (const line of shape.text.split("\n")) {
         ctx.fillText(line, shape.at.x, y);
-        y += TEXT_SIZE * 1.25;
+        y += TEXT_LINE_HEIGHT;
       }
+      if (!shape.bg) ctx.restore();
+      return;
+    }
+    case "counter": {
+      ctx.beginPath();
+      ctx.arc(shape.at.x, shape.at.y, COUNTER_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = shape.color;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.font = `700 ${shape.n > 99 ? 11 : 13}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = contrastInk(shape.color);
+      ctx.fillText(String(shape.n), shape.at.x, shape.at.y + 0.5);
+      ctx.textAlign = "left";
       return;
     }
     case "pixelate": {

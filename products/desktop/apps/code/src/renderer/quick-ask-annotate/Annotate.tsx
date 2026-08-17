@@ -8,13 +8,16 @@ import {
 } from "react";
 import {
   drawShape,
+  hitShape,
   LINE_WIDTH,
   normalizeRect,
   type Point,
   type Rect,
   type Shape,
+  shapeBBox,
   TEXT_FONT,
   type Tool,
+  translateShape,
 } from "./shapes";
 import { ToolIcon } from "./ToolIcon";
 
@@ -28,11 +31,13 @@ const HANDLE_HIT_PX = 12;
 const COLORS = ["#ff4d1f", "#ffb224", "#3b82f6", "#ffffff"];
 
 const TOOLS: { tool: Tool; label: string; key: string }[] = [
+  { tool: "select", label: "Select", key: "V" },
   { tool: "arrow", label: "Arrow", key: "A" },
   { tool: "rect", label: "Box", key: "R" },
   { tool: "ellipse", label: "Ellipse", key: "O" },
   { tool: "pen", label: "Draw", key: "P" },
   { tool: "text", label: "Text", key: "T" },
+  { tool: "counter", label: "Counter", key: "N" },
   { tool: "pixelate", label: "Pixelate", key: "X" },
 ];
 
@@ -118,19 +123,34 @@ function inside(rect: Rect, point: Point): boolean {
   );
 }
 
+/** Shapes with snapshot history, so delete/move/recolor undo cleanly. */
+interface Doc {
+  past: Shape[][];
+  shapes: Shape[];
+  future: Shape[][];
+}
+
 type Drag =
   | { mode: "select"; from: Point }
   | { mode: "draw"; from: Point }
   | { mode: "move"; from: Point; orig: Rect }
-  | { mode: "resize"; handle: Handle };
+  | { mode: "resize"; handle: Handle }
+  | {
+      mode: "move-shape";
+      from: Point;
+      index: number;
+      orig: Shape[];
+      moved: boolean;
+    };
 
 export function Annotate(): React.JSX.Element {
   const [shot, setShot] = useState<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState<Rect | null>(null);
   const [tool, setTool] = useState<Tool>("arrow");
   const [color, setColor] = useState(COLORS[0]);
-  const [shapes, setShapes] = useState<Shape[]>([]);
-  const [redoStack, setRedoStack] = useState<Shape[]>([]);
+  const [doc, setDoc] = useState<Doc>({ past: [], shapes: [], future: [] });
+  const [selected, setSelected] = useState<number | null>(null);
+  const [textBg, setTextBg] = useState(false);
   const [draft, setDraft] = useState<Shape | null>(null);
   const [textDraft, setTextDraft] = useState<Point | null>(null);
   const [cursor, setCursor] = useState("crosshair");
@@ -140,6 +160,15 @@ export function Annotate(): React.JSX.Element {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const drag = useRef<Drag | null>(null);
+
+  const { shapes } = doc;
+
+  // Focus the text editor once it mounts; autoFocus races the mousedown.
+  useEffect(() => {
+    if (textDraft) {
+      requestAnimationFrame(() => textRef.current?.focus());
+    }
+  }, [textDraft]);
 
   useEffect(() => {
     void window.quickAskAnnotate.shot().then((dataUrl) => {
@@ -156,10 +185,27 @@ export function Annotate(): React.JSX.Element {
   const scaleX = shot ? shot.naturalWidth / window.innerWidth : 1;
   const scaleY = shot ? shot.naturalHeight / window.innerHeight : 1;
 
-  const pushShape = useCallback((shape: Shape): void => {
-    setShapes((current) => [...current, shape]);
-    setRedoStack([]);
+  const commit = useCallback((updater: (shapes: Shape[]) => Shape[]): void => {
+    setDoc((current) => ({
+      past: [...current.past, current.shapes],
+      shapes: updater(current.shapes),
+      future: [],
+    }));
   }, []);
+
+  const pushShape = useCallback(
+    (shape: Shape): void => {
+      commit((current) => [...current, shape]);
+      setSelected(shapes.length);
+    },
+    [commit, shapes.length],
+  );
+
+  const deleteSelected = useCallback((): void => {
+    if (selected === null) return;
+    commit((current) => current.filter((_, index) => index !== selected));
+    setSelected(null);
+  }, [selected, commit]);
 
   const commitText = useCallback(
     (keep: boolean): void => {
@@ -167,27 +213,74 @@ export function Annotate(): React.JSX.Element {
       const value = textRef.current?.value ?? "";
       setTextDraft(null);
       if (keep && at && value.trim()) {
-        pushShape({ kind: "text", at, text: value.trimEnd(), color });
+        pushShape({
+          kind: "text",
+          at,
+          text: value.trimEnd(),
+          color,
+          bg: textBg,
+        });
       }
     },
-    [textDraft, color, pushShape],
+    [textDraft, color, textBg, pushShape],
   );
 
   const undo = useCallback((): void => {
-    setShapes((current) => {
-      const last = current.at(-1);
-      if (last) setRedoStack((stack) => [...stack, last]);
-      return current.slice(0, -1);
+    setSelected(null);
+    setDoc((current) => {
+      const previous = current.past.at(-1);
+      if (!previous) return current;
+      return {
+        past: current.past.slice(0, -1),
+        shapes: previous,
+        future: [...current.future, current.shapes],
+      };
     });
   }, []);
 
   const redo = useCallback((): void => {
-    setRedoStack((stack) => {
-      const last = stack.at(-1);
-      if (last) setShapes((current) => [...current, last]);
-      return stack.slice(0, -1);
+    setSelected(null);
+    setDoc((current) => {
+      const next = current.future.at(-1);
+      if (!next) return current;
+      return {
+        past: [...current.past, current.shapes],
+        shapes: next,
+        future: current.future.slice(0, -1),
+      };
     });
   }, []);
+
+  // Swatches recolor the selection when there is one; either way they set
+  // the ink for what comes next.
+  const pickColor = useCallback(
+    (value: string): void => {
+      setColor(value);
+      if (selected !== null && shapes[selected]?.kind !== "pixelate") {
+        commit((current) =>
+          current.map((shape, index) =>
+            index === selected && shape.kind !== "pixelate"
+              ? { ...shape, color: value }
+              : shape,
+          ),
+        );
+      }
+    },
+    [selected, shapes, commit],
+  );
+
+  const toggleTextBg = useCallback((): void => {
+    setTextBg((current) => !current);
+    if (selected !== null && shapes[selected]?.kind === "text") {
+      commit((current) =>
+        current.map((shape, index) =>
+          index === selected && shape.kind === "text"
+            ? { ...shape, bg: !shape.bg }
+            : shape,
+        ),
+      );
+    }
+  }, [selected, shapes, commit]);
 
   const finish = useCallback((): void => {
     if (!shot) return;
@@ -228,12 +321,14 @@ export function Annotate(): React.JSX.Element {
     window.quickAskAnnotate.done(canvas.toDataURL("image/png"));
   }, [shot, crop, shapes, scaleX, scaleY, textDraft, commitText]);
 
-  // Keyboard: tools, undo/redo, nudge and resize the selection, finish.
+  // Keyboard: tools, undo/redo, delete, nudge and resize, finish.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         if (textDraft) {
           commitText(false);
+        } else if (selected !== null) {
+          setSelected(null);
         } else {
           window.quickAskAnnotate.cancel();
         }
@@ -249,6 +344,14 @@ export function Annotate(): React.JSX.Element {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
+        return;
+      }
+      if (
+        (event.key === "Backspace" || event.key === "Delete") &&
+        selected !== null
+      ) {
+        event.preventDefault();
+        deleteSelected();
         return;
       }
       if (event.key === " ") {
@@ -303,7 +406,16 @@ export function Annotate(): React.JSX.Element {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [crop, textDraft, commitText, finish, undo, redo]);
+  }, [
+    crop,
+    textDraft,
+    selected,
+    commitText,
+    finish,
+    undo,
+    redo,
+    deleteSelected,
+  ]);
 
   // One overlay canvas repaints the dim, the selection frame, and the ink.
   useEffect(() => {
@@ -331,6 +443,15 @@ export function Annotate(): React.JSX.Element {
     if (crop && draft) {
       drawShape(ctx, draft, env);
     }
+    const active = selected !== null ? shapes[selected] : null;
+    if (active) {
+      const box = shapeBBox(active);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(box.x - 5, box.y - 5, box.w + 10, box.h + 10);
+      ctx.setLineDash([]);
+    }
     if (hole) {
       // Hairline light frame with a soft halo, readable on any content.
       ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
@@ -352,7 +473,7 @@ export function Annotate(): React.JSX.Element {
         ctx.stroke();
       }
     }
-  }, [shot, crop, shapes, draft, scaleX, scaleY]);
+  }, [shot, crop, shapes, draft, selected, scaleX, scaleY]);
 
   // Keep the toolbar inside the viewport: centered under the selection,
   // flipped above it when there is no room below.
@@ -368,12 +489,22 @@ export function Annotate(): React.JSX.Element {
     );
     const above = crop.y + crop.h + height + 26 > window.innerHeight;
     setToolbarShift({ dx: left - centered, above });
-  }, [crop]);
+  }, [crop, tool, selected]);
 
   const pointOf = (event: React.MouseEvent): Point => ({
     x: event.clientX,
     y: event.clientY,
   });
+
+  const topShapeAt = useCallback(
+    (point: Point): number | null => {
+      for (let index = shapes.length - 1; index >= 0; index--) {
+        if (hitShape(shapes[index], point)) return index;
+      }
+      return null;
+    },
+    [shapes],
+  );
 
   const onMouseDown = useCallback(
     (event: React.MouseEvent): void => {
@@ -397,8 +528,35 @@ export function Annotate(): React.JSX.Element {
         drag.current = { mode: "move", from, orig: crop };
         return;
       }
+      if (tool === "select") {
+        const index = topShapeAt(from);
+        setSelected(index);
+        if (index !== null) {
+          drag.current = {
+            mode: "move-shape",
+            from,
+            index,
+            orig: shapes,
+            moved: false,
+          };
+        }
+        return;
+      }
+      setSelected(null);
       if (tool === "text") {
+        // The mousedown's default focus handling would steal focus from the
+        // editor right after it mounts.
+        event.preventDefault();
         setTextDraft(from);
+        return;
+      }
+      if (tool === "counter") {
+        const next =
+          Math.max(
+            0,
+            ...shapes.map((shape) => (shape.kind === "counter" ? shape.n : 0)),
+          ) + 1;
+        pushShape({ kind: "counter", at: from, n: next, color });
         return;
       }
       drag.current = { mode: "draw", from };
@@ -412,7 +570,17 @@ export function Annotate(): React.JSX.Element {
               : { kind: tool, rect: normalizeRect(from, from), color },
       );
     },
-    [crop, tool, color, spaceHeld, textDraft, commitText],
+    [
+      crop,
+      tool,
+      color,
+      spaceHeld,
+      textDraft,
+      shapes,
+      commitText,
+      topShapeAt,
+      pushShape,
+    ],
   );
 
   const onMouseMove = useCallback(
@@ -420,7 +588,7 @@ export function Annotate(): React.JSX.Element {
       const to = pointOf(event);
       const active = drag.current;
       if (!active) {
-        // Hover feedback only: resize cursors on handles, move while Space.
+        // Hover feedback only: resize cursors on handles, move over shapes.
         if (crop) {
           const handle = hitHandle(crop, to);
           setCursor(
@@ -428,9 +596,13 @@ export function Annotate(): React.JSX.Element {
               ? HANDLE_CURSORS[handle]
               : spaceHeld && inside(crop, to)
                 ? "grab"
-                : tool === "text"
-                  ? "text"
-                  : "crosshair",
+                : tool === "select"
+                  ? topShapeAt(to) !== null
+                    ? "move"
+                    : "default"
+                  : tool === "text"
+                    ? "text"
+                    : "crosshair",
           );
         }
         return;
@@ -451,6 +623,18 @@ export function Annotate(): React.JSX.Element {
         );
         return;
       }
+      if (active.mode === "move-shape") {
+        active.moved = true;
+        const dx = to.x - active.from.x;
+        const dy = to.y - active.from.y;
+        setDoc((current) => ({
+          ...current,
+          shapes: active.orig.map((shape, index) =>
+            index === active.index ? translateShape(shape, dx, dy) : shape,
+          ),
+        }));
+        return;
+      }
       setDraft((current) => {
         if (!current) return current;
         if (current.kind === "pen") {
@@ -459,10 +643,13 @@ export function Annotate(): React.JSX.Element {
         if (current.kind === "arrow") {
           return { ...current, to };
         }
-        return { ...current, rect: normalizeRect(active.from, to) };
+        if ("rect" in current) {
+          return { ...current, rect: normalizeRect(active.from, to) };
+        }
+        return current;
       });
     },
-    [crop, tool, spaceHeld],
+    [crop, tool, spaceHeld, topShapeAt],
   );
 
   const onMouseUp = useCallback((): void => {
@@ -470,6 +657,17 @@ export function Annotate(): React.JSX.Element {
     drag.current = null;
     if (!active) return;
     if (active.mode === "resize" || active.mode === "move") return;
+    if (active.mode === "move-shape") {
+      // One history entry per completed move.
+      if (active.moved) {
+        setDoc((current) => ({
+          past: [...current.past, active.orig],
+          shapes: current.shapes,
+          future: [],
+        }));
+      }
+      return;
+    }
     setDraft((current) => {
       if (!current) return null;
       if (active.mode === "select") {
@@ -500,6 +698,9 @@ export function Annotate(): React.JSX.Element {
 
   const exportW = crop ? Math.round(crop.w * scaleX) : 0;
   const exportH = crop ? Math.round(crop.h * scaleY) : 0;
+  const selectedShape = selected !== null ? shapes[selected] : null;
+  const showTextBg = tool === "text" || selectedShape?.kind === "text";
+  const textBgOn = selectedShape?.kind === "text" ? selectedShape.bg : textBg;
 
   return (
     <div
@@ -560,6 +761,17 @@ export function Annotate(): React.JSX.Element {
               <ToolIcon tool={entry.tool} />
             </button>
           ))}
+          {showTextBg && (
+            <button
+              type="button"
+              aria-label="Text background"
+              title="Text background"
+              className={textBgOn ? "an-tool an-active" : "an-tool"}
+              onClick={toggleTextBg}
+            >
+              <ToolIcon tool="text-bg" />
+            </button>
+          )}
           <span className="an-sep" />
           {COLORS.map((value) => (
             <button
@@ -568,16 +780,27 @@ export function Annotate(): React.JSX.Element {
               aria-label={`Ink ${value}`}
               className={value === color ? "an-color an-color-on" : "an-color"}
               style={{ background: value }}
-              onClick={() => setColor(value)}
+              onClick={() => pickColor(value)}
             />
           ))}
           <span className="an-sep" />
+          {selectedShape && (
+            <button
+              type="button"
+              aria-label="Delete (⌫)"
+              title="Delete — ⌫"
+              className="an-tool"
+              onClick={deleteSelected}
+            >
+              <ToolIcon tool="trash" />
+            </button>
+          )}
           <button
             type="button"
             aria-label="Undo (⌘Z)"
             title="Undo — ⌘Z"
             className="an-tool"
-            disabled={!shapes.length}
+            disabled={!doc.past.length}
             onClick={undo}
           >
             <ToolIcon tool="undo" />
@@ -587,7 +810,7 @@ export function Annotate(): React.JSX.Element {
             aria-label="Redo (⇧⌘Z)"
             title="Redo — ⇧⌘Z"
             className="an-tool"
-            disabled={!redoStack.length}
+            disabled={!doc.future.length}
             onClick={redo}
           >
             <ToolIcon tool="redo" />
