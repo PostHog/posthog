@@ -62,12 +62,6 @@ export type ErrorTrackingStackFrameContext = {
 }
 export type ErrorTrackingStackFrameContextLine = { number: number; line: string }
 
-/**
- * Cymbal copies the SDK's original frame here before symbolication. Native SDKs (Apple, Android
- * NDK, Rust) can send a frame that is nothing but an instruction address, so this is the only
- * place the address survives when symbolication finds no debug image to resolve against.
- * Only the fields the UI reads are typed.
- */
 export interface ErrorTrackingStackFrameJunkDrawer {
     raw_frame?: {
         instruction_addr?: string | null

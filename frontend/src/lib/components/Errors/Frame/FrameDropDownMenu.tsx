@@ -32,12 +32,8 @@ export function FrameDropDownMenu({
     const sourceData = getSourceDataForFrame(raw_id)
     const lineLocation = getLineLocation(frame)
     const instructionAddress = getInstructionAddress(frame)
-    // An address on its own does not earn a menu, so it is not part of this check. It rides along
-    // as an extra item when the frame has something a person can actually read.
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
 
-    // Skip the menu entirely rather than disabling its trigger: Radix keeps its own handlers on an
-    // `asChild` trigger, so a disabled button still opens an empty popover.
     if (!hasItems) {
         return (
             <ButtonPrimitive className={className} disabled>

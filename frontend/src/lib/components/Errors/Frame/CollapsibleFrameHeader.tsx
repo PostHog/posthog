@@ -39,8 +39,6 @@ export function CollapsibleFrameHeader({
     const functionRef = useRef<HTMLSpanElement>(null)
     const sourceLine = formatSourceLine(source, line, column)
     const instructionAddress = getInstructionAddress(frame)
-    // Native frames can arrive with no name and no file. Falling back to the raw address, and then
-    // to a label, keeps the row identifiable instead of rendering as a blank strip.
     const isUnsymbolicated = !functionName && !sourceLine
     const sourceContent = sourceLine ?? instructionAddress ?? (functionName ? undefined : UNKNOWN_FRAME_LABEL)
 
@@ -153,7 +151,6 @@ function UnsymbolicatedIcon({
                 </>
             }
         >
-            {/* An in-app frame we cannot name is a real gap in the user's own stack; a vendor one is routine. */}
             <IconWarning className={in_app ? 'text-red-500' : 'text-muted-foreground'} fontSize={15} />
         </Tooltip>
     )
