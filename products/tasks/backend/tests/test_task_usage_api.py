@@ -1,11 +1,14 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from types import SimpleNamespace
 from uuid import UUID
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from products.tasks.backend.presentation.views.task_usage_api import InternalTaskUsageViewSet
 
@@ -16,11 +19,16 @@ class TestInternalTaskUsageViewSet(SimpleTestCase):
         return_value=Decimal("1.25"),
     )
     def test_create_returns_token_cost(self, _get_token_cost) -> None:
-        request = SimpleNamespace(
-            data={
-                "task_id": str(UUID("00000000-0000-0000-0000-000000000001")),
-                "task_created_at": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
-            }
+        request = Request(
+            APIRequestFactory().post(
+                "/",
+                {
+                    "task_id": str(UUID("00000000-0000-0000-0000-000000000001")),
+                    "task_created_at": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+                },
+                format="json",
+            ),
+            parsers=[JSONParser()],
         )
 
         response = InternalTaskUsageViewSet().create(request)
