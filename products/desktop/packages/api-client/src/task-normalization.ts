@@ -10,6 +10,9 @@ import type { Schemas } from "./generated";
 
 export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
   metadata?: unknown;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
+  dismissed_at?: string | null;
 };
 
 type TaskRunResponseDTO = Partial<
@@ -128,6 +131,12 @@ export function normalizeTaskRunArtifact(
     ...(artifact.uploaded_at === undefined
       ? {}
       : { uploaded_at: artifact.uploaded_at }),
+    ...(artifact.uploaded_by === undefined
+      ? {}
+      : { uploaded_by: artifact.uploaded_by }),
+    ...(artifact.uploaded_by_user_id === undefined
+      ? {}
+      : { uploaded_by_user_id: artifact.uploaded_by_user_id }),
     ...(artifact.dismissed_at === undefined
       ? {}
       : { dismissed_at: artifact.dismissed_at }),

@@ -17,12 +17,20 @@ export const manifest: ProductManifest = {
                 'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
             iconType: 'persons',
         },
+        AIEnrichment: {
+            name: 'AI enrichment',
+            import: () => import('./frontend/aiEnrichment/AIEnrichmentScene'),
+            instanceLevel: true,
+        },
     },
     routes: {
         '/identity-matching': ['IdentityMatching', 'identityMatching'],
+        '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
+        '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     },
     urls: {
         identityMatching: (): string => '/identity-matching',
+        aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     },
     treeItemsProducts: [
         {

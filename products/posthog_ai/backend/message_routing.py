@@ -388,10 +388,6 @@ class SandboxSession(BaseSandboxService):
             )
             raise Conflict("The sandbox run is no longer accepting messages. Please try again.") from e
 
-        # Attribution stamp for the sandbox usage ledger: starts the user-attributable
-        # window on a claimed warm Run and records last-activity on every follow-up.
-        tasks_facade.record_task_run_user_activity(run.id, run.team_id)
-
         # The Run has received its first human message, so it is no longer speculative — drop the
         # warm flag so the warm-pool cap stops counting it (it's now an active Run governed by AI
         # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
@@ -466,10 +462,7 @@ class SandboxSession(BaseSandboxService):
                 "initial_permission_mode": initial_permission_mode,
                 "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             }
-            # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
-            snapshot_external_id = (run.state or {}).get("snapshot_external_id")
-            if snapshot_external_id:
-                extra_state["snapshot_external_id"] = snapshot_external_id
+            extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
             new_run = task.create_run(mode="interactive", extra_state=extra_state)
 

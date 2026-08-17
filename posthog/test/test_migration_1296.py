@@ -1,14 +1,16 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
 
-class BackfillCimdVerificationTokenUrlMigrationTest(TestMigrations):
+# Non-atomic because rewinding to `migrate_from` unapplies every later migration, and those include
+# `atomic = False` ones whose CONCURRENTLY index operations Postgres refuses inside a transaction.
+class BackfillCimdVerificationTokenUrlMigrationTest(NonAtomicTestMigrations):
     migrate_from = "1295_cimdverificationtoken_cimd_url"
     migrate_to = "1296_backfill_cimd_verification_token_url"
 

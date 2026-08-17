@@ -21,7 +21,8 @@ import {
     runReportActivity,
     ScoutRunFilter,
     scoutReportActivityLabel,
-    SCOUT_RUNS_WINDOW_SPAN,
+    SCOUT_NO_RECENT_RUNS,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
@@ -197,11 +198,11 @@ const ScoutRunRow = memo(function ScoutRunRow({
 /**
  * The Runs section on the scout detail surface: this scout's runs in the recent window, newest
  * first, with All/Emitted/Quiet/Failed filter chips (each showing its match count). Runs come
- * from `scoutFleetLogic`'s already-polled window rollup (oldest-first timeline order, reversed
- * here) — there's no per-scout runs endpoint yet (api gap 1), so the window is filtered client-side.
+ * from `scoutFleetLogic`'s already-polled per-scout rollup (oldest-first timeline order, reversed
+ * here); the filter chips narrow that set client-side.
  */
 export function ScoutRunHistorySection({ skillName }: { skillName: string }): JSX.Element {
-    const { rollups, runsWindowLoadedOnce, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { rollups, scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
     const [filter, setFilter] = useState<ScoutRunFilter>('all')
 
     // Newest first for a history list; the rollup keeps runs oldest-first for the header timeline.
@@ -220,9 +221,9 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
 
     const filteredRuns = useMemo(() => runs.filter((run) => runMatchesFilter(run, filter)), [runs, filter])
 
-    // Hold the skeleton until the fleet's runs window has settled once — otherwise a fresh deep-link
-    // flashes the empty state before we know this scout's runs.
-    const loading = !runsWindowLoadedOnce
+    // Hold the skeleton until the fleet's per-scout runs have settled once — otherwise a fresh
+    // deep-link flashes the empty state before we know this scout's runs.
+    const loading = !scoutRunsLoadedOnce
 
     return (
         <div className="flex flex-col gap-2">
@@ -258,21 +259,14 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
             ) : filteredRuns.length === 0 ? (
                 <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
                     {runs.length > 0
-                        ? `No runs match this filter in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                        : runsWindowComplete
-                          ? `No runs in the last ${SCOUT_RUNS_WINDOW_SPAN}.`
-                          : `No runs in the recent window we could load (the last ${SCOUT_RUNS_WINDOW_SPAN} is truncated).`}
+                        ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
+                        : SCOUT_NO_RECENT_RUNS}
                 </div>
             ) : (
                 <>
                     {filteredRuns.map((run) => (
                         <ScoutRunRow key={run.run_id} run={run} skillName={skillName} />
                     ))}
-                    {!runsWindowComplete && (
-                        <span className="text-xs text-muted">
-                            Older runs beyond the loaded {SCOUT_RUNS_WINDOW_SPAN} window aren’t shown.
-                        </span>
-                    )}
                 </>
             )}
         </div>

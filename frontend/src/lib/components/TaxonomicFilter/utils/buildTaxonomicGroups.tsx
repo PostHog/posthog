@@ -487,15 +487,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     name: value,
                     value,
                     group: TaxonomicFilterGroupType.EventProperties,
+                    propertyFilterType: PropertyFilterType.Event,
                 })),
                 ...(currentTeam?.person_display_name_properties
                     ? currentTeam.person_display_name_properties.map((property) => ({
                           name: property,
                           value: property,
                           group: TaxonomicFilterGroupType.PersonProperties,
+                          propertyFilterType: PropertyFilterType.Person,
                       }))
                     : []),
             ],
+            getName: (option) => option.name,
+            getValue: (option) => option.value,
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Exception properties',
         },

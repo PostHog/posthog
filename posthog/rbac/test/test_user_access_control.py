@@ -2022,8 +2022,8 @@ class TestBlockedResourceIdsByScope(BaseTest):
 
         self.uac = UserAccessControl(self.user, self.team)
 
-    def _blocked(self, resource="dashboard") -> set[str]:
-        return self.uac.blocked_resource_ids_by_scope.get(resource, set())
+    def _blocked(self, resource="dashboard") -> frozenset[str]:
+        return self.uac.blocked_resource_ids_by_scope.get(resource, frozenset())
 
     def test_empty_for_org_admin(self):
         self.membership.level = OrganizationMembership.Level.ADMIN

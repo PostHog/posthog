@@ -7,6 +7,7 @@ const getCloudAttachmentPreviewUrl = vi.fn();
 const setCloudRunArtifactsDismissed = vi.fn();
 const openArtifactTab = vi.fn();
 const refetch = vi.fn();
+const queryOptions = vi.fn();
 let fetchedArtifacts: unknown[] | undefined = [];
 let session: {
   cloudArtifacts?: unknown[];
@@ -45,17 +46,25 @@ vi.mock("@posthog/ui/features/auth/store", () => ({
   useAuthStateValue: () => "auth-1",
 }));
 
+vi.mock("@posthog/ui/features/auth/useMeQuery", () => ({
+  useMeQuery: () => ({ data: { id: 42 } }),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: fetchedArtifacts, refetch }),
+  useQuery: (options: unknown) => {
+    queryOptions(options);
+    return { data: fetchedArtifacts, refetch };
+  },
   useMutation: ({
     mutationFn,
     onSuccess,
   }: {
     mutationFn: (variables: unknown) => Promise<unknown>;
-    onSuccess: (result: unknown) => void;
+    onSuccess: (result: unknown) => Promise<void> | void;
   }) => ({
     isPending: false,
-    mutate: (variables: unknown) => void mutationFn(variables).then(onSuccess),
+    mutate: (variables: unknown) =>
+      void mutationFn(variables).then((result) => onSuccess(result)),
   }),
 }));
 
@@ -79,6 +88,11 @@ function renderDownloads() {
   );
 }
 
+// Rows render inside a popover, so every row assertion opens it first.
+function openFiles() {
+  fireEvent.click(screen.getByRole("button", { name: /^Artifacts \(/ }));
+}
+
 describe("CloudArtifactDownloads", () => {
   beforeEach(() => {
     fetchedArtifacts = [
@@ -99,6 +113,8 @@ describe("CloudArtifactDownloads", () => {
     ];
     session = {};
     refetch.mockReset();
+    refetch.mockResolvedValue({ data: undefined });
+    queryOptions.mockReset();
     getCloudAttachmentPreviewUrl.mockReset();
     setCloudRunArtifactsDismissed.mockReset();
     openArtifactTab.mockReset();
@@ -123,12 +139,13 @@ describe("CloudArtifactDownloads", () => {
       .mockImplementation(() => undefined);
 
     renderDownloads();
+    openFiles();
 
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
-    expect(screen.getByText("12 KB")).toBeInTheDocument();
+    expect(screen.getByText(/12 KB/)).toBeInTheDocument();
     expect(screen.queryByText("handoff.pack")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Download"));
+    fireEvent.click(screen.getByLabelText("Download report.pdf"));
 
     await waitFor(() => expect(click).toHaveBeenCalledOnce());
     expect(fetchArtifact).toHaveBeenCalledWith(
@@ -143,8 +160,77 @@ describe("CloudArtifactDownloads", () => {
     );
   });
 
+  it("disables every download while a shared request is in progress", async () => {
+    if (!fetchedArtifacts) throw new Error("artifact fixture must be loaded");
+    const artifacts = fetchedArtifacts;
+    artifacts.push({
+      id: "output-2",
+      name: "summary.txt",
+      type: "output",
+      size: 100,
+      storage_path: "tasks/run-1/summary.txt",
+    });
+    let finishPreviewRequest: (url: null) => void = () => undefined;
+    getCloudAttachmentPreviewUrl.mockReturnValue(
+      new Promise<null>((resolve) => {
+        finishPreviewRequest = resolve;
+      }),
+    );
+
+    try {
+      render(
+        <Theme>
+          <CloudArtifactDownloads taskId="task-1" task={task} />
+        </Theme>,
+      );
+      openFiles();
+
+      const downloadButtons = screen.getAllByRole("button", {
+        name: /^Download /,
+      });
+      fireEvent.click(downloadButtons[0]);
+
+      await waitFor(() =>
+        expect(downloadButtons[1]).toHaveAttribute("aria-disabled", "true"),
+      );
+      finishPreviewRequest(null);
+      await waitFor(() =>
+        expect(downloadButtons[1]).toHaveAttribute("aria-disabled", "false"),
+      );
+    } finally {
+      artifacts.pop();
+    }
+  });
+
+  it("labels versions edited by the current user", () => {
+    fetchedArtifacts = [
+      {
+        id: "output-1",
+        name: "report.md",
+        type: "output",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+        uploaded_by: "user",
+        uploaded_by_user_id: 42,
+      },
+      {
+        id: "output-2",
+        name: "report.md",
+        type: "output",
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+    openFiles();
+
+    fireEvent.click(screen.getByLabelText("Choose a version of report.md"));
+    expect(screen.getByText(/^v1 · You ·/)).toBeInTheDocument();
+    expect(screen.getByText(/^v2 · Agent ·/)).toBeInTheDocument();
+  });
+
   it("opens an artifact preview in a new tab", () => {
     renderDownloads();
+    openFiles();
 
     fireEvent.click(screen.getByText("report.pdf"));
 
@@ -174,16 +260,48 @@ describe("CloudArtifactDownloads", () => {
 
     renderDownloads();
 
-    expect(screen.getAllByText("report.pdf")).toHaveLength(1);
     expect(
-      screen.getByRole("button", { name: "Files (1)" }),
+      screen.getByRole("button", { name: "Artifacts (1)" }),
     ).toBeInTheDocument();
+    openFiles();
+    expect(screen.getAllByText("report.pdf")).toHaveLength(1);
 
     fireEvent.click(screen.getByText("report.pdf"));
 
     expect(openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
       artifactId: "output-2",
+      name: "report.pdf",
+    });
+  });
+
+  it("defaults to the newest undismissed version", () => {
+    fetchedArtifacts = [
+      {
+        id: "output-1",
+        name: "report.pdf",
+        type: "output",
+        size: 1_000,
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+      },
+      {
+        id: "output-2",
+        name: "report.pdf",
+        type: "output",
+        size: 2_000,
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+        dismissed_at: "2026-07-27T10:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+    openFiles();
+
+    expect(screen.getByText(/1 KB$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("report.pdf"));
+    expect(openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "output-1",
       name: "report.pdf",
     });
   });
@@ -209,13 +327,38 @@ describe("CloudArtifactDownloads", () => {
     ];
 
     renderDownloads();
+    openFiles();
 
-    expect(screen.getByText("2 KB")).toBeInTheDocument();
+    expect(screen.getByText(/2 KB$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Choose a version of report.pdf"));
-    fireEvent.click(screen.getByText(/^Version 1/));
+    fireEvent.click(screen.getByText(/^v1 ·/));
 
-    expect(screen.getByText("1 KB")).toBeInTheDocument();
+    expect(screen.getByText(/1 KB$/)).toBeInTheDocument();
+  });
+
+  it("disables dismissal until every version has an id", () => {
+    fetchedArtifacts = [
+      {
+        name: "report.pdf",
+        type: "output",
+        uploaded_at: "2026-07-27T09:00:00+00:00",
+      },
+      {
+        id: "output-1",
+        name: "report.pdf",
+        type: "output",
+        uploaded_at: "2026-07-27T08:00:00+00:00",
+      },
+    ];
+
+    renderDownloads();
+    openFiles();
+
+    const dismiss = screen.getByLabelText("Dismiss report.pdf");
+    expect(dismiss).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(dismiss);
+    expect(setCloudRunArtifactsDismissed).not.toHaveBeenCalled();
   });
 
   // Dismissing the row a user sees has to take the versions behind it too,
@@ -240,8 +383,13 @@ describe("CloudArtifactDownloads", () => {
       dismissed_at: "2026-07-27T10:00:00+00:00",
     }));
     setCloudRunArtifactsDismissed.mockResolvedValue(dismissedManifest);
+    refetch.mockImplementation(async () => {
+      fetchedArtifacts = dismissedManifest;
+      return { data: dismissedManifest };
+    });
 
     renderDownloads();
+    openFiles();
 
     fireEvent.click(screen.getByLabelText("Dismiss report.pdf"));
 
@@ -285,6 +433,7 @@ describe("CloudArtifactDownloads", () => {
     ]);
 
     const { rerender } = renderDownloads();
+    openFiles();
 
     fireEvent.click(screen.getByLabelText("Dismiss report.pdf"));
     await waitFor(() =>
@@ -322,11 +471,9 @@ describe("CloudArtifactDownloads", () => {
     ];
 
     renderDownloads();
+    openFiles();
 
     expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Files (0)" }),
-    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Show 1 dismissed"));
 
@@ -336,7 +483,7 @@ describe("CloudArtifactDownloads", () => {
 
   // Nothing pushes the run's manifest to this client, so without the tool call as a trigger a
   // freshly delivered file waits for the backstop poll.
-  it("rereads the manifest as soon as an upload finishes", () => {
+  it("changes the manifest query key as soon as an upload finishes", () => {
     session = { cloudStatus: "in_progress", events: [] };
 
     const { rerender } = renderDownloads();
@@ -360,42 +507,42 @@ describe("CloudArtifactDownloads", () => {
       </Theme>,
     );
 
-    expect(refetch).toHaveBeenCalled();
-  });
-
-  // Collapse state lives in a module-scoped store that nothing here resets, so
-  // the case that leaves the box collapsed has to run last.
-  it("starts expanded and collapses when the header is clicked", () => {
-    renderDownloads();
-
-    const trigger = screen.getByRole("button", { name: "Files (1)" });
-    expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("report.pdf")).toBeVisible();
-
-    fireEvent.click(trigger);
-
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
-
-    fireEvent.click(trigger);
-
-    expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("report.pdf")).toBeVisible();
-  });
-
-  it("remembers collapse state per task", () => {
-    const { unmount } = renderDownloads();
-
-    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
-    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
-    unmount();
-
-    renderDownloads();
-
-    expect(screen.getByRole("button", { name: "Files (1)" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
+    expect(queryOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        queryKey: ["cloudRunArtifacts", "auth-1", "task-1", "run-1", 1],
+      }),
     );
-    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: "in_progress", interval: 120_000 },
+    { status: "completed", interval: false },
+    { status: undefined, interval: false },
+  ])("uses the backstop poll for $status runs", ({ status, interval }) => {
+    session = { cloudStatus: status };
+
+    renderDownloads();
+
+    expect(queryOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ refetchInterval: interval }),
+    );
+  });
+
+  it("treats a successful empty refresh as authoritative", () => {
+    const { rerender } = renderDownloads();
+
+    expect(
+      screen.getByRole("button", { name: "Artifacts (1)" }),
+    ).toBeInTheDocument();
+
+    fetchedArtifacts = [];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.queryByRole("button", { name: /^Artifacts \(/ })).toBeNull();
   });
 });
