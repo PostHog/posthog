@@ -465,6 +465,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].metrics).toEqual([
                 expect.objectContaining({ metric_name: 'canceled', metric_kind: 'other', count: 1 }),
             ])
+            // Even with no flow to load, the canceled result must still carry the flow id so the
+            // invocation keys the terminal lifecycle row as `hog_flow` (not `hog_function`) and
+            // collapses the earlier `running` row instead of leaving the run stuck at `running`.
+            expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(invocation.functionId)
         })
     })
 })

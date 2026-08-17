@@ -43,12 +43,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         message: string,
         hogFlow?: HogFlow
     ): CyclotronJobInvocationResult {
-        // Carry the flow onto the invocation when we have it: the monitoring services identify a
-        // workflow result by the presence of `hogFlow`, and without it the terminal lifecycle row
-        // keys as `hog_function`. Since `function_kind` is part of the ReplacingMergeTree key,
-        // that row could never collapse the `running` row (written as `hog_flow`), leaving the
-        // run stuck at 'running' in the Invocations tab.
-        const invocation = hogFlow ? { ...item, hogFlow } : item
+        // The monitoring services identify a workflow result by the presence of `hogFlow`, and use
+        // it to key the terminal lifecycle row as `hog_flow` and to fill the row's trigger fields.
+        // Without it the row keys as `hog_function`; because `function_kind` is part of the
+        // ReplacingMergeTree key, that row could never collapse the `running` row (written as
+        // `hog_flow`), leaving the run stuck at 'running' in the Invocations tab. When the live flow
+        // is gone (deleted, or its lookup failed) we still know its id, which is `item.functionId`,
+        // so attach a minimal stub carrying just that so the row still keys as `hog_flow`. Only `id`
+        // is read off this object on the cancellation path.
+        const resolvedFlow = hogFlow ?? ({ id: item.functionId } as HogFlow)
+        const invocation = { ...item, hogFlow: resolvedFlow }
         const result = createInvocationResult(invocation, {}, { finished: true })
         result.canceled = true
         result.logs.push({ level: 'info', timestamp: DateTime.now(), message })
