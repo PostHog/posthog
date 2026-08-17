@@ -8,6 +8,8 @@ from django.core.management import CommandError, call_command
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs  # noqa: F401  breaks an import cycle
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
@@ -149,13 +151,23 @@ class TestManageCohortBackfillRuns(BaseTest):
             run.refresh_from_db()
             self.assertEqual(run.status, CohortBackfillRunStatus.SEEDING)
 
-    def test_terminalize_applies_classification_guards_to_run_id_targets(self) -> None:
-        run = self._run("waiting", status=CohortBackfillRunStatus.RECONCILING)
+    @parameterized.expand(
+        [
+            ("awaiting_observation", CohortBackfillRunStatus.RECONCILING),
+            ("seeding_healthy", CohortBackfillRunStatus.SEEDING),
+        ]
+    )
+    def test_terminalize_guards_seeder_owned_runs_named_by_run_id(self, _name: str, status: str) -> None:
+        run = self._run("live", status=status)
 
-        # Guarding only the --classification values would let a run id name a run the seeder still
-        # owns and skip every rule, cancelling it out from under a live worker.
+        # Guarding only the --classification values would let a run id name a run the seeder is
+        # still working and skip every rule, canceling it out from under a live worker.
         with self.assertRaisesMessage(CommandError, "still owned by the seeder"):
             self._call("terminalize", "--run-id", str(run.id), "--live-run", "--yes")
+        run.refresh_from_db()
+        self.assertEqual(run.status, status)
+
+        self._call("terminalize", "--run-id", str(run.id), "--include-seeder-owned", "--live-run", "--yes")
 
         run.refresh_from_db()
-        self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
+        self.assertEqual(run.status, CohortBackfillRunStatus.CANCELLED)

@@ -54,10 +54,11 @@ DEFAULT_TERMINALIZE_CLASSIFICATIONS: tuple[RunClassification, ...] = ("seeding-s
 # Only meaningful together with an age cutoff: these are parked by design, not broken.
 AGE_GATED_TERMINALIZE_CLASSIFICATIONS: tuple[RunClassification, ...] = ("blocked", "awaiting-boundary")
 
-# The seeder still owns these rows, so cancelling one races a live worker rather than freeing a slot.
-# `finalizable` is excluded for the opposite reason: it is a *finished* backfill the finalizer would
-# legitimately stamp, and cancelling it throws that work away. It needs an explicit opt-in instead.
-UNTERMINALIZABLE_CLASSIFICATIONS: tuple[RunClassification, ...] = ("awaiting-observation",)
+# Runs the seeder is still working: one is scanning chunks, the other is waiting to be observed.
+# Canceling either races a live worker instead of freeing a stuck slot, and it discards seeding
+# progress the run would otherwise finish, so it takes an explicit opt-in. `finalizable` needs its
+# own opt-in for the mirror-image reason: that work is already *done*.
+SEEDER_OWNED_CLASSIFICATIONS: tuple[RunClassification, ...] = ("awaiting-observation", "seeding-healthy")
 
 # Mirrors `SEEDER_MAX_CHUNK_ATTEMPTS`'s envconfig default (rust/cohort-seeder/src/config.rs). Django
 # cannot read the seeder's config, so this is a knob on the command rather than a shared setting.

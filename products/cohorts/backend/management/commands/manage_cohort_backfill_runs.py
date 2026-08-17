@@ -36,7 +36,7 @@ from products.cohorts.backend.backfill.inventory import (
     DEFAULT_MAX_CHUNK_ATTEMPTS,
     DEFAULT_TERMINALIZE_CLASSIFICATIONS,
     RUN_CLASSIFICATIONS,
-    UNTERMINALIZABLE_CLASSIFICATIONS,
+    SEEDER_OWNED_CLASSIFICATIONS,
     RunInventoryRow,
     allowlist_env_line,
     collect_run_inventory,
@@ -73,6 +73,11 @@ class Command(BaseCommand):
             "--include-finalizable",
             action="store_true",
             help="Also cancel runs the finalizer would stamp. Throws away a finished backfill.",
+        )
+        terminalize.add_argument(
+            "--include-seeder-owned",
+            action="store_true",
+            help="Also cancel runs the seeder is still working. Throws away seeding progress.",
         )
         terminalize.add_argument("--live-run", action="store_true")
         terminalize.add_argument("--yes", action="store_true", help="Skip the confirmation prompt.")
@@ -198,10 +203,11 @@ class Command(BaseCommand):
         # `--classification` values alone would let `--run-id` name a run in a protected
         # classification and skip every rule below.
         for classification in sorted({row.classification for row in rows}):
-            if classification in UNTERMINALIZABLE_CLASSIFICATIONS:
+            if classification in SEEDER_OWNED_CLASSIFICATIONS and not options["include_seeder_owned"]:
                 raise CommandError(
                     f"{classification} runs are still owned by the seeder, so canceling one races a live "
-                    "worker. Wait for the seeder to resolve them, or target seeding-stalled instead."
+                    "worker and discards seeding progress. Target seeding-stalled instead, or pass "
+                    "--include-seeder-owned to stop live work deliberately."
                 )
             if classification in AGE_GATED_TERMINALIZE_CLASSIFICATIONS and options["older_than_hours"] is None:
                 raise CommandError(f"{classification} runs are parked by design, so pass --older-than-hours too")
