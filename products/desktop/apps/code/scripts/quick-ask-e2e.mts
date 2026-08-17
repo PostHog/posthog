@@ -684,6 +684,37 @@ if ((await probe()) === 0) {
 }
 pass("text options row sizes text; side handle wraps it to multi-line");
 
+// A long line auto-wraps to the room inside the selection, and finishing
+// hands over the select tool with the fresh label selected.
+await annotate.click('[aria-label="Text (T)"]');
+await annotate.mouse.click(140, 305);
+await annotate.waitForSelector(".an-text-input", { timeout: 5_000 });
+await annotate.keyboard.type(
+  "a very long single line that should wrap by itself",
+);
+await annotate.keyboard.press("Enter");
+await annotate.waitForSelector(".an-text-input", {
+  state: "detached",
+  timeout: 5_000,
+});
+await annotate.waitForSelector('[aria-label="Delete (⌫)"]', {
+  timeout: 5_000,
+});
+const selectActive = await annotate
+  .locator('[aria-label="Select (V)"]')
+  .getAttribute("class");
+if (!selectActive?.includes("an-active")) {
+  fail("finishing a label did not hand over the select tool");
+}
+const wrapped = (await annotate.evaluate(`(() => {
+  const ctx = document.querySelector(".an-overlay").getContext("2d");
+  return ctx.getImageData(150, 335, 1, 1).data[3];
+})()`)) as number;
+if (wrapped === 0) {
+  fail("long label did not auto-wrap inside the selection");
+}
+pass("long labels auto-wrap and finish into the select tool");
+
 await annotate.click(".an-attach");
 await annotate.waitForFunction("typeof window.__annotated === 'string'", {
   timeout: 5_000,

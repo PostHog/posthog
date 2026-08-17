@@ -109,6 +109,15 @@ export function textLines(
   return lines;
 }
 
+/** Longest typed line, unwrapped. */
+export function textNaturalWidth(text: string, size: number): number {
+  const ctx = measurer(size);
+  if (!ctx) return 0;
+  return Math.max(
+    ...text.split("\n").map((line) => ctx.measureText(line).width),
+  );
+}
+
 function measureText(
   text: string,
   size: number,

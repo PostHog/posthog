@@ -18,6 +18,7 @@ import {
   TEXT_SIZE,
   type Tool,
   textFont,
+  textNaturalWidth,
   translateShape,
 } from "./shapes";
 import { ToolIcon } from "./ToolIcon";
@@ -155,6 +156,17 @@ function pointOf(event: React.MouseEvent): Point {
   return { x: event.clientX, y: event.clientY };
 }
 
+/**
+ * Wrap width for new text: the room left inside the selection, capped at a
+ * readable line length so labels never run the full width of a large crop.
+ */
+function textWrapCap(x: number, crop: Rect, bg: boolean): number {
+  const pads = bg ? TEXT_BG_PAD_X * 2 : 0;
+  const room = Math.max(crop.x + crop.w, x + 160) - x - pads - 8;
+  const readable = Math.max(260, Math.min(520, crop.w * 0.6));
+  return Math.max(TEXT_MIN_WIDTH, Math.min(room, readable));
+}
+
 /** Side-handle midpoints on a selected text shape's frame. */
 function textEdgePoints(shape: Shape): { e: Point; w: Point } | null {
   if (shape.kind !== "text") return null;
@@ -235,17 +247,25 @@ export function Annotate(): React.JSX.Element {
       const value = textRef.current?.value ?? "";
       setTextDraft(null);
       if (keep && at && value.trim()) {
+        const text = value.trimEnd();
+        const cap = crop ? textWrapCap(at.x, crop, textBg) : undefined;
+        const wraps =
+          cap !== undefined && textNaturalWidth(text, textSize) > cap;
         pushShape({
           kind: "text",
           at,
-          text: value.trimEnd(),
+          text,
           color,
           bg: textBg,
           size: textSize,
+          ...(wraps ? { width: cap } : {}),
         });
+        // The usual next step is placing the label, so hand over the
+        // select tool with the fresh label already selected.
+        setTool("select");
       }
     },
-    [textDraft, color, textBg, textSize, pushShape],
+    [textDraft, crop, color, textBg, textSize, pushShape],
   );
 
   const undo = useCallback((): void => {
@@ -397,7 +417,10 @@ export function Annotate(): React.JSX.Element {
       // The text editor or a focused control owns every other key.
       if (textDraft) return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+      ) {
         return;
       }
       if (event.key === "Enter") {
@@ -818,6 +841,13 @@ export function Annotate(): React.JSX.Element {
   const showTextOptions = tool === "text" || selectedText !== null;
   const textBgOn = selectedText ? selectedText.bg : textBg;
   const textSizeOn = selectedText ? selectedText.size : textSize;
+  // The editor wraps live at the same width the committed shape would get.
+  const editorCap =
+    textDraft && crop
+      ? textWrapCap(textDraft.x, crop, textBg) +
+        (textBg ? TEXT_BG_PAD_X * 2 : 0) +
+        6
+      : null;
 
   return (
     <div
@@ -967,6 +997,7 @@ export function Annotate(): React.JSX.Element {
             top: textBg ? textDraft.y - TEXT_BG_PAD_Y : textDraft.y,
             font: textFont(textSize),
             lineHeight: TEXT_LINE,
+            ...(editorCap !== null ? { maxWidth: editorCap } : {}),
             ...(textBg
               ? {
                   background: color,
@@ -993,11 +1024,15 @@ export function Annotate(): React.JSX.Element {
             }
           }}
           onInput={(event) => {
+            // Width first: the height depends on how the text wraps.
             const el = event.currentTarget;
+            el.style.width = "auto";
+            el.style.width = `${Math.min(
+              el.scrollWidth + 12,
+              editorCap ?? window.innerWidth - textDraft.x - 10,
+            )}px`;
             el.style.height = "auto";
             el.style.height = `${el.scrollHeight}px`;
-            el.style.width = "auto";
-            el.style.width = `${Math.min(el.scrollWidth + 12, window.innerWidth - textDraft.x - 10)}px`;
           }}
         />
       )}
