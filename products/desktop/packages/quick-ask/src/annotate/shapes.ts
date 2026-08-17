@@ -210,6 +210,9 @@ export function shapeBBox(shape: Shape): Rect {
       );
     }
     case "pen": {
+      // Drawing always seeds one point, but guard the degenerate shape so
+      // an empty array can never produce an infinite box.
+      if (shape.points.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
       const xs = shape.points.map((p) => p.x);
       const ys = shape.points.map((p) => p.y);
       return normalizeRect(
@@ -267,6 +270,16 @@ export function hitShape(shape: Shape, point: Point): boolean {
       );
     }
     case "pen":
+      // A click-only stroke has a single point (drawn as a dot); it must
+      // stay selectable or it could never be moved or deleted.
+      if (shape.points.length === 1) {
+        return (
+          Math.hypot(
+            point.x - shape.points[0].x,
+            point.y - shape.points[0].y,
+          ) <= HIT_SLACK
+        );
+      }
       return shape.points.some(
         (at, index) =>
           index > 0 &&
@@ -361,7 +374,22 @@ export function drawShape(
       return;
     }
     case "pen": {
-      if (shape.points.length < 2) return;
+      if (shape.points.length === 0) return;
+      // A click without a drag leaves one point: draw the dot a round-capped
+      // stroke of this width would leave, so the stroke doesn't vanish.
+      if (shape.points.length === 1) {
+        ctx.fillStyle = shape.color;
+        ctx.beginPath();
+        ctx.arc(
+          shape.points[0].x,
+          shape.points[0].y,
+          LINE_WIDTH / 2,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+        return;
+      }
       ctx.strokeStyle = shape.color;
       ctx.beginPath();
       ctx.moveTo(shape.points[0].x, shape.points[0].y);

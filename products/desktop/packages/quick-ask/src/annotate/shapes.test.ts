@@ -65,4 +65,21 @@ describe("annotator shape geometry", () => {
       "jkl",
     ]);
   });
+
+  it("keeps a click-only pen stroke selectable at its point", () => {
+    const dot: Shape = {
+      kind: "pen",
+      points: [{ x: 30, y: 40 }],
+      color: "#fff",
+    };
+    expect(hitShape(dot, { x: 33, y: 42 })).toBe(true);
+    expect(hitShape(dot, { x: 45, y: 40 })).toBe(false);
+    expect(shapeBBox(dot)).toEqual({ x: 30, y: 40, w: 0, h: 0 });
+  });
+
+  it("gives an empty pen shape a finite bounding box", () => {
+    const empty: Shape = { kind: "pen", points: [], color: "#fff" };
+    expect(shapeBBox(empty)).toEqual({ x: 0, y: 0, w: 0, h: 0 });
+    expect(hitShape(empty, { x: 0, y: 0 })).toBe(false);
+  });
 });
