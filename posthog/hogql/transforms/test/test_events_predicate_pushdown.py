@@ -421,10 +421,10 @@ class TestOuterWhereAssignment:
         where = ast.And(exprs=[timestamp_pred, session_pred])
 
         extractor = EventsPredicatePushdownExtractor(joined_table_aliases={"events__session"})
-        inner_where, outer_where = extractor.get_pushdown_predicates(where)
+        split = extractor.get_pushdown_predicates(where)
 
-        assert inner_where is not None
-        assert outer_where is not None
+        assert split.inner_where is not None
+        assert split.outer_where is not None
 
 
 class TestEventsPredicatePushdownTransformUnit:
