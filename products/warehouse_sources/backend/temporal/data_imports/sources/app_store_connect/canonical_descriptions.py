@@ -8,6 +8,7 @@ table. Columns absent here fall back to LLM enrichment.
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 # Columns every analytics report stream shares: the sync's own key columns plus the
@@ -378,3 +379,44 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
 }
+
+# The acquisition attribution columns Apple publishes only in Detailed report variants.
+_DETAILED_ATTRIBUTION_COLUMNS: dict[str, str] = {
+    "campaign": "Campaign token of the App Analytics campaign that led the user to the app.",
+    "page_title": "Name of the product page or in-app event page that led the user to the app.",
+    "source_info": "App or web referrer that led the user to discover the app; the detail behind source_type.",
+}
+
+
+def _detailed_variant(standard_name: str, description: str) -> CanonicalEndpoint:
+    # Apple documents a Detailed report as its Standard sibling's column set plus the
+    # attribution columns, on the same docs page, so the entry derives from the sibling
+    # rather than restating it.
+    standard = CANONICAL_DESCRIPTIONS[standard_name]
+    return {
+        "description": description,
+        "docs_url": standard["docs_url"],
+        "columns": {**standard["columns"], **_DETAILED_ATTRIBUTION_COLUMNS},
+    }
+
+
+CANONICAL_DESCRIPTIONS["analytics_app_sessions_detailed"] = _detailed_variant(
+    "analytics_app_sessions",
+    "How often people open the app and for how long, with the acquisition attribution columns, "
+    "from Apple's App Sessions Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_app_store_downloads_detailed"] = _detailed_variant(
+    "analytics_app_store_downloads",
+    "How many times people download the app on the App Store, with the acquisition attribution "
+    "columns, from Apple's App Downloads Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_installations_deletions_detailed"] = _detailed_variant(
+    "analytics_installations_deletions",
+    "How many times users install and delete the app, with the acquisition attribution columns, "
+    "from Apple's App Store Installation and Deletion Detailed analytics report.",
+)
+CANONICAL_DESCRIPTIONS["analytics_discovery_engagement_detailed"] = _detailed_variant(
+    "analytics_discovery_engagement",
+    "How users find and interact with the app on the App Store, with the acquisition attribution "
+    "columns, from Apple's App Store Discovery and Engagement Detailed analytics report.",
+)
