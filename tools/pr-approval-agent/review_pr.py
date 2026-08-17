@@ -712,8 +712,8 @@ class Pipeline:
         return True, summary
 
     @staticmethod
-    def _tracked_symlinks(rev: str) -> set[tuple[str, str]]:
-        """(path, blob) pairs of the symlinks tracked at ``rev``; same blob means same target."""
+    def _tracked_symlinks(rev: str) -> dict[str, str]:
+        """Symlinks tracked at ``rev`` as path -> blob; the same blob means the same target."""
         try:
             listing = subprocess.run(
                 ["git", "ls-tree", "-r", "--full-tree", rev],
@@ -726,12 +726,12 @@ class Pipeline:
             raise WorktreeUnavailableError(f"symlink check timed out for {rev}") from exc
         if listing.returncode != 0:
             raise WorktreeUnavailableError(f"symlink check failed for {rev}: {listing.stderr.strip()}")
-        links: set[tuple[str, str]] = set()
+        links: dict[str, str] = {}
         for line in listing.stdout.splitlines():
             if not line.startswith("120000 "):
                 continue
             meta, path = line.split("\t", 1)
-            links.add((path, meta.split()[2]))
+            links[path] = meta.split()[2]
         return links
 
     @contextmanager
@@ -761,13 +761,12 @@ class Pipeline:
         # A symlink in the head tree can point outside the worktree, and the agent's Read follows
         # it — so only symlinks the trunk already carries (same path, same target) are trusted; a
         # stacked PR's base is PR-authored too, so the baseline is the default branch, not the base.
-        added_links = self._tracked_symlinks(self.pr.head_sha) - self._tracked_symlinks(
-            f"origin/{self.pr.default_branch}"
+        trusted_links = self._tracked_symlinks(f"origin/{self.pr.default_branch}")
+        added_links = sorted(
+            path for path, blob in self._tracked_symlinks(self.pr.head_sha).items() if trusted_links.get(path) != blob
         )
         if added_links:
-            raise WorktreeUnavailableError(
-                f"PR head adds symbolic links: {', '.join(sorted(p for p, _ in added_links))}"
-            )
+            raise WorktreeUnavailableError(f"PR head adds symbolic links: {', '.join(added_links)}")
 
         try:
             result = subprocess.run(
