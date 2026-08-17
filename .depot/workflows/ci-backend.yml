@@ -29,7 +29,9 @@
 #   TRUNK_UPLOAD_ENABLED repo variable as an upload kill-switch, and its verdict step
 #   on TRUNK_QUARANTINE_ENABLED to decide whether known flakes are masked; since the
 #   shadow strips both the gate and the verdict step entirely, both variables are
-#   no-ops here and there is nothing to mirror)
+#   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
+#   ./.github/actions/trunk-quarantine-gate, which retries the upload once; the shadow
+#   has no gate to call it from, so there is no ./.depot/actions mirror of it either)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain

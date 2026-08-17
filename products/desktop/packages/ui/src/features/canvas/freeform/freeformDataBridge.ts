@@ -49,13 +49,28 @@ function cachedRead<T>(
   method: string,
   input: unknown,
   run: () => Promise<T>,
+  refreshSeconds?: number,
 ) {
   return queryClient.fetchQuery({
     queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
     queryFn: run,
-    staleTime: 5 * 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
+    // At least the refresh interval, or GC would evict an inactive entry
+    // before it goes stale and force an early backend re-read.
+    gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
   });
+}
+
+function refreshSeconds(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < 30 ||
+    (value as number) > 86_400
+  ) {
+    throw new Error("refresh must be an integer between 30 and 86400 seconds");
+  }
+  return value as number;
 }
 
 // Resolves a `ph.*` data-request from a freeform canvas (edit mode). The host
@@ -94,8 +109,12 @@ export async function handleFreeformDataRequest(
         hogql: input.hogql,
         params: input.params,
       };
-      return cachedRead(queryClient, "query", args, () =>
-        hostClient().canvasData.query.mutate(args),
+      return cachedRead(
+        queryClient,
+        "query",
+        args,
+        () => hostClient().canvasData.query.mutate(args),
+        refreshSeconds(input.refresh),
       );
     }
     case "loadInsight": {
@@ -111,8 +130,12 @@ export async function handleFreeformDataRequest(
         dateRange: input.dateRange,
         variables: input.variables,
       };
-      return cachedRead(queryClient, "loadInsight", args, () =>
-        hostClient().canvasData.loadInsight.mutate(args),
+      return cachedRead(
+        queryClient,
+        "loadInsight",
+        args,
+        () => hostClient().canvasData.loadInsight.mutate(args),
+        refreshSeconds(input.refresh),
       );
     }
     case "capture": {
