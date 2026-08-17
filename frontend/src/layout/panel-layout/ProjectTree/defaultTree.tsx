@@ -172,7 +172,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     tracing: {
         icon: <IconListTree />,
-        iconColor: ['var(--color-product-tracing-light)'],
+        iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'],
     },
     metrics: {
         icon: <IconGraph />,

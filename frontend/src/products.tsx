@@ -2536,7 +2536,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.TRACING],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'tracing',
-        iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
         tags: ['beta'],
