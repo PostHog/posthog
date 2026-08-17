@@ -214,7 +214,7 @@ jobs:
                   if ! prime; then
                       # A half-primed database would let migrate skip work it still needs to do.
                       echo "::warning::schema restore failed (stale or incompatible dump?), so migrate runs from scratch"
-                      psql postgres -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
+                      psql -v ON_ERROR_STOP=1 postgres -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"
                   fi
 
             - name: Set up test database schema
