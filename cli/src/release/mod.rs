@@ -51,14 +51,15 @@ pub fn resolve(args: &ResolveArgs) -> Result<()> {
     context().capture_command_invoked("release_resolve");
 
     let Some(release) = resolve_release(args.into())? else {
-        // Printing nothing and exiting zero keeps "this build identifies no release" distinct
-        // from a lookup that failed, which exits non-zero. Build tools depend on the difference:
-        // the first case still ships a bundle, only without a release id injected into it.
+        // Exiting zero keeps "this build identifies no release" distinct from a lookup that
+        // failed, which exits non-zero. Build tools depend on the difference: the first case
+        // still ships a bundle, only without a release id injected into it.
         warn!(
             "No release could be resolved. Pass --release-name and --release-version, or run \
              this from a git repository or a supported CI environment."
         );
         if args.json {
+            // Empty stdout is not valid JSON, so emit `null` for a --json consumer to parse.
             println!("null");
         }
         return Ok(());
