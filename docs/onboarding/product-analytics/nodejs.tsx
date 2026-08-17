@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getNodeJSInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -67,18 +67,24 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </>
             ),
         },
-        {
-            title: 'Send an event',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'javascript',
-                                file: 'Node.js',
-                                code: dedent`
+    ]
+}
+
+export const getNodeJSEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send an event',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'Node.js',
+                            code: dedent`
                                 client.capture({
                                     distinctId: 'distinct_id_of_the_user',
                                     event: 'event_name',
@@ -88,13 +94,17 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     },
                                 })
                             `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNodeJSInstallSteps(ctx),
+    getNodeJSEventStep(ctx),
+]
 
 export const NodeJSInstallation = createInstallation(getNodeJSSteps)

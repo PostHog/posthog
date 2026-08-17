@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getWebflowSteps as getWebflowStepsPA } from '../product-analytics/webflow'
+import { getWebflowInstallSteps } from '../product-analytics/webflow'
 import { StepDefinition } from '../steps'
 
 export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getWebflowStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getWebflowSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getWebflowInstallSteps(ctx), ...experimentSteps]
 }
 
 export const WebflowInstallation = createInstallation(getWebflowSteps)

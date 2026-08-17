@@ -1,0 +1,32 @@
+rules:
+    - id: onboarding-no-step-title-matching
+      message: |
+          Selecting an onboarding step by its display title. The title is
+          user-facing copy, so a copy edit in one product silently changes
+          another: `filter` drops nothing and `map` replaces nothing, and there
+          is no error, no type error, and no failing test.
+
+          Compose from the named step groups the product-analytics file exports
+          instead:
+
+            import { getReactInstallSteps } from '../product-analytics/react'
+
+            export const getReactSteps = (ctx) => [
+                ...getReactInstallSteps(ctx),
+                { title: 'Send events', badge: 'recommended', content: ... },
+            ]
+
+          If the group you need does not exist yet, split it out of the
+          product-analytics file the same way `getReactInstallSteps` and
+          `getReactEventStep` are split. Renaming or deleting an export is then
+          a compile error rather than a silent behavior change.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - 'docs/onboarding/**'
+      pattern-regex: '\.title\s*[!=]==\s*[''"`]'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
