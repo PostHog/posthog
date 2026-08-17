@@ -1511,6 +1511,28 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand(
+        [
+            ("deactivated", ComputeQuotaDenialReason.ORGANIZATION_DEACTIVATED, "deactivated"),
+            ("quota_exhausted", ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED, "compute quota"),
+        ]
+    )
+    def test_request_agent_reports_compute_denial_with_distinct_copy(self, _name, reason, expected_detail):
+        # Every denial must be an error response: a denial outcome reaching the
+        # 202 path would ship a request_outcome outside the response contract's
+        # choices, which API clients validate against.
+        canvas_id, _, _ = self._authored_canvas(agent_requests=True)
+
+        with patch(
+            "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
+            return_value=reason,
+        ):
+            response = self._request_agent(canvas_id, "Make it blue.")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
+        assert expected_detail in response.json()["detail"].lower()
+        assert not TaskRun.objects.exists()
+
     def test_request_fix_prompt_never_carries_unsafe_error_type(self):
         # The requester's error_type flows into the agent prompt; a hostile
         # value must be coerced, not interpolated.
