@@ -223,12 +223,14 @@ pub struct Config {
     #[envconfig(from = "INGESTION_SUB_BATCH_MAX_EVENTS", default = "0")]
     pub sub_batch_max_events: usize,
 
-    /// Floor on splitting: an open chunk still under this many events is not
-    /// closed just because the next key-group doesn't fit — that group gets a
-    /// chunk of its own and the under-filled one keeps taking later groups.
-    /// Best-effort, not a guarantee: whatever is left at the end of a batch
-    /// ships as one chunk however small. `0` (the default) means no floor;
-    /// values above `INGESTION_SUB_BATCH_MAX_EVENTS` are clamped to it.
+    /// Soft target that suppresses runt chunks: an open chunk still under this
+    /// many events is not closed just because the next key-group doesn't fit —
+    /// that group gets a chunk of its own and the under-filled one keeps taking
+    /// later groups. It is not a lower bound and never holds messages back:
+    /// chunks below it still ship (a batch's tail, a batch smaller than this,
+    /// or the group shipped on its own). Only the max is a real cap. `0` (the
+    /// default) means no target; values above
+    /// `INGESTION_SUB_BATCH_MAX_EVENTS` are clamped to it.
     #[envconfig(from = "INGESTION_SUB_BATCH_MIN_EVENTS", default = "0")]
     pub sub_batch_min_events: usize,
 

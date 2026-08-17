@@ -96,16 +96,18 @@ pub struct EagerFlush {
 /// becomes an over-sized chunk of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ChunkConfig {
-    /// Hard cap on events per chunk. `0` disables chunking, giving each worker
-    /// exactly one sub-batch per batch.
+    /// Cap on events per chunk, honored except by a single over-sized
+    /// key-group. `0` disables chunking, giving each worker exactly one
+    /// sub-batch per batch.
     max_events: usize,
-    /// Best-effort floor: an under-filled chunk stays open instead of closing
-    /// early because the next key-group doesn't fit.
+    /// Soft target, not a lower bound: an under-filled chunk stays open instead
+    /// of closing early because the next key-group doesn't fit. Chunks below it
+    /// still ship — nothing is ever held back to reach it.
     min_events: usize,
 }
 
 impl ChunkConfig {
-    /// A `min_events` above `max_events` is clamped — a floor above the cap
+    /// A `min_events` above `max_events` is clamped — a target above the cap
     /// could never be met.
     pub fn new(max_events: usize, min_events: usize) -> Self {
         Self {
@@ -140,10 +142,11 @@ impl MessageGroup {
 }
 
 /// Pack key-groups into chunks of at most `chunking.max_events` events, keeping
-/// each key-group whole. A chunk still under `min_events` is not closed just
-/// because the next group doesn't fit: that group gets a chunk of its own and
-/// the under-filled one keeps taking later groups. Whatever is left at the end
-/// ships as one chunk, however small.
+/// each key-group whole. `min_events` only suppresses runt chunks: one still
+/// under it is not closed just because the next group doesn't fit — that group
+/// gets a chunk of its own and the under-filled one keeps taking later groups.
+/// Nothing is held back to reach it, so whatever is left at the end ships as
+/// one chunk however small.
 fn pack_chunks(groups: Vec<MessageGroup>, chunking: ChunkConfig) -> Vec<Vec<MessageGroup>> {
     debug_assert!(chunking.enabled(), "packing needs an event cap");
 
