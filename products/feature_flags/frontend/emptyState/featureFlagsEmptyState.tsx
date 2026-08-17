@@ -6,6 +6,7 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FeatureFlagPreview } from './FeatureFlagPreview'
 import { featureFlagsSetupLogic } from './featureFlagsSetupLogic'
@@ -26,7 +27,14 @@ export const featureFlagsEmptyState: SceneProductEmptyState = {
                 lead: 'Wrap a change in a feature flag, roll it out to 1% of users, and watch what happens: the session replays, events, and exceptions from the people who got it. Turn it off the moment something looks wrong, no redeploy needed. Flags also power experiments, early access programs, kill switches, and remote config.',
             },
         },
-        primaryAction: { label: 'Create your first feature flag', to: urls.featureFlag('new') },
+        primaryAction: {
+            label: 'Create your first feature flag',
+            to: urls.featureFlag('new'),
+            accessControl: {
+                resourceType: AccessControlResourceType.FeatureFlag,
+                minAccessLevel: AccessControlLevel.Editor,
+            },
+        },
         skippable: false,
         docsUrl: 'https://posthog.com/docs/feature-flags',
         previewLabel: 'Your flags, once created',

@@ -4,6 +4,7 @@ import type { ComponentType, CSSProperties, ReactNode } from 'react'
 import type { FeatureFlagKey } from 'lib/constants'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
+import type { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 /**
  * Normalized setup status for a product, pushed into `productSetupStatusLogic`
@@ -44,10 +45,27 @@ export interface ProductEmptyStateWizard {
     pinProjectId?: boolean
 }
 
+export interface ProductEmptyStateAccessControl {
+    resourceType: AccessControlResourceType
+    minAccessLevel: AccessControlLevel
+}
+
 export interface ProductEmptyStatePrimaryAction {
     label: string
     to?: string
     onClick?: () => void
+    /**
+     * Permission the action requires, mirroring the gated scene's own create button.
+     * Without it a viewer gets an enabled button and only finds out they can't create
+     * when the form fails to save.
+     */
+    accessControl?: ProductEmptyStateAccessControl
+    /**
+     * `data-attr` on the button, defaulting to `product-empty-state-primary-action`.
+     * Set it to the attr the gated scene's create button carries, so end-to-end specs
+     * keep one selector across both surfaces.
+     */
+    dataAttr?: string
 }
 
 export interface ProductEmptyStateConfig {

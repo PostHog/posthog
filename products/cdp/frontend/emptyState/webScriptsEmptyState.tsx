@@ -27,7 +27,11 @@ export const webScriptsEmptyState: SceneProductEmptyState = {
                 lead: 'Web scripts run custom JavaScript on your site through the PostHog snippet you already have. Start from templates for banners, notifications, and chat-style widgets, or write your own. Enable, update, or disable each script from PostHog, with no code changes.',
             },
         },
-        primaryAction: { label: 'Create your first web script', to: urls.webScriptsNew() },
+        primaryAction: {
+            label: 'Create your first web script',
+            to: urls.webScriptsNew(),
+            dataAttr: 'new-web-script',
+        },
         skippable: false,
         docsUrl: 'https://posthog.com/docs/cdp',
         previewLabel: 'Your scripts, once created',

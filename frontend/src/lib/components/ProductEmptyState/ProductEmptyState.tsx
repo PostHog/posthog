@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { IconBook, IconGear } from '@posthog/icons'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -43,6 +44,33 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const Hedgehog = config.hedgehog
     const Preview = config.Preview
 
+    const { primaryAction } = config
+    const primaryActionButton = primaryAction ? (
+        <LemonButton
+            type="primary"
+            to={primaryAction.to}
+            onClick={() => {
+                captureClick('primary action clicked')
+                primaryAction.onClick?.()
+            }}
+            className="self-start"
+            data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
+        >
+            {primaryAction.label}
+        </LemonButton>
+    ) : null
+    const guardedPrimaryAction =
+        primaryActionButton && primaryAction?.accessControl ? (
+            <AccessControlAction
+                resourceType={primaryAction.accessControl.resourceType}
+                minAccessLevel={primaryAction.accessControl.minAccessLevel}
+            >
+                {primaryActionButton}
+            </AccessControlAction>
+        ) : (
+            primaryActionButton
+        )
+
     return (
         <div
             // Fill the scene: viewport minus the app chrome and the product header above us.
@@ -77,19 +105,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     />
                 ) : config.PrimaryAction ? (
                     <config.PrimaryAction />
-                ) : config.primaryAction ? (
-                    <LemonButton
-                        type="primary"
-                        to={config.primaryAction.to}
-                        onClick={() => {
-                            captureClick('primary action clicked')
-                            config.primaryAction?.onClick?.()
-                        }}
-                        className="self-start"
-                        data-attr="product-empty-state-primary-action"
-                    >
-                        {config.primaryAction.label}
-                    </LemonButton>
+                ) : guardedPrimaryAction ? (
+                    guardedPrimaryAction
                 ) : manualUrl ? (
                     <LemonButton
                         type="primary"

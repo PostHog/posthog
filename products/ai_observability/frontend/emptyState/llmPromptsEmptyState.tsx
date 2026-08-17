@@ -6,6 +6,7 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMPromptPreview } from './LLMPromptPreview'
 import { llmPromptsSetupLogic } from './llmPromptsSetupLogic'
@@ -27,7 +28,15 @@ export const llmPromptsEmptyState: SceneProductEmptyState = {
                 lead: 'Create and version LLM prompts in PostHog, then fetch them from your code at runtime. Every change becomes an immutable version you can compare, restore, and A/B test. Point a label like production at any version to control what your app serves, and move it whenever you want.',
             },
         },
-        primaryAction: { label: 'Create your first prompt', to: urls.aiObservabilityPrompt('new') },
+        primaryAction: {
+            label: 'Create your first prompt',
+            to: urls.aiObservabilityPrompt('new'),
+            accessControl: {
+                resourceType: AccessControlResourceType.LlmAnalytics,
+                minAccessLevel: AccessControlLevel.Editor,
+            },
+            dataAttr: 'new-prompt-button',
+        },
         skippable: false,
         docsUrl: 'https://posthog.com/docs/prompt-management',
         previewLabel: 'Your prompts, once created',

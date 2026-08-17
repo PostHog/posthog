@@ -6,6 +6,7 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMSkillPreview } from './LLMSkillPreview'
 import { llmSkillsSetupLogic } from './llmSkillsSetupLogic'
@@ -27,7 +28,15 @@ export const llmSkillsEmptyState: SceneProductEmptyState = {
                 lead: 'Skills are versioned instructions your coding agents can discover and use. Publish them here and any MCP-connected agent can load them directly, or install them into Claude Code and Codex with automatic updates. Import and export skills as .zip files to share them across teams.',
             },
         },
-        primaryAction: { label: 'Create your first skill', to: urls.skill('new') },
+        primaryAction: {
+            label: 'Create your first skill',
+            to: urls.skill('new'),
+            accessControl: {
+                resourceType: AccessControlResourceType.LlmSkill,
+                minAccessLevel: AccessControlLevel.Editor,
+            },
+            dataAttr: 'new-skill-button',
+        },
         skippable: false,
         previewLabel: 'Your skills, once published',
         Preview: LLMSkillPreview,
