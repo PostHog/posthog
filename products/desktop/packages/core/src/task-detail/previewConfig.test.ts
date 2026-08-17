@@ -6,6 +6,7 @@ import {
   clampEffortToAvailable,
   deriveInitialConfig,
   type PreviewSettingsSnapshot,
+  pickPreferredRunSelection,
 } from "./previewConfig";
 
 function toggleOption(
@@ -223,5 +224,87 @@ describe("applyConfigChange (toggle sync via context_window / fast)", () => {
     });
 
     expect(result.find((o) => o.id === "context_window")).toEqual(existing);
+  });
+});
+
+describe("pickPreferredRunSelection", () => {
+  const modelOption = {
+    id: "model",
+    name: "Model",
+    type: "select",
+    category: "model",
+    currentValue: "claude-sonnet-5",
+    description: "",
+    options: [
+      { value: "claude-sonnet-5", name: "claude-sonnet-5" },
+      { value: "claude-opus-5", name: "claude-opus-5" },
+    ],
+  } as SessionConfigOption;
+
+  it.each([
+    {
+      label: "takes the stored preference when nothing is picked locally",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-5",
+        reasoning_effort: "high",
+      },
+      lastUsedModel: null,
+      expected: { model: "claude-opus-5", reasoningEffort: "high" },
+    },
+    {
+      label: "keeps an explicit local pick ahead of the preference",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-5",
+        reasoning_effort: "high",
+      },
+      lastUsedModel: "claude-sonnet-5",
+      expected: null,
+    },
+    {
+      label: "ignores a preference stored for a different harness",
+      defaults: {
+        runtime_adapter: "codex",
+        model: "gpt-5.5",
+        reasoning_effort: "medium",
+      },
+      lastUsedModel: null,
+      expected: null,
+    },
+    {
+      label: "ignores a model this adapter no longer offers",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-4-8",
+        reasoning_effort: "high",
+      },
+      lastUsedModel: null,
+      expected: null,
+    },
+    {
+      label: "drops an effort-less preference to the model's own default",
+      defaults: {
+        runtime_adapter: "claude",
+        model: "claude-opus-5",
+        reasoning_effort: null,
+      },
+      lastUsedModel: null,
+      expected: { model: "claude-opus-5", reasoningEffort: null },
+    },
+    {
+      label: "returns nothing when no preference is stored",
+      defaults: {
+        runtime_adapter: null,
+        model: null,
+        reasoning_effort: null,
+      },
+      lastUsedModel: null,
+      expected: null,
+    },
+  ])("$label", ({ defaults, lastUsedModel, expected }) => {
+    expect(
+      pickPreferredRunSelection(defaults, "claude", modelOption, lastUsedModel),
+    ).toEqual(expected);
   });
 });

@@ -14,6 +14,7 @@ import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   deriveInitialConfig,
   FAST_MODE_OPTION_CATEGORY,
+  pickPreferredRunSelection,
 } from "@posthog/core/task-detail/previewConfig";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
@@ -29,6 +30,7 @@ import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../../auth/store";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useSettingsStore } from "../../settings/settingsStore";
+import { useTaskRunDefaults } from "./useTaskRunDefaults";
 
 const log = logger.scope("preview-config");
 
@@ -84,6 +86,8 @@ export function usePreviewConfig(
   const abortRef = useRef<AbortController | null>(null);
   const prevAdapterRef = useRef<Adapter | null>(null);
   const hasHydrated = useSettingsStore((state) => state._hasHydrated);
+  const { defaults: runDefaults, isSettled: runDefaultsSettled } =
+    useTaskRunDefaults();
 
   useEffect(() => {
     if (!apiHost) return;
@@ -95,6 +99,10 @@ export function usePreviewConfig(
     // isLoading initializes to true, so the picker stays loading until hydration
     // lands and the fetch below resolves.
     if (!hasHydrated) return;
+
+    // Same reasoning for the server-side defaults: resolving before they land
+    // would seat the picker on the built-in fallback and then jump.
+    if (!runDefaultsSettled) return;
 
     // A harness switch resets the saved selections so the new harness starts
     // on its default preset notch (and the slider face shows). A saved model
@@ -158,6 +166,53 @@ export function usePreviewConfig(
           adapter,
         );
 
+        // Seeding a selection is always "set the model, then carry an effort if the
+        // model still offers that tier" — the restore, preference, and ladder paths
+        // below differ only in where the pair comes from.
+        const seedSettings = {
+          defaultInitialTaskMode: "",
+          lastUsedInitialTaskMode: undefined,
+          defaultReasoningEffort,
+          lastUsedReasoningEffort,
+          lastUsedContextWindow,
+          lastUsedFastMode,
+        };
+        const seedSelection = (
+          config: SessionConfigOption[],
+          model: string,
+          effort?: string | null,
+        ): SessionConfigOption[] => {
+          const modelId = getOptionByCategory(config, "model")?.id ?? "model";
+          let seeded = applyConfigChange(config, {
+            adapter,
+            configId: modelId,
+            value: model,
+            effortOptions:
+              getReasoningEffortOptions(adapter, model) ?? undefined,
+            contextWindowOptions:
+              getContextWindowOptions(adapter, model) ?? undefined,
+            fastModeOptions: fastModeFlagEnabled
+              ? (getFastModeOptions(adapter, model) ?? undefined)
+              : undefined,
+            settings: seedSettings,
+          });
+          const thoughtOpt = getOptionByCategory(seeded, "thought_level");
+          if (
+            effort &&
+            thoughtOpt &&
+            flattenConfigValues(thoughtOpt).includes(effort)
+          ) {
+            seeded = applyConfigChange(seeded, {
+              adapter,
+              configId: thoughtOpt.id,
+              value: effort,
+              effortOptions: undefined,
+              settings: seedSettings,
+            });
+          }
+          return seeded;
+        };
+
         // The server always returns its default model as the current value, so
         // without this the user's last (default-eligible) pick is lost on every
         // refetch/remount. Restore it through applyConfigChange so the
@@ -178,31 +233,29 @@ export function usePreviewConfig(
           modelOpt.currentValue !== restorableModel &&
           flattenConfigValues(modelOpt).includes(restorableModel)
         ) {
-          initial = applyConfigChange(initial, {
-            adapter,
-            configId: modelOpt.id,
-            value: restorableModel,
-            effortOptions:
-              getReasoningEffortOptions(adapter, restorableModel) ?? undefined,
-            contextWindowOptions:
-              getContextWindowOptions(adapter, restorableModel) ?? undefined,
-            fastModeOptions: fastModeFlagEnabled
-              ? (getFastModeOptions(adapter, restorableModel) ?? undefined)
-              : undefined,
-            settings: {
-              defaultInitialTaskMode: "",
-              lastUsedInitialTaskMode: undefined,
-              defaultReasoningEffort,
-              lastUsedReasoningEffort,
-              lastUsedContextWindow,
-              lastUsedFastMode,
-            },
-          });
+          initial = seedSelection(initial, restorableModel);
         }
 
-        // With no saved picks (fresh install or a harness switch), land on
-        // the ladder's middle notch so the slider face is the default view.
-        if (!lastUsedModel && !lastUsedReasoningEffort) {
+        // With no local pick (fresh install or a harness switch), the project or
+        // user preference stored server-side decides what the composer opens on,
+        // ahead of the ladder's middle notch.
+        const preferred = pickPreferredRunSelection(
+          runDefaults,
+          adapter,
+          getOptionByCategory(initial, "model"),
+          lastUsedModel,
+        );
+        if (preferred) {
+          initial = seedSelection(
+            initial,
+            preferred.model,
+            preferred.reasoningEffort,
+          );
+        }
+
+        // With no saved picks and no server-side preference, land on the ladder's
+        // middle notch so the slider face is the default view.
+        if (!preferred && !lastUsedModel && !lastUsedReasoningEffort) {
           const ladder = getCapabilityLadder(adapter);
           const middle = ladder[Math.floor((ladder.length - 1) / 2)];
           const midModelOpt = getOptionByCategory(initial, "model");
@@ -211,37 +264,7 @@ export function usePreviewConfig(
             midModelOpt?.type === "select" &&
             flattenConfigValues(midModelOpt).includes(middle.model)
           ) {
-            const previewSettings = {
-              defaultInitialTaskMode: "",
-              lastUsedInitialTaskMode: undefined,
-              defaultReasoningEffort,
-              lastUsedReasoningEffort,
-              lastUsedContextWindow,
-              lastUsedFastMode,
-            };
-            initial = applyConfigChange(initial, {
-              adapter,
-              configId: midModelOpt.id,
-              value: middle.model,
-              effortOptions:
-                getReasoningEffortOptions(adapter, middle.model) ?? undefined,
-              contextWindowOptions:
-                getContextWindowOptions(adapter, middle.model) ?? undefined,
-              fastModeOptions: fastModeFlagEnabled
-                ? (getFastModeOptions(adapter, middle.model) ?? undefined)
-                : undefined,
-              settings: previewSettings,
-            });
-            const midThoughtOpt = getOptionByCategory(initial, "thought_level");
-            if (midThoughtOpt) {
-              initial = applyConfigChange(initial, {
-                adapter,
-                configId: midThoughtOpt.id,
-                value: middle.effort,
-                effortOptions: undefined,
-                settings: previewSettings,
-              });
-            }
+            initial = seedSelection(initial, middle.model, middle.effort);
           }
         }
 
@@ -265,6 +288,8 @@ export function usePreviewConfig(
     hasHydrated,
     modelFlags,
     fastModeFlagEnabled,
+    runDefaults,
+    runDefaultsSettled,
   ]);
 
   const setConfigOption = useCallback(

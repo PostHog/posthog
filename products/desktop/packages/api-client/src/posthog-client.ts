@@ -275,6 +275,25 @@ export interface TaskSearchResult {
   metadata: Record<string, unknown>;
 }
 
+/**
+ * The effective AI run defaults for the signed-in user in a project, as resolved
+ * by the tasks backend: their own preference over the project default. `source`
+ * says which level supplied them, and is `"none"` when neither is set.
+ */
+export interface TaskRunDefaults {
+  runtime_adapter: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
+  source: "user" | "team" | "none";
+}
+
+export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime_adapter: null,
+  model: null,
+  reasoning_effort: null,
+  source: "none",
+};
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -2103,6 +2122,29 @@ export class PostHogAPIClient {
       path: { project_id: projectId.toString() },
     });
     return data as Schemas.Team;
+  }
+
+  /**
+   * The AI run triple a task run gets when the caller pins no runtime selection —
+   * the signed-in user's per-project preference over the project default.
+   *
+   * Hand-rolled rather than routed through the generated client because
+   * `tasks/@me/config/` postdates the last schema pull.
+   */
+  async getTaskRunDefaults(projectId: number): Promise<TaskRunDefaults> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Task run defaults request failed: ${response.status}`);
+    }
+    const body = (await response.json()) as {
+      resolved_ai_run_defaults?: TaskRunDefaults;
+    };
+    return body.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS;
   }
 
   async listSignalSourceConfigs(

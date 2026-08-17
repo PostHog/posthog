@@ -1,4 +1,5 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { TaskRunDefaults } from "@posthog/api-client/posthog-client";
 import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
 import type { Adapter } from "@posthog/shared";
 import { EFFORT_LEVELS } from "@posthog/shared/domain-types";
@@ -129,6 +130,50 @@ export function deriveInitialConfig(
     }
     return opt;
   });
+}
+
+/** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
+export type PreferredRunDefaults = Pick<
+  TaskRunDefaults,
+  "runtime_adapter" | "model" | "reasoning_effort"
+>;
+
+export interface PreferredRunSelection {
+  model: string;
+  reasoningEffort: string | null;
+}
+
+/**
+ * The model and effort the composer should open on, taken from the project or
+ * user preference stored server-side. Returns null when the preference doesn't
+ * apply, leaving the caller on its built-in fallback:
+ *
+ * - `lastUsedModel` is set — an explicit pick on this device outranks a
+ *   preference, which must never silently move a model someone chose.
+ * - no default is stored.
+ * - the preference names a different harness, so its model is meaningless here.
+ * - this adapter no longer offers the model (a de-listed id would fail the run
+ *   at the gateway rather than launching on something usable).
+ */
+export function pickPreferredRunSelection(
+  defaults: PreferredRunDefaults | null | undefined,
+  adapter: Adapter,
+  modelOption: SessionConfigOption | undefined,
+  lastUsedModel: string | null | undefined,
+): PreferredRunSelection | null {
+  if (lastUsedModel) return null;
+  const model = defaults?.model;
+  if (!model) return null;
+  if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
+    return null;
+  }
+  if (
+    modelOption?.type !== "select" ||
+    !flattenConfigValues(modelOption).includes(model)
+  ) {
+    return null;
+  }
+  return { model, reasoningEffort: defaults?.reasoning_effort || null };
 }
 
 export interface ApplyConfigChangeArgs {
