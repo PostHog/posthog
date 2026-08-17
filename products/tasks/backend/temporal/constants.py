@@ -111,6 +111,12 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 # Upper bound on how many CI rounds the orchestrator will dispatch.
 MAX_CI_REPETITIONS = 3
 
+# How many times a run may claim to be mid-turn to postpone its own inactivity timeout. A turn
+# parked on an unanswered permission request reports itself in flight for as long as it is parked,
+# and interactive and user-origin runs have no hard duration cap to catch that, so the claim buys
+# a bounded number of extra windows rather than an open-ended reprieve.
+MAX_INACTIVITY_DEFERRALS = 3
+
 # Long-lived SSE relay activity timeout. The relay reconnects internally on
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)

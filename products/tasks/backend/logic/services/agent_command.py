@@ -14,6 +14,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
+# Kept short because this runs on the inactivity deadline, where waiting costs a worker slot and
+# giving up reaches the same outcome as a negative answer.
+HEALTH_TIMEOUT_SECONDS = 5
 CANCEL_TIMEOUT_SECONDS = 10
 # Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
 # agent-server, so we need more headroom than a plain command.
@@ -125,6 +128,48 @@ def _build_request_args(
     elif connect_token:
         headers["Authorization"] = f"Bearer {connect_token}"
     return headers, query_params
+
+
+def read_agent_turn_in_flight(task_run: Any, timeout: int = HEALTH_TIMEOUT_SECONDS) -> bool | None:
+    """Ask the sandbox agent-server whether it is part-way through a turn.
+
+    Returns ``None`` when the question cannot be answered: no sandbox URL, an unreachable tunnel,
+    or an agent-server that does not report the field. Callers decide what that means rather than
+    having a guess made for them.
+
+    Reads ``/health`` rather than sending a command because that route logs nothing. Whatever the
+    agent-server logs is relayed back as a stream event, and an event re-arms the run's inactivity
+    timer, so asking over ``/command`` would keep alive the runs this is meant to let die.
+    """
+    sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
+    if not sandbox_url:
+        return None
+
+    validation_error = validate_sandbox_url(sandbox_url)
+    if validation_error:
+        logger.warning(
+            "agent_health_ssrf_blocked",
+            sandbox_url=sandbox_url,
+            error=validation_error,
+            task_run_id=str(task_run.id),
+        )
+        return None
+
+    headers, query_params = _build_request_args(connect_token, None)
+    try:
+        resp = requests.get(
+            f"{sandbox_url.rstrip('/')}/health",
+            headers=headers,
+            timeout=timeout,
+            params=query_params or None,
+        )
+        if resp.status_code != 200:
+            return None
+        value = resp.json().get("turnInFlight")
+    except Exception:
+        return None
+
+    return value if isinstance(value, bool) else None
 
 
 def send_agent_command(

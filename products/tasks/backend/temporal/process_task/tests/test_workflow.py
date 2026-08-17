@@ -1100,6 +1100,9 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(
             workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
         )
+        # The timeout path asks the sandbox whether a turn is still running. These tests cover
+        # what happens once it is not.
+        monkeypatch.setattr(workflow, "_agent_is_mid_turn", AsyncMock(return_value=False))
         monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
@@ -1150,6 +1153,9 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(
             workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
         )
+        # The timeout path asks the sandbox whether a turn is still running. These tests cover
+        # what happens once it is not.
+        monkeypatch.setattr(workflow, "_agent_is_mid_turn", AsyncMock(return_value=False))
         monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
         monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
@@ -1426,6 +1432,9 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(
             workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
         )
+        # The timeout path asks the sandbox whether a turn is still running. These tests cover
+        # what happens once it is not.
+        monkeypatch.setattr(workflow, "_agent_is_mid_turn", AsyncMock(return_value=False))
         # The patch helpers short-circuit to "enabled" outside a workflow, so the replay case only
         # exists once in_workflow() is true and the marker is absent.
         monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
@@ -1486,6 +1495,9 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(
             workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
         )
+        # The timeout path asks the sandbox whether a turn is still running. These tests cover
+        # what happens once it is not.
+        monkeypatch.setattr(workflow, "_agent_is_mid_turn", AsyncMock(return_value=False))
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
 

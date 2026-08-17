@@ -20,7 +20,7 @@ from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate, confirm_turn_before_timeout
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     get_pr_context,
@@ -72,6 +72,7 @@ from .activities.provision_sandbox import (
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
 )
+from .activities.read_agent_turn_state import ReadAgentTurnStateInput, read_agent_turn_state
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
@@ -226,6 +227,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     DEFAULT_CI_MESSAGE,
     INACTIVITY_TIMEOUT,
     MAX_CI_REPETITIONS,
+    MAX_INACTIVITY_DEFERRALS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
@@ -374,6 +376,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
+        self._inactivity_deferrals: int = 0
         self._last_active_time: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
@@ -539,6 +542,53 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             followup = self._pop_next_followup()
             if followup is not None:
                 await self._dispatch_followup(followup)
+
+    async def _agent_is_mid_turn(self) -> bool:
+        """Whether the sandbox reports a turn still running, now that the idle window has closed.
+
+        A turn can run for many minutes without emitting anything, such as a long build or test
+        suite, and from outside that is indistinguishable from an agent that stopped. Asking is the
+        only way to tell, because any output produced to prove the agent was alive would re-arm
+        this same timer.
+
+        Only an explicit yes keeps the run alive. A sandbox that cannot answer, whether unreachable
+        or serving an agent-server without the field, is stopped as it would have been anyway,
+        since it has no work to hand back and the run stays resumable.
+
+        Deferrals are capped rather than trusted indefinitely, because a turn parked on an
+        unanswered permission request reports itself in flight for as long as it is parked.
+        """
+        if not confirm_turn_before_timeout():
+            return False
+        if self._inactivity_deferrals >= MAX_INACTIVITY_DEFERRALS:
+            workflow.logger.info(
+                "inactivity_timeout_deferral_budget_spent",
+                extra={"run_id": self.context.run_id, "deferrals": self._inactivity_deferrals},
+            )
+            return False
+        try:
+            state = await workflow.execute_activity(
+                read_agent_turn_state,
+                ReadAgentTurnStateInput(context=self.context),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "agent_turn_state_unavailable",
+                extra={"run_id": self.context.run_id},
+            )
+            return False
+        # Identity, not truthiness: only an explicit yes defers. No, unanswerable, or a shape this
+        # workflow does not recognise all reclaim the sandbox exactly as before the check existed.
+        if state.turn_in_flight is not True:
+            return False
+        self._inactivity_deferrals += 1
+        workflow.logger.info(
+            "inactivity_timeout_deferred_agent_mid_turn",
+            extra={"run_id": self.context.run_id, "deferrals": self._inactivity_deferrals},
+        )
+        return True
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
         await workflow.sleep(timeout.total_seconds())
@@ -894,6 +944,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 event = await self._wait_for_event()
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
+                        if await self._agent_is_mid_turn():
+                            self._last_active_time = workflow.now()
+                            continue
                         timeout_event = event
                         break
                     case TaskEvent.MAX_DURATION_REACHED:

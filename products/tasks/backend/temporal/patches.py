@@ -20,3 +20,16 @@ def ci_follow_up_actionable_gate() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE)
+
+
+# Gates asking the sandbox whether a turn is still running before the inactivity
+# timeout stops it. Histories recorded without that question have no marker for the
+# added activity call, so the gate keeps their replays deterministic.
+PATCH_ID_CONFIRM_TURN_BEFORE_TIMEOUT = "tasks-confirm-turn-before-timeout"
+
+
+def confirm_turn_before_timeout() -> bool:
+    # True outside a workflow so direct-invocation unit tests exercise the new path.
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(PATCH_ID_CONFIRM_TURN_BEFORE_TIMEOUT)
