@@ -247,7 +247,28 @@ await page.hover(".qa-answer .qa-ref");
 await page.waitForSelector("[data-radix-popper-content-wrapper]", {
   timeout: 5_000,
 });
-pass("chip hover mounts the preview card");
+// The card is styled by layered Tailwind utilities; an unscoped panel reset
+// would flatten its padding and surface to nothing.
+const cardStyle = (await page.evaluate(`(() => {
+  const wrapper = document.querySelector("[data-radix-popper-content-wrapper]");
+  const card = wrapper?.querySelector(".w-80");
+  const surface = card?.parentElement ? getComputedStyle(card.parentElement) : null;
+  return {
+    padding: card ? getComputedStyle(card).paddingTop : "",
+    background: surface?.backgroundColor ?? "",
+  };
+})()`)) as { padding: string; background: string };
+if (!cardStyle.padding || cardStyle.padding === "0px") {
+  fail(
+    `hover card lost its padding (padding-top: ${cardStyle.padding || "none"})`,
+  );
+}
+if (!cardStyle.background || cardStyle.background === "rgba(0, 0, 0, 0)") {
+  fail(`hover card surface is transparent (${cardStyle.background || "none"})`);
+}
+pass(
+  `chip hover mounts the preview card (padding ${cardStyle.padding}, solid surface)`,
+);
 
 // The close button hides the panel; clicking elsewhere must not.
 await page.click(".qa-close");

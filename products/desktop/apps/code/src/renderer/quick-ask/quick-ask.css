@@ -34,8 +34,14 @@
   --qa-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
 
+/* Scoped to the panel tree: this file is un-layered, so a bare `*` reset
+ * would also beat the layered Tailwind utilities that portalled overlays
+ * (hover cards) are built from. :where() keeps specificity at zero. */
 * {
   box-sizing: border-box;
+}
+
+:where(#root, #root *) {
   margin: 0;
   padding: 0;
 }
