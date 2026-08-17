@@ -192,7 +192,7 @@ EMAIL_SENDING_RATE_LIMIT_FLAG = "workflows-email-rate-limit"
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source", "cohort_ids")
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -1500,7 +1500,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    # Cohort filters are allowed in conditional_branch only: the branch evaluates
+                    # membership on arrival via a point lookup. A wait_until_condition would only
+                    # ever notice a membership change through its polling backstop (the matcher has
+                    # no cohort membership wake stream), so cohorts stay rejected there.
+                    serializer = HogFunctionFiltersSerializer(
+                        data=filters,
+                        context={**self.context, "cohort_membership_supported": True}
+                        if is_conditional_branch
+                        else self.context,
+                    )
                     if not strict:
                         if serializer.is_valid():
                             condition["filters"] = serializer.validated_data

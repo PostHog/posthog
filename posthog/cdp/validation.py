@@ -14,13 +14,15 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr, filter_cohort_ids
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
 )
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -844,6 +846,14 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    cohort_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text=(
+            "Cohorts referenced by the compiled filter bytecode's inCohort/notInCohort calls. "
+            "Derived at save time so the runtime can prefetch membership; caller-supplied values are ignored."
+        ),
+    )
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -900,7 +910,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             if "bytecode" in data:
                 del data["bytecode"]
         else:
-            data = compile_filters_bytecode(data, team)
+            cohort_membership_supported = bool(self.context.get("cohort_membership_supported"))
+            if cohort_membership_supported:
+                self._validate_realtime_cohorts(data, team)
+            data = compile_filters_bytecode(data, team, cohort_membership_supported=cohort_membership_supported)
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
             # via context; the error stays persisted on the filters for the UI to surface.
@@ -908,6 +921,32 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
 
         return data
+
+    def _validate_realtime_cohorts(self, data: dict, team: Team) -> None:
+        """Only cohorts whose membership the realtime pipeline maintains in the cohort_membership
+        table may be referenced: the runtime answers inCohort with a point lookup against that
+        table, so any other cohort would evaluate everyone as a non-member."""
+        cohort_ids = filter_cohort_ids(data)
+        if not cohort_ids:
+            return
+
+        cohorts = {
+            cohort.pk: cohort
+            for cohort in Cohort.objects.filter(pk__in=cohort_ids, team__project_id=team.project_id, deleted=False)
+        }
+        for cohort_id in cohort_ids:
+            cohort = cohorts.get(cohort_id)
+            if cohort is None:
+                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this project.")
+            if cohort.is_static:
+                raise serializers.ValidationError(
+                    f"Cohort '{cohort.name}' is a static cohort. Conditions can only use realtime cohorts."
+                )
+            if not cohort.is_flag_compatible:
+                raise serializers.ValidationError(
+                    f"Cohort '{cohort.name}' isn't ready for realtime evaluation. "
+                    f"Conditions can only use realtime cohorts that have finished calculating."
+                )
 
 
 class MappingsSerializer(serializers.Serializer):

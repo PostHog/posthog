@@ -295,6 +295,39 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
         return []
 
 
+def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
+    """Cohort ids referenced by the filters' global property tree.
+
+    Stored on compiled filters (as `cohort_ids`) so the runtime can prefetch cohort
+    membership for the bytecode's inCohort/notInCohort calls without parsing bytecode.
+    """
+    if not filters:
+        return []
+
+    ids: set[int] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") in ("AND", "OR"):
+            _walk(node.get("values") or [])
+            return
+        if _is_cohort_filter(node):
+            value = node.get("value")
+            if isinstance(value, str | int) and not isinstance(value, bool):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+
+    _walk(filters.get("properties") or [])
+    return sorted(ids)
+
+
 def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
     filters = filters or {}
 
@@ -359,8 +392,15 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
-def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+def compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]] = None,
+    cohort_membership_supported: bool = False,
+) -> dict:
     filters = filters or {}
+    # Derived below on a successful compile; never trust a caller-supplied value
+    filters.pop("cohort_ids", None)
     try:
         expr = compile_filters_expr(filters, team, actions)
         if SelectFinder.has_select(expr):
@@ -368,7 +408,16 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
 
         expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
-        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+        filters["bytecode"] = create_bytecode(
+            expr,
+            context=context,
+            cohort_membership_supported=cohort_membership_supported,
+            # inCohort/notInCohort aren't STL functions; the runtime injects them as host
+            # functions closing over prefetched membership (see conditional_branch.ts)
+            supported_functions={"inCohort", "notInCohort"} if cohort_membership_supported else None,
+        ).bytecode
+        if cohort_membership_supported:
+            filters["cohort_ids"] = filter_cohort_ids(filters)
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are

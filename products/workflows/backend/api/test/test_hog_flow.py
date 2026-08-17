@@ -28,7 +28,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -1140,6 +1140,117 @@ class TestHogFlowAPI(APIBaseTest):
         assert "filters" in conditions[0]
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+
+    def _create_behavioral_cohort(self, cohort_type: Optional[CohortType], backfilled: bool) -> Cohort:
+        cohort_kwargs: dict[str, Any] = {
+            "team": self.team,
+            "name": "power-users",
+            "filters": {
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        }
+        if cohort_type is not None:
+            cohort_kwargs["cohort_type"] = cohort_type
+        if backfilled:
+            cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
+            cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
+        return Cohort.objects.create(**cohort_kwargs)
+
+    def _hog_flow_with_condition_filters(self, action_type: str, filters: dict) -> dict:
+        condition_key = "conditions" if action_type == "conditional_branch" else "condition"
+        config: dict[str, Any] = (
+            {"conditions": [{"filters": filters}]}
+            if action_type == "conditional_branch"
+            else {"condition": {"filters": filters}, "max_wait_duration": "1h"}
+        )
+        assert condition_key in config
+        return {
+            "name": "Test Flow",
+            "status": "active",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {"id": "cond_1", "name": "cond_1", "type": action_type, "config": config},
+            ],
+        }
+
+    @parameterized.expand(
+        [
+            ("in_operator", None, "inCohort"),
+            ("not_in_operator", "not_in", "notInCohort"),
+        ]
+    )
+    def test_hog_flow_conditional_branch_cohort_filter_compiles(self, _name, operator, expected_call):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        cohort_property: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.id}
+        if operator:
+            cohort_property["operator"] = operator
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": [cohort_property]})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        filters = response.json()["actions"][1]["config"]["conditions"][0]["filters"]
+        assert filters["bytecode"] == ["_H", 1, 33, cohort.id, 2, expected_call, 1]
+        assert filters["cohort_ids"] == [cohort.id]
+
+    @parameterized.expand(
+        [
+            ("static_cohort", "static", "is a static cohort"),
+            ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
+            ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
+            ("missing_cohort", "missing", "doesn't exist in this project"),
+        ]
+    )
+    def test_hog_flow_conditional_branch_rejects_ineligible_cohorts(self, _name, cohort_kind, expected_detail):
+        if cohort_kind == "static":
+            cohort_id = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True).id
+        elif cohort_kind == "dynamic":
+            cohort_id = self._create_behavioral_cohort(None, backfilled=False).id
+        elif cohort_kind == "realtime_unbackfilled":
+            cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False).id
+        else:
+            cohort_id = 999999
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert expected_detail in response.json()["detail"]
+
+    def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
+        # Cohort support is scoped to conditional_branch: a wait would only notice membership
+        # changes via the polling backstop, so the compile-time rejection must stay in place.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        hog_flow = self._hog_flow_with_condition_filters(
+            "wait_until_condition", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_wait_until_condition_defaults_missing_condition(self):
         # An events-only wait omits 'condition'; the FE always seeds it and StepWaitUntilCondition
