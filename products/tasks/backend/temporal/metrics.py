@@ -3,6 +3,7 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Any
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.common import MetricMeter
 
@@ -81,6 +82,20 @@ _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 
 def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
     return "vm" if use_vm_sandbox else "gvisor"
+
+
+def record_network_enforcement(stage: str, runtime: str, layer: str, outcome: str) -> None:
+    try:
+        client = posthoganalytics.default_client
+        if client is None:
+            return
+        client.metrics.count(
+            "tasks.sandbox.network_enforcement",
+            1,
+            attributes={"stage": stage, "runtime": runtime, "layer": layer, "outcome": outcome},
+        )
+    except Exception:
+        pass
 
 
 def _runtime_adapter_label(value: str | None) -> str:

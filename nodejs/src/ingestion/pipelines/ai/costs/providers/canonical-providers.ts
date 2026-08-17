@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-13 20:10:27 UTC
+// Generated at: 2026-08-14 10:21:15 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,6 +15,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
+    | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'ambient'
@@ -149,11 +150,13 @@ export type CanonicalProvider =
     | 'perceptron'
     | 'perplexity'
     | 'phala'
+    | 'phala-fp8'
     | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
     | 'relace-bf16'
+    | 'relace-fp4'
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
