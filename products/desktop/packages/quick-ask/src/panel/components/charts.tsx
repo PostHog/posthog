@@ -14,12 +14,21 @@ const WIDTH = 100;
 const HEIGHT = 48;
 const TOP_PAD = 5;
 const MAX_X_TICKS = 7;
-/** Fixed categorical order, CVD-validated against the dark surface. */
+/** Fixed categorical order; one distinct color per renderable series. */
 const SERIES_COLORS = [
   "var(--qa-accent)",
   "var(--qa-series-2)",
   "var(--qa-series-3)",
+  "var(--qa-series-4)",
+  "var(--qa-series-5)",
+  "var(--qa-series-6)",
 ];
+/**
+ * The palette is the ceiling: past it, series would share colors and become
+ * indistinguishable in the plot, tooltip, and legend alike. Extra series are
+ * dropped consistently everywhere and the legend states how many.
+ */
+const MAX_SERIES = SERIES_COLORS.length;
 
 const MONTHS = [
   "Jan",
@@ -262,10 +271,18 @@ export function Chart({
   // BarPlot draws a single series; a multi-series bar would plot the first
   // series while the tooltip and legend list them all. Lines carry every
   // series, so multi-series bar data renders as a line chart instead.
-  const chart: QuickAskChart =
-    chartProp.kind === "bar" && chartProp.series.length > 1
-      ? { ...chartProp, kind: "line" }
-      : chartProp;
+  const chart: QuickAskChart = useMemo(() => {
+    const kind =
+      chartProp.kind === "bar" && chartProp.series.length > 1
+        ? "line"
+        : chartProp.kind;
+    return {
+      ...chartProp,
+      kind,
+      series: chartProp.series.slice(0, MAX_SERIES),
+    };
+  }, [chartProp]);
+  const omittedSeries = chartProp.series.length - chart.series.length;
   const [hover, setHover] = useState<HoverState | null>(null);
   const scale = useMemo(() => buildScale(chart.series), [chart.series]);
   const pointCount = chart.series[0].points.length;
@@ -447,6 +464,11 @@ export function Chart({
               {series.name}
             </span>
           ))}
+          {omittedSeries > 0 && (
+            <span className="qa-chart-legend-item">
+              +{omittedSeries} more in PostHog
+            </span>
+          )}
         </div>
       )}
     </div>

@@ -19,10 +19,14 @@
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
   --qa-accent: #f1a82c; /* quill primary (dark) */
-  /* Chart series 2 and 3 (series 1 is the accent). CVD-validated against
-   * --qa-surface with the dataviz palette checker. */
+  /* Chart series 2-6 (series 1 is the accent). 2 and 3 are CVD-validated
+   * against --qa-surface with the dataviz palette checker; 4-6 extend the
+   * ramp with hue + lightness separation from their neighbors. */
   --qa-series-2: #5b86de;
   --qa-series-3: #3aa658;
+  --qa-series-4: #a875e8;
+  --qa-series-5: #de5b9c;
+  --qa-series-6: #3fb8c9;
   --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
   /* Hover-card sparklines pick up the panel's accent. */
@@ -59,6 +63,9 @@ html:not(.dark) {
   --qa-accent: #d97706;
   --qa-series-2: #3560c4;
   --qa-series-3: #2a8a47;
+  --qa-series-4: #7c4fd0;
+  --qa-series-5: #b8437e;
+  --qa-series-6: #22869a;
   --qa-up: #2f9e54;
   --qa-down: #d64545;
   --qa-hover: rgba(0, 0, 0, 0.06);
