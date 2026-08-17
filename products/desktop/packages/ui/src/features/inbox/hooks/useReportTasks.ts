@@ -7,10 +7,14 @@ import type {
 import { isTerminalStatus } from "@posthog/shared/types";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
-// Task↔report associations are unlabelled — a task's purpose is derived from the report's
-// `task_run` artefacts (the signals pipeline writes product="signals" with one of these types;
-// custom agents write their own (product, type) pair).
-export type ReportTaskPurpose = "research" | "implementation" | "other";
+// A task's report purpose is derived from the report's `task_run` artefact.
+// Signals writes research, implementation, and discussion relationship types;
+// custom agents can write their own product and type pair.
+export type ReportTaskPurpose =
+  | "research"
+  | "implementation"
+  | "discussion"
+  | "other";
 
 export interface ReportTaskData {
   task: Task;
@@ -31,6 +35,9 @@ function derivePurpose(taskRun: {
     if (taskRun.type === "implementation") {
       return { purpose: "implementation", purposeLabel: "Implementation" };
     }
+    if (taskRun.type === "discussion") {
+      return { purpose: "discussion", purposeLabel: "Discussion" };
+    }
     // repo_selection runs are plumbing, not report work — never displayed (matches the
     // pre-derivation behavior of only showing research/implementation).
     return null;
@@ -43,6 +50,7 @@ function derivePurpose(taskRun: {
 
 const PURPOSE_ORDER: ReportTaskPurpose[] = [
   "implementation",
+  "discussion",
   "research",
   "other",
 ];
@@ -59,7 +67,7 @@ export function useReportTasks(
   return useAuthenticatedQuery<ReportTaskData[]>(
     ["inbox", "report-tasks", reportId],
     async (client) => {
-      // task_run artefacts ARE the task↔report association — one entry per associated task,
+      // Task-run artefacts are the task↔report association — one entry per associated task,
       // keyed by content.task_id (earliest artefact wins for startedAt). The runtime `type`
       // check is authoritative (the generic fallback artefact keeps `type: string` and
       // defeats static narrowing).
@@ -110,6 +118,19 @@ export function useReportTasks(
       staleTime: isActive ? 5_000 : 10_000,
       refetchInterval: isActive ? 5_000 : false,
     },
+  );
+}
+
+export function findUserDiscussionTask(
+  reportTasks: ReportTaskData[] | undefined,
+  userUuid: string | undefined,
+): Task | null {
+  if (!reportTasks || !userUuid) return null;
+  return (
+    reportTasks.find(
+      ({ purpose, task }) =>
+        purpose === "discussion" && task.created_by?.uuid === userUuid,
+    )?.task ?? null
   );
 }
 

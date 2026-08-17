@@ -35,6 +35,7 @@ interface ApiCanvas {
   template_id: string;
   context: string;
   generation_task_id: string | null;
+  discussion_task_id: string | null;
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
@@ -89,6 +90,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
     context: api.context ?? "",
     generationTaskId: api.generation_task_id,
+    discussionTaskId: api.discussion_task_id,
     createdBy: creatorLabel(api.created_by),
     createdByUuid: api.created_by?.uuid,
     createdAt: toEpoch(api.created_at) ?? 0,

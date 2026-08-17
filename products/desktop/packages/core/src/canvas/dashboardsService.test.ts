@@ -11,6 +11,7 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     template_id: "freeform",
     context: "",
     generation_task_id: null,
+    discussion_task_id: "discussion-1",
     pinned_at: null,
     current_version_id: "v1",
     published_build_id: null,
@@ -69,6 +70,7 @@ describe("DashboardsService.list", () => {
       name: "Revenue board",
       createdBy: "Ada L",
       currentVersionId: "v1",
+      discussionTaskId: "discussion-1",
     });
     expect(rows[0].createdAt).toBe(Date.parse("2026-07-01T00:00:00Z"));
   });

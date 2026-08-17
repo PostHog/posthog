@@ -1,5 +1,6 @@
 import {
   ArrowClockwiseIcon,
+  ArrowSquareOutIcon,
   ChatCircleIcon,
   DotsThreeIcon,
   LinkIcon,
@@ -8,6 +9,8 @@ import {
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
+import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
@@ -54,6 +57,16 @@ import {
   CONTENT_CHROME_RIGHT_VAR,
   useRightPanelOpen,
 } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
+import {
+  useInboxReportArtefacts,
+  useInboxReportById,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  findContinuableImplementationTask,
+  getTaskPrUrl,
+  useReportTasks,
+} from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
@@ -61,12 +74,14 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
+import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Flex } from "@radix-ui/themes";
-import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   useNavigate,
@@ -74,6 +89,97 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useState } from "react";
+
+function ReportCanvasActions({ dashboardId }: { dashboardId: string }) {
+  const { dashboard } = useDashboard(dashboardId);
+  const discussionTaskId = dashboard?.discussionTaskId ?? null;
+
+  if (!discussionTaskId) return null;
+
+  return <ReportCanvasActionsForDiscussion taskId={discussionTaskId} />;
+}
+
+function ReportCanvasActionsForDiscussion({ taskId }: { taskId: string }) {
+  const { data: discussionTask } = useQuery({
+    ...taskDetailQuery(taskId),
+  });
+  const reportId =
+    discussionTask?.origin_product === "signal_report"
+      ? (discussionTask.signal_report ?? null)
+      : null;
+  const { data: report } = useInboxReportById(reportId, {
+    enabled: !!reportId,
+    staleTime: 10_000,
+  });
+  const { data: artefacts } = useInboxReportArtefacts(reportId ?? "", {
+    enabled: !!reportId,
+    staleTime: 10_000,
+  });
+  const repository = extractRepoSelectionRepository(artefacts?.results);
+  const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
+    reportId ?? "",
+    report?.status ?? "ready",
+  );
+  const continuableTask = findContinuableImplementationTask(reportTasks);
+  const taskPrUrl = continuableTask ? getTaskPrUrl(continuableTask) : null;
+  const prUrl = report?.implementation_pr_url ?? taskPrUrl;
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openTask = useOpenTask();
+  const { createPrReport, isCreatingPr } = useCreatePrReport({
+    reportId: reportId ?? "",
+    reportTitle: report?.title ?? null,
+    cloudRepository: repository,
+  });
+
+  if (!report || !reportId) return null;
+
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={openChat}>
+        <ChatCircleIcon />
+        Chat
+      </Button>
+      {prUrl && (
+        <Button
+          size="sm"
+          variant="outline"
+          render={
+            <a
+              href={prUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open pull request in GitHub"
+            >
+              <span className="sr-only">Open pull request in GitHub</span>
+            </a>
+          }
+        >
+          <ArrowSquareOutIcon />
+          Open in GitHub
+        </Button>
+      )}
+      {continuableTask ? (
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={() => void openTask(continuableTask)}
+        >
+          Continue PR
+        </Button>
+      ) : canCreateImplementationPr(report) ? (
+        <Button
+          size="sm"
+          variant="primary"
+          loading={isCreatingPr}
+          disabled={isCreatingPr || reportTasksLoading}
+          onClick={() => void createPrReport()}
+        >
+          Create PR
+        </Button>
+      ) : null}
+    </>
+  );
+}
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -306,9 +412,10 @@ function CanvasBreadcrumb({
     dashboard?.generationTaskId,
     versions,
   );
+  const stableCommentTaskId = dashboard?.discussionTaskId ?? commentTaskId;
   const comments = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
+    stableCommentTaskId ? commentTarget : null,
+    stableCommentTaskId ?? "",
     { live: true },
   );
   const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
@@ -330,7 +437,7 @@ function CanvasBreadcrumb({
       onRename={(next) => void renameDashboard(dashboardId, next)}
       trailing={
         <>
-          {commentTaskId && (
+          {stableCommentTaskId && (
             <Button size="sm" variant="outline" onClick={openComments}>
               <ChatCircleIcon />
               Comments
@@ -427,10 +534,13 @@ export function WebsiteLayout() {
               channelId={channelId}
               dashboardId={dashboardId}
               trailing={
-                <FreeformEditControls
-                  channelId={channelId}
-                  dashboardId={dashboardId}
-                />
+                <>
+                  <ReportCanvasActions dashboardId={dashboardId} />
+                  <FreeformEditControls
+                    channelId={channelId}
+                    dashboardId={dashboardId}
+                  />
+                </>
               }
             />
           ) : (

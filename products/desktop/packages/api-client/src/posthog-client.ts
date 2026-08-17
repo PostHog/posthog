@@ -2530,6 +2530,10 @@ export class PostHogAPIClient {
           | "signal_report"
         >
       > & {
+        signal_report_task_relationship?:
+          | "discussion"
+          | "implementation"
+          | "research";
         github_integration?: number | null;
         github_user_integration?: string | null;
         branch?: string | null;

@@ -77,7 +77,7 @@ describe("useDiscussReport", () => {
     createTask.mockResolvedValue({ success: true, task: { id: "task-1" } });
   });
 
-  it("skips task creation and shows an error when no cloud repository is set", async () => {
+  it("skips task creation and shows an error when a repository is required", async () => {
     const { result } = renderHook(
       () =>
         useDiscussReport({
@@ -94,6 +94,30 @@ describe("useDiscussReport", () => {
       expect.objectContaining({
         description: "Pick a cloud repository before starting a discussion",
       }),
+    );
+  });
+
+  it("creates a repo-less report discussion when the caller allows it", async () => {
+    const { result } = renderHook(
+      () =>
+        useDiscussReport({
+          reportId: "r1",
+          reportTitle: "T",
+          cloudRepository: null,
+          allowMissingRepository: true,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await result.current.discussReport("why?");
+
+    expect(createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: null,
+        allowNoRepo: true,
+        signalReportTaskRelationship: "discussion",
+      }),
+      expect.any(Function),
     );
   });
 
@@ -115,5 +139,6 @@ describe("useDiscussReport", () => {
     expect(input.workspaceMode).toBe("cloud");
     expect(input.cloudRunSource).toBe("signal_report");
     expect(input.signalReportId).toBe("r1");
+    expect(input.signalReportTaskRelationship).toBe("discussion");
   });
 });

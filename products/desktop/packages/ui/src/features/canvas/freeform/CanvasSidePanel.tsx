@@ -5,21 +5,24 @@ import {
   TabsList,
   TabsTrigger,
   Text,
+  Textarea,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
+import type { SignalReport } from "@posthog/shared/types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import { CanvasContextEditor } from "@posthog/ui/features/canvas/freeform/ContextEditor";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import { type Ref, useEffect, useRef } from "react";
+import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 
 // The canvas's right-hand dock. While a generation/edit run is in flight it
 // shows that run's live chat (steering/queue included); otherwise it shows the
@@ -41,6 +44,11 @@ export function CanvasSidePanel({
   isEdit,
   editorRef,
   onStarted,
+  reportId,
+  report,
+  reportRepository,
+  reportDiscussionTask,
+  onReportDiscussionStarted,
 }: {
   effectiveTaskId: string | null;
   commentTaskId: string | null;
@@ -62,13 +70,22 @@ export function CanvasSidePanel({
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
+  reportId?: string | null;
+  report?: SignalReport | null;
+  reportRepository?: string | null;
+  reportDiscussionTask?: Task | null;
+  onReportDiscussionStarted?: (task: Task) => void;
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
   const previousTaskId = useRef(effectiveTaskId);
   // With no run in flight, edit mode gets the composer for the next change,
   // while view mode gets the chat of the run that produced this canvas.
-  const chatTaskId = effectiveTaskId ?? (interactive ? null : commentTaskId);
+  const chatTaskId = interactive
+    ? effectiveTaskId
+    : reportId
+      ? (reportDiscussionTask?.id ?? null)
+      : (effectiveTaskId ?? commentTaskId);
 
   useEffect(() => {
     if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
@@ -126,6 +143,16 @@ export function CanvasSidePanel({
           />
         ) : chatTaskId ? (
           <CanvasChatLoader taskId={chatTaskId} />
+        ) : report ? (
+          <ReportDiscussionStarter
+            report={report}
+            cloudRepository={reportRepository ?? null}
+            onTaskCreated={onReportDiscussionStarted}
+          />
+        ) : reportId ? (
+          <div className="flex h-full items-center justify-center">
+            <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+          </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col gap-3 p-3">
             <FreeformGenerateBar
@@ -153,6 +180,104 @@ export function CanvasSidePanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ReportDiscussionStarter({
+  report,
+  cloudRepository,
+  onTaskCreated,
+}: {
+  report: SignalReport;
+  cloudRepository: string | null;
+  onTaskCreated?: (task: Task) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const { discussReport, isDiscussing } = useDiscussReport({
+    reportId: report.id,
+    reportTitle: report.title ?? null,
+    cloudRepository,
+    onTaskCreated,
+    redirectOnSuccess: false,
+    allowMissingRepository: true,
+  });
+  const submit = useCallback(() => {
+    const value = question.trim();
+    if (!value || isDiscussing) return;
+    void discussReport(value);
+  }, [discussReport, isDiscussing, question]);
+  const suggestions = [
+    "Investigate this further",
+    "Explain the evidence",
+    "What should happen next?",
+  ];
+
+  return (
+    <ReportDiscussionStarterView
+      question={question}
+      isDiscussing={isDiscussing}
+      suggestions={suggestions}
+      onQuestionChange={setQuestion}
+      onSubmit={submit}
+    />
+  );
+}
+
+export function ReportDiscussionStarterView({
+  question,
+  isDiscussing,
+  suggestions,
+  onQuestionChange,
+  onSubmit,
+}: {
+  question: string;
+  isDiscussing: boolean;
+  suggestions: string[];
+  onQuestionChange: (question: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col justify-end gap-3 p-3">
+      <div className="mb-auto rounded-md border bg-gray-2 p-3">
+        <Text weight="medium">Work from this report</Text>
+        <Text size="sm" variant="muted" className="mt-1 block">
+          Ask PostHog to investigate, explain the evidence, or take the next
+          step. This conversation stays connected to the canvas.
+        </Text>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {suggestions.map((suggestion) => (
+          <Button
+            key={suggestion}
+            size="sm"
+            variant="outline"
+            onClick={() => onQuestionChange(suggestion)}
+          >
+            {suggestion}
+          </Button>
+        ))}
+      </div>
+      <Textarea
+        aria-label="Message PostHog about this report"
+        placeholder="Ask about this report..."
+        value={question}
+        onChange={(event) => onQuestionChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      <Button
+        variant="primary"
+        loading={isDiscussing}
+        disabled={isDiscussing || !question.trim()}
+        onClick={onSubmit}
+      >
+        Start conversation
+      </Button>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   findContinuableImplementationTask,
+  findUserDiscussionTask,
   getTaskPrUrl,
   type ReportTaskData,
   type ReportTaskPurpose,
@@ -103,6 +104,26 @@ describe("findContinuableImplementationTask", () => {
     expect(
       findContinuableImplementationTask([entry(failed), entry(running)]),
     ).toBe(running);
+  });
+});
+
+describe("findUserDiscussionTask", () => {
+  it("returns only the current user's report discussion", () => {
+    const mine = {
+      ...makeTask("mine"),
+      created_by: { uuid: "user-1", id: 1, email: "me@example.com" },
+    };
+    const theirs = {
+      ...makeTask("theirs"),
+      created_by: { uuid: "user-2", id: 2, email: "them@example.com" },
+    };
+
+    expect(
+      findUserDiscussionTask(
+        [entry(theirs, "discussion"), entry(mine, "discussion")],
+        "user-1",
+      ),
+    ).toBe(mine);
   });
 });
 

@@ -818,8 +818,8 @@ export class TaskCreationSaga extends Saga<
           origin_product: input.signalReportId
             ? "signal_report"
             : "user_created",
-          // The server associates the task with the report and records the implementation
-          // task_run artefact — no relationship label is sent (associations are unlabelled).
+          // The server associates the task with the report and records its
+          // relationship so report discussions remain separate from implementation.
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)
@@ -851,6 +851,8 @@ export class TaskCreationSaga extends Saga<
               ? input.customImageId
               : undefined,
           signal_report: input.signalReportId ?? undefined,
+          signal_report_task_relationship:
+            input.signalReportTaskRelationship ?? undefined,
           channel: input.channelId ?? undefined,
           runtime: input.runtime ?? "acp",
           pending_user_message: warmPayload?.pendingUserMessage,

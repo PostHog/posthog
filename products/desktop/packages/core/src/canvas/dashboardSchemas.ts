@@ -20,6 +20,9 @@ export const dashboardRecordSchema = z.object({
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
+  // Stable task used for shared canvas comments. Report canvases also use it
+  // to resolve their backing Signal report without exposing pipeline internals.
+  discussionTaskId: z.string().nullish(),
   // Display name of the creator (from the backend's created_by user).
   createdBy: z.string().optional(),
   createdByUuid: z.string().optional(),

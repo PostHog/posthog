@@ -1,3 +1,5 @@
+import type { Task } from "@posthog/shared/domain-types";
+import type { SignalReport } from "@posthog/shared/types";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +34,15 @@ vi.mock("@posthog/ui/features/canvas/freeform/FreeformGenerateBar", () => ({
 vi.mock("@posthog/ui/features/canvas/freeform/ContextEditor", () => ({
   CanvasContextEditor: () => null,
 }));
+vi.mock("@posthog/ui/features/inbox/hooks/useDiscussReport", () => ({
+  useDiscussReport: () => ({ discussReport: vi.fn(), isDiscussing: false }),
+}));
+
+const report = {
+  id: "report-1",
+  title: "Conversion dropped",
+  status: "ready",
+} as SignalReport;
 
 describe("CanvasSidePanel", () => {
   beforeEach(() => {
@@ -81,5 +92,52 @@ describe("CanvasSidePanel", () => {
 
     fireEvent.click(screen.getByText("Chat"));
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+  });
+
+  it("starts report chat without exposing the canvas builder transcript", () => {
+    render(
+      <CanvasSidePanel
+        effectiveTaskId="builder-task"
+        commentTaskId="shared-discussion-task"
+        interactive={false}
+        onMinimize={vi.fn()}
+        dashboardId="canvas-1"
+        channelId="channel-1"
+        channelName="General"
+        name="Conversion dropped"
+        displayedVersionId="version-2"
+        commentVersionLabel={(versionId) => versionId}
+        onCommentOpen={vi.fn()}
+        reportId="report-1"
+        report={report}
+      />,
+    );
+
+    expect(screen.getByText("Work from this report")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-chat")).not.toBeInTheDocument();
+  });
+
+  it("resumes the viewer's report discussion", () => {
+    render(
+      <CanvasSidePanel
+        effectiveTaskId="builder-task"
+        commentTaskId="shared-discussion-task"
+        interactive={false}
+        onMinimize={vi.fn()}
+        dashboardId="canvas-1"
+        channelId="channel-1"
+        channelName="General"
+        name="Conversion dropped"
+        displayedVersionId="version-2"
+        commentVersionLabel={(versionId) => versionId}
+        onCommentOpen={vi.fn()}
+        reportId="report-1"
+        report={report}
+        reportDiscussionTask={{ id: "user-discussion-task" } as Task}
+      />,
+    );
+
+    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+    expect(screen.queryByText("Work from this report")).not.toBeInTheDocument();
   });
 });
