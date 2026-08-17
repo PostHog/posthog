@@ -36,7 +36,11 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import (
+    CONCURRENCY_LIMIT_USER_MESSAGE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+    MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+)
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -1310,6 +1314,11 @@ class TestQueryRetrieve(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status)
         managed_warehouse_sql_editor_flag.assert_not_called()
+        if not reader_configured:
+            self.assertEqual(response.json()["detail"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE)
+            self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
+            self.assertNotIn(self.valid_query_id, response.json()["detail"])
+            self.assertNotIn(str(self.team_id), response.json()["detail"])
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(

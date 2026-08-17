@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import socket
 import threading
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import closing, contextmanager
 from dataclasses import field
 from itertools import chain
+from selectors import DefaultSelector
+from time import monotonic
 from typing import TYPE_CHECKING, cast
 
 import psycopg
 import structlog
 from opentelemetry import trace
 from psycopg import pq
-from psycopg.abc import Params, PQGen, Query
+from psycopg.abc import Params, PQGen, PQGenConn, Query
+from psycopg.conninfo import make_conninfo
 from psycopg.generators import fetch, send
+from psycopg.waiting import Ready
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -209,6 +213,124 @@ def _fetch_capped_duckgres_rows(row_stream: Iterator[tuple[object, ...]]) -> lis
     return rows
 
 
+def _wait_for_duckgres_connection(
+    generator: PQGenConn[psycopg.Connection[tuple[object, ...]]],
+    deadline: float,
+    abort_check: Callable[[], None],
+) -> psycopg.Connection[tuple[object, ...]]:
+    try:
+        fileno, wait = next(generator)
+        with DefaultSelector() as selector:
+            selector.register(fileno, wait)
+            while True:
+                abort_check()
+                remaining_seconds = deadline - monotonic()
+                if remaining_seconds <= 0:
+                    raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+
+                ready_events = selector.select(
+                    timeout=min(remaining_seconds, DIRECT_DUCKGRES_CANCELLATION_POLL_SECONDS)
+                )
+                if not ready_events:
+                    generator.send(Ready.NONE)
+                    continue
+
+                selector.unregister(fileno)
+                fileno, wait = generator.send(Ready(ready_events[0][1]))
+                selector.register(fileno, wait)
+    except StopIteration as stop:
+        return stop.value
+    finally:
+        generator.close()
+
+
+def _connect_duckgres_address(
+    source_config: _DuckgresProjectReaderConfig,
+    hostaddr: str | None,
+    deadline: float,
+    abort_check: Callable[[], None],
+) -> psycopg.Connection[tuple[object, ...]]:
+    remaining_seconds = deadline - monotonic()
+    if remaining_seconds <= 0:
+        raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+
+    conninfo = make_conninfo(
+        "",
+        host=source_config.host,
+        hostaddr=hostaddr,
+        port=source_config.port,
+        dbname=source_config.database,
+        user=source_config.user,
+        password=source_config.password,
+        sslmode="require",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+        sslrootcert="/tmp/no.txt",
+    )
+    # The public connect API restarts connect_timeout for each address and offers no cancellation checkpoint.
+    generator = cast(
+        PQGenConn[psycopg.Connection[tuple[object, ...]]],
+        psycopg.Connection._connect_gen(conninfo, timeout=remaining_seconds),
+    )
+    connection = _wait_for_duckgres_connection(generator, deadline, abort_check)
+    connection.cursor_factory = _DuckgresStreamingClientCursor
+    return connection
+
+
+def _connect_duckgres_project_reader(
+    source_config: _DuckgresProjectReaderConfig,
+    team_id: int,
+    cancellation_token: str | None,
+) -> psycopg.Connection[tuple[object, ...]]:
+    deadline = monotonic() + DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS
+    cancellation_check_failure_logged = False
+
+    def abort_if_canceled() -> None:
+        nonlocal cancellation_check_failure_logged
+        if cancellation_token is None:
+            return
+        try:
+            canceled = is_direct_query_cancellation_requested(team_id, cancellation_token)
+        except Exception:
+            if not cancellation_check_failure_logged:
+                logger.warning("Failed to check for managed warehouse query cancellation while connecting")
+                cancellation_check_failure_logged = True
+            return
+        if canceled:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_CANCELED_ERROR)
+
+    abort_if_canceled()
+    remaining_seconds = deadline - monotonic()
+    if remaining_seconds <= 0:
+        raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+    addresses = resolve_psycopg_hostaddr_with_timeout(
+        source_config.host,
+        source_config.port,
+        remaining_seconds,
+        fail_on_resolution_error=True,
+        abort_check=abort_if_canceled,
+    )
+
+    connection_addresses: list[str | None]
+    if addresses is None:
+        connection_addresses = [None]
+    else:
+        connection_addresses = list(addresses)
+    last_error: psycopg.Error | None = None
+    for hostaddr in connection_addresses:
+        abort_if_canceled()
+        if deadline - monotonic() <= 0:
+            raise psycopg.errors.ConnectionTimeout("connection timeout expired") from last_error
+        try:
+            return _connect_duckgres_address(source_config, hostaddr, deadline, abort_if_canceled)
+        except psycopg.Error as error:
+            last_error = error
+
+    if last_error is not None:
+        raise last_error
+    raise psycopg.OperationalError("Could not connect to managed warehouse")
+
+
 class DuckgresRawAdapter:
     engine = "duckgres"
     dialect: HogQLDialect | None = None
@@ -277,29 +399,10 @@ class DuckgresRawAdapter:
                     _, source_config = self.validate_source_config(request.source, request.team)
                 try:
                     with request.timings.measure("duckgres_connect", emit_span=True):
-                        addresses = resolve_psycopg_hostaddr_with_timeout(
-                            source_config.host,
-                            source_config.port,
-                            DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
-                            fail_on_resolution_error=True,
-                        )
-                        connect_host = (
-                            ",".join([source_config.host] * len(addresses)) if addresses else source_config.host
-                        )
-                        hostaddr = ",".join(addresses) if addresses else None
-                        connection_context = psycopg.connect(
-                            host=connect_host,
-                            hostaddr=hostaddr,
-                            port=source_config.port,
-                            dbname=source_config.database,
-                            user=source_config.user,
-                            password=source_config.password,
-                            connect_timeout=DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
-                            sslmode="require",
-                            sslcert="/tmp/no.txt",
-                            sslkey="/tmp/no.txt",
-                            sslrootcert="/tmp/no.txt",
-                            cursor_factory=_DuckgresStreamingClientCursor,
+                        connection_context = _connect_duckgres_project_reader(
+                            source_config,
+                            request.team.pk,
+                            request.cancellation_token,
                         )
                 except (RuntimeError, ValueError) as error:
                     span.set_attribute("error_type", error.__class__.__name__)
@@ -354,6 +457,8 @@ class DuckgresRawAdapter:
                 error = ExposedHogQLError(MANAGED_WAREHOUSE_CANCELED_ERROR)
             elif cancellation is not None and cancellation.timed_out.is_set():
                 error = ExposedHogQLError(MANAGED_WAREHOUSE_TIMEOUT_ERROR)
+            elif isinstance(error, psycopg.OperationalError):
+                error = ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))
             raise ExposedHogQLError(postgres_error_to_message(error)) from error

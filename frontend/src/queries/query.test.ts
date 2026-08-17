@@ -348,12 +348,14 @@ describe('query', () => {
         it('preserves a detail-only API error', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {
-                    detail: 'Managed warehouse connection is no longer available',
+                    detail: 'This managed warehouse connection is no longer available. Select a source and run the query again.',
+                    code: 'managed_warehouse_connection_unavailable',
                 },
             })
 
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
-                detail: 'Managed warehouse connection is no longer available',
+                detail: 'This managed warehouse connection is no longer available. Select a source and run the query again.',
+                code: 'managed_warehouse_connection_unavailable',
             })
         })
 

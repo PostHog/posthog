@@ -2285,6 +2285,23 @@ class TestResolveHostaddrWithTimeout:
         assert "could not translate host name" not in message
         assert "Name or service not known" not in message
 
+    def test_abort_check_interrupts_stalled_resolution(self):
+        release = threading.Event()
+        try:
+            with patch(
+                "posthog.psycopg_helpers.socket.getaddrinfo",
+                side_effect=lambda *a, **k: release.wait(),
+            ):
+                with pytest.raises(RuntimeError, match="resolution canceled"):
+                    _resolve_hostaddr_with_timeout(
+                        "db.example.com",
+                        5432,
+                        15,
+                        abort_check=MagicMock(side_effect=RuntimeError("resolution canceled")),
+                    )
+        finally:
+            release.set()
+
 
 # A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
 # single pre-resolved `hostaddr` collapses its connection attempt to just that one address, so a

@@ -84,6 +84,10 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
+    "This managed warehouse connection is no longer available. Select a source and run the query again."
+)
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE = "managed_warehouse_connection_unavailable"
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -398,7 +402,16 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if managed_connection_id is not None and not is_managed_warehouse_connection_ready(
             self.team.pk, managed_connection_id
         ):
-            raise QueryNotFoundError(f"Query {pk} not found for team {self.team.pk}")
+            logger.info(
+                "Managed warehouse query result is unavailable",
+                team_id=self.team.pk,
+                query_id=pk,
+                connection_id=managed_connection_id,
+            )
+            raise QueryNotFoundError(
+                detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+                code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+            )
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED

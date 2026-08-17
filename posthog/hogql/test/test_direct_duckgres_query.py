@@ -285,7 +285,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         )
         return source
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_executes_with_the_selected_sources_project_reader(self, connect) -> None:
         self._managed_source(source_id="decoy-source")
         source = self._managed_source(source_id="selected-source")
@@ -307,27 +307,28 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(response.columns, ["value"])
         self.assertEqual(response.types, [("value", "Int32")])
-        connect.assert_called_once_with(
-            host="selected-source.example.com",
-            port=5432,
-            dbname="ducklake",
-            user=f"posthog_team_{self.team.pk}",
-            password="selected-source-password",
-            connect_timeout=15,
-            hostaddr="203.0.113.10",
-            sslmode="require",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-            sslrootcert="/tmp/no.txt",
-            cursor_factory=_DuckgresStreamingClientCursor,
-        )
-        self.resolve_hostaddr.assert_called_once_with(
-            "selected-source.example.com", 5432, 15, fail_on_resolution_error=True
-        )
+        connect.assert_called_once()
+        source_config, hostaddr, deadline, abort_check = connect.call_args.args
+        self.assertEqual(source_config.host, "selected-source.example.com")
+        self.assertEqual(source_config.port, 5432)
+        self.assertEqual(source_config.database, "ducklake")
+        self.assertEqual(source_config.user, f"posthog_team_{self.team.pk}")
+        self.assertEqual(source_config.password, "selected-source-password")
+        self.assertEqual(hostaddr, "203.0.113.10")
+        self.assertGreater(deadline, 0)
+        self.assertTrue(callable(abort_check))
+        self.resolve_hostaddr.assert_called_once()
+        resolver_args = self.resolve_hostaddr.call_args.args
+        resolver_kwargs = self.resolve_hostaddr.call_args.kwargs
+        self.assertEqual(resolver_args[:2], ("selected-source.example.com", 5432))
+        self.assertGreater(resolver_args[2], 0)
+        self.assertLessEqual(resolver_args[2], 15)
+        self.assertTrue(resolver_kwargs["fail_on_resolution_error"])
+        self.assertTrue(callable(resolver_kwargs["abort_check"]))
         connection.execute.assert_called_once_with("USE ducklake")
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_rejects_multiple_statements_before_connecting(self, connect) -> None:
         source = self._managed_source()
 
@@ -341,7 +342,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
 
         connect.assert_not_called()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.threading.Timer")
     def test_schedules_cancellation_and_preserves_empty_utility_results(self, timer, connect) -> None:
         source = self._managed_source()
@@ -365,7 +366,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(timer.call_args.args[0], 12)
         connection.commit.assert_called_once_with()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_preserves_columns_for_an_empty_select(self, connect) -> None:
         source = self._managed_source()
         connection, _cursor = self._connection_with_result([])
@@ -382,7 +383,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertEqual(response.types, [("value", "Int32")])
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.threading.Timer")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.socket.socket")
     def test_cancels_queries_at_the_execution_deadline(self, socket_factory, timer, connect) -> None:
@@ -409,7 +410,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         connection.close.assert_not_called()
         connection.commit.assert_not_called()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_cancels_a_running_query_when_the_async_request_is_canceled(self, connect) -> None:
         source = self._managed_source()
         connection, cursor = self._connection_with_result([])
@@ -430,7 +431,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
             patch("posthog.hogql.query.get_query_tags", return_value=query_tags),
             patch(
                 "posthog.hogql.direct_sql.duckgres_adapter.is_direct_query_cancellation_requested",
-                return_value=True,
+                side_effect=[False, False, True],
             ),
             self.assertRaises(ExposedHogQLError) as error,
         ):
@@ -444,6 +445,29 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(str(error.exception), "Managed warehouse query was canceled.")
         connection.cancel_safe.assert_called()
         connection.commit.assert_not_called()
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
+    def test_cancels_before_opening_a_connection(self, connect) -> None:
+        source = self._managed_source()
+        query_tags = MagicMock(client_query_id="query-id", celery_task_id="2f3350d0-e641-4c33-bc9c-66898bf22317")
+
+        with (
+            patch("posthog.hogql.query.get_query_tags", return_value=query_tags),
+            patch(
+                "posthog.hogql.direct_sql.duckgres_adapter.is_direct_query_cancellation_requested",
+                return_value=True,
+            ),
+            self.assertRaises(ExposedHogQLError) as error,
+        ):
+            HogQLQueryExecutor(
+                query="SELECT slow_value",
+                team=self.team,
+                connection_id=str(source.id),
+                send_raw_query=True,
+            ).execute()
+
+        self.assertEqual(str(error.exception), "Managed warehouse query was canceled.")
+        connect.assert_not_called()
 
     def test_non_raw_managed_query_ignores_warehouse_object_access_control(self) -> None:
         source = self._managed_source_with_denied_table()
@@ -516,7 +540,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertNotIn("private.internal", str(context.exception))
         self.assertNotIn("private driver detail", str(context.exception))
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     @patch("posthog.hogql.query.raw_query_denied_by_table_access", side_effect=AssertionError)
     def test_managed_warehouse_raw_queries_skip_unconfigured_table_access(self, _denied, connect) -> None:
         source = self._managed_source()
@@ -536,7 +560,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
             ("root_username", {"user": "root"}),
         ]
     )
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_rejects_malformed_reader_credentials(
         self, _name: str, credential_overrides: dict[str, object], connect
     ) -> None:
@@ -552,7 +576,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
 
         connect.assert_not_called()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     @patch("posthog.hogql.query.raw_query_denied_by_table_access", return_value=True)
     def test_legacy_managed_raw_query_preserves_external_table_access_control(
@@ -615,7 +639,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_rejects_unready_project_readers_before_connecting(
         self,
         _name: str,
@@ -652,7 +676,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         with self.assertRaisesMessage(QueryError, "This managed warehouse connection isn't available"):
             Database.create_for(team=self.team, connection_id=str(source.id))
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_hides_connection_details(self, connect) -> None:
         source = self._managed_source()
         connect.side_effect = psycopg.OperationalError(
@@ -671,7 +695,32 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertNotIn("private.internal", str(context.exception))
         self.assertNotIn("private driver detail", str(context.exception))
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.monotonic")
+    def test_connect_deadline_is_shared_across_resolved_addresses(self, monotonic, connect) -> None:
+        source = self._managed_source()
+        clock = [100.0]
+        monotonic.side_effect = lambda: clock[0]
+        self.resolve_hostaddr.return_value = ["203.0.113.10", "203.0.113.11"]
+
+        def fail_after_deadline(*_args: object) -> None:
+            clock[0] = 116.0
+            raise psycopg.OperationalError("first address failed")
+
+        connect.side_effect = fail_after_deadline
+        with self.assertRaises(ExposedHogQLError) as context:
+            HogQLQueryExecutor(
+                query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+        self.assertEqual(
+            str(context.exception),
+            "Could not connect to the managed warehouse. Try again, and contact support if the problem persists.",
+        )
+        connect.assert_called_once()
+        self.assertEqual(connect.call_args.args[1], "203.0.113.10")
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_maps_query_errors_to_a_single_message(self, connect) -> None:
         source = self._managed_source()
         connection, cursor = self._connection_with_result([])
@@ -686,8 +735,29 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(str(context.exception), "query failed")
         self.assertNotIn("private driver detail", str(context.exception))
 
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
+    def test_hides_post_connect_operational_error_details(self, connect) -> None:
+        source = self._managed_source()
+        connection, cursor = self._connection_with_result([])
+        cursor.stream.side_effect = psycopg.OperationalError(
+            "server closed the connection to host=private.internal\nprivate driver detail"
+        )
+        connect.return_value.__enter__.return_value = connection
+
+        with self.assertRaises(ExposedHogQLError) as context:
+            HogQLQueryExecutor(
+                query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+        self.assertEqual(
+            str(context.exception),
+            "Could not connect to the managed warehouse. Try again, and contact support if the problem persists.",
+        )
+        self.assertNotIn("private.internal", str(context.exception))
+        self.assertNotIn("private driver detail", str(context.exception))
+
     @patch("posthog.hogql.direct_sql.duckgres_adapter.DIRECT_DUCKGRES_MAX_ROWS", 3)
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_accepts_raw_results_at_the_row_cap(self, connect) -> None:
         source = self._managed_source()
         connection, cursor = self._connection_with_result([(1,), (2,), (3,)])
@@ -701,7 +771,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertTrue(cursor.stream_closed)
         connection.commit.assert_called_once_with()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
     def test_rejects_raw_results_over_the_row_cap(self, connect) -> None:
         source = self._managed_source()
         connection, cursor = self._connection_with_result([(1,)] * 50_001)
