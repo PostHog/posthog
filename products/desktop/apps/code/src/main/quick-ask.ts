@@ -5,6 +5,7 @@ import {
   QUICK_ASK_HIDE_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SET_INTERACTIVE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
@@ -17,9 +18,9 @@ const log = logger.scope("quick-ask");
 const QUICK_ASK_VITE_DEV_SERVER_URL = process.env.ELECTRON_RENDERER_URL;
 const QUICK_ASK_VITE_NAME = "main_window";
 
-const PANEL_WIDTH = 600;
-const PANEL_INITIAL_HEIGHT = 68;
-const PANEL_MAX_HEIGHT = 560;
+const PANEL_WIDTH = 640;
+const PANEL_INITIAL_HEIGHT = 96;
+const PANEL_MAX_HEIGHT = 620;
 // Keep the panel clear of the menu bar and screen edges when opening at the cursor.
 const SCREEN_MARGIN = 16;
 const MENU_BAR_CLEARANCE = 40;
@@ -41,8 +42,9 @@ function createQuickAskWindow(): BrowserWindow {
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
-    hasShadow: true,
-    roundedCorners: true,
+    // The content draws its own shadows; the native shadow would outline the
+    // whole (mostly empty) window rectangle.
+    hasShadow: false,
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -66,6 +68,11 @@ function createQuickAskWindow(): BrowserWindow {
 
   window.setAlwaysOnTop(true, "screen-saver");
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // The window is a large transparent rect around a small pill. Let clicks
+  // fall through the empty area; the renderer re-enables interaction while
+  // the pointer is over actual content (`forward` keeps sending it the mouse
+  // events it needs to detect that).
+  window.setIgnoreMouseEvents(true, { forward: true });
 
   window.on("blur", () => {
     // Keep the panel up while its devtools are focused.
@@ -115,6 +122,7 @@ function showQuickAsk(): void {
     quickAskWindow = createQuickAskWindow();
   }
   positionAtCursor(quickAskWindow);
+  quickAskWindow.setIgnoreMouseEvents(true, { forward: true });
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
@@ -162,6 +170,17 @@ export function setupQuickAsk(): void {
     const bounds = quickAskWindow.getBounds();
     quickAskWindow.setBounds({ ...bounds, height: clamped });
   });
+  ipcMain.on(
+    QUICK_ASK_SET_INTERACTIVE_CHANNEL,
+    (_event, interactive: unknown) => {
+      if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
+      if (interactive === true) {
+        quickAskWindow.setIgnoreMouseEvents(false);
+      } else {
+        quickAskWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+    },
+  );
   ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {
     hideQuickAsk();
     focusMainWindow("quick-ask-open-in-app");

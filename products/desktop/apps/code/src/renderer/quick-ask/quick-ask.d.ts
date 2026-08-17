@@ -3,6 +3,7 @@ interface QuickAskBridge {
   hide: () => void;
   resize: (height: number) => void;
   openInApp: () => void;
+  setInteractive: (interactive: boolean) => void;
   onShown: (callback: () => void) => () => void;
 }
 

@@ -1,120 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { happyHog } from "@posthog/ui/assets/hedgehogs";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnswerCard, ThinkingCard } from "./components/AnswerCard";
 import { type MockResponse, pickMockResponse } from "./mockResponses";
 
 type Phase = "idle" | "thinking" | "answered";
 
 const THINKING_MS = 1100;
-
-/** Sparkle from the web app's PostHog AI branding (AnimatedSparkles). */
-function Sparkle({
-  size,
-  className,
-}: {
-  size: number;
-  className?: string;
-}): React.JSX.Element {
-  return (
-    <svg
-      width={size}
-      height={size + 1}
-      viewBox="0 0 14 15"
-      className={className ?? "qa-sparkle"}
-      role="img"
-      aria-label="PostHog AI"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M7 0C7 0 6.49944 2.07875 6.08971 3.78113C5.76569 5.12694 4.77707 6.17975 3.50849 6.5303C1.9232 6.96825 0 7.50005 0 7.50005C0 7.50005 1.9232 8.03143 3.50849 8.46949C4.77707 8.82025 5.76569 9.87317 6.08971 11.2189C6.49944 12.9214 7 15 7 15C7 15 7.50056 12.9214 7.91029 11.2189C8.23441 9.87317 9.22293 8.82025 10.4918 8.46949C12.0769 8.03143 14 7.50005 14 7.50005C14 7.50005 12.0769 6.96825 10.4918 6.5303C9.22293 6.17975 8.23441 5.12694 7.91029 3.78113C7.50056 2.07875 7 0 7 0Z"
-      />
-    </svg>
-  );
-}
-
-/** The web app's PostHog AI mark: a cluster of three sparkles. Pulses while
- * an answer is streaming. */
-function SparkleCluster({
-  thinking,
-}: {
-  thinking: boolean;
-}): React.JSX.Element {
-  return (
-    <div className={thinking ? "qa-mark qa-mark-thinking" : "qa-mark"}>
-      <Sparkle size={14} className="qa-sparkle qa-mark-large" />
-      <Sparkle size={7} className="qa-sparkle qa-mark-medium" />
-      <Sparkle size={5} className="qa-sparkle qa-mark-small" />
-    </div>
-  );
-}
-
-/** Renders `**bold**` and `##amber##` runs in a canned answer paragraph. */
-function AnswerParagraph({ text }: { text: string }): React.JSX.Element {
-  const parts = text.split(/(\*\*[^*]+\*\*|##[^#]+##)/g);
-  return (
-    <p>
-      {parts.map((part, index) => {
-        // Parts are a static split of a canned string; a position-derived key
-        // is stable here.
-        const key = `${index}:${part}`;
-        if (part.startsWith("**")) {
-          return <strong key={key}>{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith("##")) {
-          return (
-            <span key={key} className="qa-num">
-              {part.slice(2, -2)}
-            </span>
-          );
-        }
-        return <React.Fragment key={key}>{part}</React.Fragment>;
-      })}
-    </p>
-  );
-}
-
-function Sparkline({ points }: { points: number[] }): React.JSX.Element {
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const coords = points.map((point, index) => [
-    (index / (points.length - 1)) * 100,
-    34 - ((point - min) / range) * 30,
-  ]);
-  const line = coords
-    .map(
-      ([x, y], index) =>
-        `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
-    )
-    .join(" ");
-  return (
-    <svg
-      viewBox="0 0 100 36"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Trend sparkline"
-    >
-      <path
-        d={`${line} L100 36 L0 36 Z`}
-        fill="var(--qa-accent)"
-        opacity={0.14}
-      />
-      <path
-        d={line}
-        fill="none"
-        stroke="var(--qa-accent)"
-        strokeWidth={1.6}
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
+const PILL_MIN_WIDTH = 176;
+const PILL_MAX_WIDTH = 448;
+const PILL_TEXT_EXTRA = 46; // pill padding + caret allowance around the text
 
 export function QuickAsk(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>("idle");
   const [response, setResponse] = useState<MockResponse | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
   const inputRef = useRef<HTMLInputElement>(null);
-  const shellRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const thinkingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback((): void => {
@@ -124,7 +27,7 @@ export function QuickAsk(): React.JSX.Element {
     }
     setPhase("idle");
     setResponse(null);
-    setCopied(false);
+    setPillWidth(PILL_MIN_WIDTH);
     if (inputRef.current) {
       inputRef.current.value = "";
     }
@@ -141,25 +44,42 @@ export function QuickAsk(): React.JSX.Element {
 
   // Drive the BrowserWindow height from the rendered content.
   useEffect(() => {
-    const shell = shellRef.current;
-    if (!shell) return;
+    const root = rootRef.current;
+    if (!root) return;
     const observer = new ResizeObserver(() => {
-      window.quickAsk?.resize(Math.ceil(shell.getBoundingClientRect().height));
+      window.quickAsk?.resize(
+        Math.ceil(root.getBoundingClientRect().height) + 24,
+      );
     });
-    observer.observe(shell);
+    observer.observe(root);
     return () => observer.disconnect();
   }, []);
 
-  const submit = useCallback((): void => {
-    const question = inputRef.current?.value.trim();
-    if (!question) return;
+  // The window is click-through except while the pointer is over content.
+  const enableMouse = useCallback((): void => {
+    window.quickAsk?.setInteractive(true);
+  }, []);
+  const disableMouse = useCallback((): void => {
+    window.quickAsk?.setInteractive(false);
+  }, []);
+
+  // Figma-style pill: width hugs the typed text.
+  const syncPillWidth = useCallback((): void => {
+    const measure = measureRef.current;
+    const input = inputRef.current;
+    if (!measure || !input) return;
+    measure.textContent = input.value || input.placeholder;
+    const width = Math.min(
+      Math.max(measure.offsetWidth + PILL_TEXT_EXTRA, PILL_MIN_WIDTH),
+      PILL_MAX_WIDTH,
+    );
+    setPillWidth(width);
+  }, []);
+
+  const ask = useCallback((question: string): void => {
     const next = pickMockResponse(question);
     setResponse(next);
-    setCopied(false);
     setPhase("thinking");
-    if (inputRef.current) {
-      inputRef.current.value = "";
-    }
     if (thinkingTimer.current) {
       clearTimeout(thinkingTimer.current);
     }
@@ -168,6 +88,27 @@ export function QuickAsk(): React.JSX.Element {
       inputRef.current?.focus();
     }, THINKING_MS);
   }, []);
+
+  const submit = useCallback((): void => {
+    const question = inputRef.current?.value.trim();
+    if (!question) return;
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+    syncPillWidth();
+    ask(question);
+  }, [ask, syncPillWidth]);
+
+  const followUp = useCallback(
+    (question: string): void => {
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
+      syncPillWidth();
+      ask(question);
+    },
+    [ask, syncPillWidth],
+  );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -180,91 +121,51 @@ export function QuickAsk(): React.JSX.Element {
     [submit],
   );
 
-  const copyAnswer = useCallback((): void => {
-    if (!response) return;
-    void navigator.clipboard.writeText(response.copyText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  }, [response]);
+  const openInApp = useCallback((): void => {
+    window.quickAsk?.openInApp();
+  }, []);
 
   return (
-    <div ref={shellRef} className="qa-shell">
-      <div className="qa-panel">
-        <div className="qa-ask-row">
-          <SparkleCluster thinking={phase === "thinking"} />
+    <div
+      ref={rootRef}
+      className="qa-root"
+      onPointerEnter={enableMouse}
+      onPointerLeave={disableMouse}
+    >
+      <div className="qa-pill-row">
+        <img
+          src={happyHog}
+          alt=""
+          draggable={false}
+          className={phase === "thinking" ? "qa-hog qa-hog-thinking" : "qa-hog"}
+        />
+        <div className="qa-pill" style={{ width: pillWidth }}>
           <input
             ref={inputRef}
             type="text"
             placeholder={
-              phase === "answered" ? "Ask follow-up" : "Ask a question"
+              phase === "answered" ? "Ask a follow-up…" : "Ask PostHog AI"
             }
             autoComplete="off"
             spellCheck={false}
             onKeyDown={onKeyDown}
+            onInput={syncPillWidth}
           />
-          <span className="qa-esc">
-            <kbd>esc</kbd>
-          </span>
         </div>
-
-        {phase !== "idle" && response && (
-          <>
-            <div className="qa-divider" />
-            <div className="qa-answer-area">
-              {phase === "thinking" ? (
-                <div className="qa-thinking">
-                  <span className="qa-dots">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span>{response.thinkingLabel}</span>
-                </div>
-              ) : (
-                <div className="qa-answer">
-                  {response.paragraphs.map((paragraph) => (
-                    <AnswerParagraph key={paragraph} text={paragraph} />
-                  ))}
-                  {response.sparkline && (
-                    <div className="qa-spark">
-                      <div className="qa-spark-label">
-                        <span>{response.sparkline.label}</span>
-                        <span>{response.sparkline.source}</span>
-                      </div>
-                      <Sparkline points={response.sparkline.points} />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {phase === "answered" && response && (
-          <>
-            <div className="qa-footer">
-              <span className="qa-source">
-                <Sparkle size={13} />
-                PostHog AI
-              </span>
-              <button type="button" className="qa-button" onClick={copyAnswer}>
-                {copied ? "Copied" : "Copy"}
-              </button>
-              <button
-                type="button"
-                className="qa-button qa-primary"
-                onClick={() => window.quickAsk?.openInApp()}
-              >
-                Open in PostHog
-              </button>
-            </div>
-            <div className="qa-followup-hint">
-              ↵ to ask a follow-up · conversations will be saved to your PostHog
-              AI history
-            </div>
-          </>
-        )}
+        {/* Hidden mirror used to measure the typed text for the pill width. */}
+        <span ref={measureRef} className="qa-measure" aria-hidden="true" />
       </div>
+
+      {phase === "thinking" && response && (
+        <ThinkingCard label={response.thinkingLabel} />
+      )}
+      {phase === "answered" && response && (
+        <AnswerCard
+          response={response}
+          onFollowUp={followUp}
+          onOpenInApp={openInApp}
+        />
+      )}
     </div>
   );
 }

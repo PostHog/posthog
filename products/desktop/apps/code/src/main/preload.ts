@@ -9,6 +9,7 @@ import {
   QUICK_ASK_HIDE_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
+  QUICK_ASK_SET_INTERACTIVE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
@@ -95,6 +96,8 @@ function setupQuickAskPreload(): void {
     resize: (height: number) =>
       ipcRenderer.send(QUICK_ASK_RESIZE_CHANNEL, height),
     openInApp: () => ipcRenderer.send(QUICK_ASK_OPEN_IN_APP_CHANNEL),
+    setInteractive: (interactive: boolean) =>
+      ipcRenderer.send(QUICK_ASK_SET_INTERACTIVE_CHANNEL, interactive),
     onShown: (callback: () => void): (() => void) => {
       const listener = (): void => callback();
       ipcRenderer.on(QUICK_ASK_SHOWN_CHANNEL, listener);
