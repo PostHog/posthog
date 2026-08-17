@@ -147,6 +147,39 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
+/**
+ * The html a design wraps, when the design is exactly one buildHtmlWrapDesign produced. Once a
+ * design has been through the visual editor unlayer has rewritten it, so it no longer matches
+ * and counts as authored content rather than a view of the html.
+ */
+function generatedWrapHtml(design: JSONTemplate): string | null {
+    const html = (design as any)?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
+    if (typeof html !== 'string' || !objectsEqual(design, buildHtmlWrapDesign(html))) {
+        return null
+    }
+    return html
+}
+
+/**
+ * The design the canvas should open for an email. A design authored in the visual editor always
+ * wins, because it is the source the html was rendered from. A wrap we generated is only a view
+ * of the html, so it is rebuilt whenever the html moves on (an API or agent patch that sets html
+ * alone); otherwise the canvas keeps showing the content the wrap was built from while sends use
+ * the new html. Mirrors resolve_html_wrap_design in posthog/cdp/validation.py.
+ */
+function resolveDesignToLoad(value: EmailTemplate | null): JSONTemplate | null {
+    const html = value?.html
+    const design = (value?.design ?? null) as JSONTemplate | null
+    if (!html) {
+        return design
+    }
+    if (!design) {
+        return buildHtmlWrapDesign(html)
+    }
+    const wrapped = generatedWrapHtml(design)
+    return wrapped === null || wrapped === html ? design : buildHtmlWrapDesign(html)
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
@@ -594,13 +627,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // Both layouts rebaseline on load: the modal submit compares its export against the
             // baseline to tell a no-op save from a real edit.
             values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
-            if (props.value?.design) {
-                cache.lastEditorDesign = props.value.design
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            } else if (props.value?.html) {
-                const wrapped = buildHtmlWrapDesign(props.value.html)
-                cache.lastEditorDesign = wrapped
-                values.emailEditorRef?.editor?.loadDesign(wrapped)
+            const design = resolveDesignToLoad(props.value)
+            if (design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -698,10 +728,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
 
-            // Load the design into the editor if it's ready and has a design
-            if (values.isEmailEditorReady && emailTemplateContent.design) {
-                cache.lastEditorDesign = emailTemplateContent.design
-                values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
+            // Load the template's content into the editor if it's ready. Templates saved before
+            // emails carried designs are html-only, and one wrapped for the canvas still beats
+            // leaving the previous email on screen while the form fields say otherwise.
+            const design = values.isEmailEditorReady ? resolveDesignToLoad(emailTemplateContent) : null
+            if (design) {
+                cache.lastEditorDesign = design
+                values.emailEditorRef?.editor?.loadDesign(design)
             }
         },
 
@@ -867,7 +900,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.isEmailEditorReady &&
                 !cache.pendingDesignEdit
             ) {
-                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
+                const design = resolveDesignToLoad(props.value)
                 if (
                     design &&
                     !objectsEqual(design, cache.lastEditorDesign) &&

@@ -80,6 +80,45 @@ def build_html_wrap_design(html: str) -> dict:
     }
 
 
+def _generated_wrap_html(design: Any) -> str | None:
+    """The html a design wraps, when the design is exactly one build_html_wrap_design produced.
+
+    Byte-equality against a rebuilt wrap is the test. Once a design has been through the visual
+    editor Unlayer has rewritten it (defaults filled in, blocks added), so it no longer matches
+    and counts as authored content rather than a view of the html.
+    """
+
+    if not isinstance(design, dict):
+        return None
+    try:
+        html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not isinstance(html, str) or design != build_html_wrap_design(html):
+        return None
+    return html
+
+
+def resolve_html_wrap_design(html: str, design: Any) -> Any:
+    """The design the visual editor should open for an email carrying this html.
+
+    A design authored in the visual editor always wins, because it is the source the html was
+    rendered from. A wrap we generated is only a view of the html, so it is rebuilt whenever the
+    html moves on (an API or agent patch that sets html alone). Left stale, the editor would keep
+    opening the content the wrap was built from while sends use the new html, so the only way to
+    see an edit would be to send yourself a test email.
+    """
+
+    if not html:
+        return design
+    if not design:
+        return build_html_wrap_design(html)
+    wrapped = _generated_wrap_html(design)
+    if wrapped is None or wrapped == html:
+        return design
+    return build_html_wrap_design(html)
+
+
 def register_supported_function(name: str) -> None:
     PRODUCT_ASYNC_FUNCTIONS.add(name)
 
@@ -470,11 +509,14 @@ class InputsItemSerializer(serializers.Serializer):
                 label = "value" if len(missing) == 1 else "values"
                 raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if isinstance(value.get("html"), str) and value["html"]:
                 # Programmatically authored emails often supply html without a design, which the
-                # visual editor can't open. Wrap it so every stored email has an editable design.
-                value = {**value, "design": build_html_wrap_design(value["html"])}
-                attrs["value"] = value
+                # visual editor can't open. Wrap it so every stored email has an editable design,
+                # and keep that wrap tracking the html on later html-only edits.
+                design = resolve_html_wrap_design(value["html"], value.get("design"))
+                if design is not value.get("design"):
+                    value = {**value, "design": design}
+                    attrs["value"] = value
         elif item_type == "non_failure_status_codes":
             if not isinstance(value, list):
                 raise serializers.ValidationError({"input": "Value must be a list of status codes."})

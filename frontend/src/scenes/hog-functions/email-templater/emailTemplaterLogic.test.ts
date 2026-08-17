@@ -9,6 +9,7 @@ import {
     EditorRef,
     EmailTemplate,
     EmailTemplaterLogicProps,
+    buildHtmlWrapDesign,
     emailTemplaterLogic,
 } from './emailTemplaterLogic'
 
@@ -201,6 +202,95 @@ describe('emailTemplaterLogic', () => {
             logic.actions.onEmailEditorReady()
 
             expect(loadDesign).not.toHaveBeenCalled()
+        })
+
+        it('loads the current html when it changed after the wrap was generated', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    // An html edit that left the generated wrap behind: an API or agent patch
+                    // touching html alone.
+                    value: {
+                        ...DEFAULT_EMAIL_TEMPLATE,
+                        html: '<p>new</p>',
+                        design: buildHtmlWrapDesign('<p>old</p>'),
+                    },
+                })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+        })
+
+        it.each([
+            ['a design built in the visual editor', { body: { id: 'u_body', rows: [{ id: 'u_row_1' }] } }],
+            [
+                'a wrap the visual editor has since normalized',
+                {
+                    ...buildHtmlWrapDesign('<p>old</p>'),
+                    body: { ...buildHtmlWrapDesign('<p>old</p>').body, values: { backgroundColor: '#ffffff' } },
+                },
+            ],
+        ])('loads %s as stored, even when the html no longer matches it', (_description, design) => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>new</p>', design } }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            expect(loadDesign).toHaveBeenCalledWith(design)
+        })
+
+        it('reloads the open canvas when the html changes under a generated wrap', async () => {
+            const loadDesign = jest.fn()
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>old</p>', design: null },
+                    onChange,
+                    liveChanges: true,
+                })
+            )
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>old</p>'))
+
+            // The html changes elsewhere (the AI assistant, another tab) while the editor is open.
+            emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<p>new</p>', design: buildHtmlWrapDesign('<p>old</p>') },
+                    onChange,
+                    liveChanges: true,
+                })
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenLastCalledWith(buildHtmlWrapDesign('<p>new</p>'))
+        })
+
+        it('shows an html-only template on the canvas when one is applied', () => {
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn() },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+
+            logic.actions.applyTemplate({
+                content: { email: { subject: 'Picked', html: '<p>picked</p>' } },
+            } as any)
+
+            expect(loadDesign).toHaveBeenLastCalledWith(buildHtmlWrapDesign('<p>picked</p>'))
         })
     })
 

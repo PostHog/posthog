@@ -13,6 +13,7 @@ from posthog.cdp.validation import (
     InputsSchemaItemSerializer,
     MappingsSerializer,
     RecordAliasRewriter,
+    build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
 )
@@ -32,6 +33,17 @@ def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=F
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
+
+
+def _edited_html_wrap():
+    # What a wrap looks like once the visual editor has loaded and re-exported it: Unlayer fills
+    # in its own defaults, so the design is no longer the one we generated.
+    design = build_html_wrap_design("<p>old</p>")
+    design["body"]["values"] = {"backgroundColor": "#ffffff"}
+    return design
+
+
+EDITED_HTML_WRAP = _edited_html_wrap()
 
 
 def validate_inputs_schema(data):
@@ -448,6 +460,17 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "text": "hi"},
                 None,
             ),
+            (
+                "wrap_the_editor_has_edited_is_untouched",
+                {
+                    "from": "hi@posthog.com",
+                    "to": "a@b.com",
+                    "subject": "hi",
+                    "html": "<p>new</p>",
+                    "design": EDITED_HTML_WRAP,
+                },
+                EDITED_HTML_WRAP,
+            ),
         ]
     )
     def test_email_value_wrap_no_ops(self, _name, value, expected_design):
@@ -456,6 +479,23 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, {"email": {"value": value}})
 
         assert validated["email"]["value"].get("design") == expected_design
+
+    def test_stale_html_wrap_is_rebuilt_from_the_current_html(self):
+        # A patch that sets html alone leaves the wrap we generated behind. Left as-is, the
+        # visual editor keeps opening the html the wrap was built from while sends use the new
+        # html, so the two never agree.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": "<p>new</p>",
+            "design": build_html_wrap_design("<p>old</p>"),
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>new</p>")
 
     def test_html_only_email_wrap_is_deterministic(self):
         # Callers resend the same html-only value on every save; a fresh design each time would
