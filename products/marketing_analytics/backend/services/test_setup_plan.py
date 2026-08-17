@@ -571,9 +571,11 @@ class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):
     gmail links and `linkedin` catches organic posts. Suggesting someone connect an ad
     account they don't run is worse than saying nothing."""
 
-    async def _plan_for(self, **kwargs):
+    async def _plan_for(self, *, matched=900, **kwargs):
+        # `matched`, not `unmatched`: tagged_medium is only accumulated for rows that
+        # resolved to an integration, so tagged traffic with zero matched can't happen.
         self.diagnostic = MarketingDiagnosticResponse(
-            integrations=[_integration("linkedin_ads", "LinkedinAds", status="events_only", unmatched=900, **kwargs)],
+            integrations=[_integration("linkedin_ads", "LinkedinAds", status="events_only", matched=matched, **kwargs)],
             overall_status="broken",
             conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
         )
@@ -606,6 +608,15 @@ class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):
         # A team that never sets utm_medium tells us nothing either way, and staying
         # silent there would hide the case this suggestion exists for.
         plan = await self._plan_for(tagged_medium=0, paid=0)
+
+        assert len(self._connects(plan)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_tagged_minority_does_not_speak_for_the_untagged_rest(self):
+        # Tagged organic posts plus a larger body of untagged traffic. The untagged half
+        # is unclassified, not organic, and it's exactly where unlinked ad spend hides —
+        # so a team that tags its posts but not its ad links still gets asked.
+        plan = await self._plan_for(matched=900, tagged_medium=100, paid=0)
 
         assert len(self._connects(plan)) == 1
 
