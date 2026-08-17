@@ -12,6 +12,7 @@ from products.billing_alerts.backend.models import (
     BillingAlertEvaluationClaim,
     BillingAlertEvent,
 )
+from products.billing_alerts.backend.presentation.serializers import BillingAlertEventSerializer
 
 
 def test_relative_delta_percentage_supports_full_value_range() -> None:
@@ -133,3 +134,23 @@ def test_event_lineage_is_derived_from_its_claim() -> None:
     assert {"alert", "organization_id", "evaluation_date"}.isdisjoint(
         field.name for field in BillingAlertEvent._meta.fields
     )
+
+
+def test_relative_delta_percentage_serializer_supports_model_value_range() -> None:
+    alert = BillingAlertConfiguration(metric="spend")
+    claim = BillingAlertEvaluationClaim(
+        alert=alert,
+        evaluation_date=date(2026, 7, 20),
+        configuration_revision=7,
+    )
+    event = BillingAlertEvent(
+        claim=claim,
+        metric="spend",
+        relative_delta_percentage=Decimal("9999999999999999999999.999999"),
+        reason="Large relative change",
+    )
+
+    data = BillingAlertEventSerializer(event).data
+
+    assert data["relative_delta_percentage"] == "9999999999999999999999.999999"
+    assert data["configuration_revision"] == claim.configuration_revision
