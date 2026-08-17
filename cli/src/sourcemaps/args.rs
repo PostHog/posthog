@@ -137,22 +137,46 @@ pub struct UploadConflictArgs {
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged. [default: false]
+    /// Existing symbol sets are left unchanged. Ignored with `--release-mode=event`. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
 }
 
+/// How the server should treat a symbol set that already exists under the chunk id being uploaded
+/// with different content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConflictBehavior {
+    /// Overwrite the stored symbol set.
+    pub force: bool,
+    /// Leave the stored symbol set alone and carry on rather than failing the run.
+    pub skip_on_conflict: bool,
+}
+
 impl UploadConflictArgs {
-    /// Whether to overwrite symbol sets whose stored content differs from what is being uploaded.
+    /// Resolve what to do about changed content, given the release mode.
     ///
-    /// Event mode overwrites without being asked, because a chunk's id and its uploaded bytes
-    /// move independently there: the id is derived from the pristine pair and so survives a new
-    /// release, while the injected snippet inside the payload carries the release id and changes
-    /// with every release. The server would see a known chunk id arriving with different content
-    /// and reject the upload as `content_hash_mismatch`. An explicit `--skip-on-conflict` still
-    /// wins, since it asks to keep whatever is already stored.
-    pub fn effective_force(&self, release_mode: ReleaseMode) -> bool {
-        self.force || (release_mode == ReleaseMode::Event && !self.skip_on_conflict)
+    /// Event mode always overwrites, and neither flag changes that. A chunk's id and its uploaded
+    /// bytes move independently there: the id is derived from the pristine minified source and so
+    /// survives a new release, while the injected snippet inside the payload carries the release id
+    /// and changes with every release. Every chunk therefore conflicts on every release after the
+    /// first, so honoring `--skip-on-conflict` would skip all of them and leave the server serving
+    /// the previous release's id forever.
+    pub fn resolve(&self, release_mode: ReleaseMode) -> ConflictBehavior {
+        match release_mode {
+            ReleaseMode::Event => ConflictBehavior {
+                force: true,
+                skip_on_conflict: false,
+            },
+            ReleaseMode::SymbolSet => ConflictBehavior {
+                force: self.force,
+                skip_on_conflict: self.skip_on_conflict,
+            },
+        }
+    }
+
+    /// Whether the run asked to skip conflicts but the release mode cannot honor it.
+    pub fn skip_on_conflict_ignored(&self, release_mode: ReleaseMode) -> bool {
+        self.skip_on_conflict && release_mode == ReleaseMode::Event
     }
 }
 
@@ -243,26 +267,53 @@ mod tests {
     }
 
     #[test]
-    fn event_mode_forces_unless_the_user_asked_to_skip() {
+    fn event_mode_always_overwrites() {
         let cases = [
-            // (force, skip_on_conflict, release_mode,         expected)
-            (false, false, ReleaseMode::Event, true),
-            (false, true, ReleaseMode::Event, false),
-            (true, false, ReleaseMode::Event, true),
-            (false, false, ReleaseMode::SymbolSet, false),
-            (false, true, ReleaseMode::SymbolSet, false),
-            (true, false, ReleaseMode::SymbolSet, true),
+            // (force, skip_on_conflict, release_mode,         expected force, expected skip)
+            (false, false, ReleaseMode::Event, true, false),
+            // Skipping every chunk would strand the server on the previous release id.
+            (false, true, ReleaseMode::Event, true, false),
+            (true, false, ReleaseMode::Event, true, false),
+            (false, false, ReleaseMode::SymbolSet, false, false),
+            (false, true, ReleaseMode::SymbolSet, false, true),
+            (true, false, ReleaseMode::SymbolSet, true, false),
         ];
 
-        for (force, skip_on_conflict, release_mode, expected) in cases {
+        for (force, skip_on_conflict, release_mode, expected_force, expected_skip) in cases {
             let conflict = UploadConflictArgs {
                 force,
                 skip_on_conflict,
             };
             assert_eq!(
-                conflict.effective_force(release_mode),
-                expected,
+                conflict.resolve(release_mode),
+                ConflictBehavior {
+                    force: expected_force,
+                    skip_on_conflict: expected_skip,
+                },
                 "force={force} skip_on_conflict={skip_on_conflict} release_mode={release_mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn skip_on_conflict_is_reported_as_ignored_only_in_event_mode() {
+        let cases = [
+            // (skip_on_conflict, release_mode,        expected)
+            (true, ReleaseMode::Event, true),
+            (false, ReleaseMode::Event, false),
+            (true, ReleaseMode::SymbolSet, false),
+            (false, ReleaseMode::SymbolSet, false),
+        ];
+
+        for (skip_on_conflict, release_mode, expected) in cases {
+            let conflict = UploadConflictArgs {
+                force: false,
+                skip_on_conflict,
+            };
+            assert_eq!(
+                conflict.skip_on_conflict_ignored(release_mode),
+                expected,
+                "skip_on_conflict={skip_on_conflict} release_mode={release_mode:?}"
             );
         }
     }
