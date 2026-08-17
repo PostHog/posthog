@@ -50,6 +50,11 @@ export type HogFlowFiltersProps = {
     // has no such key, so a group-based wait could never be woken and would only ever time out.
     // Used by wait conditions to keep them constrained to matcher-observable signals.
     excludeGroupProperties?: boolean
+    // Offer cohort filters in the taxonomy. Only conditional_branch supports them (membership is
+    // resolved by a realtime point lookup on arrival); waits would only notice membership changes
+    // via the polling backstop, so they must not pass this. Still gated on the realtime cohort
+    // rollout flag, since the backend only accepts realtime cohorts that have finished calculating.
+    includeCohorts?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
     schemaColumns?: DatabaseSchemaField[]
@@ -135,6 +140,7 @@ export function HogFlowPropertyFilters({
     filters,
     setFilters,
     excludeGroupProperties,
+    includeCohorts,
     schemaColumns,
     dataWarehouseTableName,
     taxonomicGroupTypes,
@@ -153,6 +159,7 @@ export function HogFlowPropertyFilters({
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
+    const realtimeCohortsEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
     // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
     // sees a match alongside event/person properties. The dedicated tab still works without this.
     const taxonomicFilterOptionsFromProp = {
@@ -187,6 +194,7 @@ export function HogFlowPropertyFilters({
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.EventFeatureFlags,
                           TaxonomicFilterGroupType.PersonProperties,
+                          ...(includeCohorts && realtimeCohortsEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
                           ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,
