@@ -1,9 +1,4 @@
-import {
-  BellIcon,
-  EnvelopeSimple,
-  GearSix,
-  Lightning,
-} from "@phosphor-icons/react";
+import { BellIcon, GearSix, Lightning } from "@phosphor-icons/react";
 import {
   Button,
   cn,

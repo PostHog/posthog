@@ -2540,10 +2540,6 @@ export class PostHogAPIClient {
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
-        signal_report_task_relationship?:
-          | "discussion"
-          | "implementation"
-          | "research";
       },
   ): Promise<Task> {
     const teamId = await this.getTeamId();

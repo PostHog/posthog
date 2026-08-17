@@ -4,7 +4,6 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type {
-  SignalReport,
   Task,
   TaskRunStatus,
   UserBasic,
@@ -17,7 +16,7 @@ export type ChannelItemEnvironment = "local" | "cloud";
 
 export interface ChannelItemModel {
   key: string;
-  kind: "task" | "canvas" | "report";
+  kind: "task" | "canvas";
   id: string;
   title: string;
   ts: number;
@@ -116,7 +115,6 @@ function sourceOf(task: Task): string | null {
 export function buildChannelItems({
   dashboards,
   feedTasks,
-  reports = [],
   archivedTaskIds,
   pinnedTaskIds,
   ownedBy,
@@ -124,7 +122,6 @@ export function buildChannelItems({
 }: {
   dashboards: readonly DashboardRecord[];
   feedTasks: readonly Task[];
-  reports?: readonly SignalReport[];
   archivedTaskIds: ReadonlySet<string>;
   pinnedTaskIds: ReadonlySet<string>;
   ownedBy: ChannelItemOwner | null;
@@ -182,24 +179,7 @@ export function buildChannelItems({
         ],
   );
 
-  const reportItems: ChannelItemModel[] = reports.map((report) => ({
-    key: `report:${report.id}`,
-    kind: "report",
-    id: report.id,
-    title: report.title || "Untitled report",
-    ts: Date.parse(report.updated_at) || 0,
-    pinned: false,
-    rawStatus: null,
-    authorUser: null,
-    authorName: null,
-    authorUuid: null,
-    templateId: null,
-    task: null,
-  }));
-
-  const all = [...canvasItems, ...taskItems, ...reportItems].sort(
-    (a, b) => b.ts - a.ts,
-  );
+  const all = [...canvasItems, ...taskItems].sort((a, b) => b.ts - a.ts);
   return ownedBy ? all.filter((item) => isOwnedBy(item, ownedBy)) : all;
 }
 

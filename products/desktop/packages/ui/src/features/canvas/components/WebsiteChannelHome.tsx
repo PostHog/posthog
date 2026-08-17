@@ -27,12 +27,7 @@ import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
-import {
-  DEFAULT_REPORT_SPACE_NAME,
-  useReportSpace,
-} from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { ReportSessions } from "@posthog/ui/features/canvas/reports/ReportSessionsList";
 import { useChannelIntroStore } from "@posthog/ui/features/canvas/stores/channelIntroStore";
 import {
   type ThreadPanelTab,
@@ -63,11 +58,6 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const { channels, isLoading: isLoadingChannels } = useTaskChannels();
   const channel = channels.find((c) => c.id === channelId);
   const channelName = channel?.name;
-  const { reportSpaceId } = useReportSpace();
-  const isReportSpace =
-    channelId === reportSpaceId ||
-    (channel?.channel_type === "public" &&
-      channelName === DEFAULT_REPORT_SPACE_NAME);
   const { fileTask } = useChannelTaskMutations();
 
   // Poll while empty so the intro's context.md card flips to "created" when
@@ -257,9 +247,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     (s) => !!s.dismissedByChannel[channelId],
   );
   const dismissIntro = useChannelIntroStore((s) => s.dismissIntro);
-  const intro = isReportSpace ? (
-    <ReportSessions channelId={channelId} />
-  ) : !isPersonal && !introDismissed && channelName && channel ? (
+  const intro = !isPersonal && !introDismissed && channelName && channel ? (
       <ChannelIntro
         channel={channel}
         channelName={channelName}
@@ -310,7 +298,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           channelId={channelId}
           tasks={tasks}
           pending={visiblePending}
-          systemMessages={isReportSpace ? undefined : systemMessages}
+          systemMessages={systemMessages}
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}

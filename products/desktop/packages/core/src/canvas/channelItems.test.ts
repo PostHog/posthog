@@ -1,8 +1,4 @@
-import type {
-  SignalReport,
-  Task,
-  UserBasic,
-} from "@posthog/shared/domain-types";
+import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
   buildChannelItems,
@@ -58,21 +54,6 @@ function task(over: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function report(over: Partial<SignalReport> = {}): SignalReport {
-  return {
-    id: "r1",
-    title: "Report",
-    summary: "Summary",
-    status: "ready",
-    total_weight: 1,
-    signal_count: 1,
-    created_at: new Date(3_000).toISOString(),
-    updated_at: new Date(3_000).toISOString(),
-    artefact_count: 0,
-    ...over,
-  };
-}
-
 const NONE: ReadonlySet<string> = new Set();
 
 function build(options: Partial<Parameters<typeof buildChannelItems>[0]> = {}) {
@@ -95,22 +76,6 @@ describe("buildChannelItems", () => {
       ],
     });
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
-  });
-
-  it("includes reports as sessions ordered by their latest update", () => {
-    const items = build({
-      dashboards: [canvas({ id: "canvas", updatedAt: 1_000 })],
-      feedTasks: [
-        task({ id: "task", updated_at: new Date(2_000).toISOString() }),
-      ],
-      reports: [report({ id: "report" })],
-    });
-
-    expect(items.map((item) => item.key)).toEqual([
-      "report:report",
-      "task:task",
-      "canvas:canvas",
-    ]);
   });
 
   it("drops archived tasks but keeps canvases", () => {
