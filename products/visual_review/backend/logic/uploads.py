@@ -32,7 +32,7 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
 
     Returns number of artifacts created.
     """
-    from .hashing import ImageTooLargeError, hash_image
+    from ..hashing import ImageTooLargeError, hash_image
 
     run = run_queries.get_run(run_id)
     repo_id = run.repo_id

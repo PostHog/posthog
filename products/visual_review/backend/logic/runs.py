@@ -305,7 +305,7 @@ def complete_run(run_id: UUID) -> Run:
     # recorded — leaving every future run requesting the same upload while
     # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
-        from .tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+        from ..tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
 
         try:
             uploads.verify_uploads_and_create_artifacts(run_id)
@@ -319,7 +319,7 @@ def complete_run(run_id: UUID) -> Run:
         return run_queries.get_run(run_id)
 
     mark_run_processing(run_id)
-    from .tasks.tasks import process_run_diffs
+    from ..tasks.tasks import process_run_diffs
 
     process_run_diffs.delay(run.team_id, str(run_id))
     return run_queries.get_run(run_id)

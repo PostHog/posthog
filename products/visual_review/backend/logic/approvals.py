@@ -118,7 +118,7 @@ def finalize_run(
         ci_status._post_commit_status(run, repo, "success", "Visual changes approved")
 
     if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
-        from .tasks.tasks import post_approval_comment
+        from ..tasks.tasks import post_approval_comment
 
         run_id_str = str(run.id)
         run_team_id = run.team_id

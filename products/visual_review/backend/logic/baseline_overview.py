@@ -35,7 +35,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     """
     from datetime import timedelta
 
-    from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
+    from ..facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
 
     now = timezone.now()
 
