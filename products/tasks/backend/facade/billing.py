@@ -11,11 +11,14 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
+from products.tasks.backend.logic.services.task_usage import TaskUsage, get_task_usage
 
 __all__ = [
     "ComputeRateCardConfigurationError",
     "SandboxComputeUsageByTeam",
     "SandboxUsageByTeam",
+    "TaskUsage",
     "get_billable_sandbox_compute_usage_by_team",
     "get_task_sandbox_usage_by_team",
+    "get_task_usage",
 ]
