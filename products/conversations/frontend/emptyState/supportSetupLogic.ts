@@ -91,15 +91,18 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
             if (!values.currentTeam) {
                 return
             }
-            if (!values.currentTeam.conversations_enabled) {
-                actions.setDetectedStatus('needs-setup')
-                return
-            }
             actions.loadTicketCount()
         },
         loadTicketCountSuccess: () => {
+            // Tickets outrank the toggle. Turning support off keeps the tickets, and the
+            // settings copy says so, but this list is the only place to read them.
             if (values.ticketCount && values.ticketCount > 0) {
                 actions.setDetectedStatus('has-data')
+                cache.disposables.dispose('poll')
+            } else if (!values.currentTeam?.conversations_enabled) {
+                // Nothing to wait for while support is off. Enabling it updates the team,
+                // and the `currentTeam` subscription re-runs the check.
+                actions.setDetectedStatus('needs-setup')
                 cache.disposables.dispose('poll')
             } else {
                 actions.setDetectedStatus('waiting-for-data')
@@ -118,8 +121,8 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
     })),
     afterMount(({ actions, cache }) => {
         actions.checkSetup()
-        // The poll only issues a request while conversations are enabled (checkSetup
-        // returns early otherwise) and stops for good once the first ticket arrives.
+        // The poll stops for good once the first ticket arrives, or once a project with no
+        // tickets is found to have support switched off.
         cache.disposables.add(() => {
             const id = window.setInterval(() => actions.checkSetup(), POLL_INTERVAL_MS)
             return () => clearInterval(id)

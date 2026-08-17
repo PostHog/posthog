@@ -25,28 +25,25 @@ function mountWithTeam(conversationsEnabled: boolean): ReturnType<typeof support
     return logic
 }
 
-// Guards the three-way ladder into the app-wide setup-status layer: disabled team →
-// needs-setup, enabled without tickets → waiting-for-data, tickets → has-data. If the
-// connect or mapping breaks, the scene empty-state gate shows the wrong surface.
+// Guards the three-way ladder into the app-wide setup-status layer: no tickets and support
+// off → needs-setup, on without tickets → waiting-for-data, any tickets → has-data whatever
+// the toggle says. If the connect or mapping breaks, the gate shows the wrong surface.
 describe('supportSetupLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
-    it('pushes needs-setup without querying tickets when conversations are disabled', async () => {
-        const logic = mountWithTeam(false)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(productSetupStatusLogic({ productKey: ProductKey.CONVERSATIONS }).values.status).toBe('needs-setup')
-        expect(mockTicketsList).not.toHaveBeenCalled()
-    })
-
     it.each([
-        [0, 'waiting-for-data'],
-        [1, 'has-data'],
-        [42, 'has-data'],
-    ])('pushes a ticket count of %i as status %s when conversations are enabled', async (count, expected) => {
+        [0, false, 'needs-setup'],
+        [0, true, 'waiting-for-data'],
+        [1, true, 'has-data'],
+        [42, true, 'has-data'],
+        // A team that switched support off keeps its tickets, and this list is the only
+        // place to read them, so the history has to outrank the toggle.
+        [42, false, 'has-data'],
+    ])('pushes %i tickets with support enabled=%s as status %s', async (count, enabled, expected) => {
         mockTicketsList.mockResolvedValue({ count, next: null, previous: null, results: [] })
-        const logic = mountWithTeam(true)
+        const logic = mountWithTeam(enabled)
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.CONVERSATIONS }).values.status).toBe(expected)
     })
