@@ -15,6 +15,8 @@ import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
+import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -83,6 +85,8 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
+    /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
+    cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     capturedEventsService: CapturedEventsService
@@ -466,6 +470,7 @@ export function createCdpCoreServices(
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
+    const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
     // Observer writes to both stores; the read source decides which verdict drives the metric.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
     const hogFlowExecutor = new HogFlowExecutorService(
@@ -505,6 +510,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailSuppressionService,
         teamWorkflowsConfigService,
+        cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
         capturedEventsService,
