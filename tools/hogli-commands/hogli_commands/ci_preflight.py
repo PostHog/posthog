@@ -204,7 +204,9 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
-@dataclass(frozen=True)
+# Mirrors the house `@frozen` defaults; hogli can't import posthog.dataclasses, since
+# it has to run on a bare checkout. kw_only earns its place here — every field is a str.
+@dataclass(frozen=True, kw_only=True, slots=True)
 class CompanionCheck:
     """Two files a CI gate requires to move together. Unlike a ``DiffCheck`` there is
     nothing to run: the diff itself is the evidence, so this costs no subprocess."""
