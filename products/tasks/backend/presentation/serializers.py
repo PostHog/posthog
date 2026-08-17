@@ -1956,6 +1956,7 @@ class TaskUsageResponseSerializer(serializers.Serializer):
     compute_cost_usd = serializers.FloatField(
         help_text="Estimated cloud compute cost attributed to this task in US dollars."
     )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
 
 
 class InternalTaskUsageRequestSerializer(serializers.Serializer):
