@@ -178,21 +178,15 @@ class SubjectAccessControl(UserAccessControl):
         finally:
             _suspend_org_admin.reset(token)
 
-    def _applies_to_subject(self, access_control: _AccessControl) -> bool:
+    def _applies_to_subject(self, access_control: _AccessControl, role_ids: frozenset[str]) -> bool:
         """In-memory twin of this class's `_filter_options`: whether a row is one the subject's
-        resolution may see (a default rule, the subject's own rule, or one of their roles').
-        Broader than `_is_subject_row`, which picks out only the subject's own rules."""
+        resolution may see (a default rule, the subject's own rule, or one of their roles, given as
+        `role_ids`). Broader than `_is_subject_row`, which picks out only the subject's own rules."""
         if access_control.organization_member_id is None and access_control.role_id is None:
             return True
         if self._subject_member is not None and access_control.organization_member_id == self._subject_member.id:
             return access_control.role_id is None
-        return (
-            access_control.organization_member_id is None and str(access_control.role_id) in self._role_ids_as_strings
-        )
-
-    @cached_property
-    def _role_ids_as_strings(self) -> frozenset[str]:
-        return frozenset(str(role_id) for role_id in self._user_role_ids)
+        return access_control.organization_member_id is None and str(access_control.role_id) in role_ids
 
     @cached_property
     def team_access_controls(self) -> list[_AccessControl]:
@@ -236,7 +230,8 @@ class SubjectAccessControl(UserAccessControl):
             self.__dict__["_user_role_ids"] = list(subject_role_ids) if self.rbac_supported else []
         # Team-scoped lookups are served from _cached_access_controls, so that is what to seed
         pool = rows if rows is not None else self.team_access_controls
-        self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac)]
+        role_ids = frozenset(str(role_id) for role_id in self._user_role_ids)
+        self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac, role_ids)]
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""
