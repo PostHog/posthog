@@ -20,6 +20,7 @@ import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardL
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -2641,9 +2642,9 @@ describe('dashboardLogic', () => {
                 throw new Error('Delete dialog did not open')
             }
 
-            const { getByText: getDialogText } = render(dialogProps.description)
+            const { container, getByText: getDialogText } = render(dialogProps.description)
             expect(getDialogText('This insight is also used on:')).not.toBeNull()
-            expect(getDialogText('Dashboard 6')).toHaveAttribute('href', '/dashboard/6')
+            expect(container.querySelector('a')).toHaveAttribute('href', urls.dashboard(6))
             expect(
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()

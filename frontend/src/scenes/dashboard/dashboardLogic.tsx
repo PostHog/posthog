@@ -3418,12 +3418,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ).filter((dashboardId) => dashboardId !== props.id)
             )
             const canDeleteInsight =
-                !tile.insight?.user_access_level ||
-                accessLevelSatisfied(
-                    AccessControlResourceType.Insight,
-                    tile.insight.user_access_level,
-                    AccessControlLevel.Editor
-                )
+                tile.insight?.user_access_level !== AccessControlLevel.Viewer &&
+                (!tile.insight?.user_access_level ||
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Insight,
+                        tile.insight.user_access_level,
+                        AccessControlLevel.Editor
+                    ))
             const deleteInsight = (): void => {
                 if (!tile.insight) {
                     return
