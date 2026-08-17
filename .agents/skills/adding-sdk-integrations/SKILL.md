@@ -109,6 +109,18 @@ The runbook covers the per-product installation pages. The SDK's own library pag
 
 The SDK's own repo is out of scope for this skill.
 
+### This is several PRs, and the order matters
+
+One SDK means one PR per repo, and they cannot land in any order. `gatsby-source-git` pulls the shared components from this repo's **`master`**, so a posthog.com stub importing `<Sdk>Installation` cannot build until the component exists on master. Opening it early is fine; merging it early breaks the docs build.
+
+1. **This repo** — the app wiring and the step components, together in one PR. Nothing else can merge before it.
+2. **posthog.com** — the installation stubs. Open it as a draft alongside, link the blocking PR in the body, and merge it after step 1. `GATSBY_POSTHOG_BRANCH=<your-branch> pnpm start` renders it locally in the meantime; it does not fix the deployed preview.
+3. **PostHog/wizard** — independent of both. Merge it whenever, but only set `wizardIntegrationName` in step 1 once a framework exists.
+
+Cross-link the PRs in both directions so whoever reviews one can see the other. Say in the blocked PR's body why it is red, or a reviewer reads a failing build as broken work.
+
+Keep the pieces in their own PRs rather than one branch across repos: a docs stub landing without its component is a broken page, and the reverse is only a missing page.
+
 ## Known dead ends
 
 Confirm before relying on these; both were true when this skill was written.
