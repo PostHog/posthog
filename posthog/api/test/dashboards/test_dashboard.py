@@ -658,7 +658,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_tile_spacing_enabled", return_value=True)
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_is_saved_and_duplicated(self, _mock_enabled: MagicMock):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -675,7 +675,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_tile_spacing_enabled", return_value=True)
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self, _mock_enabled: MagicMock):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", customization=[])
 
@@ -685,7 +685,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, updated = self.dashboard_api.update_dashboard(dashboard.id, {"grid_spacing": "condensed"})
         self.assertEqual(updated["customization"], {"tile_spacing": "condensed"})
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_tile_spacing_enabled", return_value=False)
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
     def test_dashboard_tile_spacing_requires_feature_flag(self, _mock_enabled: MagicMock):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -695,9 +695,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "grid_spacing")
-        self.assertEqual(response["detail"], "Tile spacing isn't available.")
+        self.assertEqual(response["detail"], "Tile density isn't available.")
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_tile_spacing_enabled", return_value=True)
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_requires_a_known_preset(self, _mock_enabled: MagicMock):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
