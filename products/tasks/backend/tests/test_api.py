@@ -1125,7 +1125,9 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/usage/")
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
-        assert response.json() == {"detail": "Task usage is temporarily unavailable."}
+        body = response.json()
+        assert body["detail"] == "Task usage is temporarily unavailable."
+        assert body["code"] == "task_usage_upstream_unavailable"
 
     def test_desktop_oauth_task_creation_records_trusted_provenance(self):
         client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)

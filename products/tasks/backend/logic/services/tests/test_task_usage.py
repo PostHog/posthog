@@ -89,7 +89,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         )
         for provenance in (TaskClientProvenance.POSTHOG_DESKTOP, None):
             run = TaskRun.objects.create(task=self.task, team=self.team)
-            SandboxSession.objects.create(
+            SandboxSession.objects.unscoped().create(
                 team=self.team,
                 task_run=run,
                 sandbox_id=f"sandbox-{provenance or 'untrusted'}",
