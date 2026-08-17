@@ -869,7 +869,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 conversion_goal.conversion_goal_name in self.query.select
                 or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}" in self.query.select
                 or (roas_selected and conversion_goal.counts_as_revenue and goal_sums_a_property(conversion_goal))
-                or (cac_selected and conversion_goal.counts_as_customer and not goal_sums_a_property(conversion_goal))
+                # No sum-math exclusion here: CAC divides by a summing goal's count column,
+                # so dropping its processor would drop the denominator with it.
+                or (cac_selected and conversion_goal.counts_as_customer)
             )
             if should_create:
                 processor = ConversionGoalProcessor(

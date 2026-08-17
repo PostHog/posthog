@@ -163,17 +163,17 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                     !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
                     costAvailable &&
                     !config.excludesConversionGoals
-                // Match the backend's eligibility: ROAS sums a revenue goal's value, CAC counts a
-                // customer goal's conversions, so a summing customer goal (or a counting revenue
-                // goal) is excluded. Requesting a column the backend omits makes it vanish silently.
+                // Match the backend's eligibility, or a requested column the backend omits just
+                // vanishes from the table. ROAS needs a goal whose value is money, so a counting
+                // revenue goal doesn't qualify. CAC takes any customer goal: a summing one
+                // contributes its paired count column rather than its value.
                 const roasColumn =
                     returnMetricsAvailable &&
                     conversionGoals.some((goal) => goal.counts_as_revenue && goalSumsAProperty(goal))
                         ? [MarketingAnalyticsConstants.Roas]
                         : []
                 const cacColumn =
-                    returnMetricsAvailable &&
-                    conversionGoals.some((goal) => goal.counts_as_customer && !goalSumsAProperty(goal))
+                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_customer)
                         ? [`${MarketingAnalyticsConstants.CostPer} ${MarketingAnalyticsConstants.Customer}`]
                         : []
 
