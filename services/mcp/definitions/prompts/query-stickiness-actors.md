@@ -20,5 +20,5 @@ Guidance:
 
 - Keep the `source` stickiness query identical to the one whose bar the user is asking about — the series, interval granularity, date range, and filters all determine who falls in each bar.
 - `day` selects a single bar (a specific active-interval count), not a date. To list the users at a different bar, change `day`.
-- To read every person in a bar, page with `offset` rather than raising `limit` past 1000, and keep `source` and `day` identical across pages so rows don't repeat or go missing.
+- To read every person in a bar, page with `offset` rather than raising `limit` past 1000, and keep `source`, `day`, `series`, `compare`, and `limit` identical across pages so rows don't repeat or go missing.
 - When you only need a sample, one page is enough — tighten the source (date range, filters) instead of paging through everyone.
