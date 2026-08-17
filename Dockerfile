@@ -199,10 +199,12 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
-    # uv sync validates workspace membership even with --no-dev, so every
-    # workspace member must be present in the build context.
+    # uv sync validates workspace membership even with --no-dev, so every workspace member must be
+    # present in the build context. tools/owners is also a real install source here: posthog-owners
+    # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
+    # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=tools/owners,target=tools/owners \
-    uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -442,7 +444,9 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
-# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image.
+# runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
+# source. This is separate from posthog-owners being installed into the venv as a library: the
+# sandbox gets files copied into a checkout, not an import.
 COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
 COPY --chown=posthog:posthog tools/owners tools/owners/
 RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
