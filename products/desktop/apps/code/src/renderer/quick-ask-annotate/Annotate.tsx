@@ -1,11 +1,5 @@
 import type React from "react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   drawShape,
   hitShape,
@@ -155,9 +149,7 @@ export function Annotate(): React.JSX.Element {
   const [textDraft, setTextDraft] = useState<Point | null>(null);
   const [cursor, setCursor] = useState("crosshair");
   const [spaceHeld, setSpaceHeld] = useState(false);
-  const [toolbarShift, setToolbarShift] = useState({ dx: 0, above: false });
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const drag = useRef<Drag | null>(null);
 
@@ -475,22 +467,6 @@ export function Annotate(): React.JSX.Element {
     }
   }, [shot, crop, shapes, draft, selected, scaleX, scaleY]);
 
-  // Keep the toolbar inside the viewport: centered under the selection,
-  // flipped above it when there is no room below.
-  useLayoutEffect(() => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar || !crop) return;
-    const width = toolbar.offsetWidth;
-    const height = toolbar.offsetHeight;
-    const centered = crop.x + crop.w / 2 - width / 2;
-    const left = Math.min(
-      Math.max(centered, 10),
-      window.innerWidth - width - 10,
-    );
-    const above = crop.y + crop.h + height + 26 > window.innerHeight;
-    setToolbarShift({ dx: left - centered, above });
-  }, [crop, tool, selected]);
-
   const pointOf = (event: React.MouseEvent): Point => ({
     x: event.clientX,
     y: event.clientY,
@@ -724,29 +700,7 @@ export function Annotate(): React.JSX.Element {
 
       {crop && (
         <div
-          className="an-dims"
-          style={{
-            left: Math.min(
-              Math.max(crop.x + crop.w - 92, 10),
-              window.innerWidth - 100,
-            ),
-            top: crop.y > 34 ? crop.y - 30 : crop.y + 8,
-          }}
-        >
-          {exportW} × {exportH}
-        </div>
-      )}
-
-      {crop && (
-        <div
-          ref={toolbarRef}
           className="an-toolbar"
-          style={{
-            left: crop.x + crop.w / 2 + toolbarShift.dx,
-            top: toolbarShift.above
-              ? Math.max(crop.y - 62, 10)
-              : crop.y + crop.h + 14,
-          }}
           onMouseDown={(event) => event.stopPropagation()}
         >
           {TOOLS.map((entry) => (
@@ -815,6 +769,10 @@ export function Annotate(): React.JSX.Element {
           >
             <ToolIcon tool="redo" />
           </button>
+          <span className="an-sep" />
+          <span className="an-size">
+            {exportW} × {exportH}
+          </span>
           <span className="an-sep" />
           <button
             type="button"

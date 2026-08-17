@@ -547,7 +547,12 @@ await annotate.mouse.down();
 await annotate.mouse.move(400, 300, { steps: 5 });
 await annotate.mouse.up();
 await annotate.waitForSelector(".an-toolbar", { timeout: 5_000 });
-const dims = await annotate.locator(".an-dims").textContent();
+// The toolbar is pinned to the top of the screen, away from the selection.
+const toolbarBox = await annotate.locator(".an-toolbar").boundingBox();
+if (!toolbarBox || toolbarBox.y > 40) {
+  fail(`toolbar sits at y=${toolbarBox?.y}, expected the top of the screen`);
+}
+const dims = await annotate.locator(".an-size").textContent();
 if (dims?.trim() !== "600 × 400") {
   fail(`dimension label reads "${dims}", expected "600 × 400"`);
 }
@@ -557,7 +562,7 @@ await annotate.mouse.move(400, 300);
 await annotate.mouse.down();
 await annotate.mouse.move(450, 350, { steps: 5 });
 await annotate.mouse.up();
-const grown = await annotate.locator(".an-dims").textContent();
+const grown = await annotate.locator(".an-size").textContent();
 if (grown?.trim() !== "700 × 500") {
   fail(`dimension label reads "${grown}" after resize, expected "700 × 500"`);
 }

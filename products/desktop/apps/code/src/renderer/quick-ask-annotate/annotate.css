@@ -40,7 +40,6 @@ body,
 /* ── Floating chrome ─────────────────────────────────── */
 
 .an-hint,
-.an-dims,
 .an-toolbar {
   position: fixed;
   background: var(--an-glass);
@@ -53,7 +52,7 @@ body,
 }
 
 .an-hint {
-  top: 22px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -63,7 +62,7 @@ body,
   border-radius: 999px;
   font-size: 13px;
   color: var(--an-fg);
-  animation: an-rise 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
+  animation: an-hint-rise 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 .an-hint-keys {
@@ -71,35 +70,26 @@ body,
   color: var(--an-fg-dim);
 }
 
-.an-dims {
-  padding: 4px 10px;
-  border-radius: 7px;
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--an-fg);
-  pointer-events: none;
-}
-
 .an-toolbar {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 3px;
   padding: 6px;
   border-radius: 13px;
   cursor: default;
-  animation: an-rise 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  animation: an-hint-rise 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  max-width: calc(100vw - 24px);
 }
 
-@keyframes an-rise {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-}
-
-.an-hint {
-  /* translateX composes with the rise animation's transform. */
-  animation-name: an-hint-rise;
+.an-size {
+  padding: 0 5px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--an-fg-dim);
 }
 
 @keyframes an-hint-rise {
