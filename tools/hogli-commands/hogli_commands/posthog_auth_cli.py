@@ -18,8 +18,8 @@ import click
 
 from hogli_commands import posthog_auth
 
-# Enough to read CI health, which is what asks for a login today. Not a ceiling: a command needing
-# more passes its own scopes to `posthog_auth.token`, which re-authorizes on demand.
+# Enough to read CI health, which is what the first caller needs. A command wanting more passes its
+# own scopes to `posthog_auth.token`, up to the ceiling the host publishes for hogli.
 _DEFAULT_SCOPES = ("engineering_analytics:read",)
 
 _HOST_OPTION = click.option(

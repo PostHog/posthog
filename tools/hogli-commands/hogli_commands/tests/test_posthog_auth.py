@@ -39,6 +39,23 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def a_terminal() -> Iterator[None]:
+    # `login` refuses off a tty, and pytest's stdin is not one. The paste path stays off regardless,
+    # since `_readable_terminal` also needs a real fd.
+    with patch.object(posthog_auth.sys.stdin, "isatty", lambda: True):
+        yield
+
+
+_CLIENT_ID = f"{_HOST}/api/oauth/hogli/client-metadata"
+
+
+def _metadata(*scopes: str) -> Any:
+    # Stands in for the client metadata document PostHog serves, which names hogli and its ceiling.
+    document = {"client_id": _CLIENT_ID, "com.posthog": {"scopes": list(scopes or (_SCOPE,))}}
+    return patch.object(posthog_auth.requests, "get", lambda url, timeout: _Response(200, document))
+
+
 def _credential(**overrides: Any) -> posthog_auth.Credential:
     fields: dict[str, Any] = {
         "host": _HOST,
@@ -47,7 +64,6 @@ def _credential(**overrides: Any) -> posthog_auth.Credential:
         "refresh_token": "phr_cached",
         "expires_at": time.time() + 3600,
         "granted": (_SCOPE,),
-        "registered": (_SCOPE,),
     }
     return posthog_auth.Credential(**{**fields, **overrides})
 
@@ -315,70 +331,46 @@ def test_a_transient_refresh_failure_is_not_reported_as_signed_out(post: Any, ex
 def test_a_credential_short_of_the_requested_scope_does_not_satisfy_it() -> None:
     # Returning it would send a request that 403s on a scope check, surfacing as a permission problem
     # the user cannot act on.
-    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
+    posthog_auth.save(_credential(granted=("query:read",)))
     with pytest.raises(posthog_auth.AuthError):
         posthog_auth.token(scopes=[_SCOPE], host=_HOST, interactive=False)
 
 
-def test_a_login_for_a_new_scope_keeps_the_scopes_already_registered() -> None:
-    # Two commands wanting different scopes must not take turns un-authorizing each other.
-    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": f"query:read {_SCOPE}"}),
-        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
-        posthog_auth.login(scopes=[_SCOPE], host=_HOST)
-    assert set(poster.body_for("register")["scope"].split()) == {"query:read", _SCOPE}
-
-
-def test_a_login_reuses_the_registered_client_when_its_ceiling_already_covers_the_scopes() -> None:
-    # Re-registering per login would litter the account's connected-apps list with duplicates.
-    posthog_auth.save(_credential())
+def test_the_client_id_is_the_document_the_host_publishes() -> None:
+    # A self-registered client per machine is what this replaced: it left a dead OAuth app behind on
+    # every scope change and showed the user an unverified-app consent screen.
     poster = _Poster(token=(200, {"access_token": "pha_new", "expires_in": 3600}))
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert credential.client_id == _CLIENT_ID
+    assert poster.body_for("token")["client_id"] == _CLIENT_ID
     assert not poster.reached("register")
-    # Revoking the credential this one replaces would take the new token with it, since the server
-    # sweeps every token for the client rather than the one presented.
-    assert not poster.reached("revoke")
-    assert credential.client_id == "client-abc"
 
 
-def test_a_login_that_registers_a_new_client_revokes_the_credential_it_replaces() -> None:
-    # The replaced credential is overwritten on disk, so an unrevoked refresh token would go on
-    # minting access tokens with nothing left naming it.
-    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": f"query:read {_SCOPE}"}),
-        token=(200, {"access_token": "pha_new", "refresh_token": "phr_new", "expires_in": 3600}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
-        posthog_auth.login(scopes=[_SCOPE], host=_HOST)
-    revoked = poster.body_for("revoke")
-    assert revoked["token"] == "phr_cached" and revoked["client_id"] == "client-abc"
+def test_a_host_that_serves_no_client_document_names_the_way_out() -> None:
+    # An older self-hosted PostHog would otherwise fail at /authorize, which cannot say what to do.
+    with patch.object(posthog_auth.requests, "get", lambda url, timeout: _Response(404, {})):
+        with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
+            with pytest.raises(posthog_auth.AuthError) as caught:
+                posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert "POSTHOG_PERSONAL_API_KEY" in caught.value.message
 
 
-def test_a_login_keeps_its_new_credential_when_revoking_the_old_one_fails() -> None:
-    # The user is signed in either way, so failing here would report a working login as an error.
-    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": f"query:read {_SCOPE}"}),
-        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
-        revoke=(503, {"error": "service_unavailable"}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
-        credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
-    assert credential.access_token == "pha_new"
-    assert posthog_auth.load(_HOST) is not None
+def test_a_login_off_a_tty_refuses_instead_of_opening_a_browser() -> None:
+    # A browser opened for a piped caller answers to nobody, and the login would sit out its whole
+    # five-minute timeout before failing.
+    with patch.object(posthog_auth.sys.stdin, "isatty", lambda: False):
+        with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
+            with pytest.raises(posthog_auth.AuthError) as caught:
+                posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert caught.value.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
 
 
-def test_a_scope_the_server_refuses_is_reported_before_the_browser_opens() -> None:
-    # The server strips a scope a self-registering client may not have and only 400s when nothing
-    # survives. Consenting first would spend the user's click to mint a token missing what was asked
-    # for, and the failure would land after the click as an unactionable 403.
-    poster = _Poster(register=(200, {"client_id": "client-new", "scope": _SCOPE}))
-    with patch.object(posthog_auth.requests, "post", poster):
+def test_a_scope_the_host_does_not_publish_is_reported_before_the_browser_opens() -> None:
+    # /authorize clamps to the published ceiling, so consenting first would spend the user's click
+    # to mint a token missing what was asked for, landing as an unactionable 403 later.
+    poster = _Poster()
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(_SCOPE):
         with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
             with pytest.raises(posthog_auth.AuthError) as caught:
                 posthog_auth.login(scopes=[_SCOPE, "llm_gateway:read"], host=_HOST)
@@ -387,11 +379,11 @@ def test_a_scope_the_server_refuses_is_reported_before_the_browser_opens() -> No
 
 
 def test_retrying_a_refused_scope_mints_no_grant_and_leaves_the_cache_alone() -> None:
-    # Refusing after the exchange rather than before it would leave a live access and refresh grant
-    # behind on every attempt, each needing its own revocation, and overwrite a working credential.
+    # Refusing after the exchange rather than before it would leave a live grant behind on every
+    # attempt, each needing its own revocation, and overwrite a working credential.
     posthog_auth.save(_credential())
-    poster = _Poster(register=(200, {"client_id": "client-new", "scope": _SCOPE}))
-    with patch.object(posthog_auth.requests, "post", poster):
+    poster = _Poster()
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(_SCOPE):
         with patch.object(posthog_auth.webbrowser, "open", side_effect=AssertionError("must not open")):
             for _ in range(3):
                 with pytest.raises(posthog_auth.AuthError):
@@ -404,11 +396,8 @@ def test_retrying_a_refused_scope_mints_no_grant_and_leaves_the_cache_alone() ->
 def test_the_granted_scopes_come_from_the_server_not_the_request() -> None:
     # PostHog widens some grants. Storing what we asked for would re-authorize forever, or claim a
     # scope the token does not carry.
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
-        token=(200, {"access_token": "pha_new", "scope": f"{_SCOPE} engineering_analytics:write"}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+    poster = _Poster(token=(200, {"access_token": "pha_new", "scope": f"{_SCOPE} engineering_analytics:write"}))
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     assert credential.granted == (_SCOPE, "engineering_analytics:write")
 
@@ -416,11 +405,8 @@ def test_the_granted_scopes_come_from_the_server_not_the_request() -> None:
 def test_a_token_response_without_a_scope_field_records_what_was_asked_for() -> None:
     # RFC 6749 §5.1 omits `scope` when it matches the request, so an omission means the whole ask was
     # granted. Recording nothing would read as "scopes unknown" and satisfy every later request.
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
-        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+    poster = _Poster(token=(200, {"access_token": "pha_new", "expires_in": 3600}))
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     assert credential.granted == (_SCOPE,)
 
@@ -428,17 +414,12 @@ def test_a_token_response_without_a_scope_field_records_what_was_asked_for() -> 
 # --- the browser handoff ------------------------------------------------------------------------
 
 
-def test_the_registered_redirect_is_portless_loopback_and_the_request_carries_the_bound_port() -> None:
-    # RFC 8252 §7.3 exempts a loopback port from redirect matching, which is the whole reason an
-    # ephemeral port works against one registration. A registered port would break the next login
-    # that got a different one.
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
-        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+def test_the_exchange_carries_the_port_the_listener_actually_bound() -> None:
+    # RFC 8252 §7.3 exempts a loopback port from redirect matching, which is the whole reason one
+    # portless entry in the published document covers whichever port the OS hands this login.
+    poster = _Poster(token=(200, {"access_token": "pha_new", "expires_in": 3600}))
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
         posthog_auth.login(scopes=[_SCOPE], host=_HOST)
-    assert poster.body_for("register")["redirect_uris"] == ["http://127.0.0.1/callback"]
     sent = poster.body_for("token")["redirect_uri"]
     assert sent.startswith("http://127.0.0.1:") and sent.endswith("/callback")
     assert _port_from(sent) > 0
@@ -446,15 +427,11 @@ def test_the_registered_redirect_is_portless_loopback_and_the_request_carries_th
 
 def test_the_code_exchange_proves_possession_of_the_pkce_verifier() -> None:
     # A public client has no secret, so the verifier is the only thing binding the code to us.
-    poster = _Poster(
-        register=(200, {"client_id": "client-new", "scope": _SCOPE}),
-        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
-    )
-    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+    poster = _Poster(token=(200, {"access_token": "pha_new", "expires_in": 3600}))
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
         posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     body = poster.body_for("token")
     assert body["grant_type"] == "authorization_code" and body["code_verifier"]
-    assert poster.body_for("register")["token_endpoint_auth_method"] == "none"
 
 
 @pytest.mark.parametrize(
@@ -492,43 +469,26 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
     # doesn't detach. Opened in the foreground it would wait on the redirect only this listener can
     # serve, so the login would hang until its timeout.
     released = threading.Event()
+    collected: dict[str, str] = {}
     with posthog_auth._CallbackServer() as server, _paste_path(False):
 
         def blocking_open(url: str) -> bool:
-            # What a real blocking browser does: fetch the redirect, then stay open.
+            # What a real blocking browser does: fetch the redirect, then stay open until dismissed.
             threading.Thread(
                 target=lambda: requests.get(f"{server.redirect_uri}?code=blocked&state=s", timeout=5), daemon=True
             ).start()
-            released.wait(10)
+            released.wait()
             return True
 
         with patch.object(posthog_auth.webbrowser, "open", blocking_open):
-            assert server.collect("http://example.invalid", state="s") == "blocked"
-    released.set()
-
-
-@pytest.mark.parametrize(
-    "foreground, expected",
-    [
-        (True, True),
-        # Reading a terminal from a background process group raises SIGTTIN, which stops the whole
-        # process, so `hogli auth:posthog:login &` would hang instead of finishing on the listener.
-        (False, False),
-    ],
-)
-def test_the_paste_reader_only_runs_in_the_foreground(foreground: bool, expected: bool) -> None:
-    ours = os.getpgrp()
-    with patch.object(posthog_auth.sys, "stdin", _FakeTty()):
-        with patch.object(posthog_auth.os, "tcgetpgrp", lambda fd: ours if foreground else ours + 1):
-            assert posthog_auth._readable_terminal() is expected
-
-
-class _FakeTty:
-    def isatty(self) -> bool:
-        return True
-
-    def fileno(self) -> int:
-        return 0
+            # Run in a worker so a login that waits on the browser fails this test rather than
+            # hanging it: the browser is never dismissed until the assertions are done.
+            worker = threading.Thread(target=lambda: collected.update(code=server.collect("http://x", state="s")))
+            worker.daemon = True
+            worker.start()
+            worker.join(10)
+            released.set()
+    assert collected.get("code") == "blocked", "the login did not return while the browser was still open"
 
 
 def test_a_login_prints_the_url_and_takes_the_redirect_back_by_hand(capsys: pytest.CaptureFixture[str]) -> None:

@@ -12,14 +12,15 @@ Three sources, in order:
 2. A cached OAuth credential for that host, refreshed silently when the access token has aged out.
 3. An interactive browser login, on a tty only.
 
-The browser path is the RFC 8252 native-app flow: the client self-registers via Dynamic Client
-Registration (RFC 7591), and the code comes back to an ephemeral port on 127.0.0.1 with PKCE.
+The browser path is the RFC 8252 native-app flow. The client_id is the URL of the client metadata
+document PostHog serves for hogli, so there is nothing to register and every machine authorizes as
+the same named client. The code comes back to an ephemeral port on 127.0.0.1 with PKCE.
 RFC 8628 device flow is not used because PostHog does not advertise that grant. A login always
 prints the URL as well as opening it, and accepts the redirect typed back in, so it also finishes
 on a machine whose browser lives somewhere else.
 
 Credentials are cached per host at ``~/.config/posthog/oauth/<host>.json`` with mode 0600,
-alongside the registered client, so one login serves every hogli command on that host. Logging out
+alongside the client that minted them, so one login serves every hogli command on that host. Logging out
 revokes at the server before deleting the file, since a deleted file leaves a refresh token that
 still mints access tokens for anyone holding a copy.
 
@@ -61,11 +62,11 @@ KEY_ENV_VARS = ("POSTHOG_PERSONAL_API_KEY", "POSTHOG_AUTH_HEADER")
 
 _CACHE_ROOT = Path.home() / ".config" / "posthog" / "oauth"
 
-_CLIENT_NAME = "hogli"
-# Registered without a port: RFC 8252 §7.3 requires the server to allow any port on a loopback
-# redirect, so one registration covers whichever ephemeral port we get. 127.0.0.1 rather than
-# localhost because django-oauth-toolkit's port exemption lists the literal addresses.
-_REDIRECT_URI = "http://127.0.0.1/callback"
+# PostHog serves hogli's client metadata document here, and its own URL is the client_id.
+_METADATA_PATH = "api/oauth/hogli/client-metadata"
+# The document registers the redirect without a port: RFC 8252 §7.3 requires the server to allow
+# any port on a loopback redirect, so one entry covers whichever ephemeral port we get. 127.0.0.1
+# rather than localhost because django-oauth-toolkit's port exemption lists the literal addresses.
 _REDIRECT_PATH = "/callback"
 
 # Refresh this far before the access token actually expires, so a slow request can't start on a
@@ -90,14 +91,10 @@ class AuthError(Exception):
 
 @dataclass(frozen=True, kw_only=True)
 class Credential:
-    """One host's cached OAuth state: the self-registered client, plus the tokens it minted.
+    """One host's cached OAuth state: the client that minted the tokens, and the tokens.
 
-    Three scope tuples, narrowest first, because /authorize clamps a request to the client's
-    ceiling. ``granted`` is what the server said it issued, which can be narrower than the ask.
-    ``registered`` is that ceiling, so a caller needing a scope outside it needs a new client
-    rather than new consent. ``requested`` is what we asked to register, a superset of
-    ``registered`` when the server stripped something, kept so a refused scope is not re-requested
-    on every call.
+    ``granted`` is what the server said it issued, which can be narrower than the ask, so a
+    caller checks it rather than assuming the request survived consent.
     """
 
     host: str
@@ -106,8 +103,6 @@ class Credential:
     refresh_token: str | None = field(default=None, repr=False)
     expires_at: float | None = None
     granted: tuple[str, ...] = ()
-    registered: tuple[str, ...] = ()
-    requested: tuple[str, ...] = ()
 
     def is_fresh(self, *, now: float | None = None) -> bool:
         if self.expires_at is None:
@@ -128,9 +123,15 @@ class Credential:
             "refresh_token": self.refresh_token,
             "expires_at": self.expires_at,
             "granted": list(self.granted),
-            "registered": list(self.registered),
-            "requested": list(self.requested),
         }
+
+
+@dataclass(frozen=True, kw_only=True)
+class ClientMetadata:
+    """The client PostHog publishes for hogli: its id, and the scope ceiling it may ask for."""
+
+    client_id: str
+    scopes: tuple[str, ...]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -192,8 +193,6 @@ def load(host: str = DEFAULT_HOST) -> Credential | None:
             refresh_token=raw.get("refresh_token"),
             expires_at=raw.get("expires_at"),
             granted=tuple(raw.get("granted") or ()),
-            registered=tuple(raw.get("registered") or ()),
-            requested=tuple(raw.get("requested") or raw.get("registered") or ()),
         )
     except (KeyError, TypeError):
         return None
@@ -237,17 +236,6 @@ def logout(host: str = DEFAULT_HOST) -> Logout:
             failure = exc.message
     path.unlink(missing_ok=True)
     return Logout(forgotten=existed, revoked=credential is not None and failure is None, error=failure)
-
-
-def _revoke_superseded(credential: Credential) -> None:
-    """Revoke a credential a fresh login replaced. Warns rather than raising: the login worked."""
-    try:
-        revoke(credential)
-    except AuthError as exc:
-        click.secho(
-            f"Could not revoke the previous credential for {credential.host}: {exc.message}", fg="yellow", err=True
-        )
-        click.secho("It is still live. Revoke it under Settings → Connected applications.", fg="yellow", err=True)
 
 
 def revoke(credential: Credential) -> None:
@@ -335,46 +323,27 @@ def token(
 
 
 def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
-    """Run the browser authorization flow and cache the result.
-
-    Reuses the cached client registration when its ceiling already covers ``scopes``; a caller
-    asking for something outside it needs a new client, since /authorize clamps to the ceiling and
-    would otherwise hand back a token quietly missing the scope that was asked for.
-    """
+    """Run the browser authorization flow and cache the result."""
     host = _normalize_host(host)
     wanted = tuple(dict.fromkeys(scopes))
     if not wanted:
         raise AuthError("A login needs at least one scope to ask for.", exit_code=1)
-
-    existing = load(host)
-    # Compared against what was asked for, never against what came back. A scope the server strips
-    # is absent from `registered` forever, so keying off that re-registers on every attempt and
-    # leaves a dead OAuth client plus a live grant behind each time.
-    superseded: Credential | None = None
-    if existing is not None and set(wanted) <= set(existing.requested):
-        # No revocation on this path, though the old tokens are about to be overwritten: the server
-        # sweeps every token for the client, so revoking here would kill the one just minted. The
-        # orphan dies with the next logout, which sweeps the same family.
-        client_id = existing.client_id
-        registered = existing.registered
-        requested = existing.requested
-    else:
-        # Carry forward what the old client could do, so authorizing for a new scope doesn't
-        # silently narrow another command that was already working.
-        requested = tuple(dict.fromkeys([*(existing.requested if existing else ()), *wanted]))
-        client_id, registered = _register(host, requested)
-        # Revoked below, once the replacement exists: overwriting the file would otherwise leave
-        # its refresh token live and unnameable.
-        superseded = existing
-
-    refused = [scope for scope in wanted if scope not in registered]
-    if refused:
-        # Checked before the browser opens because /authorize clamps to the ceiling above, so
-        # consenting would mint a token missing these and fail after the user's click. The cost is
-        # an unsaved client registration per retry, which carries no grant and needs no revoking.
+    if not sys.stdin.isatty():
+        # A browser opened here answers to nobody, and the login would sit out its whole timeout.
         raise AuthError(
-            f"{host} will not grant {' '.join(refused)} to a self-registered client.\n"
-            "  Check the scope name, and note that privileged scopes need an admin-registered app."
+            f"A login to {host} needs a terminal, and this one is not attached to any.\n"
+            f"  Run `hogli auth:posthog:login` yourself, or set {KEY_ENV_VARS[0]} for this caller."
+        )
+
+    client = _client(host)
+    refused = [scope for scope in wanted if scope not in client.scopes]
+    if refused:
+        # Checked before the browser opens, since /authorize clamps to the published ceiling and
+        # consenting would mint a token missing these, failing only after the user's click.
+        raise AuthError(
+            f"{host} does not offer {' '.join(refused)} to hogli.\n"
+            f"  It publishes {' '.join(client.scopes)}. A new scope goes in the client metadata "
+            "document PostHog serves, not here."
         )
 
     verifier = secrets.token_urlsafe(64)
@@ -385,7 +354,7 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         redirect_uri = server.redirect_uri
         url = f"{host}/oauth/authorize/?" + urlencode(
             {
-                "client_id": client_id,
+                "client_id": client.client_id,
                 "response_type": "code",
                 "redirect_uri": redirect_uri,
                 "scope": " ".join(wanted),
@@ -398,17 +367,13 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
 
     credential = _exchange(
         host,
-        client_id=client_id,
+        client_id=client.client_id,
         code=code,
         verifier=verifier,
         redirect_uri=redirect_uri,
-        registered=registered,
-        requested=requested,
         asked=wanted,
     )
     save(credential)
-    if superseded is not None:
-        _revoke_superseded(superseded)
     if not credential.covers(wanted):
         # The ceiling check above cannot see a narrowing that happens at consent time, so this is
         # the backstop. Returning here would hand back a token quietly missing what was asked for,
@@ -418,26 +383,22 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
     return credential
 
 
-def _register(host: str, scopes: Sequence[str]) -> tuple[str, tuple[str, ...]]:
-    """Self-register a public client via RFC 7591, returning its id and granted ceiling.
+def _client(host: str) -> ClientMetadata:
+    """The client PostHog publishes for hogli, fetched from the host itself.
 
-    The server strips scopes a self-registering client may not have and echoes back what it
-    stored, so read the ceiling off the response rather than assuming the request survived.
+    The document's own URL is the client_id, so there is nothing to register and every machine
+    authorizes as the same named client. Fetched rather than hardcoded so the scope ceiling comes
+    from the server that enforces it, and so a host too old to serve one says so before a browser
+    opens on an /authorize that cannot resolve the client.
     """
-    payload = {
-        "client_name": _CLIENT_NAME,
-        "redirect_uris": [_REDIRECT_URI],
-        "grant_types": ["authorization_code", "refresh_token"],
-        "response_types": ["code"],
-        "token_endpoint_auth_method": "none",
-        "scope": " ".join(scopes),
-    }
-    body = _post(f"{host}/oauth/register/", json_body=payload, action="Registering hogli")
-    client_id = body.get("client_id")
-    if not client_id:
-        raise AuthError(f"{host} registered no client_id for hogli.")
-    granted = tuple(str(body.get("scope") or " ".join(scopes)).split())
-    return str(client_id), granted
+    url = f"{host}/{_METADATA_PATH}"
+    body = _get(url, action="Reading hogli's client metadata")
+    if body.get("client_id") != url:
+        raise AuthError(f"{host} published a client metadata document for a different client_id.")
+    scopes = body.get("com.posthog", {}).get("scopes") if isinstance(body.get("com.posthog"), dict) else None
+    if not scopes:
+        raise AuthError(f"{host} published no scopes for hogli, so a login could ask for nothing.")
+    return ClientMetadata(client_id=url, scopes=tuple(str(scope) for scope in scopes))
 
 
 def _exchange(
@@ -447,8 +408,6 @@ def _exchange(
     code: str,
     verifier: str,
     redirect_uri: str,
-    registered: tuple[str, ...],
-    requested: tuple[str, ...],
     asked: tuple[str, ...],
 ) -> Credential:
     body = _post(
@@ -466,8 +425,6 @@ def _exchange(
         body,
         host=host,
         client_id=client_id,
-        registered=registered,
-        requested=requested,
         # RFC 6749 §5.1 makes `scope` optional when it matches the request, so an omission means
         # the ask was granted whole. Recording nothing instead would read as "scopes unknown".
         fallback_granted=asked,
@@ -505,8 +462,6 @@ def _refresh(credential: Credential) -> Credential | None:
         body,
         host=credential.host,
         client_id=credential.client_id,
-        registered=credential.registered,
-        requested=credential.requested,
         # Refresh-token rotation is optional; keep the working one when the server reissues none.
         fallback_refresh=credential.refresh_token,
         fallback_granted=credential.granted,
@@ -518,8 +473,6 @@ def _credential_from(
     *,
     host: str,
     client_id: str,
-    registered: tuple[str, ...],
-    requested: tuple[str, ...],
     fallback_refresh: str | None = None,
     fallback_granted: tuple[str, ...] = (),
 ) -> Credential:
@@ -535,8 +488,6 @@ def _credential_from(
         refresh_token=str(body.get("refresh_token") or fallback_refresh or "") or None,
         expires_at=time.time() + float(expires_in) if expires_in else None,
         granted=granted,
-        registered=registered,
-        requested=requested,
     )
 
 
@@ -554,6 +505,26 @@ def _post(
     return body
 
 
+def _get(url: str, *, action: str) -> dict[str, Any]:
+    """One unauthenticated GET, for the metadata document that names the client."""
+    try:
+        response = requests.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
+    except requests.RequestException as exc:
+        raise AuthError(f"{action} could not reach {url}: {exc}", exit_code=1) from exc
+    if response.status_code == 404:
+        # Named rather than left as a bare 404, because the fix is a PostHog version, not anything
+        # the user did wrong.
+        raise AuthError(
+            f"{url} is not served by this PostHog.\n"
+            "  A browser login needs a version that publishes hogli's client metadata document.\n"
+            f"  Set {KEY_ENV_VARS[0]} to use a personal API key against this host instead."
+        )
+    body = _body_of(response, action=action)
+    if not body:
+        raise AuthError(f"{action} returned no object.")
+    return body
+
+
 def _send(
     url: str,
     *,
@@ -566,6 +537,11 @@ def _send(
         response = requests.post(url, json=json_body, data=form_body, timeout=_HTTP_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         raise AuthError(f"{action} could not reach {url}: {exc}", exit_code=1) from exc
+    return _body_of(response, action=action)
+
+
+def _body_of(response: requests.Response, *, action: str) -> dict[str, Any]:
+    """The JSON object a response carries, empty when it carries none, raising on a 4xx or 5xx."""
     try:
         body = response.json()
     except ValueError:
