@@ -25,11 +25,9 @@ It does NOT reformat or fix imports. Run afterwards:
 
 from __future__ import annotations
 
-import io
 import ast
 import json
 import argparse
-import tokenize
 from pathlib import Path
 
 # Reserved layout key for module-level state each module needs its own copy of.
@@ -99,38 +97,61 @@ def deepen_relative_imports(text: str) -> str:
     return "".join(lines)
 
 
-def requalify(body: str, self_module: str, owner: dict[str, str]) -> tuple[str, set[str], set[str]]:
-    """Prefix foreign symbols with their module, touching NAME tokens only.
+def shadowed_symbols(body: str, self_module: str, owner: dict[str, str]) -> list[str]:
+    """Foreign symbol names that the moved code also binds locally.
 
-    Regex would also rewrite the same word inside docstrings, comments, and string
-    literals. tokenize sees the difference, so prose that happens to mention a
-    function name survives untouched.
+    A local `get_run` makes the name ambiguous: requalifying its reads would point them at
+    another module, and leaving them alone is only right because the local exists. Rather
+    than resolve scopes, refuse and let a human rename the local — the same stance the
+    module-name shadowing trap takes, and a one-line fix.
     """
-    edits: list[tuple[tuple[int, int], tuple[int, int], str]] = []
+    bound: dict[str, int] = {}
+    for node in ast.walk(ast.parse(body)):
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            bound.setdefault(node.id, node.lineno)
+        elif isinstance(node, ast.arg):
+            bound.setdefault(node.arg, node.lineno)
+        elif isinstance(node, ast.alias) and node.asname:
+            bound.setdefault(node.asname, getattr(node, "lineno", 0))
+    return [
+        f"{name} (bound at line {line}, owned by {owner[name]})"
+        for name, line in sorted(bound.items())
+        if name in owner and owner[name] != self_module
+    ]
+
+
+def requalify(body: str, self_module: str, owner: dict[str, str]) -> tuple[str, set[str], set[str]]:
+    """Prefix foreign symbols with their module, rewriting reads only.
+
+    Uses `ast.Name` nodes in `Load` context rather than raw tokens, which excludes three
+    things a token scan gets wrong: a name being *bound* (an assignment target or loop
+    target would become `mod.name = ...`, which is valid Python writing to the wrong place),
+    a parameter or keyword argument (`f(name=1)` would not even parse), and an attribute
+    (`obj.name`). Strings and comments hold no Name nodes, so prose mentioning a function
+    survives untouched.
+
+    Returns the rewritten body, the modules it now depends on, and every name it reads.
+    """
+    tree = ast.parse(body)
+    edits: list[tuple[int, int, int, str]] = []
     used: set[str] = set()
     names: set[str] = set()
-    prev = ""
-    for tok in tokenize.generate_tokens(io.StringIO(body).readline):
-        if tok.type == tokenize.NAME:
-            names.add(tok.string)
-        if tok.type == tokenize.NAME and prev not in {".", "def", "class"}:
-            module = owner.get(tok.string)
-            if module is not None and module != self_module:
-                used.add(module)
-                edits.append((tok.start, tok.end, f"{module}.{tok.string}"))
-        if tok.type not in (
-            tokenize.NL,
-            tokenize.NEWLINE,
-            tokenize.INDENT,
-            tokenize.DEDENT,
-            tokenize.COMMENT,
-        ):
-            prev = tok.string
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Name):
+            continue
+        names.add(node.id)
+        if not isinstance(node.ctx, ast.Load):
+            continue
+        module = owner.get(node.id)
+        if module is not None and module != self_module:
+            used.add(module)
+            edits.append((node.lineno, node.col_offset, node.end_col_offset or node.col_offset, f"{module}.{node.id}"))
 
     lines = body.splitlines(keepends=True)
-    for (srow, scol), (_, ecol), replacement in reversed(edits):
-        line = lines[srow - 1]
-        lines[srow - 1] = line[:scol] + replacement + line[ecol:]
+    # Right-to-left within each line so an earlier edit cannot shift a later column.
+    for lineno, col, end_col, replacement in sorted(edits, reverse=True):
+        line = lines[lineno - 1]
+        lines[lineno - 1] = line[:col] + replacement + line[end_col:]
     return "".join(lines), used, names
 
 
@@ -218,23 +239,42 @@ def main() -> int:
         for name in sorted(shared_names, key=lambda n: segments[n][0])
     }
 
-    package = args.package_dir or args.source.with_suffix("")
-    package.mkdir(parents=True, exist_ok=True)
+    # Build every module first, so a refusal below leaves nothing half-written on disk.
+    built: dict[str, tuple[str, set[str], int]] = {}
+    shadowed: dict[str, list[str]] = {}
     for module, spec in modules.items():
         ordered = sorted(spec["symbols"], key=lambda n: segments[n][0])
         body = "\n\n".join("".join(lines[segments[n][0] - 1 : segments[n][1]]).strip("\n") for n in ordered) + "\n"
         # Deferred imports sit inside function bodies, so the body needs deepening too.
         # This runs before the sibling imports below, which are already at the right depth.
         body = deepen_relative_imports(body)
+        collisions = shadowed_symbols(body, module, owner)
+        if collisions:
+            shadowed[module] = collisions
+            continue
         body, used, names = requalify(body, module, owner)
         siblings = "".join(f"from . import {m}\n" for m in sorted(used))
         # Only carry shared state into modules that reference it: `ruff --fix` prunes an
         # unused import, but never an unused module-level assignment, so a blanket copy
-        # leaves a dead logger in every module that doesn't log. `names` comes from the
-        # tokenizer, so a mention inside a docstring does not count as a reference.
+        # leaves a dead logger in every module that doesn't log. `names` holds the names the
+        # code reads, so a mention inside a docstring does not count as a reference.
         carried = "".join(src for name, src in shared_src.items() if name in names)
-        (package / f"{module}.py").write_text(f'"""{spec["doc"]}"""\n\n{header}{siblings}\n{carried}\n\n{body}')
-        print(f"{module + '.py':<26} {len(ordered):>3} symbols  deps={sorted(used) or '-'}")
+        built[module] = (f'"""{spec["doc"]}"""\n\n{header}{siblings}\n{carried}\n\n{body}', used, len(ordered))
+
+    if shadowed:
+        for module, collisions in shadowed.items():
+            print(f"{module}.py binds names that belong to other modules:")
+            for entry in collisions:
+                print(f"  {entry}")
+        print("Rename the local, then split — otherwise its reads cannot be told apart from")
+        print("reads of the moved symbol.")
+        return 1
+
+    package = args.package_dir or args.source.with_suffix("")
+    package.mkdir(parents=True, exist_ok=True)
+    for module, (text, used, count) in built.items():
+        (package / f"{module}.py").write_text(text)
+        print(f"{module + '.py':<26} {count:>3} symbols  deps={sorted(used) or '-'}")
 
     init_doc = args.init_doc or f"{package.name} for {package.parent.name}. One module per concern."
     (package / "__init__.py").write_text(f'"""{init_doc}"""\n')
