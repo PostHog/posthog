@@ -33,6 +33,7 @@ import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -151,6 +152,7 @@ export function SettingsPanel({
   const channelsLayout = useChannelsLayout();
   const { localWorkspaces } = useHostCapabilities();
   const logoutMutation = useLogoutMutation();
+  const quickAskAvailable = useQuickAskAvailable();
 
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const hiddenCategories = getHiddenSettingsCategories({
@@ -158,6 +160,7 @@ export function SettingsPanel({
     spendAnalysisEnabled,
     localWorkspaces,
     channelsLayout,
+    quickAskAvailable,
   });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
     ...group,
