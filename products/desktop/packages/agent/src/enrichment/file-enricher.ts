@@ -78,6 +78,7 @@ export async function enrichFileForAgent(
     const enriched = await parsed.enrichFromApi({
       apiKey,
       host: deps.apiConfig.apiUrl,
+      publicHost: deps.apiConfig.publicApiUrl,
       projectId: deps.apiConfig.projectId,
       timeoutMs: 5_000,
     });

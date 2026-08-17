@@ -48,9 +48,17 @@ function copyAssets() {
   const distDir = resolve(import.meta.dirname, "dist");
   const templatesDir = resolve(distDir, "templates");
   const claudeCliDir = resolve(distDir, "claude-cli");
+  const enricherGrammarsSource = resolve(
+    import.meta.dirname,
+    "../enricher/grammars",
+  );
+  const enricherGrammarsTarget = resolve(distDir, "grammars");
 
   mkdirSync(templatesDir, { recursive: true });
   mkdirSync(claudeCliDir, { recursive: true });
+  cpSync(enricherGrammarsSource, enricherGrammarsTarget, {
+    recursive: true,
+  });
 
   const srcTemplatesDir = resolve(import.meta.dirname, "src/templates");
   if (existsSync(srcTemplatesDir)) {
@@ -77,6 +85,9 @@ function copyAssets() {
     JSON.stringify({ type: "module" }, null, 2),
   );
 }
+
+const nodeEsmBanner =
+  'import { createRequire as __createRequire } from "node:module"; import { fileURLToPath as __fileURLToPath } from "node:url"; import { dirname as __pathDirname } from "node:path"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __pathDirname(__filename);';
 
 const sharedOptions = {
   sourcemap: true,
@@ -158,9 +169,7 @@ export default defineConfig([
     // dynamic `require(...)` calls throw in ESM output unless a real require
     // exists. Entries spawned directly by node (local-tools-mcp-server.js)
     // crash at import time without this shim.
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     onSuccess: async () => {
       copyAssets();
@@ -187,9 +196,7 @@ export default defineConfig([
     format: ["esm"],
     dts: false,
     clean: false,
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     noExternal: [/^(?!node:)/],
     external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
