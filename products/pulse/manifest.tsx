@@ -2,7 +2,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Pulse',
@@ -31,6 +31,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.PULSE],
             category: ProductItemCategory.UNRELEASED,
             iconType: 'activity',
+            iconColor: [
+                'var(--color-product-activity-light)',
+                'var(--color-product-activity-dark)',
+            ] as FileSystemIconColor,
             href: urls.pulse(),
             flag: FEATURE_FLAGS.PULSE,
             tags: ['alpha'],

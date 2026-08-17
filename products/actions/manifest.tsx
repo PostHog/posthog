@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { ActionType, ProductManifest } from '../../frontend/src/types'
+import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Actions',
@@ -52,6 +52,10 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.action(ref),
             filterKey: 'action',
             iconType: 'action' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     },
     treeItemsNew: [
@@ -60,6 +64,10 @@ export const manifest: ProductManifest = {
             path: 'Action',
             href: urls.createAction(),
             iconType: 'action' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-actions-light)',
+                'var(--color-product-actions-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsMetadata: [

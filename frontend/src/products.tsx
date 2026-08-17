@@ -28,7 +28,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope, FileSystemIconColor } from '~/types'
+import { ActivityScope } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -45,6 +45,7 @@ import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
     ActionType,
     DashboardType,
+    FileSystemIconColor,
     InsightSceneSource,
     InsightShortId,
     InsightType,
@@ -1506,10 +1507,12 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.action(ref),
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
+        iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
     },
     cohort: {
         name: 'Cohort',
         iconType: 'cohort' as FileSystemIconType,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
         filterKey: 'cohort',
     },
@@ -1638,12 +1641,19 @@ export const productSetupProbes: ProductSetupProbe[] = [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsNew = (): FileSystemImport[] => [
-    { type: 'action', path: 'Action', href: urls.createAction(), iconType: 'action' as FileSystemIconType },
+    {
+        type: 'action',
+        path: 'Action',
+        href: urls.createAction(),
+        iconType: 'action' as FileSystemIconType,
+        iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
+    },
     {
         path: `Cohort`,
         type: 'cohort',
         href: urls.cohort('new'),
         iconType: 'cohort' as FileSystemIconType,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         sceneKeys: ['Cohorts', 'Cohort'],
     },
     {
@@ -2393,6 +2403,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.PULSE],
         category: ProductItemCategory.UNRELEASED,
         iconType: 'activity',
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'] as FileSystemIconColor,
         href: urls.pulse(),
         flag: FEATURE_FLAGS.PULSE,
         tags: ['alpha'],
