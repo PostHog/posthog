@@ -1,124 +1,78 @@
-import React, { useCallback, useState } from "react";
-import type { MockResponse } from "../mockResponses";
-import { Chart } from "./charts";
-
-/** Renders `**bold**` and `##amber##` runs in a canned answer paragraph. */
-function AnswerParagraph({ text }: { text: string }): React.JSX.Element {
-  const parts = text.split(/(\*\*[^*]+\*\*|##[^#]+##)/g);
-  return (
-    <p>
-      {parts.map((part, index) => {
-        // Parts are a static split of a canned string; a position-derived key
-        // is stable here.
-        const key = `${index}:${part}`;
-        if (part.startsWith("**")) {
-          return <strong key={key}>{part.slice(2, -2)}</strong>;
-        }
-        if (part.startsWith("##")) {
-          return (
-            <span key={key} className="qa-num">
-              {part.slice(2, -2)}
-            </span>
-          );
-        }
-        return <React.Fragment key={key}>{part}</React.Fragment>;
-      })}
-    </p>
-  );
-}
+import type React from "react";
+import { useCallback, useState } from "react";
+import { Markdown } from "./Markdown";
 
 export function ThinkingCard({ label }: { label: string }): React.JSX.Element {
   return (
     <div className="qa-card qa-card-thinking">
       <div className="qa-thinking-label">{label}</div>
-      <div className="qa-skeleton qa-skeleton-headline" />
-      <div className="qa-skeleton qa-skeleton-chart" />
+      <div className="qa-skeleton qa-skeleton-line-wide" />
       <div className="qa-skeleton qa-skeleton-line" />
     </div>
   );
 }
 
+export function ErrorCard({ message }: { message: string }): React.JSX.Element {
+  return (
+    <div className="qa-card">
+      <div className="qa-error">{message}</div>
+    </div>
+  );
+}
+
 interface AnswerCardProps {
-  response: MockResponse;
-  onFollowUp: (question: string) => void;
+  /** Concatenated markdown of the answer so far. */
+  text: string;
+  /** Still receiving tokens: show the streaming caret, hold the actions. */
+  streaming: boolean;
+  /** The answer produced a visualization the panel cannot render. */
+  hasViz: boolean;
   onOpenInApp: () => void;
 }
 
 export function AnswerCard({
-  response,
-  onFollowUp,
+  text,
+  streaming,
+  hasViz,
   onOpenInApp,
 }: AnswerCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
 
   const copyAnswer = useCallback((): void => {
-    void navigator.clipboard.writeText(response.copyText);
+    void navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
-  }, [response]);
+  }, [text]);
 
   return (
     <div className="qa-card">
-      <div className="qa-headline">
-        <div className="qa-headline-main">
-          <span className="qa-headline-value">{response.headline.value}</span>
-          <span
-            className={
-              response.headline.direction === "up"
-                ? "qa-delta qa-delta-up"
-                : "qa-delta qa-delta-down"
-            }
-          >
-            {response.headline.direction === "up" ? "▲" : "▼"}{" "}
-            {response.headline.delta}
-          </span>
-        </div>
-        <div className="qa-headline-label">{response.headline.label}</div>
-      </div>
-
-      <Chart chart={response.chart} />
-
-      <div className="qa-breakdown">
-        {response.breakdown.map((item) => (
-          <div key={item.label} className="qa-breakdown-item">
-            <span className="qa-breakdown-label">{item.label}</span>
-            <span className="qa-breakdown-value">{item.value}</span>
-          </div>
-        ))}
-      </div>
-
       <div className="qa-answer">
-        {response.paragraphs.map((paragraph) => (
-          <AnswerParagraph key={paragraph} text={paragraph} />
-        ))}
+        <Markdown text={text} />
+        {streaming && <span className="qa-caret" />}
       </div>
 
-      <div className="qa-followups">
-        {response.followUps.map((followUp) => (
-          <button
-            key={followUp}
-            type="button"
-            className="qa-chip"
-            onClick={() => onFollowUp(followUp)}
-          >
-            {followUp}
+      {hasViz && (
+        <button type="button" className="qa-viz-note" onClick={onOpenInApp}>
+          <span className="qa-viz-glyph">📈</span>
+          This answer includes a chart. Open in PostHog to see it.
+        </button>
+      )}
+
+      {!streaming && (
+        <div className="qa-actions">
+          <span className="qa-source">PostHog AI</span>
+          <button type="button" className="qa-button" onClick={copyAnswer}>
+            {copied ? "Copied" : "Copy"}
           </button>
-        ))}
-      </div>
-
-      <div className="qa-actions">
-        <span className="qa-source">PostHog AI</span>
-        <button type="button" className="qa-button" onClick={copyAnswer}>
-          {copied ? "Copied" : "Copy"}
-        </button>
-        <button
-          type="button"
-          className="qa-button qa-primary"
-          onClick={onOpenInApp}
-        >
-          Open in PostHog
-        </button>
-      </div>
+          <button
+            type="button"
+            className="qa-button qa-primary"
+            onClick={onOpenInApp}
+          >
+            Open in PostHog
+          </button>
+        </div>
+      )}
     </div>
   );
 }

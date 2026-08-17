@@ -1,32 +1,66 @@
+import type { QuickAskEvent } from "@posthog/core/quick-ask/quick-ask";
 import { happyHog } from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnswerCard, ThinkingCard } from "./components/AnswerCard";
-import { type MockResponse, pickMockResponse } from "./mockResponses";
+import { AnswerCard, ErrorCard, ThinkingCard } from "./components/AnswerCard";
 
-type Phase = "idle" | "thinking" | "answered";
+type Phase = "idle" | "thinking" | "streaming" | "answered" | "error";
 
-const THINKING_MS = 1100;
 const PILL_MIN_WIDTH = 176;
 const PILL_MAX_WIDTH = 448;
 const PILL_TEXT_EXTRA = 46; // pill padding + caret allowance around the text
 
+interface TextPart {
+  id: string;
+  content: string;
+  complete: boolean;
+}
+
+/**
+ * Applies a streamed text snapshot: replace by id, or let a completed message
+ * take over the trailing in-progress (`temp-` id) snapshot it finalizes.
+ */
+function applyTextEvent(
+  parts: TextPart[],
+  event: { id: string; content: string; complete: boolean },
+): TextPart[] {
+  const byId = parts.findIndex((part) => part.id === event.id);
+  if (byId >= 0) {
+    return parts.map((part, index) =>
+      index === byId ? { ...part, ...event } : part,
+    );
+  }
+  if (event.complete) {
+    const lastIncomplete = parts.findLastIndex((part) => !part.complete);
+    if (lastIncomplete >= 0) {
+      return parts.map((part, index) =>
+        index === lastIncomplete ? { ...event } : part,
+      );
+    }
+  }
+  return [...parts, { ...event }];
+}
+
 export function QuickAsk(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [response, setResponse] = useState<MockResponse | null>(null);
+  const [thinkingLabel, setThinkingLabel] = useState("Thinking…");
+  const [textParts, setTextParts] = useState<TextPart[]>([]);
+  const [hasViz, setHasViz] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
+  const conversationIdRef = useRef<string | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const thinkingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reset = useCallback((): void => {
-    if (thinkingTimer.current) {
-      clearTimeout(thinkingTimer.current);
-      thinkingTimer.current = null;
-    }
+    window.quickAsk?.cancel();
+    conversationIdRef.current = undefined;
     setPhase("idle");
-    setResponse(null);
+    setThinkingLabel("Thinking…");
+    setTextParts([]);
+    setHasViz(false);
+    setErrorMessage("");
     setPillWidth(PILL_MIN_WIDTH);
     if (inputRef.current) {
       inputRef.current.value = "";
@@ -41,6 +75,43 @@ export function QuickAsk(): React.JSX.Element {
       inputRef.current?.focus();
     });
   }, [reset]);
+
+  // Answer stream from the main process.
+  useEffect(() => {
+    return window.quickAsk?.onEvent((raw) => {
+      const event = raw as QuickAskEvent;
+      switch (event.type) {
+        case "conversation":
+          conversationIdRef.current = event.conversationId;
+          break;
+        case "reasoning":
+          setThinkingLabel(event.content || "Thinking…");
+          break;
+        case "text":
+          setTextParts((parts) => applyTextEvent(parts, event));
+          setPhase((current) =>
+            current === "thinking" || current === "idle"
+              ? "streaming"
+              : current,
+          );
+          break;
+        case "viz":
+          setHasViz(true);
+          setPhase((current) =>
+            current === "thinking" ? "streaming" : current,
+          );
+          break;
+        case "error":
+          setErrorMessage(event.message);
+          setPhase("error");
+          break;
+        case "done":
+          setPhase((current) => (current === "error" ? current : "answered"));
+          inputRef.current?.focus();
+          break;
+      }
+    });
+  }, []);
 
   // Drive the BrowserWindow height from the rendered content.
   useEffect(() => {
@@ -76,19 +147,6 @@ export function QuickAsk(): React.JSX.Element {
     setPillWidth(width);
   }, []);
 
-  const ask = useCallback((question: string): void => {
-    const next = pickMockResponse(question);
-    setResponse(next);
-    setPhase("thinking");
-    if (thinkingTimer.current) {
-      clearTimeout(thinkingTimer.current);
-    }
-    thinkingTimer.current = setTimeout(() => {
-      setPhase("answered");
-      inputRef.current?.focus();
-    }, THINKING_MS);
-  }, []);
-
   const submit = useCallback((): void => {
     const question = inputRef.current?.value.trim();
     if (!question) return;
@@ -96,19 +154,13 @@ export function QuickAsk(): React.JSX.Element {
       inputRef.current.value = "";
     }
     syncPillWidth();
-    ask(question);
-  }, [ask, syncPillWidth]);
-
-  const followUp = useCallback(
-    (question: string): void => {
-      if (inputRef.current) {
-        inputRef.current.value = "";
-      }
-      syncPillWidth();
-      ask(question);
-    },
-    [ask, syncPillWidth],
-  );
+    setTextParts([]);
+    setHasViz(false);
+    setErrorMessage("");
+    setThinkingLabel("Thinking…");
+    setPhase("thinking");
+    window.quickAsk?.ask(question, conversationIdRef.current);
+  }, [syncPillWidth]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -124,6 +176,8 @@ export function QuickAsk(): React.JSX.Element {
   const openInApp = useCallback((): void => {
     window.quickAsk?.openInApp();
   }, []);
+
+  const answerText = textParts.map((part) => part.content).join("\n\n");
 
   return (
     <div
@@ -156,13 +210,13 @@ export function QuickAsk(): React.JSX.Element {
         <span ref={measureRef} className="qa-measure" aria-hidden="true" />
       </div>
 
-      {phase === "thinking" && response && (
-        <ThinkingCard label={response.thinkingLabel} />
-      )}
-      {phase === "answered" && response && (
+      {phase === "thinking" && <ThinkingCard label={thinkingLabel} />}
+      {phase === "error" && <ErrorCard message={errorMessage} />}
+      {(phase === "streaming" || phase === "answered") && (
         <AnswerCard
-          response={response}
-          onFollowUp={followUp}
+          text={answerText}
+          streaming={phase === "streaming"}
+          hasViz={hasViz}
           onOpenInApp={openInApp}
         />
       )}

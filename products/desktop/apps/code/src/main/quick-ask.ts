@@ -1,11 +1,18 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  QUICK_ASK_SERVICE,
+  type QuickAskService,
+} from "@posthog/core/quick-ask/quick-ask";
+import {
   isQuickAskShortcut,
   QUICK_ASK_DEFAULT_SHORTCUT,
 } from "@posthog/shared/quick-ask-shortcuts";
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import {
+  QUICK_ASK_ASK_CHANNEL,
+  QUICK_ASK_CANCEL_CHANNEL,
+  QUICK_ASK_EVENT_CHANNEL,
   QUICK_ASK_HIDE_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
@@ -13,6 +20,7 @@ import {
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
+import { container } from "./di/container";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
@@ -180,9 +188,45 @@ function showQuickAsk(): void {
 }
 
 function hideQuickAsk(): void {
+  getQuickAskService().cancel();
   if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
   if (!quickAskWindow.isVisible()) return;
   quickAskWindow.hide();
+}
+
+function getQuickAskService(): QuickAskService {
+  return container.get<QuickAskService>(QUICK_ASK_SERVICE);
+}
+
+/** Streams one PostHog AI turn, forwarding each event to the panel. */
+async function streamAnswer(
+  question: string,
+  conversationId: string | undefined,
+): Promise<void> {
+  const target = quickAskWindow;
+  if (!target || target.isDestroyed()) return;
+  const send = (event: unknown): void => {
+    if (!target.isDestroyed()) {
+      target.webContents.send(QUICK_ASK_EVENT_CHANNEL, event);
+    }
+  };
+  try {
+    for await (const event of getQuickAskService().ask({
+      question,
+      conversationId,
+    })) {
+      send(event);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return; // Cancelled: a newer question or the panel hid.
+    }
+    log.warn("Quick ask stream failed", { error });
+    send({
+      type: "error",
+      message: "PostHog AI is unavailable right now. Try again.",
+    });
+  }
 }
 
 export function toggleQuickAsk(): void {
@@ -237,6 +281,21 @@ export function setupQuickAsk(): void {
     hideQuickAsk();
     focusMainWindow("quick-ask-open-in-app");
     app.focus({ steal: true });
+  });
+  ipcMain.on(
+    QUICK_ASK_ASK_CHANNEL,
+    (_event, question: unknown, conversationId: unknown) => {
+      if (typeof question !== "string" || !question.trim()) return;
+      void streamAnswer(
+        question.trim(),
+        typeof conversationId === "string" && conversationId
+          ? conversationId
+          : undefined,
+      );
+    },
+  );
+  ipcMain.on(QUICK_ASK_CANCEL_CHANNEL, () => {
+    getQuickAskService().cancel();
   });
 
   const stored = quickAskStore.get("shortcut");

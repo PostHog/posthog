@@ -4,6 +4,10 @@ interface QuickAskBridge {
   resize: (height: number) => void;
   openInApp: () => void;
   setInteractive: (interactive: boolean) => void;
+  ask: (question: string, conversationId?: string) => void;
+  cancel: () => void;
+  /** Events are `QuickAskEvent`s from @posthog/core/quick-ask/quick-ask. */
+  onEvent: (callback: (event: unknown) => void) => () => void;
   onShown: (callback: () => void) => () => void;
 }
 

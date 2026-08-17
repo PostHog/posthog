@@ -13,6 +13,9 @@ export const QUICK_ASK_OPEN_IN_APP_CHANNEL = "posthog-quick-ask-open-in-app";
 export const QUICK_ASK_SHOWN_CHANNEL = "posthog-quick-ask-shown";
 export const QUICK_ASK_SET_INTERACTIVE_CHANNEL =
   "posthog-quick-ask-set-interactive";
+export const QUICK_ASK_ASK_CHANNEL = "posthog-quick-ask-ask";
+export const QUICK_ASK_CANCEL_CHANNEL = "posthog-quick-ask-cancel";
+export const QUICK_ASK_EVENT_CHANNEL = "posthog-quick-ask-event";
 export const ARTIFACT_PREVIEW_ARG = "--posthog-artifact-preview";
 export const ARTIFACT_OPEN_EXTERNAL_CHANNEL = "posthog-artifact-open-external";
 export const ARTIFACT_HOST_TO_PREVIEW_CHANNEL = "posthog-artifact-host-message";

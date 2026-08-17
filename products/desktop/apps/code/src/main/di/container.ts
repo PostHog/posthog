@@ -83,6 +83,7 @@ import {
 import { oauthModule } from "@posthog/core/oauth/oauth.module";
 import { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import { ProvisioningService } from "@posthog/core/provisioning/provisioning";
+import { quickAskCoreModule } from "@posthog/core/quick-ask/quick-ask.module";
 import { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import { SleepService } from "@posthog/core/sleep/sleep";
 import { UI_AUTH } from "@posthog/core/ui/identifiers";
@@ -816,6 +817,7 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(quickAskCoreModule);
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

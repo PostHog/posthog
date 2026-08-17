@@ -19,6 +19,7 @@
   --qa-font:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
     Arial, sans-serif;
+  --qa-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
 
 * {
@@ -158,115 +159,9 @@ body {
   }
 }
 
-/* Headline metric */
-
-.qa-headline {
-  margin-bottom: 12px;
-}
-
-.qa-headline-main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.qa-headline-value {
-  font-size: 27px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--qa-fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-delta {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.qa-delta-up {
-  color: var(--qa-up);
-}
-
-.qa-delta-down {
-  color: var(--qa-down);
-}
-
-.qa-headline-label {
-  font-size: 12px;
-  color: var(--qa-fg-muted);
-  margin-top: 1px;
-}
-
-/* Chart */
-
-.qa-chart {
-  padding: 10px 12px 8px;
-  background: var(--qa-surface-raised);
-  border: 1px solid var(--qa-border);
-  border-radius: 10px;
-}
-
-.qa-chart-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--qa-fg-subtle);
-  margin-bottom: 8px;
-}
-
-.qa-chart-svg {
-  display: block;
-  width: 100%;
-  height: 88px;
-}
-
-.qa-chart-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 5px;
-  font-size: 9.5px;
-  color: var(--qa-fg-subtle);
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-chart-labels span {
-  flex: 1;
-  text-align: center;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-/* Breakdown */
-
-.qa-breakdown {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 16px;
-  margin: 10px 2px 0;
-}
-
-.qa-breakdown-item {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.qa-breakdown-label {
-  color: var(--qa-fg-muted);
-}
-
-.qa-breakdown-value {
-  color: var(--qa-fg);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
 /* Answer prose */
 
 .qa-answer {
-  margin-top: 11px;
   font-size: 13px;
   line-height: 1.55;
   color: #d6d6dc;
@@ -287,33 +182,6 @@ body {
   color: var(--qa-accent);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
-}
-
-/* Follow-up chips */
-
-.qa-followups {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 11px;
-}
-
-.qa-chip {
-  font: 500 12px var(--qa-font);
-  color: var(--qa-fg-muted);
-  background: transparent;
-  border: 1px solid var(--qa-border);
-  border-radius: 99px;
-  padding: 4px 11px;
-  cursor: pointer;
-  transition:
-    color 0.12s,
-    background 0.12s;
-}
-
-.qa-chip:hover {
-  color: var(--qa-fg);
-  background: var(--qa-hover);
 }
 
 /* Actions */
@@ -359,6 +227,77 @@ body {
   filter: brightness(1.06);
 }
 
+.qa-answer code {
+  font-family: var(--qa-mono);
+  font-size: 12px;
+  background: var(--qa-surface-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.qa-answer ul {
+  margin: 7px 0;
+  padding-left: 18px;
+}
+
+.qa-answer li + li {
+  margin-top: 3px;
+}
+
+/* Streaming caret at the end of the growing answer. */
+.qa-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--qa-accent);
+  border-radius: 1.5px;
+  animation: qa-caret-blink 1s steps(1) infinite;
+}
+
+@keyframes qa-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.qa-error {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--qa-down);
+}
+
+/* Note shown when the answer carries a chart the panel cannot render. */
+.qa-viz-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 11px;
+  padding: 8px 11px;
+  font: 500 12px var(--qa-font);
+  text-align: left;
+  color: var(--qa-fg-muted);
+  background: var(--qa-surface-raised);
+  border: 1px solid var(--qa-border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    background 0.12s;
+}
+
+.qa-viz-note:hover {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
+}
+
+.qa-viz-glyph {
+  font-size: 14px;
+}
+
 /* ── Thinking skeleton ───────────────────────────────── */
 
 .qa-card-thinking {
@@ -383,20 +322,14 @@ body {
   animation: qa-shimmer 1.4s linear infinite;
 }
 
-.qa-skeleton-headline {
-  width: 140px;
-  height: 26px;
-  margin-bottom: 10px;
-}
-
-.qa-skeleton-chart {
-  width: 100%;
-  height: 88px;
-  margin-bottom: 10px;
+.qa-skeleton-line-wide {
+  width: 92%;
+  height: 12px;
+  margin-bottom: 8px;
 }
 
 .qa-skeleton-line {
-  width: 75%;
+  width: 68%;
   height: 12px;
 }
 
