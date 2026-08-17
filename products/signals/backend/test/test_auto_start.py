@@ -597,7 +597,8 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
     if not expect_references:
         assert "Source issues" not in description
         assert "addressing" not in description
-        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
+        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001?" in description
+        assert "utm_content=pr_footer).' -" in description
 
 
 @pytest.mark.parametrize(

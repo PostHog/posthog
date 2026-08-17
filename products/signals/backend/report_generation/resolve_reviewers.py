@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -578,8 +579,21 @@ def list_project_members(
     ]
 
 
+@frozen
+class GitHubIdentityMatch:
+    """An org member matched to a GitHub login, and the linkage that produced the match."""
+
+    user: User
+    source: str
+
+
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:
-    """Map normalized GitHub login -> org member ``User`` (same identity rules as ``User.get_github_login()``).
+    """Map normalized GitHub login -> org member ``User`` (same identity rules as ``User.get_github_login()``)."""
+    return {login: match.user for login, match in resolve_org_github_logins_with_source(team_id, github_logins).items()}
+
+
+def resolve_org_github_logins_with_source(team_id: int, github_logins: Iterable[str]) -> dict[str, GitHubIdentityMatch]:
+    """Map normalized GitHub login -> matched org member and the linkage that resolved them.
 
     Restricts DB work to users that plausibly match the requested logins.
     """
@@ -598,15 +612,15 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
 
     users = User.objects.filter(id__in=candidate_ids).prefetch_related(*_github_identity_prefetches()).order_by("id")
 
-    login_to_user: dict[str, User] = {}
+    login_to_match: dict[str, GitHubIdentityMatch] = {}
     for user in users:
-        gl = user.get_github_login()
-        if not gl:
+        resolution = user.get_github_login_with_source()
+        if resolution is None:
             continue
-        k = gl.lower()
+        k = resolution.login.lower()
         if k in logins_normalized:
-            login_to_user[k] = user
-    return login_to_user
+            login_to_match[k] = GitHubIdentityMatch(user=user, source=resolution.source)
+    return login_to_match
 
 
 def _candidate_user_ids_for_organization(org_id: str) -> set[int]:

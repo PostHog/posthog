@@ -126,15 +126,13 @@ class TestGitHubPRWebhook(TestCase):
 
     @parameterized.expand(
         [
-            ("resolvable_login", "Octocat", "merger-456", "merger-456"),
-            ("unresolvable_login", "stranger", None, "user-123"),
+            ("resolvable_login", "Octocat", True),
+            ("unresolvable_login", "stranger", False),
         ]
     )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_merged_attributes_to_merger(
-        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
-    ):
+    def test_pr_merged_attributes_to_merger(self, _name, merged_by_login, resolvable, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
         OrganizationMembership.objects.create(organization=self.organization, user=merger)
@@ -153,12 +151,24 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
-        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], merged_by_login)
-        self.assertEqual(call_kwargs["properties"]["pr_merged_by_id"], 583231)
-        self.assertEqual(call_kwargs["properties"].get("pr_merged_by_distinct_id"), expected_property)
+        properties = call_kwargs["properties"]
+        self.assertEqual(properties["pr_merged_by_login"], merged_by_login)
+        self.assertEqual(properties["pr_merged_by_id"], 583231)
+        if resolvable:
+            self.assertEqual(call_kwargs["distinct_id"], "merger-456")
+            self.assertEqual(properties["pr_merged_by_distinct_id"], "merger-456")
+            self.assertEqual(properties["actor_attribution"], "person")
+            self.assertEqual(properties["github_identity_source"], "sso")
+        else:
+            # An unknown merger counts against the team, never against the task's assignee, who
+            # did not merge anything.
+            self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
+            self.assertNotIn("pr_merged_by_distinct_id", properties)
+            self.assertEqual(properties["actor_attribution"], "group")
+            self.assertEqual(call_kwargs["groups"]["organization"], str(self.organization.id))
+            self.assertEqual(call_kwargs["groups"]["project"], str(self.team.uuid))
 
-    @patch("products.tasks.backend.webhooks.resolve_org_github_login_to_users", side_effect=RuntimeError("boom"))
+    @patch("products.tasks.backend.webhooks.resolve_org_github_logins_with_source", side_effect=RuntimeError("boom"))
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_by_resolution_failure_keeps_webhook_successful(
@@ -179,7 +189,7 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
         self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
         self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
 
@@ -476,6 +486,7 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/123",
                 "merged": False,
+                "requested_reviewers": [{"login": "octocat", "id": 583231}, {"login": "hedgehog", "id": 7}],
             },
         }
 
@@ -486,6 +497,10 @@ class TestGitHubPRWebhook(TestCase):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
+        # Whether anyone was tagged at open time answers "did GitHub notify a human about this PR"
+        # without joining to the review-request events.
+        self.assertEqual(call_kwargs["properties"]["pr_requested_reviewer_count"], 2)
+        self.assertEqual(call_kwargs["properties"]["pr_requested_reviewer_logins"], ["octocat", "hedgehog"])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -818,14 +833,14 @@ class TestGitHubPRReviewWebhook(TestCase):
 
     @parameterized.expand(
         [
-            ("resolvable_login", "Octocat", "reviewer-456", "reviewer-456"),
-            ("unresolvable_login", "stranger", None, "user-123"),
+            ("resolvable_login", "Octocat", True),
+            ("unresolvable_login", "stranger", False),
         ]
     )
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_review_submission_attributes_to_reviewer(
-        self, _name, reviewer_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+        self, _name, reviewer_login, resolvable, mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
         reviewer = User.objects.create(email="reviewer@example.com", distinct_id="reviewer-456")
@@ -839,13 +854,21 @@ class TestGitHubPRReviewWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         call_kwargs = mock_capture.call_args[1]
+        properties = call_kwargs["properties"]
         self.assertEqual(call_kwargs["event"], "pr_reviewed")
-        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
-        self.assertEqual(call_kwargs["properties"]["pr_review_state"], "changes_requested")
-        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_login"], reviewer_login)
-        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_id"], 583231)
-        self.assertEqual(call_kwargs["properties"].get("pr_reviewed_by_distinct_id"), expected_property)
-        self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+        self.assertEqual(properties["pr_review_state"], "changes_requested")
+        self.assertEqual(properties["pr_reviewed_by_login"], reviewer_login)
+        self.assertEqual(properties["pr_reviewed_by_id"], 583231)
+        self.assertEqual(properties["pr_source"], "task")
+        if resolvable:
+            self.assertEqual(call_kwargs["distinct_id"], "reviewer-456")
+            self.assertEqual(properties["pr_reviewed_by_distinct_id"], "reviewer-456")
+            self.assertEqual(properties["actor_attribution"], "person")
+        else:
+            # An unknown reviewer counts against the team, never against the task's assignee.
+            self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
+            self.assertNotIn("pr_reviewed_by_distinct_id", properties)
+            self.assertEqual(properties["actor_attribution"], "group")
 
     @parameterized.expand(
         [
@@ -859,6 +882,137 @@ class TestGitHubPRReviewWebhook(TestCase):
         mock_get_secret.return_value = self.webhook_secret
 
         response = self._make_review_webhook_request(self._review_payload(reviewer, action=action))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+
+
+class TestGitHubPRReviewRequestWebhook(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="assignee@example.com", distinct_id="user-123")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
+            title="Test Task",
+            description="Test description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
+            output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _make_webhook_request(self, payload: dict):
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request"},
+        )
+
+    def _request_payload(
+        self,
+        *,
+        action: str = "review_requested",
+        requested_reviewer: dict | None = None,
+        requested_team: dict | None = None,
+        pr_url: str = "https://github.com/posthog/posthog/pull/123",
+    ) -> dict:
+        payload: dict = {
+            "action": action,
+            "pull_request": {"html_url": pr_url, "updated_at": "2026-08-17T10:00:00Z"},
+            "sender": {"login": "author-person", "id": 42},
+        }
+        if requested_reviewer is not None:
+            payload["requested_reviewer"] = requested_reviewer
+        if requested_team is not None:
+            payload["requested_team"] = requested_team
+        return payload
+
+    @parameterized.expand(
+        [
+            ("resolvable", "review_requested", "Octocat", True, "pr_review_requested"),
+            ("unresolvable", "review_requested", "stranger", False, "pr_review_requested"),
+            ("removal", "review_request_removed", "Octocat", True, "pr_review_request_removed"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_request_records_who_was_tagged(
+        self, _name, action, reviewer_login, resolvable, expected_event, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        reviewer = User.objects.create(email="reviewer@example.com", distinct_id="reviewer-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=reviewer)
+        UserSocialAuth.objects.create(user=reviewer, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        response = self._make_webhook_request(
+            self._request_payload(action=action, requested_reviewer={"login": reviewer_login, "id": 583231})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        properties = call_kwargs["properties"]
+        self.assertEqual(call_kwargs["event"], expected_event)
+        self.assertEqual(properties["pr_requested_reviewer_login"], reviewer_login)
+        self.assertEqual(properties["pr_requested_reviewer_id"], 583231)
+        self.assertEqual(properties["pr_review_requested_by_login"], "author-person")
+        self.assertEqual(properties["pr_source"], "task")
+        if resolvable:
+            self.assertEqual(call_kwargs["distinct_id"], "reviewer-456")
+            self.assertEqual(properties["pr_requested_reviewer_distinct_id"], "reviewer-456")
+            self.assertEqual(properties["actor_attribution"], "person")
+            self.assertEqual(properties["github_identity_source"], "sso")
+        else:
+            self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
+            self.assertNotIn("pr_requested_reviewer_distinct_id", properties)
+            self.assertEqual(properties["actor_attribution"], "group")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_team_review_request_is_recorded_without_a_reviewer(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._make_webhook_request(self._request_payload(requested_team={"slug": "platform-team", "id": 7}))
+
+        self.assertEqual(response.status_code, 200)
+        properties = mock_capture.call_args[1]["properties"]
+        self.assertEqual(properties["pr_requested_team_slug"], "platform-team")
+        self.assertNotIn("pr_requested_reviewer_login", properties)
+        self.assertEqual(properties["actor_attribution"], "group")
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_request_on_an_unrelated_pr_is_not_captured(self, mock_capture, mock_get_secret):
+        # Every PR in an installed repo delivers here; capturing tags on PRs we did not open would
+        # bury the self-driving signal in ~90x its own volume.
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._make_webhook_request(
+            self._request_payload(
+                requested_reviewer={"login": "octocat", "id": 583231},
+                pr_url="https://github.com/posthog/posthog/pull/999999",
+            )
+        )
 
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()

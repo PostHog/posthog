@@ -16,6 +16,17 @@ PostSlackUpdateInput = _post_slack_update_module.PostSlackUpdateInput
 post_slack_update = _post_slack_update_module.post_slack_update
 
 
+def _assert_pr_card_posted(mock_post_pr_opened, *, pr_url: str, reply_target_slack_user_id: str | None) -> None:
+    """The card's PostHog link is tagged per send, so its notification id can't be asserted literally."""
+    mock_post_pr_opened.assert_called_once()
+    posted_pr_url, task_url = mock_post_pr_opened.call_args.args
+    assert posted_pr_url == pr_url
+    assert task_url.startswith("http://localhost:8000/project/1/tasks/10?runId=run-1&")
+    assert "utm_source=slack" in task_url
+    assert "utm_content=pr_card" in task_url
+    assert mock_post_pr_opened.call_args.kwargs["reply_target_slack_user_id"] == reply_target_slack_user_id
+
+
 @override_settings(SITE_URL="http://localhost:8000")
 class TestPostSlackUpdate(TestCase):
     def setUp(self):
@@ -226,9 +237,9 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/1",
-            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        _assert_pr_card_posted(
+            mock_post_pr_opened,
+            pr_url="https://github.com/org/repo/pull/1",
             reply_target_slack_user_id=expected_target,
         )
         mock_update_reaction.assert_called_once_with("eyes")
@@ -373,9 +384,9 @@ class TestPostSlackUpdate(TestCase):
         )
 
         mock_update_reaction.assert_called_once_with("hedgehog")
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/1",
-            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        _assert_pr_card_posted(
+            mock_post_pr_opened,
+            pr_url="https://github.com/org/repo/pull/1",
             reply_target_slack_user_id=None,
         )
 
@@ -469,9 +480,9 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/2",
-            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        _assert_pr_card_posted(
+            mock_post_pr_opened,
+            pr_url="https://github.com/org/repo/pull/2",
             reply_target_slack_user_id=None,
         )
         mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/2")
@@ -573,9 +584,9 @@ class TestPostSlackUpdate(TestCase):
         )
 
         mock_update_reaction.assert_called_once_with("hedgehog")
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/2",
-            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        _assert_pr_card_posted(
+            mock_post_pr_opened,
+            pr_url="https://github.com/org/repo/pull/2",
             reply_target_slack_user_id=None,
         )
 
@@ -695,8 +706,8 @@ class TestPostSlackUpdate(TestCase):
         )
 
         mock_update_reaction.assert_called_once_with("hedgehog")
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/2",
-            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        _assert_pr_card_posted(
+            mock_post_pr_opened,
+            pr_url="https://github.com/org/repo/pull/2",
             reply_target_slack_user_id=None,
         )

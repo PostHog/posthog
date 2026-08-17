@@ -126,9 +126,10 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!channel>" not in section
         assert "&lt;!channel&gt;" in section
         assert "<https://example.com/trace|trace>" in section
-        assert call["blocks"][-1]["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
-        )
+        button_url = call["blocks"][-1]["elements"][0]["url"]
+        assert button_url.startswith(f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}?")
+        assert "utm_source=slack" in button_url
+        assert f"nid={delivery_id}" in button_url
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000200"
         assert reply["blocks"][0]["type"] == "context"
@@ -171,9 +172,9 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!channel>" not in section
         assert "&lt;!channel&gt;" in section
         assert "failed for many users" not in section
-        assert call["blocks"][-1]["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
-        )
+        note_url = call["blocks"][-1]["elements"][0]["url"]
+        assert note_url.startswith(f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}?")
+        assert f"nid={delivery_id}" in note_url
 
     def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:
         # A worker still running the previous task signature rejects an unknown kwarg, so every

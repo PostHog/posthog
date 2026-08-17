@@ -123,8 +123,50 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
+/** Which notification carried the person here. `channel` mirrors the link's `utm_source`. */
+export interface InboxArrival {
+    notificationId: string | null
+    channel: string | null
+    surface: string | null
+}
+
+/**
+ * The notification this session arrived from, if any.
+ *
+ * Held here rather than threaded through every capture call: the arrival is a property of the
+ * session, and the report actions that matter most (opening the PR, asking for one) fire from a
+ * dozen components. Without it we could measure open-rate by channel but not act-rate by channel,
+ * which is the more useful half. `inboxSceneLogic` owns deciding what the arrival is; this module
+ * only carries it onto the report events.
+ */
+let currentArrival: InboxArrival | null = null
+
+export function setInboxArrival(arrival: InboxArrival | null): void {
+    currentArrival = arrival
+}
+
+function arrivalProperties(): Record<string, unknown> {
+    if (!currentArrival) {
+        return {}
+    }
+    return {
+        notification_id: currentArrival.notificationId,
+        notification_channel: currentArrival.channel,
+        notification_surface: currentArrival.surface,
+    }
+}
+
 function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
+}
+
+/** As {@link captureInboxEvent}, plus the notification that brought the person to this report. */
+function captureInboxReportEvent(
+    event: InboxEvent,
+    properties: Record<string, unknown>,
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(event, { ...arrivalProperties(), ...properties }, options)
 }
 
 /** Whole hours since the report was created, rounded to one decimal. Mirrors desktop `report_age_hours`. */
@@ -290,7 +332,7 @@ export function captureInboxReportOpened(params: {
     rank: number | null
     listSize: number | null
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_OPENED, {
         ...baseReportProperties(params.report),
         status: params.report.status ?? null,
         source_products: params.report.source_products ?? [],
@@ -310,7 +352,7 @@ export function captureInboxReportClosed(
     /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
     options?: CaptureOptions
 ): void {
-    captureInboxEvent(
+    captureInboxReportEvent(
         INBOX_EVENTS.REPORT_CLOSED,
         {
             ...baseReportProperties(params.report),
@@ -333,7 +375,7 @@ export function captureInboxReportScrolled(params: {
     listSize: number | null
     timeSinceOpenMs: number
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_SCROLLED, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_SCROLLED, {
         ...baseReportProperties(params.report),
         rank: params.rank,
         list_size: params.listSize,
@@ -353,7 +395,7 @@ export function captureInboxReportAction(params: {
     const base = params.report
         ? baseReportProperties(params.report)
         : { report_id: null, report_age_hours: 0, priority: null, actionability: null }
-    captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_ACTION, {
         ...base,
         action_type: params.actionType,
         surface: params.surface,
@@ -375,7 +417,7 @@ export function captureInboxReportFeedback(params: {
     note?: string
     surface: InboxReportActionSurface
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
@@ -396,7 +438,7 @@ export function captureInboxReportFeedbackNote(params: {
     note: string
     surface: InboxReportActionSurface
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
@@ -469,7 +511,7 @@ export function captureInboxReportActionCompleted(params: {
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
+    captureInboxReportEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
         action_type: params.actionType,
         outcome: params.outcome,
