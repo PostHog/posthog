@@ -72,18 +72,22 @@ export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
           itemId: searchParams.get("item") ?? undefined,
         }
       : undefined;
-    const payload: TaskLinkPayload = { taskId, taskRunId, comment };
+    return this.openTask({ taskId, taskRunId, comment });
+  }
 
+  /** Routes the main window to a task, queueing until the renderer is ready. */
+  public openTask(payload: TaskLinkPayload): boolean {
+    const { taskId, taskRunId, comment } = payload;
     const hasListeners = this.listenerCount(TaskLinkEvent.OpenTask) > 0;
 
     if (hasListeners) {
       this.log.info(
-        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${threadId ?? "none"}`,
+        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
       );
       this.emit(TaskLinkEvent.OpenTask, payload);
     } else {
       this.log.info(
-        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${threadId ?? "none"}`,
+        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
       );
       this.pendingDeepLink = payload;
     }

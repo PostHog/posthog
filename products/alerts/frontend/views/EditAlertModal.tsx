@@ -46,7 +46,7 @@ import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
-import { EditAlertTabs } from './EditAlertModal/EditAlertTabs'
+import { defaultAlertTabs, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
 
 interface AlertModalCommonProps {
     isOpen: boolean | undefined
@@ -457,41 +457,55 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                             trailingActions={<AlertEnabledAction alertForm={alertForm} />}
                         >
                             <div className="space-y-3">
-                                <EditAlertTabs
-                                    summary={summary}
-                                    summaryHeader={
-                                        alert ? (
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="font-medium">Current status</span>
-                                                <AlertStateIndicator alert={alert} />
+                                {(() => {
+                                    const tabs = defaultAlertTabs({
+                                        monitorContent: (
+                                            <div className="space-y-3 pt-3">
+                                                <AlertEditorFormDetails
+                                                    nameError={nameError}
+                                                    activity={
+                                                        alert?.created_by ? (
+                                                            <UserActivityIndicator
+                                                                at={alert.created_at}
+                                                                by={alert.created_by}
+                                                                prefix="Created"
+                                                            />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                                {previewNode}
+                                                {definitionNode}
                                             </div>
-                                        ) : undefined
-                                    }
-                                    nameNode={
-                                        <AlertEditorFormDetails
-                                            nameError={nameError}
-                                            activity={
-                                                alert?.created_by ? (
-                                                    <UserActivityIndicator
-                                                        at={alert.created_at}
-                                                        by={alert.created_by}
-                                                        prefix="Created"
-                                                    />
+                                        ),
+                                        scheduleContent: (
+                                            <div className="space-y-3 pt-3">
+                                                {scheduleNode}
+                                                {advancedNode}
+                                            </div>
+                                        ),
+                                        notifyContent: <div className="pt-3">{notifyNode}</div>,
+                                        historyContent:
+                                            alertId && alert ? (
+                                                <div className="pt-3">
+                                                    <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
+                                                </div>
+                                            ) : undefined,
+                                    })
+                                    return (
+                                        <EditAlertTabs
+                                            summary={summary}
+                                            summaryHeader={
+                                                alert ? (
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <span className="font-medium">Current status</span>
+                                                        <AlertStateIndicator alert={alert} />
+                                                    </div>
                                                 ) : undefined
                                             }
+                                            tabs={tabs}
                                         />
-                                    }
-                                    previewNode={previewNode}
-                                    definitionNode={definitionNode}
-                                    scheduleNode={scheduleNode}
-                                    advancedNode={advancedNode}
-                                    notifyNode={notifyNode}
-                                    historyNode={
-                                        alertId && alert ? (
-                                            <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
-                                        ) : null
-                                    }
-                                />
+                                    )
+                                })()}
                             </div>
                         </AlertEditor>
                     )}

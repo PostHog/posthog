@@ -227,6 +227,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_experiment_exposure()
         query = self.get_query()
 
+        settings_args: dict[str, int] = {}
+        if self._max_execution_time is not None:
+            settings_args["max_execution_time"] = self._max_execution_time
+        linkage = self._experiment_exposure_linkage
+        if linkage is not None and linkage.live_scan_max_memory_bytes is not None:
+            # Deliberately no exposure-specific rendering of the resulting memory kill: the
+            # ceiling bounds the whole listing query (event filters, blocklist, aggregation),
+            # not just the exposure scan, so only the platform's standard memory-limit error,
+            # with its status, machine code, and narrow-your-filters guidance, is honest for
+            # every cause.
+            settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
+
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
             paginated_response = self._paginator.execute_hogql_query(
                 # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -235,11 +247,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 user=self._user,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(
-                    **(
-                        {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
-                    ),
-                ),
+                settings=HogQLGlobalSettings(**settings_args),
             )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,
@@ -268,6 +276,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
+        # Resolved before predicate construction, not just before the join: resolution can clear
+        # the redundant test-account filters, which _where_predicates otherwise bakes in.
+        self._resolve_experiment_exposure()
         parsed_query = parse_select(
             self.BASE_QUERY,
             {
@@ -310,8 +321,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """Resolve the experiment-exposure linkage once per query instance.
 
         run() resolves eagerly, but composition callers (to_query(), the replay-vision
-        candidate query) consume get_query() without run(), so _join_experiment_exposure
-        resolves too; the cached linkage keeps the resolution from running twice.
+        candidate query) consume get_query() without run(), so get_query() resolves too;
+        the cached linkage keeps the resolution from running twice.
         """
         if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
             return
@@ -333,6 +344,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
         )
+        if self._experiment_exposure_linkage.population_filters_test_accounts:
+            # The exposure population already applies the team's test-account filters on the
+            # exposure events, and the listing inner-joins to that population, so the
+            # recordings-side copy would only rescan the whole events window to re-drop persons
+            # the experiment's analysis counts. The query copy is cleared too, so everything
+            # derived from it (scoped exclusion queries, blocklist probes) agrees with the
+            # main query.
+            self._test_account_filters = []
+            self._query.filter_test_accounts = False
 
     def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
         """Restrict the list to sessions of persons exposed to the queried experiment.

@@ -74,6 +74,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -662,7 +663,10 @@ Optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
+- Never rerun a command solely to reproduce output you already have.
+
+## Rich output in replies
+${RICH_OUTPUT_TAGS_PROMPT}`;
 
     if (channelMode) {
       prompt += `
