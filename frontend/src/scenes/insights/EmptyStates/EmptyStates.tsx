@@ -11,6 +11,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
@@ -18,6 +19,7 @@ import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -38,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { VALIDATION_ERROR_STATUSES } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
@@ -684,8 +687,28 @@ export function InsightValidationError({
     )
 }
 
+const RAW_SERVER_ERROR_PATTERN =
+    /Stack trace:|DB::Exception|Traceback \(most recent call last\)|object at 0x[0-9a-f]+|^[A-Za-z_.]+(Error|Exception)[:(]/
+
+/**
+ * A string title on this state can come straight from the backend, so it can be a raw exception
+ * body instead of user-facing copy. Show those behind a collapsible, not in the heading, so the
+ * page keeps a clear message with the retry and bug-report guidance. When the response status is
+ * known, trust the backend's classification: VALIDATION_ERROR_STATUSES mark messages written for
+ * the user (however long), anything else is a server-side failure. Exception markers demote even
+ * on those statuses, because staff accounts receive raw traces there too.
+ */
+export function isRawServerErrorTitle(title: string, status?: number | null): boolean {
+    if (RAW_SERVER_ERROR_PATTERN.test(title)) {
+        return true
+    }
+    return status != null && !VALIDATION_ERROR_STATUSES.has(status)
+}
+
 export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
+    /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
+    titleStatus?: number | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     excludeDetail?: boolean
@@ -697,6 +720,7 @@ export interface InsightErrorStateProps {
 
 export function InsightErrorState({
     title,
+    titleStatus,
     query,
     queryId,
     excludeDetail = false,
@@ -705,6 +729,7 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
+    const rawServerError = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? title : null
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -747,8 +772,28 @@ export function InsightErrorState({
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
-                {title || <span>There was a problem completing this query</span>}
+                {!rawServerError && title ? title : <span>There was a problem completing this query</span>}
             </h2>
+
+            {rawServerError && (
+                <LemonCollapse
+                    className="max-w-160 w-full"
+                    size="small"
+                    panels={[
+                        {
+                            key: 'error-details',
+                            header: 'Error details',
+                            content: (
+                                // Capped height: in fixed-height hosts (dashboard tiles), an uncapped
+                                // trace would push the collapse toggle out of the scrollable area
+                                <CodeSnippet wrap thing="error details" className="max-h-80 overflow-y-auto">
+                                    {rawServerError}
+                                </CodeSnippet>
+                            ),
+                        },
+                    ]}
+                />
+            )}
 
             {!excludeDetail && !supportOnly && (
                 <div className="mt-4">
