@@ -5,13 +5,6 @@ import {
   PackageIcon,
   PulseIcon,
 } from "@phosphor-icons/react";
-import {
-  Button,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { ActivityPanelBody } from "@posthog/ui/features/canvas/components/ActivityPanelBody";
 import {
@@ -24,6 +17,10 @@ import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useComment
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
+import {
+  type PanelSide,
+  PanelSideSwitcher,
+} from "@posthog/ui/primitives/PanelSideSwitcher";
 import {
   ResizableSidebar,
   SLIDE_MS,
@@ -52,6 +49,10 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
   "comments",
   "changes",
 ];
+
+const SWITCHER_SIDES: readonly PanelSide<RightPanelSide>[] = SIDE_ORDER.map(
+  (side) => ({ key: side, ...SIDES[side] }),
+);
 
 /**
  * The room the switcher takes at the right of the row, covering SIDE_ORDER at
@@ -99,34 +100,11 @@ function RightPanelButtons({
   taskId: string;
 }) {
   return (
-    <TooltipProvider delay={400}>
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
-        {SIDE_ORDER.map((side) => {
-          const { label, Icon } = SIDES[side];
-          return (
-            <Tooltip key={side}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="default"
-                    size="icon-sm"
-                    aria-label={label}
-                    data-selected={active === side || undefined}
-                    onClick={() =>
-                      openRightPanelSide(active === side ? null : side, taskId)
-                    }
-                    className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-                  >
-                    <Icon size={16} />
-                  </Button>
-                }
-              />
-              <TooltipContent side="bottom">{label}</TooltipContent>
-            </Tooltip>
-          );
-        })}
-      </div>
-    </TooltipProvider>
+    <PanelSideSwitcher
+      sides={SWITCHER_SIDES}
+      active={active}
+      onSelect={(side) => openRightPanelSide(side, taskId)}
+    />
   );
 }
 
