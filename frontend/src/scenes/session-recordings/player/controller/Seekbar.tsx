@@ -77,8 +77,7 @@ const SeekbarSources = React.memo(function SeekbarSourcesRaw({
 })
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps, hasSnapshots, hasLateFullSnapshot, leadingUnplayableMs } =
-        useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots, unplayableSpans } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -131,20 +130,31 @@ export function Seekbar(): JSX.Element {
                         recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
                     />
                     <ObservationSeekbarMarks endTimeMs={endTimeMs} onSeek={seekToTime} />
-                    {hasLateFullSnapshot && endTimeMs > 0 ? (
-                        <Tooltip
-                            title={`The first ${humanFriendlyDuration(leadingUnplayableMs / 1000, {
-                                maxUnits: 2,
-                            })} can't be played — the initial screen snapshot arrived late`}
-                            placement="top"
-                        >
-                            <div
-                                className="PlayerSeekbar__unplayable"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: `${Math.min(100, (leadingUnplayableMs / endTimeMs) * 100)}%` }}
-                            />
-                        </Tooltip>
-                    ) : null}
+                    {endTimeMs > 0
+                        ? unplayableSpans.map((span) => {
+                              const spanMs = span.endMs - span.startMs
+                              const title =
+                                  span.startMs === 0
+                                      ? `The first ${humanFriendlyDuration(spanMs / 1000, {
+                                            maxUnits: 2,
+                                        })} can't be played because the initial screen snapshot arrived late`
+                                      : "This part can't be played because a screen snapshot is missing"
+                              return (
+                                  <Tooltip key={span.startMs} title={title} placement="top">
+                                      <div
+                                          className={cn('PlayerSeekbar__unplayable', {
+                                              'PlayerSeekbar__unplayable--leading': span.startMs === 0,
+                                          })}
+                                          // eslint-disable-next-line react/forbid-dom-props
+                                          style={{
+                                              left: `${Math.min(100, (span.startMs / endTimeMs) * 100)}%`,
+                                              width: `${Math.min(100, (spanMs / endTimeMs) * 100)}%`,
+                                          }}
+                                      />
+                                  </Tooltip>
+                              )
+                          })
+                        : null}
                     <div
                         className="PlayerSeekbar__played"
                         // eslint-disable-next-line react/forbid-dom-props

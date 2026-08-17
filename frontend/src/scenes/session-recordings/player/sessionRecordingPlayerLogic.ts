@@ -190,6 +190,13 @@ export type SeekRenderability =
     // timestamp — playback there can never work
     | { kind: 'unplayable' }
 
+// A span of the recording that can't render because its window is missing a FullSnapshot,
+// expressed as millisecond offsets from the recording start.
+export interface UnplayableSpan {
+    startMs: number
+    endMs: number
+}
+
 // Non-definitive verdicts where more data could still make the position renderable — playback
 // should buffer and keep polling rather than play or error.
 export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
@@ -600,6 +607,7 @@ export interface sessionRecordingPlayerLogicValues {
     isWaitingForIngestion: boolean
     jumpTimeMs: number
     leadingUnplayableMs: number
+    unplayableSpans: UnplayableSpan[]
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
     pauseForced: boolean
@@ -1075,7 +1083,11 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number
-        hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
+        unplayableSpans: (
+            sessionPlayerData: SessionPlayerData,
+            seekRenderability: (timestamp: number) => SeekRenderability
+        ) => UnplayableSpan[]
+        hasLateFullSnapshot: (unplayableSpans: UnplayableSpan[]) => boolean
         isWaitingForIngestion: (
             seekRenderability: (timestamp: number) => SeekRenderability,
             currentTimestamp: number | undefined
@@ -1856,9 +1868,64 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
+        // Every window span that can't render because its window is missing a FullSnapshot: a
+        // window whose leading snapshot arrived late (the playhead clamps forward to it) or a
+        // window with no usable snapshot at all. Later windows are covered too, not just the
+        // first. The whole-recording no-snapshot case stays with snapshotsInvalid's takeover, so
+        // a recording where no window has any FullSnapshot produces no spans here.
+        unplayableSpans: [
+            (s) => [s.sessionPlayerData, s.seekRenderability],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability
+            ): UnplayableSpan[] => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null) {
+                    return []
+                }
+                const anyWindowHasFullSnapshot = Object.values(sessionPlayerData.snapshotsByWindowId).some((events) =>
+                    events.some((event) => event.type === EventType.FullSnapshot)
+                )
+                if (!anyWindowHasFullSnapshot) {
+                    return []
+                }
+                const spans: UnplayableSpan[] = []
+                for (const segment of sessionPlayerData.segments) {
+                    if (segment.kind !== 'window') {
+                        continue
+                    }
+                    // Probe just inside the segment: its start timestamp is shared with the
+                    // preceding gap, so segmentForTimestamp would resolve the boundary to that gap.
+                    const probeTimestamp = Math.min(segment.startTimestamp + 1, segment.endTimestamp)
+                    const renderability = seekRenderability(probeTimestamp)
+                    let spanEndTimestamp: number | null = null
+                    // A late leading snapshot is only worth surfacing above the warning threshold; a
+                    // window missing its snapshot entirely is broken for any non-trivial duration.
+                    let floorMs = MIN_CLAMPABLE_DEAD_ZONE_MS
+                    if (renderability.kind === 'clampToFullSnapshot') {
+                        spanEndTimestamp = renderability.timestamp
+                        floorMs = LATE_FULL_SNAPSHOT_THRESHOLD_MS
+                    } else if (renderability.kind === 'unplayable') {
+                        spanEndTimestamp = segment.endTimestamp
+                    }
+                    if (spanEndTimestamp == null) {
+                        continue
+                    }
+                    const startMs = Math.max(0, segment.startTimestamp - start)
+                    const endMs = Math.max(startMs, spanEndTimestamp - start)
+                    if (endMs - startMs < floorMs) {
+                        continue
+                    }
+                    spans.push({ startMs, endMs })
+                }
+                return spans
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+
         hasLateFullSnapshot: [
-            (s) => [s.leadingUnplayableMs],
-            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+            (s) => [s.unplayableSpans],
+            (unplayableSpans: UnplayableSpan[]): boolean => unplayableSpans.length > 0,
         ],
 
         // True while the player is buffering on a position whose FullSnapshot hasn't been
@@ -2080,9 +2147,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...extra,
                 feature: 'replayer error swallowed',
             })
-            if (posthog.config.debug) {
-                posthog.capture('replayer error swallowed', extra)
-            }
+            // Capture unconditionally, not only under posthog.config.debug: mid-playback rrweb
+            // failures are otherwise unmeasurable, and the per-session fingerprint set above
+            // already bounds the volume to one event per unique error per viewed recording.
+            posthog.capture('replayer error swallowed', extra)
             actions.fingerprintReported(fingerprint)
         },
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
@@ -2338,6 +2406,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.loadNextSnapshotSource()
                 }
                 // Otherwise keep existing player visible (last valid frame)
+            }
+            // A window segment whose window has no renderable full snapshot would otherwise play
+            // its incremental events over a blank frame: a drifting cursor with no document, and no
+            // explanation. syncPlayerState probes currentTimestamp, but at a segment boundary that
+            // timestamp resolves to the preceding gap and masks the verdict, so probe just inside
+            // the segment and surface the terminal error the same way syncPlayerState does.
+            if (segment.kind === 'window') {
+                const probeTimestamp = Math.min(segment.startTimestamp + 1, segment.endTimestamp)
+                if (values.seekRenderability(probeTimestamp).kind === 'unplayable') {
+                    actions.endBuffer()
+                    values.player?.replayer?.pause()
+                    actions.setPlayerError('noPlayableFullSnapshot')
+                    return
+                }
             }
             actions.syncPlayerState(values.playingState === SessionPlayerState.PLAY, true)
         },

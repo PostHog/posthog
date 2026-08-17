@@ -545,6 +545,18 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedError: null,
                 expectsClampEvent: false,
             },
+            {
+                // partial-window case: the first window renders, so there is no whole-player
+                // takeover, but the later window has no full snapshot and must error rather than
+                // play its incremental events over a blank frame
+                description: 'errors when seeking into a later window that lacks a full snapshot',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 65000)],
+                seekTo: START + 63000,
+                expectedTimestamp: START + 63000,
+                expectedError: 'noPlayableFullSnapshot',
+                expectsClampEvent: false,
+            },
         ])(
             '$description',
             ({
@@ -822,6 +834,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 secondSourceSnapshots: [fs(LATE_FS_TS)],
                 expectedLeadingUnplayableMs: LATE_FS_TS - START,
                 expectedHasLate: true,
+                expectedSpanCount: 1,
             },
             {
                 description: 'reports no unplayable span when a full snapshot exists at the start',
@@ -829,13 +842,17 @@ describe('sessionRecordingPlayerLogic', () => {
                 secondSourceSnapshots: [inc(LATE_FS_TS)],
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
+                expectedSpanCount: 0,
             },
             {
+                // no window has a full snapshot: snapshotsInvalid's whole-player takeover owns
+                // this case, so no per-window span is reported here
                 description: 'reports no unplayable span when no full snapshot exists anywhere',
                 firstSourceSnapshots: [inc(START), inc(START + 1000)],
                 secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
                 expectedLeadingUnplayableMs: 0,
                 expectedHasLate: false,
+                expectedSpanCount: 0,
             },
             {
                 description: 'measures the span but does not flag a late snapshot below the warning threshold',
@@ -843,23 +860,33 @@ describe('sessionRecordingPlayerLogic', () => {
                 secondSourceSnapshots: [inc(LATE_FS_TS)],
                 expectedLeadingUnplayableMs: 5000,
                 expectedHasLate: false,
+                expectedSpanCount: 0,
             },
             {
-                // multi-window: the first window renders from its own start, so a later window
-                // lacking a full snapshot must not extend the leading unplayable span
-                description: 'does not flag when the first window renders but a later window lacks a full snapshot',
+                // multi-window: the first window renders from its own start, so the later window's
+                // span is not leading, but a later window missing its full snapshot must still be
+                // flagged (the silent partial-window failure this guards against)
+                description: 'flags a later window that lacks a full snapshot while the first window renders',
                 firstSourceSnapshots: [fs(START), inc(START + 1000)],
-                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 62000)],
+                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 65000)],
                 expectedLeadingUnplayableMs: 0,
-                expectedHasLate: false,
+                expectedHasLate: true,
+                expectedSpanCount: 1,
             },
         ])(
             '$description',
-            ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                expectedLeadingUnplayableMs,
+                expectedHasLate,
+                expectedSpanCount,
+            }) => {
                 seedRecording(firstSourceSnapshots, secondSourceSnapshots)
 
                 expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
+                expect(logic.values.unplayableSpans).toHaveLength(expectedSpanCount)
             }
         )
     })

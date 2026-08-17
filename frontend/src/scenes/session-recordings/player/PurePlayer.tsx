@@ -359,10 +359,21 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             type="warning"
                                             dismissKey={`late-full-snapshot-${sessionRecordingId}`}
                                         >
-                                            The first{' '}
-                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
-                                            recording can't be shown — the initial snapshot of the screen arrived late,
-                                            so playback starts from the first frame we can render.{' '}
+                                            {leadingUnplayableMs > 0 ? (
+                                                <>
+                                                    The first{' '}
+                                                    {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })}{' '}
+                                                    of this recording can't be shown because the initial snapshot of the
+                                                    screen arrived late, so playback starts from the first frame we can
+                                                    render.{' '}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Some parts of this recording can't be shown because a snapshot of
+                                                    the screen is missing. Those sections are skipped during
+                                                    playback.{' '}
+                                                </>
+                                            )}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>
