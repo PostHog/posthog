@@ -101,6 +101,11 @@ interface RunResponse {
   id?: string;
 }
 
+interface WarmHandle {
+  taskId: string;
+  runId: string;
+}
+
 /** Terminal run statuses on `task_run_state` frames. */
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
@@ -131,6 +136,9 @@ export type TurnSignal =
 
 export function translateFrame(parsed: unknown): TurnSignal {
   const frame = parsed as NotificationFrame;
+  if (frame.type === "permission_request") {
+    return { kind: "reasoning", text: "Waiting for a tool approval…" };
+  }
   if (frame.type === "task_run_state") {
     const status = frame.status ?? "";
     if (TERMINAL_RUN_STATUSES.has(status)) {
@@ -148,6 +156,10 @@ export function translateFrame(parsed: unknown): TurnSignal {
   const method = frame.notification.method ?? "";
   if (method === "_posthog/turn_complete") {
     return { kind: "turn-complete" };
+  }
+  // The harness logs the user's message as the `session/prompt` request.
+  if (method === "session/prompt") {
+    return { kind: "user-echo" };
   }
   if (method === "_posthog/error") {
     const message = frame.notification.params?.message;
@@ -214,6 +226,7 @@ const UNAVAILABLE_MESSAGE =
 export class QuickAskService {
   private controller: AbortController | null = null;
   private warmPromise: Promise<void> | null = null;
+  private warmHandle: WarmHandle | null = null;
   private session: QuickAskSession | null = null;
   private readonly fetchImpl: FetchLike;
 
@@ -302,8 +315,13 @@ export class QuickAskService {
         },
       );
       if (!response.ok) return;
-      // The body is unused: `POST /tasks/` re-runs the warm lookup at ask time.
-      await response.text().catch(() => "");
+      // An empty body means warming is off or the pool is full.
+      const text = await response.text().catch(() => "");
+      if (!text) return;
+      const handle = JSON.parse(text) as { task_id?: string; run_id?: string };
+      if (handle.task_id && handle.run_id) {
+        this.warmHandle = { taskId: handle.task_id, runId: handle.run_id };
+      }
     })()
       .catch(() => undefined)
       .finally(() => {
@@ -349,7 +367,14 @@ export class QuickAskService {
     const createResponse = await this.post(
       apiHost,
       `/api/projects/${projectId}/tasks/${taskId}/runs/`,
-      { environment: "cloud", mode: "interactive", runtime_adapter: "claude" },
+      {
+        environment: "cloud",
+        mode: "interactive",
+        runtime_adapter: "claude",
+        // "auto" lets the agent use safe tools without approval prompts the
+        // panel has no surface for.
+        initial_permission_mode: "auto",
+      },
       signal,
     );
     if (!createResponse.ok) return null;
@@ -362,6 +387,30 @@ export class QuickAskService {
       signal,
     );
     return startResponse.ok ? run.id : null;
+  }
+
+  /**
+   * Warm runs boot in the "default" permission mode, which holds every tool
+   * call for an approval the panel has no surface for; switch the agent to
+   * "auto" before the first message reaches it. Best-effort.
+   */
+  private async setAutoMode(
+    apiHost: string,
+    projectId: number,
+    handle: WarmHandle,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.post(
+      apiHost,
+      `/api/projects/${projectId}/tasks/${handle.taskId}/runs/${handle.runId}/command/`,
+      {
+        jsonrpc: "2.0",
+        id: globalThis.crypto.randomUUID(),
+        method: "set_config_option",
+        params: { configId: "mode", value: "auto" },
+      },
+      signal,
+    ).catch(() => undefined);
   }
 
   /** Signals a follow-up question onto the live run. */
@@ -428,6 +477,10 @@ export class QuickAskService {
       return { ok: true };
     }
 
+    if (this.warmHandle) {
+      await this.setAutoMode(apiHost, projectId, this.warmHandle, signal);
+      this.warmHandle = null;
+    }
     const response = await this.createTask(
       apiHost,
       projectId,

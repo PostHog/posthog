@@ -52,9 +52,8 @@ function agentText(text: string): string {
   });
 }
 
-const USER_ECHO = sessionUpdate({
-  sessionUpdate: "user_message_chunk",
-  content: { type: "text", text: "how many signups?" },
+const USER_ECHO = notification("session/prompt", {
+  prompt: [{ type: "text", text: "how many signups?" }],
 });
 const TURN_COMPLETE = notification("_posthog/turn_complete", {});
 const SIMPLE_TURN = [`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`];
@@ -243,6 +242,7 @@ describe("QuickAskService", () => {
     expect(createRun).toMatchObject({
       environment: "cloud",
       mode: "interactive",
+      initial_permission_mode: "auto",
     });
     const start = JSON.parse(
       callsTo(fetchMock, "/start/")[0][2].body as string,
@@ -426,6 +426,36 @@ describe("QuickAskService", () => {
     await expect(failing.service.warm()).resolves.toBeUndefined();
   });
 
+  it("switches a warmed run to auto mode before activating it", async () => {
+    const { service, fetchMock } = serviceWith({
+      warm: [
+        new Response(JSON.stringify({ task_id: "task-w", run_id: "run-w" }), {
+          status: 200,
+        }),
+      ],
+      command: [new Response("{}", { status: 200 })],
+      createTask: [taskResponse("task-w", "run-w")],
+      stream: [sseResponse(SIMPLE_TURN)],
+    });
+    await service.warm();
+    await collect(service);
+    const commandCalls = callsTo(fetchMock, "/command/");
+    expect(commandCalls).toHaveLength(1);
+    expect(commandCalls[0][1]).toContain("/runs/run-w/");
+    expect(JSON.parse(commandCalls[0][2].body as string)).toMatchObject({
+      method: "set_config_option",
+      params: { configId: "mode", value: "auto" },
+    });
+    // The mode switch lands before the message-delivering create call.
+    const commandIndex = fetchMock.mock.calls.findIndex((call) =>
+      String(call[1]).endsWith("/command/"),
+    );
+    const createIndex = fetchMock.mock.calls.findIndex((call) =>
+      String(call[1]).endsWith("/tasks/"),
+    );
+    expect(commandIndex).toBeLessThan(createIndex);
+  });
+
   it("reset drops the session so the next ask creates a new task", async () => {
     const { service, fetchMock } = serviceWith({
       createTask: [taskResponse(), taskResponse("task-2", "run-2")],
@@ -471,6 +501,19 @@ describe("translateFrame", () => {
       "keepalive frame",
       JSON.stringify({ type: "keepalive" }),
       { kind: "ignore" },
+    ],
+    [
+      "user message chunk",
+      sessionUpdate({
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "hi" },
+      }),
+      { kind: "user-echo" },
+    ],
+    [
+      "permission request",
+      JSON.stringify({ type: "permission_request", requestId: "r1" }),
+      { kind: "reasoning", text: "Waiting for a tool approval…" },
     ],
   ])("%s", (_name, frame, expected) => {
     expect(translateFrame(JSON.parse(frame))).toEqual(expected);
