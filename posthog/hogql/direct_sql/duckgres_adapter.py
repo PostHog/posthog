@@ -281,6 +281,7 @@ class DuckgresRawAdapter:
                             source_config.host,
                             source_config.port,
                             DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
+                            fail_on_resolution_error=True,
                         )
                         connect_host = (
                             ",".join([source_config.host] * len(addresses)) if addresses else source_config.host

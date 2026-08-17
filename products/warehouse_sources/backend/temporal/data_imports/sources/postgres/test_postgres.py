@@ -2245,6 +2245,28 @@ class TestResolveHostaddrWithTimeout:
         ):
             assert _resolve_hostaddr_with_timeout("does-not-exist.example.com", 5432, 15) is None
 
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_strict_resolution_failure_raises(self, resolver_result):
+        patch_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException)
+            else {"return_value": resolver_result}
+        )
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo", **patch_kwargs):
+            with pytest.raises(psycopg.OperationalError, match="Could not resolve database host name"):
+                _resolve_hostaddr_with_timeout(
+                    "does-not-exist.example.com",
+                    5432,
+                    15,
+                    fail_on_resolution_error=True,
+                )
+
     def test_stalled_resolver_raises_fast_retryable_error(self):
         release = threading.Event()
         try:

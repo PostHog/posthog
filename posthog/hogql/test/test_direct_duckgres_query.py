@@ -321,7 +321,9 @@ class TestDirectDuckgresQuery(APIBaseTest):
             sslrootcert="/tmp/no.txt",
             cursor_factory=_DuckgresStreamingClientCursor,
         )
-        self.resolve_hostaddr.assert_called_once_with("selected-source.example.com", 5432, 15)
+        self.resolve_hostaddr.assert_called_once_with(
+            "selected-source.example.com", 5432, 15, fail_on_resolution_error=True
+        )
         connection.execute.assert_called_once_with("USE ducklake")
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 

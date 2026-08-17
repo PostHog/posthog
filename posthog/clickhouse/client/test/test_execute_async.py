@@ -20,7 +20,7 @@ from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
 )
-from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -146,6 +146,35 @@ class TestQueryStatusManager(SimpleTestCase):
 
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
+
+
+class TestAsyncTaskChain(SimpleTestCase):
+    @patch("posthog.clickhouse.client.async_task_chain.uuid.uuid4")
+    @patch("posthog.clickhouse.client.async_task_chain.chain")
+    def test_persists_each_task_identity_before_dispatch(self, chain_mock: MagicMock, uuid4_mock: MagicMock) -> None:
+        task_ids = [
+            uuid.UUID("11111111-1111-4111-8111-111111111111"),
+            uuid.UUID("22222222-2222-4222-8222-222222222222"),
+        ]
+        uuid4_mock.side_effect = task_ids
+        signatures = [MagicMock(), MagicMock()]
+        managers = [MagicMock(), MagicMock()]
+        statuses = [QueryStatus(id="query-1", team_id=1), QueryStatus(id="query-2", team_id=1)]
+        queued_tasks = list(zip(signatures, managers, statuses, strict=True))
+
+        def assert_ready_for_dispatch() -> None:
+            for task_id, signature, manager, status in zip(task_ids, signatures, managers, statuses, strict=True):
+                self.assertEqual(status.task_id, str(task_id))
+                self.assertIn("chained", status.labels or [])
+                signature.set.assert_called_once_with(task_id=str(task_id))
+                manager.store_query_status.assert_called_once_with(status)
+
+        chain_mock.return_value.apply_async.side_effect = assert_ready_for_dispatch
+        with patch("posthog.clickhouse.client.async_task_chain.get_task_chain", return_value=queued_tasks):
+            execute_task_chain()
+
+        chain_mock.assert_called_once_with(*signatures)
+        chain_mock.return_value.apply_async.assert_called_once_with()
 
 
 class TestExecuteProcessQuery(TestCase):

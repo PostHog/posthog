@@ -6,7 +6,13 @@ from typing import Any
 import psycopg
 
 
-def resolve_psycopg_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
+def resolve_psycopg_hostaddr_with_timeout(
+    host: str,
+    port: int,
+    timeout: float,
+    *,
+    fail_on_resolution_error: bool = False,
+) -> list[str] | None:
     """Resolve a hostname before psycopg's unbounded Python-side DNS lookup."""
     if not host or host.startswith("/"):
         return None
@@ -34,9 +40,13 @@ def resolve_psycopg_hostaddr_with_timeout(host: str, port: int, timeout: float) 
         raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
     if lookup_error:
         if isinstance(lookup_error[0], OSError):
+            if fail_on_resolution_error:
+                raise psycopg.OperationalError("Could not resolve database host name") from lookup_error[0]
             return None
         raise lookup_error[0]
     if not addrinfo:
+        if fail_on_resolution_error:
+            raise psycopg.OperationalError("Could not resolve database host name")
         return None
 
     seen: set[str] = set()
