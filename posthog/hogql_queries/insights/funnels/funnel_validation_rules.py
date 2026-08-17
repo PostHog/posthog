@@ -18,10 +18,11 @@ class RequireAtLeastTwoFunnelSteps:
             raise ValidationError("Funnels require at least two steps.", code=self.code)
 
 
-# The aggregate_funnel UDFs return reached steps as a UInt32 bitfield (see
-# posthog/user_scripts/latest_user_defined_function.xml), so steps beyond 32
-# silently report zero conversions. Only raise this limit together with
-# widening the bitfield in funnel-udf and shipping a new UDF version.
+# The deployed aggregate_funnel UDF versions (posthog/user_scripts/
+# latest_user_defined_function.xml) return reached steps as a UInt32 bitfield,
+# so steps beyond 32 silently report zero conversions. The funnel-udf source
+# and the dev schema use a UInt64 bitfield; raise this to 64 only once a UDF
+# version built from that source is deployed and UDF_VERSION points at it.
 MAX_FUNNEL_STEPS = 32
 
 

@@ -78,7 +78,10 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
-            2_u32.pow(vars.max_step.0 as u32) - 1,
+            // Mask of all reached steps; checked_shl because max_step can be 64 and 1 << 64 overflows
+            1_u64
+                .checked_shl(vars.max_step.0 as u32)
+                .map_or(u64::MAX, |v| v - 1),
         ));
     }
 

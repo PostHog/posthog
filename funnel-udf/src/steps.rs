@@ -13,7 +13,7 @@ pub struct EnteredTimestamp {
     pub excluded: bool,
     pub timings: Vec<f64>,
     pub uuids: Vec<Uuid>,
-    pub steps: u32,
+    pub steps: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,7 +42,7 @@ pub struct Result(
     pub PropVal,
     pub Vec<f64>,
     pub Vec<Vec<Uuid>>,
-    pub u32,
+    pub u64,
 );
 
 struct Vars {
