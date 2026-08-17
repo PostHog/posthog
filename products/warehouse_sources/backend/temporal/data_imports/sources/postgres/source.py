@@ -536,7 +536,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
+            # psycopg raises ConnectionTimeout ("connection timeout expired") only while establishing
+            # a connection. The read path retries it in-process first (see
+            # `_is_dropped_or_connect_timeout`); reaching here means every reconnect timed out, i.e. a
+            # persistently unreachable host — usually a firewall dropping PostHog's egress IPs, an
+            # IPv6-only host, or a wrong host/port. Stays non-retryable; give the actionable guidance
+            # the bare driver text lacks (mirrors the validate-path message for "timeout expired").
+            "connection timeout expired": (
+                "PostHog couldn't connect to your database before the connection timed out. Check that "
+                "the database is reachable from the public internet and that PostHog's egress IP "
+                "addresses are allowed through your firewall. For a database that can't be exposed "
+                "publicly, use the SSH tunnel option, then re-enable the sync."
+            ),
             # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
             # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
             # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
@@ -1104,7 +1115,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
         if not valid_host:
             return valid_host, host_errors

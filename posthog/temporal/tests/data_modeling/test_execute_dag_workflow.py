@@ -16,6 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
+    NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     get_dag_structure_activity,
@@ -476,7 +477,12 @@ class TestExecuteDAGWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -496,6 +502,13 @@ class TestExecuteDAGWorkflow:
 _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
+_notified_dag_failures: list[NotifyDAGMaterializationFailuresInputs] = []
+
+
+@temporal_activity.defn(name="notify_dag_materialization_failures_activity")
+async def stub_notify_dag_materialization_failures(inputs: NotifyDAGMaterializationFailuresInputs) -> int:
+    _notified_dag_failures.append(inputs)
+    return 1
 
 
 @temporal_activity.defn(name="record_skipped_data_modeling_jobs_activity")
@@ -526,10 +539,12 @@ class TestExecuteDAGWorkflowWithMocks:
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
         _recorded_skipped_nodes.clear()
+        _notified_dag_failures.clear()
         yield
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
         _recorded_skipped_nodes.clear()
+        _notified_dag_failures.clear()
 
     async def test_skips_downstream_on_failure(self):
         """Test that downstream nodes are skipped when an upstream node fails."""
@@ -548,19 +563,25 @@ class TestExecuteDAGWorkflowWithMocks:
 
         # node a should fail
         _mock_workflow_should_fail.add(node_a_id)
+        workflow_id = f"test-skip-downstream-{uuid.uuid4()}"
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
                     ExecuteDAGWorkflow.run,
                     ExecuteDAGInputs(team_id=1, dag_id=dag_id),
-                    id=f"test-skip-downstream-{uuid.uuid4()}",
+                    id=workflow_id,
                     task_queue="test-queue",
                     execution_timeout=dt.timedelta(seconds=30),
                 )
@@ -576,6 +597,12 @@ class TestExecuteDAGWorkflowWithMocks:
         assert all(
             skipped.failed_upstream_node_ids == [node_a_id] for skipped in _recorded_skipped_nodes[0].skipped_nodes
         )
+        assert len(_notified_dag_failures) == 1
+        notified = _notified_dag_failures[0]
+        assert (notified.team_id, notified.dag_id, notified.parent_workflow_id) == (1, dag_id, workflow_id)
+        # The children stamp this same value on their own workflow ids, which is how the activity
+        # tells this run's failures from an earlier run under the same parent.
+        assert dt.datetime.fromisoformat(notified.run_started_at)
 
     async def test_records_every_failed_parent_on_one_skip_row(self):
         dag_id = "test-dag"
@@ -597,7 +624,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -635,7 +667,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -674,7 +711,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -710,7 +752,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -749,7 +791,12 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_record_skipped_data_modeling_jobs],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -791,7 +838,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
@@ -812,6 +859,7 @@ class TestExecuteDAGWorkflowWithMocks:
         assert result.skipped_nodes == 0
         assert len(result.node_results) == 3
         assert all(r.success for r in result.node_results)
+        assert _notified_dag_failures == []
 
     async def test_ephemeral_nodes_are_skipped(self):
         """Test that ephemeral nodes are recorded as successful no-ops without starting child workflows."""
@@ -835,7 +883,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 env.client,
                 task_queue="test-queue",
                 workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[stub_preempt_dag_run, stub_get_dag_structure],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_notify_dag_materialization_failures],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(

@@ -573,10 +573,7 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     if not repo_config:
         logger.info("stamphog_merged_pr_repo_not_configured", repo=repo, installation_id=installation_id)
         return
-    # A digest-only repo (digest_enabled=True, review enabled=False) still needs its merges captured,
-    # otherwise the daily digest has nothing to send. Gate the merge path on either flag; the digest
-    # eligibility below still requires digest_enabled specifically.
-    if not (repo_config.enabled or repo_config.digest_enabled):
+    if not repo_config.enabled:
         logger.info("stamphog_merged_pr_repo_disabled", repo=repo)
         return
 
@@ -622,10 +619,7 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             )
             .exists()
         )
-    # Review-disabled repos can't have approved runs by construction, so digest-only mode
-    # (digest on, review off) admits every merge — gating those on approval would silently
-    # keep digest-only repos out of Slack forever.
-    if repo_config.digest_enabled and (approved or not repo_config.enabled):
+    if repo_config.digest_enabled and approved:
         pr_obj.audience_key = resolve_audience_key(repo_config, pr)
         update_fields.append("audience_key")
     else:

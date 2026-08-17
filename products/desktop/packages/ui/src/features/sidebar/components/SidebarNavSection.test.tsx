@@ -118,7 +118,7 @@ describe("SidebarNavSection", () => {
     ["inbox", "Inbox"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
-    ["configure", "Configure"],
+    ["configure", "Settings"],
     ["loops", "Loops"],
     ["support", "Support"],
   ] as const)("removes %s from the sidebar when hidden", (id, label) => {
