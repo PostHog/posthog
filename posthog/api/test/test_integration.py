@@ -5305,6 +5305,20 @@ class TestIntegrationDeletionWorkflowGuard:
         assert "Welcome Email Sequence" in response.content.decode()
         assert Integration.objects.filter(id=self.integration.id).exists()
 
+    def test_destroy_blocked_when_active_workflow_sender_rotation_references_integration(self, client: HttpClient):
+        actions = self._email_actions(self.integration.id + 1)
+        actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationIds"] = [
+            self.integration.id + 1,
+            self.integration.id,
+        ]
+        self._create_flow(actions=actions)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Welcome Email Sequence" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
     @pytest.mark.parametrize("flow_status", ["draft", "archived"])
     def test_destroy_allowed_when_workflow_not_active(self, flow_status: str, client: HttpClient):
         self._create_flow(status=flow_status)
