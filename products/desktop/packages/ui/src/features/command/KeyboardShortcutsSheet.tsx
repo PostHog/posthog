@@ -6,6 +6,7 @@ import {
   getShortcutsByCategory,
   type ShortcutCategory,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
 import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -55,6 +56,7 @@ export function KeyboardShortcutsSheet({
   open,
   onOpenChange,
 }: KeyboardShortcutsSheetProps) {
+  const quickAsk = useQuickAskShortcut();
   useHotkeys("escape", () => onOpenChange(false), {
     enabled: open,
     enableOnContentEditable: true,
@@ -81,7 +83,9 @@ export function KeyboardShortcutsSheet({
         </Flex>
 
         <Box className="max-h-[calc(80vh-120px)] overflow-y-auto pr-[8px]">
-          <KeyboardShortcutsList />
+          <KeyboardShortcutsList
+            leadingGeneralShortcuts={quickAsk ? [quickAsk] : []}
+          />
         </Box>
       </Dialog.Content>
     </Dialog.Root>
