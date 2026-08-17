@@ -4,21 +4,29 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.signals.backend.models import SignalReport, SignalReportCanvas
 from products.signals.backend.report_canvas import (
     ReportCanvasGeneration,
     ensure_and_start_report_canvas_generation,
     finalize_report_canvas_generation,
 )
-from products.tasks.backend.models import Channel, Task, TaskThreadMessage
 
 
 class TestReportCanvasGeneration(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.canvas_model = apps.get_model("canvas", "Canvas")
+        self.canvas_source_version_model = apps.get_model("canvas", "CanvasSourceVersion")
+        self.channel_model = apps.get_model("tasks", "Channel")
+        self.task_model = apps.get_model("tasks", "Task")
+        self.task_thread_message_model = apps.get_model("tasks", "TaskThreadMessage")
+
     def _report(self, status: str = SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
@@ -62,8 +70,8 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert create_generation.call_count == 1
         with team_scope(self.team.id):
             session = SignalReportCanvas.objects.get(report=report)
-            canvas = Canvas.objects.get(id=session.canvas_id)
-        discussion = Task.objects.get(id=session.discussion_task_id)
+            canvas = self.canvas_model.objects.get(id=session.canvas_id)
+        discussion = self.task_model.objects.get(id=session.discussion_task_id)
         assert canvas.channel.name == "general"
         assert canvas.discussion_task_id == discussion.id
         assert discussion.channel_id == canvas.channel_id
@@ -82,10 +90,10 @@ class TestReportCanvasGeneration(APIBaseTest):
     def test_human_message_moves_the_canvas_to_collaborative_mode(self) -> None:
         report = self._report()
         with team_scope(self.team.id):
-            channel = Channel.objects.create(team=self.team, name="general")
-        discussion = Task.objects.create(team=self.team, channel=channel, title="Report")
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+        discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
         with team_scope(self.team.id):
-            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
             session = SignalReportCanvas.objects.create(
                 team=self.team,
                 report=report,
@@ -94,7 +102,7 @@ class TestReportCanvasGeneration(APIBaseTest):
             )
 
         with team_scope(self.team.id):
-            TaskThreadMessage.objects.create(
+            self.task_thread_message_model.objects.create(
                 team=self.team,
                 task=discussion,
                 author=self.user,
@@ -107,11 +115,11 @@ class TestReportCanvasGeneration(APIBaseTest):
     def test_pipeline_version_does_not_claim_a_human_owned_canvas(self) -> None:
         report = self._report()
         with team_scope(self.team.id):
-            channel = Channel.objects.create(team=self.team, name="general")
-        discussion = Task.objects.create(team=self.team, channel=channel, title="Report")
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+        discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
         generation_task_id = uuid.uuid4()
         with team_scope(self.team.id):
-            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
             session = SignalReportCanvas.objects.create(
                 team=self.team,
                 report=report,
@@ -119,7 +127,7 @@ class TestReportCanvasGeneration(APIBaseTest):
                 discussion_task_id=discussion.id,
                 generation_task_id=generation_task_id,
             )
-            CanvasSourceVersion.objects.create(
+            self.canvas_source_version_model.objects.create(
                 team=self.team,
                 canvas=canvas,
                 source_hash="a" * 64,
@@ -136,9 +144,9 @@ class TestReportCanvasGeneration(APIBaseTest):
         generation_task_id = uuid.uuid4()
         generation_run_id = uuid.uuid4()
         with team_scope(self.team.id):
-            channel = Channel.objects.create(team=self.team, name="general")
-            discussion = Task.objects.create(team=self.team, channel=channel, title="Report")
-            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Report")
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+            discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
             session = SignalReportCanvas.objects.create(
                 team=self.team,
                 report=report,
