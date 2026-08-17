@@ -566,9 +566,11 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
             "`filters` takes `{keywords, payload}`. `keywords` is a case-insensitive substring match "
             "against the message text plus its attachments and blocks, any one of which is enough; "
             "omitting it runs the loop on every message in the channel. `allowed_posters` is "
-            "`{mode, slack_user_ids}` with `mode` one of `org_members` (default), `loop_owner` or "
-            "`slack_user_ids`. Only `slack_user_ids` can fire on an app- or bot-posted message, and "
-            "it matches the message's user, bot or app ID. The run replies in that message's thread. "
+            "`{mode, slack_user_ids, allowed_bot_ids}` with `mode` one of `org_members` (default), "
+            "`loop_owner` or `slack_user_ids`, deciding which person may fire it. `allowed_bot_ids` "
+            "is checked independently of `mode` and is the only way an app- or bot-posted message "
+            "fires, since every other mode authorizes a human; both id lists match the message's "
+            "user, bot or app ID. The run replies in that message's thread. "
             "API triggers take no config."
         ),
     )
