@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPencil, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,18 +10,20 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTabs,
+    LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,9 +38,12 @@ import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
+import { CreateScannerButton } from './components/CreateScannerButton'
+import { ScannerListEmptyState, computeScannerListEmptyStateVariant } from './components/ScannerListEmptyState'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -48,61 +52,6 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
     value,
     label,
 }))
-
-/**
- * "Create scanner" CTA that requires the organization to have approved AI data processing first.
- * When consent is missing, clicking surfaces the AI consent popover; approving flows straight into
- * the create-scanner journey, so the empty state stays the same whether or not consent is set.
- */
-function CreateScannerButton({
-    acceptedLabel,
-    dataAttr,
-    size = 'small',
-}: {
-    acceptedLabel: string
-    dataAttr: string
-    size?: 'small' | 'medium'
-}): JSX.Element {
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const { push } = useActions(router)
-    const [consentRequested, setConsentRequested] = useState(false)
-    const goToCreate = (): void => push(urls.replayVisionTemplates())
-
-    const button = (
-        <LemonButton
-            type="primary"
-            size={size}
-            icon={<IconPlus />}
-            disabledReason={getReplayVisionEditDisabledReason()}
-            data-attr={dataAttr}
-            onClick={() => (dataProcessingAccepted ? goToCreate() : setConsentRequested(true))}
-        >
-            {dataProcessingAccepted ? acceptedLabel : 'Allow AI analysis and create scanner'}
-        </LemonButton>
-    )
-
-    if (dataProcessingAccepted) {
-        return button
-    }
-
-    return (
-        <AIConsentPopoverWrapper
-            placement="bottom-end"
-            showArrow
-            ignoreDismissal
-            hideTrainingDisclaimer
-            hidden={!consentRequested}
-            pendingRedirectUrl={urls.replayVisionTemplates()}
-            onApprove={() => {
-                setConsentRequested(false)
-                goToCreate()
-            }}
-            onDismiss={() => setConsentRequested(false)}
-        >
-            {button}
-        </AIConsentPopoverWrapper>
-    )
-}
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -124,6 +73,8 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        tagsFilter,
+        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -133,6 +84,15 @@ export function ReplayScannersScene(): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+
+    const emptyStateVariant = computeScannerListEmptyStateVariant({
+        onScannersTab: searchParams.tab !== 'usage',
+        receivedFeatureFlags,
+        scannerStatsLoading,
+        scannerTotal: scannerStats?.total,
+        featureFlags,
+    })
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -169,6 +129,11 @@ export function ReplayScannersScene(): JSX.Element {
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
+                    {scanner.limit_reached && (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
             sorter: true,
@@ -178,6 +143,21 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, scanner) =>
+                scanner.tags.length > 0 ? (
+                    <ObjectTags
+                        tags={scanner.tags}
+                        staticOnly
+                        onTagClick={(tag) => setScannersFilters({ tagsFilter: [tag] })}
+                        data-attr="vision-scanner-row-tags"
+                    />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Sampling',
@@ -285,16 +265,18 @@ export function ReplayScannersScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <ProductIntroduction
-                productName="Replay vision"
-                productKey={ProductKey.REPLAY_VISION}
-                thingName="scanner"
-                description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
-                secondaryDescription="Start from a template or build a fully custom scanner."
-                customHog={HedgehogXRay}
-                action={() => push(urls.replayVisionTemplates())}
-                docsURL={visionDocsUrl()}
-            />
+            {!emptyStateVariant && (
+                <ProductIntroduction
+                    productName="Replay vision"
+                    productKey={ProductKey.REPLAY_VISION}
+                    thingName="scanner"
+                    description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
+                    secondaryDescription="Start from a template or build a fully custom scanner."
+                    customHog={HedgehogXRay}
+                    action={() => push(urls.replayVisionTemplates())}
+                    docsURL={visionDocsUrl()}
+                />
+            )}
 
             <LemonTabs
                 activeKey={searchParams.tab === 'usage' ? 'usage' : 'scanners'}
@@ -307,6 +289,8 @@ export function ReplayScannersScene(): JSX.Element {
 
             {searchParams.tab === 'usage' ? (
                 <VisionUsageTab />
+            ) : emptyStateVariant ? (
+                <ScannerListEmptyState variant={emptyStateVariant} />
             ) : (
                 <>
                     {(scannerStats?.total ?? 0) > 0 ? (
@@ -346,6 +330,13 @@ export function ReplayScannersScene(): JSX.Element {
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                                />
+                                <FilterPill<string>
+                                    label="Tags"
+                                    searchable
+                                    options={tagOptions}
+                                    value={tagsFilter}
+                                    onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>

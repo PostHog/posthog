@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
-import { RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
+import { AGENT_GRANT_SCOPE_OPTIONS, AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
 const AGENT_POLICY_OPTIONS = [
@@ -80,7 +80,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                             No one has connected yet.
                         </div>
                     ) : (
-                        <div className="border rounded divide-y">
+                        <div className="border rounded divide-y bg-surface-primary">
                             {connections.map((connection) => {
                                 const isYou = connection.installation_id === yourInstallationId
                                 const accessRevoked = server.revoked_user_ids.includes(connection.user.id)
@@ -136,7 +136,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </>
             )}
 
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2">
                 <span className="text-xs uppercase text-secondary font-semibold">Agents</span>
                 <LemonTag type="muted" size="small">
                     {server.agents.length}
@@ -153,8 +153,9 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </LemonButton>
             </div>
             <div className="text-sm text-secondary">
-                Sharing is personal. Only your agents use your {server.name} connection, and each teammate shares their
-                own.
+                You share your own {server.name} connection, and each teammate shares theirs. Pick whether an agent uses
+                it only for your runs or for every agent run in this project. Teammates can't use the connection
+                directly, but agents can act through it on their runs.
             </div>
 
             {server.agents.length === 0 ? (
@@ -162,7 +163,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                     No agents have access. Share your connection and choose which tools the agent may call.
                 </div>
             ) : (
-                <div className="border rounded divide-y">
+                <div className="border rounded divide-y bg-surface-primary">
                     {server.agents.map((agent) => {
                         const sharedByYou = agent.user.id === currentUserId
                         const agentShareCount = server.agents.filter(
@@ -182,9 +183,16 @@ export function GatewayAccessSection(): JSX.Element | null {
                                         <span className="font-mono">{agent.handle}</span>
                                         {sharedByYou
                                             ? ' · shared by you'
-                                            : ` · shared by ${agent.user.first_name || agent.user.email}`}
+                                            : ` · shared ${agent.scope === 'team' ? 'to the team ' : ''}by ${agent.user.first_name || agent.user.email}`}
                                     </div>
                                 </div>
+                                {sharedByYou && (
+                                    <AgentGrantScopeControl
+                                        accountId={agent.service_account_id}
+                                        serverId={server.id}
+                                        scope={agent.scope}
+                                    />
+                                )}
                                 {sharedByYou ? (
                                     <LemonButton
                                         size="xsmall"
@@ -250,6 +258,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         agentAccessModalOpen,
         agentAccessPolicyMap,
+        agentAccessScope,
         agentAccessSelectedId,
         agentShareDisabledReason,
         agentServerAccessLoadingKeys,
@@ -262,6 +271,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         closeAgentAccessModal,
         loadTeamToolPolicies,
+        setAgentAccessScope,
         setAgentAccessSelectedId,
         setAgentAccessToolPolicy,
         setAllAgentAccessTools,
@@ -332,6 +342,21 @@ function GatewayAgentAccessModal(): JSX.Element | null {
 
                 {agentAccessSelectedId && (
                     <>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="font-semibold">Share with</div>
+                                <div className="text-sm text-secondary">
+                                    A team share lets the agent use your connection for every run in this project.
+                                </div>
+                            </div>
+                            <LemonSegmentedButton
+                                size="small"
+                                value={agentAccessScope}
+                                options={AGENT_GRANT_SCOPE_OPTIONS}
+                                onChange={setAgentAccessScope}
+                            />
+                        </div>
+
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <div className="font-semibold">Tool access</div>

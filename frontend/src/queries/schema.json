@@ -245,6 +245,7 @@
                 "external_id",
                 "created_at",
                 "updated_at",
+                "churned_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -552,6 +553,10 @@
                         "$ref": "#/definitions/AccountsTableFilter"
                     },
                     "type": "array"
+                },
+                "includeChurned": {
+                    "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "AccountsTableQuery",
@@ -2182,7 +2187,7 @@
                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
                 },
                 "seriesBreakdownColumn": {
-                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
+                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.",
                     "type": ["string", "null"]
                 },
                 "showLegend": {
@@ -2207,7 +2212,7 @@
                 },
                 "xAxis": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxis",
-                    "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                    "description": "Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too."
                 },
                 "xAxisLabel": {
                     "description": "Label rendered under the X axis.",
@@ -2224,7 +2229,7 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
@@ -2233,7 +2238,8 @@
                 "ActionsPie",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
-                "TwoDimensionalHeatmap"
+                "TwoDimensionalHeatmap",
+                "ScatterPlot"
             ],
             "type": "string"
         },
@@ -2262,7 +2268,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -5084,6 +5090,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ScatterPlot",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -5182,7 +5192,8 @@
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "ScatterPlot"
                     ],
                     "type": "string"
                 },
@@ -15265,7 +15276,8 @@
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
-                "SlopeGraph"
+                "SlopeGraph",
+                "ScatterPlot"
             ],
             "type": "string"
         },
@@ -15300,6 +15312,9 @@
                 },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
+                },
+                "scatter": {
+                    "$ref": "#/definitions/ScatterChartSettings"
                 },
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
@@ -25668,7 +25683,9 @@
                 "Dokploy",
                 "RakutenAdvertising",
                 "Zitadel",
-                "DeelFlows"
+                "DeelFlows",
+                "Hootsuite",
+                "WisprFlow"
             ],
             "type": "string"
         },
@@ -46651,6 +46668,10 @@
                     },
                     "type": "array"
                 },
+                "experiment_exposure": {
+                    "$ref": "#/definitions/RecordingsQueryExperimentExposureFilter",
+                    "description": "Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days."
+                },
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
@@ -46726,6 +46747,21 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "RecordingsQueryExperimentExposureFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+                },
+                "variant": {
+                    "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",
+                    "type": "string"
+                }
+            },
+            "required": ["experiment_id"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -47677,6 +47713,25 @@
             "required": ["kind", "shortId"],
             "type": "object"
         },
+        "ScatterChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showBestFit": {
+                    "description": "Whether to draw a least-squares fit line through each series' points.",
+                    "type": "boolean"
+                },
+                "xScale": {
+                    "description": "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "xStartAtZero": {
+                    "description": "Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "SchemaMap": {
             "additionalProperties": {
                 "anyOf": [
@@ -48321,9 +48376,6 @@
                     },
                     "type": "array"
                 },
-                "has_summary": {
-                    "type": "boolean"
-                },
                 "id": {
                     "type": "string"
                 },
@@ -48383,25 +48435,6 @@
                 },
                 "summary": {
                     "type": "string"
-                },
-                "summary_outcome": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "description": {
-                                    "type": ["string", "null"]
-                                },
-                                "success": {
-                                    "type": ["boolean", "null"]
-                                }
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
@@ -52224,9 +52257,22 @@
                     "description": "Custom label rendered alongside the Y axis.",
                     "type": "string"
                 },
+                "yAxisMax": {
+                    "description": "Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it.",
+                    "type": "number"
+                },
+                "yAxisMin": {
+                    "description": "Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`.",
+                    "type": "number"
+                },
                 "yAxisScaleType": {
                     "enum": ["log10", "linear"],
                     "type": "string"
+                },
+                "yAxisStartAtZero": {
+                    "default": true,
+                    "description": "Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages.",
+                    "type": "boolean"
                 }
             },
             "type": "object"

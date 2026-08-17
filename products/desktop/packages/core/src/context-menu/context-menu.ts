@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   formatBulkArchiveWarning,
   sessionsLabel,
@@ -134,9 +135,7 @@ export class ContextMenuService {
               type: "submenu",
               label: "File to…",
               items: this.starredFirst(channels).map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -227,9 +226,7 @@ export class ContextMenuService {
               type: "submenu" as const,
               label: "File to…",
               items: this.starredFirst(channels).map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,

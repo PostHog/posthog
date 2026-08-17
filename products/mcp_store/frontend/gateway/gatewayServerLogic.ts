@@ -29,6 +29,7 @@ import {
 } from '../generated/api'
 import {
     GatewayMemberSummaryApi,
+    MCPAgentGrantScopeEnumApi,
     MCPGatewayServerApi,
     MCPToolApprovalStateEnumApi,
     ResolvedToolPolicyApi,
@@ -131,6 +132,7 @@ export interface gatewayServerLogicValues {
     serviceAccountsLoading: boolean // mcpGatewayLogic
     agentAccessModalOpen: boolean
     agentAccessPolicyMap: Record<string, AgentToolPolicyState>
+    agentAccessScope: MCPAgentGrantScopeEnumApi
     agentAccessSelectedId: string | null
     agentShareDisabledReason: string | undefined
     agentSharesByAccountId: Record<string, AgentServerShare>
@@ -215,11 +217,13 @@ export interface gatewayServerLogicActions {
         accountId: string,
         serverId: string,
         enabled: boolean,
+        scope?: MCPAgentGrantScopeEnumApi | undefined,
         policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
         policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        scope: MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic
     setAgentServerAccessSuccess: (
@@ -288,6 +292,9 @@ export interface gatewayServerLogicActions {
     }
     returnToServers: () => {
         value: true
+    }
+    setAgentAccessScope: (scope: MCPAgentGrantScopeEnumApi) => {
+        scope: MCPAgentGrantScopeEnumApi
     }
     setAgentAccessSelectedId: (accountId: string | null) => {
         accountId: string | null
@@ -485,6 +492,7 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
         showAgentAccessModal: true,
         closeAgentAccessModal: true,
         setAgentAccessSelectedId: (accountId: string | null) => ({ accountId }),
+        setAgentAccessScope: (scope: MCPAgentGrantScopeEnumApi) => ({ scope }),
         setAgentAccessToolPolicy: (toolName: string, state: AgentToolPolicyState) => ({ toolName, state }),
         setAllAgentAccessTools: (state: AgentToolPolicyState) => ({ state }),
         submitAgentAccess: true,
@@ -622,6 +630,14 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 }),
                 closeAgentAccessModal: () => ({}),
                 setAgentServerAccessSuccess: () => ({}),
+            },
+        ],
+        agentAccessScope: [
+            'team' as MCPAgentGrantScopeEnumApi,
+            {
+                setAgentAccessScope: (_, { scope }) => scope,
+                closeAgentAccessModal: () => 'team',
+                setAgentServerAccessSuccess: () => 'team',
             },
         ],
         requestedAgentScopeId: [
@@ -845,7 +861,13 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                         values.agentAccessPolicyMap[policy.tool_name] ??
                         defaultAgentGrantPolicy(policy.tool_name, policy.team_state, policy.is_destructive),
                 }))
-            actions.setAgentServerAccess(values.agentAccessSelectedId, values.server.id, true, policies)
+            actions.setAgentServerAccess(
+                values.agentAccessSelectedId,
+                values.server.id,
+                true,
+                values.agentAccessScope,
+                policies
+            )
         },
         syncScopeFromUrl: async ({ scopeParam }, breakpoint) => {
             await breakpoint(0)

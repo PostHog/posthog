@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 
 from django.utils import timezone
@@ -12,6 +13,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -22,6 +24,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
+    FIND_SCANNER_CANDIDATES_TIMEOUT,
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -64,6 +67,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # No watermark advance, so the next executed sweep covers the skipped range in one query.
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
@@ -75,11 +79,25 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
+        # Exclusion is applied below against the fetched batch instead.
+        skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    candidates = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-    saturated = len(candidates) == limit
+    fetched = candidate_query.run()
+    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
+    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
+    saturated = len(fetched) == limit
+
+    # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
+    # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=scanner.team,
+        candidate_query=candidate_query,
+        candidates=fetched,
+        scanner_id=str(scanner.id),
+        seconds_remaining=FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    candidates = [c for c in fetched if c.session_id not in excluded]
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
@@ -103,6 +121,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         saturated=saturated,
         swept_through=candidate_query.settle_cutoff,
+        keyset_end=fetched[-1].session_end if fetched else None,
+        keyset_session_id=fetched[-1].session_id if fetched else "",
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],
@@ -170,6 +190,10 @@ def _deep_sweep(
         max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
         scanner_id=str(scanner.id),
     )
+    # Deliberately still on the in-query blocklist. This pass holds its watermark when a batch
+    # saturates, which assumes a full batch spent the headroom; scoped exclusion breaks that, since a
+    # fully excluded batch dispatches nothing and the same rows return forever. It has no keyset to
+    # resume from, so it cannot advance instead.
     deep_candidates = deep_query.run()
     if len(deep_candidates) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:
         # Truncated by the dispatch headroom rather than by the window running out, so hold the

@@ -22,7 +22,7 @@ If you add or remove a Signals workflow/activity from `backend/temporal/__init__
 Several additional Signals workflows also exist but are not part of the main report pipeline:
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
-- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — legacy per-result evaluation path retained for existing Temporal histories and stored configs
+- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) - compatibility-only workflow retained for existing Temporal histories; its activity no longer emits signals
 - `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — periodic tick (every `COORDINATOR_INTERVAL_MINUTES = 30`) that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
 - `RunSignalsScoutWorkflow` (`backend/temporal/agentic/scout_scheduler.py`) — child workflow per planned run; thin wrapper around the harness activity. Spec'd separately below.
 
@@ -519,21 +519,21 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                                            |
-| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
-| `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
+| Field            | Type      | Description                                                                                                                                                              |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                     |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                      |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                           |
+| `config`         | JSONField | Source-specific configuration, plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate                              |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                   |
 
 **Behavioral notes:**
 
-- AI observability exposes eval-report signals in the Inbox UI. These signals are gated by the `(llm_analytics, evaluation_report)` row controlled by the AI observability toggle. The legacy per-result backend path remains registered but is no longer exposed or counted by the frontend.
+- `llm_analytics` signals go through the standard enabled-row check like every other source. `evaluation_report` is the only type AI observability emits, gated by its own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle). The per-result workflow and activity remain registered only so existing Temporal histories can finish replaying.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
+- Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations); other sources persist them unread today, and future consumers (report research, the autostart gate) are expected to read the same text.
 - The serializer exposes a computed `status` field:
-  - `session_analysis_cluster` derives status from the Temporal clustering workflow
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
 
@@ -806,10 +806,8 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 Important side effects:
 
-- Creating or enabling a `session_analysis_cluster` config starts the clustering workflow
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
-- Disabling a clustering config cancels the clustering workflow
 
 #### `SignalTeamConfigViewSet`
 
@@ -934,7 +932,7 @@ Generated MCP tool names:
 - **`SignalSourceConfigSerializer`**
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
   - Validates that `recording_filters` in config is a JSON object for `session_replay`
-  - Computes `status` from the clustering workflow or external data import state depending on the source
+  - Computes `status` from external data import state for data-import-backed sources
 - **`SignalTeamConfigSerializer`**
   - ModelSerializer for `SignalTeamConfig`
   - Exposes `id`, `default_autostart_priority`, `created_at`, `updated_at`
@@ -1140,9 +1138,9 @@ Report ↔ task relationships are recorded as `task_run` artefacts (see `SignalR
 
 Auto-start dedup is separate from this freeform log: `maybe_autostart_implementation_task()` (`backend/auto_start.py`) gates on a legacy `SignalReportTask` implementation row, checked inside the report-row `select_for_update`, so concurrent evaluations can't double-start. Both the auto-start and the manual tasks-API path go through `record_implementation_task`, which dual-writes that gate row and the `implementation` `task_run` artefact — the transitional arrangement until the backfill lets the gate move to artefacts (see `SignalReportTask`).
 
-### Legacy eval-signal flow (`backend/temporal/emit_eval_signal.py`)
+### Legacy eval-signal compatibility (`backend/temporal/emit_eval_signal.py`)
 
-The frontend no longer exposes per-evaluation signal enablement. This backend workflow remains registered for existing Temporal histories and stored `(llm_analytics, evaluation)` configs until the legacy path is removed. Completed evaluation reports are the supported evaluation-based AI observability signal source.
+New evaluation workflows record a removal patch and skip the per-result signal path. The old workflow and activity names remain registered as no-op compatibility definitions so histories that recorded those commands can replay. Evaluation reports are the only evaluation-based AI observability signal source.
 
 ### Resetting self-driving state for local re-testing
 
@@ -1353,7 +1351,6 @@ products/signals/
 │   │       ├── run_signals_scout.py       # One-shot scout run; bypasses the coordinator
 │   │       ├── select_repo.py
 │   │       ├── signal_pipeline_status.py
-│   │       ├── summarize_single_session.py
 │   │       └── sync_signals_scout_skills.py  # Force a canonical SKILL.md sync to LLMSkill rows
 │   ├── report_generation/
 │   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
@@ -1405,7 +1402,7 @@ products/signals/
 │       ├── buffer.py                # BufferSignalsWorkflow + object-storage flush/backpressure activities
 │       ├── clickhouse.py            # Retry wrapper for HogQL / ClickHouse activity queries
 │       ├── deletion.py              # SignalReportDeletionWorkflow
-│       ├── emit_eval_signal.py      # Legacy per-result evaluation signal workflow
+│       ├── emit_eval_signal.py      # Compatibility definitions for old Temporal histories
 │       ├── emitter.py               # SignalEmitterWorkflow — per-signal backpressure bridge
 │       ├── grouping.py              # Legacy v1 workflow + active shared grouping implementation
 │       ├── grouping_v2.py           # Active grouping v2 workflow + pause/unpause support

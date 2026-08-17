@@ -37,6 +37,7 @@ import {
     AudienceEnumApi,
     GatewayMemberSummaryApi,
     InstallCustomAuthTypeEnumApi,
+    MCPAgentGrantScopeEnumApi,
     MCPGatewayServerApi,
     MCPOrgRuleApi,
     MCPPolicyPresetEnumApi,
@@ -61,8 +62,6 @@ export const GATEWAY_CATEGORY_LABELS: Record<string, string> = {
     infra: 'Infrastructure',
     productivity: 'Productivity & collaboration',
 }
-
-export const CONNECTED_SERVERS_FILTER = 'connected'
 
 function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
@@ -137,7 +136,13 @@ export function memberServerAccessKey(userId: number, serverId: string): string 
  * connection, so the same agent and server can carry one grant per member. */
 export interface AgentServerShare {
     sharedByYou: boolean
+    /** Scope of your own grant, and 'personal' when you have none, so the scope
+     * control has a value to render before the first share exists. */
+    yourScope: MCPAgentGrantScopeEnumApi
     sharedByOthers: UserBasicApi[]
+    /** The subset of `sharedByOthers` whose grant is team-scoped, which is the
+     * only teammate grant that also backs agent runs other than the sharer's. */
+    teamSharedByOthers: UserBasicApi[]
 }
 
 export function agentServerShare(
@@ -148,14 +153,16 @@ export function agentServerShare(
     // Until the user loads there is no way to tell your own grants from anyone
     // else's, and calling them all teammates' would misattribute your own.
     if (currentUserId === null) {
-        return { sharedByYou: false, sharedByOthers: [] }
+        return { sharedByYou: false, yourScope: 'personal', sharedByOthers: [], teamSharedByOthers: [] }
     }
     const grants = (account?.servers ?? []).filter((server) => server.id === serverId)
+    const yours = grants.find((server) => server.shared_by.id === currentUserId)
+    const others = grants.filter((server) => server.shared_by.id !== currentUserId)
     return {
-        sharedByYou: grants.some((server) => server.shared_by.id === currentUserId),
-        sharedByOthers: grants
-            .filter((server) => server.shared_by.id !== currentUserId)
-            .map((server) => server.shared_by),
+        sharedByYou: yours !== undefined,
+        yourScope: yours?.scope ?? 'personal',
+        sharedByOthers: others.map((server) => server.shared_by),
+        teamSharedByOthers: others.filter((server) => server.scope === 'team').map((server) => server.shared_by),
     }
 }
 
@@ -187,7 +194,7 @@ export interface mcpGatewayLogicValues {
     config: TeamMCPGatewayConfigApi | null
     configLoading: boolean
     configMutationInProgress: boolean
-    connectedServerCount: number
+    connectedServers: GatewayServerEntry[]
     connectingServerId: string | null
     connectionApiKey: string
     connectionAuthType: InstallCustomAuthTypeEnumApi
@@ -436,11 +443,13 @@ export interface mcpGatewayLogicActions {
         accountId: string,
         serverId: string,
         enabled: boolean,
+        scope?: MCPAgentGrantScopeEnumApi,
         policies?: ToolPolicyEntryApi[]
     ) => {
         accountId: string
         enabled: boolean
         policies: ToolPolicyEntryApi[] | undefined
+        scope: MCPAgentGrantScopeEnumApi
         serverId: string
     }
     setAgentServerAccessComplete: (
@@ -620,7 +629,7 @@ export interface mcpGatewayLogicMeta {
             connectionApiKey: string
         ) => string | null
         categoryCounts: (mergedServers: MCPGatewayServerApi[]) => Record<string, number>
-        connectedServerCount: (mergedServers: MCPGatewayServerApi[]) => number
+        connectedServers: (mergedServers: MCPGatewayServerApi[]) => GatewayServerEntry[]
         filteredServers: (
             mergedServers: MCPGatewayServerApi[],
             searchQuery: string,
@@ -719,11 +728,13 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             accountId: string,
             serverId: string,
             enabled: boolean,
+            scope: MCPAgentGrantScopeEnumApi = 'team',
             policies?: ToolPolicyEntryApi[]
         ) => ({
             accountId,
             serverId,
             enabled,
+            scope,
             policies,
         }),
         setAgentServerAccessSuccess: (accountId: string, serverId: string) => ({ accountId, serverId }),
@@ -1172,10 +1183,12 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 return counts
             },
         ],
-        connectedServerCount: [
+        connectedServers: [
             (s) => [s.mergedServers],
-            (mergedServers: GatewayServerEntry[]): number =>
-                mergedServers.filter((server) => server.your_connection !== null).length,
+            (mergedServers: GatewayServerEntry[]): GatewayServerEntry[] =>
+                mergedServers
+                    .filter((server) => server.your_connection !== null)
+                    .sort((a, b) => a.name.localeCompare(b.name)),
         ],
         filteredServers: [
             (s) => [s.mergedServers, s.searchQuery, s.categoryFilter],
@@ -1186,14 +1199,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             ): GatewayServerEntry[] => {
                 const query = searchQuery.trim().toLowerCase()
                 return mergedServers.filter((server) => {
-                    if (categoryFilter === CONNECTED_SERVERS_FILTER && !server.your_connection) {
-                        return false
-                    }
-                    if (
-                        categoryFilter &&
-                        categoryFilter !== CONNECTED_SERVERS_FILTER &&
-                        server.category !== categoryFilter
-                    ) {
+                    if (categoryFilter && server.category !== categoryFilter) {
                         return false
                     }
                     if (!query) {
@@ -1496,15 +1502,19 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 actions.toggleAccountStatusComplete(accountId)
             }
         },
-        setAgentServerAccess: async ({ accountId, serverId, enabled, policies }) => {
+        setAgentServerAccess: async ({ accountId, serverId, enabled, scope, policies }) => {
             const account = values.serviceAccounts.find((candidate) => candidate.id === accountId)
             const server = values.servers.find((candidate) => candidate.id === serverId)
+            const accountName = account?.name ?? 'agent'
             try {
                 // The response carries the account's grants after the change, including who
-                // backs each one, which a local merge cannot reconstruct.
+                // backs each one, which a local merge cannot reconstruct. `scope` goes on
+                // every call because the endpoint defaults an omitted scope back to
+                // personal, which would silently demote a team share on any re-share.
                 const updatedAccount = await mcpGatewayServiceAccountsAccessCreate(currentProjectId(), accountId, {
                     gateway_server_id: serverId,
                     enabled,
+                    scope,
                     policies,
                 })
                 actions.loadServiceAccountsSuccess(
@@ -1534,6 +1544,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                                           {
                                               service_account_id: updatedAccount.id,
                                               user: yourGrant.shared_by,
+                                              scope: yourGrant.scope,
                                               name: updatedAccount.name,
                                               handle: updatedAccount.handle,
                                               status: updatedAccount.status,
@@ -1558,7 +1569,9 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 actions.setAgentServerAccessSuccess(accountId, serverId)
                 lemonToast[enabled ? 'success' : 'info'](
                     enabled
-                        ? `${server?.name ?? 'Server'} shared with ${account?.name ?? 'agent'}. Only your agents use your connection.`
+                        ? scope === 'team'
+                            ? `${server?.name ?? 'Server'} shared with ${accountName}. Every ${accountName} run in this project can use your connection.`
+                            : `${server?.name ?? 'Server'} shared with ${accountName}. Only your own ${accountName} runs use your connection.`
                         : `Your ${server?.name ?? 'server'} connection is no longer shared with ${account?.name ?? 'this agent'}. Your teammates' shares are unchanged.`
                 )
             } catch (error: unknown) {

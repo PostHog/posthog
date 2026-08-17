@@ -208,13 +208,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
     '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+    '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
-    '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
-    '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/inbox': ['Inbox', 'inbox'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
@@ -851,19 +851,6 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
     },
-    SessionGroupSummariesTable: {
-        name: 'Session summaries',
-        projectBased: true,
-        description:
-            'View and deep-dive into AI-generated summaries of session recordings. Create summaries from the Session replay page by applying filters and asking PostHog AI to summarize sessions.',
-        iconType: 'notebook',
-    },
-    SessionGroupSummary: {
-        name: 'Session summary',
-        projectBased: true,
-        description: 'View detailed session group summary.',
-        iconType: 'notebook',
-    },
     Inbox: {
         name: 'Inbox',
         projectBased: true,
@@ -1410,8 +1397,10 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+    replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
@@ -1421,8 +1410,6 @@ export const productUrls = {
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     codeReview: (): string => '/code-review',
-    sessionSummaries: (): string => '/session-summaries',
-    sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
@@ -1814,6 +1801,58 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export type ProductTreePath =
+    | 'AI gateway'
+    | 'Apps'
+    | 'Business knowledge'
+    | 'Clusters'
+    | 'Code review'
+    | 'Customer analytics'
+    | 'Dashboards'
+    | 'Data catalog'
+    | 'Data warehouse'
+    | 'Datasets'
+    | 'Early access features'
+    | 'Endpoints'
+    | 'Engineering analytics'
+    | 'Error tracking'
+    | 'Evaluations'
+    | 'Experiments'
+    | 'Feature flags'
+    | 'Heatmaps'
+    | 'Identity matching'
+    | 'Inbox'
+    | 'Links'
+    | 'Live Debugger'
+    | 'LLM analytics'
+    | 'Logs'
+    | 'Marketing analytics'
+    | 'MCP analytics'
+    | 'MCP servers'
+    | 'Metrics'
+    | 'Notebooks'
+    | 'Playground'
+    | 'Product analytics'
+    | 'Product tours'
+    | 'Prompts'
+    | 'Pulse'
+    | 'Replay vision'
+    | 'Session replay'
+    | 'Skills'
+    | 'SQL editor'
+    | 'Support'
+    | 'Surveys'
+    | 'Taggers'
+    | 'Tasks'
+    | 'Toolbar'
+    | 'Tracing'
+    | 'User research'
+    | 'Visual review'
+    | 'Web analytics'
+    | 'Web scripts'
+    | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [

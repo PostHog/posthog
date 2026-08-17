@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -182,6 +183,31 @@ class TestExternalDataSource(APIBaseTest):
         # so a later default flip never changes their sync behavior
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        side_effect=AttributeError("boom"),
+    )
+    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+        # A source whose validate_credentials raises (rather than returning (False, message)) must
+        # not 500 the create request — the user gets an actionable message and no source is created.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):
         source = self._create_external_data_source()
@@ -8766,11 +8792,11 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 secret=True,
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "host" in nonsensitive
-        assert "password" in sensitive
-        assert "password" not in nonsensitive
-        assert "host" not in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "host" in split.nonsensitive
+        assert "password" in split.sensitive
+        assert "password" not in split.nonsensitive
+        assert "host" not in split.sensitive
 
     def test_classifies_file_upload_as_sensitive(self):
         fields: list[FieldType] = [
@@ -8781,9 +8807,9 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 fileFormat=SourceFieldFileUploadJsonFormatConfig(keys=["project_id", "private_key"]),
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "key_file" in sensitive
-        assert "key_file" not in nonsensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "key_file" in split.sensitive
+        assert "key_file" not in split.nonsensitive
 
     def test_classifies_select_with_nested_password(self):
         fields: list[FieldType] = [
@@ -8818,23 +8844,23 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ],
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "auth_type" in nonsensitive
-        assert "user" in nonsensitive
-        assert "password" in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "auth_type" in split.nonsensitive
+        assert "user" in split.nonsensitive
+        assert "password" in split.sensitive
 
     def test_classifies_ssh_tunnel_nested_fields(self):
         fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH Tunnel")]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "ssh_tunnel" in nonsensitive
-        assert "host" in nonsensitive
-        assert "port" in nonsensitive
-        assert "username" in nonsensitive
-        assert "auth" in nonsensitive
-        assert "auth_type" in nonsensitive
-        assert "password" in sensitive
-        assert "passphrase" in sensitive
-        assert "private_key" in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "ssh_tunnel" in split.nonsensitive
+        assert "host" in split.nonsensitive
+        assert "port" in split.nonsensitive
+        assert "username" in split.nonsensitive
+        assert "auth" in split.nonsensitive
+        assert "auth_type" in split.nonsensitive
+        assert "password" in split.sensitive
+        assert "passphrase" in split.sensitive
+        assert "private_key" in split.sensitive
 
     def test_classifies_secret_flag_as_sensitive_regardless_of_type(self):
         fields: list[FieldType] = [
@@ -8855,11 +8881,11 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 secret=False,
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "client_private_key" in sensitive
-        assert "client_private_key" not in nonsensitive
-        assert "namespace" in nonsensitive
-        assert "namespace" not in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "client_private_key" in split.sensitive
+        assert "client_private_key" not in split.nonsensitive
+        assert "namespace" in split.nonsensitive
+        assert "namespace" not in split.sensitive
 
     def test_strip_sensitive_from_dict_basic(self):
         data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
@@ -8915,9 +8941,9 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ),
             ),
         ]
-        nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "temporary-dataset" in nonsensitive
-        assert "temporary_dataset" in nonsensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "temporary-dataset" in split.nonsensitive
+        assert "temporary_dataset" in split.nonsensitive
 
     def test_strip_preserves_aliased_switch_group_from_to_dict(self):
         """job_inputs persisted via to_dict() uses snake_case keys even when
@@ -8950,7 +8976,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ),
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        split = get_nonsensitive_and_sensitive_field_names(fields)
 
         # Simulate job_inputs as persisted by dataclasses.asdict() (snake_case keys)
         persisted_data = {
@@ -8960,7 +8986,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 "temporary_dataset_id": "tmp-dataset",
             },
         }
-        result = strip_sensitive_from_dict(persisted_data, nonsensitive, sensitive)
+        result = strip_sensitive_from_dict(persisted_data, split.nonsensitive, split.sensitive)
         assert "temporary_dataset" in result
         assert result["temporary_dataset"]["enabled"] is True
         assert result["temporary_dataset"]["temporary_dataset_id"] == "tmp-dataset"
@@ -8968,10 +8994,10 @@ class TestSensitiveFieldClassification(APIBaseTest):
     def test_all_registered_sources_have_valid_classification(self):
         for source in SourceRegistry.get_all_sources().values():
             config = source.get_source_config
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(config.fields)
 
             # No field should appear in both sets
-            overlap = nonsensitive & sensitive
+            overlap = split.nonsensitive & split.sensitive
             assert not overlap, f"{config.name}: fields in both sets: {overlap}"
 
     def test_password_typed_fields_must_be_marked_secret(self):
@@ -9047,8 +9073,8 @@ class TestSensitiveFieldClassification(APIBaseTest):
         all_nonsensitive: set[str] = set()
         for source in SourceRegistry.get_all_sources().values():
             config = source.get_source_config
-            nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(nonsensitive)
+            split = get_nonsensitive_and_sensitive_field_names(config.fields)
+            all_nonsensitive.update(split.nonsensitive)
 
         missing = old_allowed - all_nonsensitive
         assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
@@ -13238,3 +13264,62 @@ class TestGithubMultiRepoPatch(APIBaseTest):
 
         removed_webhook_row.refresh_from_db()
         assert removed_webhook_row.deleted is True or removed_webhook_row.should_sync is False
+
+
+class TestFanoutParentCreation(APIBaseTest):
+    """Source creation places no fan-out constraint on the schema selection: any combination of
+    parent and child creates, and the run-time gate decides per run whether the child can read
+    its parent from the warehouse."""
+
+    def _post_sentry_source(self, schemas: list[dict]):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source.SentrySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            return self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Sentry",
+                    "created_via": "web",
+                    "payload": {
+                        "auth_token": "token",
+                        "organization_slug": "acme",
+                        "schemas": schemas,
+                    },
+                },
+            )
+
+    def test_create_accepts_child_when_parent_also_selected(self):
+        response = self._post_sentry_source(
+            [
+                {"name": "issues", "should_sync": True, "sync_type": "full_refresh"},
+                {"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"},
+            ]
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        should_sync_by_name = {
+            schema.name: schema.should_sync
+            for schema in ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.id)
+        }
+        assert should_sync_by_name["issues"] is True
+        assert should_sync_by_name["issue_events"] is True
+
+    @parameterized.expand(
+        [
+            ("unconfigured_parent", {"name": "issues", "should_sync": False}),
+            ("missing_parent", None),
+        ]
+    )
+    def test_create_accepts_child_without_a_usable_parent(self, _name, parent_entry):
+        # Selecting only the child is a supported setup: it syncs off the parent API, exactly as
+        # it does today. Refusing it here would force the customer to pay for parent rows.
+        schemas = [{"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"}]
+        if parent_entry is not None:
+            schemas.insert(0, parent_entry)
+
+        response = self._post_sentry_source(schemas)
+
+        assert response.status_code == 201, response.json()
+        assert ExternalDataSchema.objects.get(team_id=self.team.pk, name="issue_events").should_sync is True

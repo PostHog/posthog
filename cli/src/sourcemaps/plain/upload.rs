@@ -15,7 +15,7 @@ const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
 use crate::{
     api::{
         releases::Release,
-        symbol_sets::{self, SymbolSetUpload},
+        symbol_sets::{self, dedup_uploads_by_chunk_id, SymbolSetUpload},
     },
     invocation_context::context,
     sourcemaps::{
@@ -25,7 +25,7 @@ use crate::{
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
-        source_pairs::read_pairs,
+        source_pairs::{read_pairs, SourcePair},
     },
     utils::files::{delete_files, FileSelection},
 };
@@ -84,6 +84,12 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
 }
 
 pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
+    if args.conflict.skip_on_conflict_ignored(args.release_mode) {
+        warn!(
+            "--skip-on-conflict is ignored with --release-mode=event. Every chunk's content changes with each release, so skipping conflicts would leave the previous release id in place. Overwriting instead."
+        );
+    }
+
     let selection = FileSelection::try_from(args.file_selection.clone())?;
 
     let mut pairs = read_pairs(
@@ -149,14 +155,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
-    // Payload preparation (serialization + zstd compression) is CPU-bound,
-    // so spread it across cores.
-    let release_mode = args.release_mode;
-    let uploads = valid_pairs
-        .into_par_iter()
-        .map(|pair| pair.into_upload(release_mode))
-        .collect::<Result<Vec<SymbolSetUpload>>>()
-        .context("While preparing files for upload")?;
+    let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
     let file_count = uploads.len();
     let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
@@ -172,13 +171,15 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ],
     );
 
+    let conflict = args.conflict.resolve(args.release_mode);
+
     let started_at = Instant::now();
     let (summary, upload_result) = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
-        args.conflict.force,
-        args.conflict.skip_on_conflict,
+        conflict.force,
+        conflict.skip_on_conflict,
         args.upload_concurrency.concurrency,
     );
     let duration_ms = started_at.elapsed().as_millis();
@@ -207,6 +208,23 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     Ok(())
 }
 
+/// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
+/// from content, so a hashless alias copied beside `app-<hash>.js` collides with its original.
+fn prepare_uploads(
+    pairs: Vec<SourcePair>,
+    release_mode: ReleaseMode,
+) -> Result<Vec<SymbolSetUpload>> {
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
+    let uploads = pairs
+        .into_par_iter()
+        .map(|pair| pair.into_upload(release_mode))
+        .collect::<Result<Vec<SymbolSetUpload>>>()
+        .context("While preparing files for upload")?;
+
+    Ok(dedup_uploads_by_chunk_id(uploads))
+}
+
 fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
     for path in paths {
         let mut source = MinifiedSourceFile::load(&path)
@@ -218,4 +236,40 @@ fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{sourcemaps::inject::inject_pairs, utils::files::FileSelection};
+
+    #[test]
+    fn event_mode_uploads_one_payload_per_chunk_id() {
+        // The hashless copy keeps the original's sourceMappingURL, so both files are identical.
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let entry = "console.log(\"hi\");\n//# sourceMappingURL=app-BKG53LDN.js.map\n";
+        std::fs::write(dir.path().join("app-BKG53LDN.js"), entry).expect("Failed to write entry");
+        std::fs::write(dir.path().join("app.js"), entry).expect("Failed to write hashless copy");
+        std::fs::write(
+            dir.path().join("app-BKG53LDN.js.map"),
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["console.log('hi')\n"],"mappings":"AAAA,QAAQ,IAAI,IAAI","names":[]}"#,
+        )
+        .expect("Failed to write sourcemap");
+
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("Failed to build selection")
+            .exclude(vec![])
+            .expect("Failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+        assert_eq!(pairs.len(), 2);
+
+        let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+        let chunk_ids: Vec<_> = injected.iter().map(|pair| pair.get_chunk_id()).collect();
+        assert_eq!(chunk_ids[0], chunk_ids[1]);
+
+        let uploads =
+            prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
+        assert_eq!(uploads.len(), 1);
+    }
 }

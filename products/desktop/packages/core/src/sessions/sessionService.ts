@@ -1601,7 +1601,7 @@ export class SessionService {
   private static readonly TASK_CREATION_IN_FLIGHT_TTL_MS = 10 * 60 * 1000;
   private activityHeartbeats = new Map<
     string,
-    ReturnType<typeof setInterval>
+    { timer: ReturnType<typeof setInterval>; holders: number }
   >();
   private localRepoPaths = new Map<string, string>();
   private localRecoveryAttempts = new Map<string, Promise<boolean>>();
@@ -3062,7 +3062,11 @@ export class SessionService {
         const session = this.d.store.getSessions()[taskRunId];
         const params = (
           msg as {
-            params?: { agentVersion?: unknown; steering?: unknown };
+            params?: {
+              agentVersion?: unknown;
+              steering?: unknown;
+              conversationClear?: unknown;
+            };
           }
         ).params;
         const agentVersion =
@@ -3078,6 +3082,10 @@ export class SessionService {
           session?.steering !== params.steering
         ) {
           updates.steering = params.steering;
+        }
+        const conversationClear = params?.conversationClear === true;
+        if (Boolean(session?.conversationClear) !== conversationClear) {
+          updates.conversationClear = conversationClear;
         }
         if (session?.isCloud && session.status !== "connected") {
           updates.status = "connected";
@@ -5733,7 +5741,7 @@ export class SessionService {
    */
   /**
    * Register this client as the relay executor for a run's desktop-only MCP
-   * servers (docs/cloud-mcp-relay.md). Called by the creation saga — only the
+   * servers (docs/CLOUD-MCP-RELAY.md). Called by the creation saga — only the
    * creating client may execute relay requests.
    */
   async designateRelayedMcpServers(
@@ -6454,7 +6462,7 @@ export class SessionService {
         type: "user_message",
         content: seedContent,
         timestamp: Date.now(),
-        ...(isResumeRun ? { pinToTop: false } : {}),
+        pinToTop: !isResumeRun,
       });
     }
     if (hasCurrentRunUserPrompt || isTerminalRun) {
@@ -7000,6 +7008,14 @@ export class SessionService {
     this.d.store.updateSession(session.taskRunId, { taskTitle });
   }
 
+  /**
+   * One heartbeat per run, held by however many surfaces are watching it. The
+   * count is what makes that safe: several components mount the same run at
+   * once (the transcript, the logs, the session panel), and an unheld beat
+   * would let whichever unmounts first stop the run's activity signal for the
+   * others, leaving the server free to idle-reclaim an agent someone is
+   * watching.
+   */
   public startActivityHeartbeat(taskRunId: string): () => void {
     const record = () => {
       this.d.trpc.agent.recordActivity.mutate({ taskRunId }).catch(() => {});
@@ -7008,13 +7024,23 @@ export class SessionService {
     record();
     const existing = this.activityHeartbeats.get(taskRunId);
     if (existing) {
-      clearInterval(existing);
+      existing.holders += 1;
+    } else {
+      this.activityHeartbeats.set(taskRunId, {
+        timer: setInterval(record, ACTIVITY_HEARTBEAT_INTERVAL_MS),
+        holders: 1,
+      });
     }
-    const heartbeat = setInterval(record, ACTIVITY_HEARTBEAT_INTERVAL_MS);
-    this.activityHeartbeats.set(taskRunId, heartbeat);
 
+    let released = false;
     return () => {
-      clearInterval(heartbeat);
+      if (released) return;
+      released = true;
+      const entry = this.activityHeartbeats.get(taskRunId);
+      if (!entry) return;
+      entry.holders -= 1;
+      if (entry.holders > 0) return;
+      clearInterval(entry.timer);
       this.activityHeartbeats.delete(taskRunId);
     };
   }

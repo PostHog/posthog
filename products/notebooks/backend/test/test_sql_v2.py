@@ -48,6 +48,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 )
 from products.notebooks.backend.sql_v2 import (
     RESULT_CACHE_ROWS,
+    DataPlaneClaims,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -929,17 +930,25 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
 
 
 class _RecordingSandbox:
-    """Stands in for the docker/Modal sandbox: records control-plane calls."""
+    """Stands in for the docker/Modal sandbox: records control-plane calls.
 
-    def __init__(self):
+    `baked_version` stands in for the stamp the image carries. It defaults to None,
+    which is an image with no baked package at all, so the probe reports nothing and
+    the deploy falls back to the tarball.
+    """
+
+    def __init__(self, baked_version: str | None = None):
         self.files: dict[str, bytes] = {}
         self.commands: list[str] = []
+        self.baked_version = baked_version
 
     def write_file(self, path: str, payload: bytes) -> None:
         self.files[path] = payload
 
-    def execute(self, command: str, timeout_seconds: int | None = None) -> None:
+    def execute(self, command: str, timeout_seconds: int | None = None):
         self.commands.append(command)
+        launched_baked = self.baked_version is not None and f'= "{self.baked_version}"' in command
+        return SimpleNamespace(stdout="nb_kernel_baked_ok\n" if launched_baked else "", exit_code=0)
 
     def get_connect_credentials(self):
         return SimpleNamespace(url="http://localhost:45678", token="connect-tok")
@@ -987,21 +996,46 @@ class TestSQLV2EnsureServer(APIBaseTest):
         package, _version = kernel_package_bytes_and_hash()
         self.assertEqual(self.sandbox.files["/tmp/nb_kernel.tar.gz"], package)
         self.assertEqual(self.sandbox.files["/tmp/nb_sql_v2_secret"], kernel_server_secret(str(runtime.id)).encode())
-        self.assertEqual(len(self.sandbox.commands), 1)
         self.assertEqual(result.server_url, "http://localhost:45678")
         self.assertEqual(result.server_connect_token, "connect-tok")
 
-    def test_launch_command_shape_regressions(self):
+    def test_image_without_the_current_package_still_gets_a_server(self):
+        # The baked probe stops the old server before it reads the stamp, so a miss that
+        # skipped the tarball would leave the sandbox with no server running at all.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = "an-older-image"
+        self._ensure(reported_version="some-old-version")
+        self.assertIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertIn("PYTHONPATH=/tmp/nb_kernel_pkg", self.sandbox.commands[-1])
+
+    def test_matching_image_launches_in_place_without_the_tarball(self):
+        # The upload and the tar extract are what baking the package removes. Losing the
+        # short-circuit costs a control-plane round trip on every cold start, and nothing
+        # at runtime shows it: both paths start an identical server.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = kernel_package_bytes_and_hash()[1]
+        self._ensure(reported_version="some-old-version")
+        self.assertNotIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertEqual(len(self.sandbox.commands), 1)
+        launch = self.sandbox.commands[0]
+        self.assertIn("PYTHONPATH=/opt/nb_kernel_pkg", launch)
+        self.assertNotIn("tar -xzf", launch)
+
+    @parameterized.expand([("baked", kernel_package_bytes_and_hash()[1]), ("tarball", None)])
+    def test_launch_command_shape_regressions(self, _name: str, baked_version: str | None):
         # Two bugs shipped from this one string: pkill -f of our own module name matches
         # the launch command's shell and kills the deploy; and backgrounding a compound
         # command records a wrapper subshell PID so later redeploys kill nothing.
         self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = baked_version
         self._ensure(reported_version="some-old-version")
-        launch = self.sandbox.commands[0]
+        launch = self.sandbox.commands[-1]
         self.assertNotRegex(launch, r"pkill[^;&]*[^\[]nb_kernel")
         self.assertIn("echo $! > /tmp/nb_kernel_server.pid", launch)
         # The backgrounded segment must be a single simple command (no cd &&-chain).
-        backgrounded = launch.rsplit(";", 1)[-1].split("&")[0]
+        nohup_segments = [segment for segment in launch.split(";") if "nohup" in segment]
+        self.assertEqual(len(nohup_segments), 1)
+        backgrounded = nohup_segments[0].split("&")[0]
         self.assertNotIn("&&", backgrounded)
         self.assertIn("nb_kernel.server", backgrounded)
 
@@ -1583,8 +1617,8 @@ class TestSQLV2Activities(APIBaseTest):
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
         self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
-        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
-        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        claims = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
@@ -1618,7 +1652,9 @@ class TestSQLV2CommandToken(SimpleTestCase):
 class TestSQLV2DataPlaneToken(SimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
-        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+        self.assertEqual(
+            verify_data_plane_token(token), DataPlaneClaims(notebook_short_id="nb123", team_id=7, user_id=42)
+        )
 
     @parameterized.expand(
         [
