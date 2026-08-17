@@ -679,7 +679,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self, _mock_enabled: MagicMock):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", customization=[])
 
-        _, retrieved = self.dashboard_api.get_dashboard(dashboard.id)
+        retrieved = self.dashboard_api.get_dashboard(dashboard.id)
         self.assertEqual(retrieved["customization"], {})
 
         _, updated = self.dashboard_api.update_dashboard(dashboard.id, {"grid_spacing": "condensed"})
