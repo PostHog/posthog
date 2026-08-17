@@ -1,3 +1,4 @@
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
 import { RESUME_STATE_MAX_BYTES } from "./posthog-api";
 import { type ConversationTurn, trimConversationForSnapshot } from "./resume";
@@ -84,5 +85,43 @@ describe("trimConversationForSnapshot", () => {
     expect(
       trimmed.some((turn) => text(turn).includes("You are resuming")),
     ).toBe(false);
+  });
+
+  it("caps oversized attachment data but leaves text blocks intact", () => {
+    // A single base64 image overruns the byte cap on its own. estimateTurnTokens
+    // scores its turn at zero and the tool-only cap never touches turn.content, so
+    // without capping here the whole snapshot is skipped for any attachment-carrying
+    // task. The resume prompt renders text blocks only, so shedding the image data
+    // loses nothing it shows.
+    const hugeImage = "A".repeat(3 * 1024 * 1024);
+    const conversation: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look at this" },
+          {
+            type: "image",
+            data: hugeImage,
+            mimeType: "image/png",
+          } as ContentBlock,
+        ],
+      },
+    ];
+    expect(serializedBytes(conversation)).toBeGreaterThan(
+      RESUME_STATE_MAX_BYTES,
+    );
+
+    const trimmed = trimConversationForSnapshot(conversation);
+
+    expect(serializedBytes(trimmed)).toBeLessThan(RESUME_STATE_MAX_BYTES);
+    const content = trimmed.at(-1)?.content ?? [];
+    expect(content.find((b) => b.type === "text")).toEqual({
+      type: "text",
+      text: "look at this",
+    });
+    const image = content.find((b) => b.type === "image") as
+      | { data: string }
+      | undefined;
+    expect(image?.data.length).toBeLessThan(hugeImage.length);
   });
 });

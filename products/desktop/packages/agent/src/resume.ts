@@ -140,11 +140,51 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
   return RESUME_CONTEXT_MARKERS.some((marker) => text.includes(marker));
 }
 
+const MAX_CONTENT_DATA_CHARS = 10_000;
+
+// An image/audio payload (base64) or an embedded document rides in a content
+// block's data/text field. selectRecentTurns never counts those bytes
+// (estimateTurnTokens reads only top-level text) and formatConversationForResume
+// never renders them (it keeps text blocks), so one attachment left whole can push
+// the stored snapshot past its size limit and skip it entirely. Replace an oversized
+// payload with a marker; the resume prompt reads only text blocks, so nothing it
+// shows is lost.
+function capContentBlock(block: ContentBlock): ContentBlock {
+  if (block.type === "image" || block.type === "audio") {
+    return block.data.length > MAX_CONTENT_DATA_CHARS
+      ? { ...block, data: `[truncated ${block.data.length} chars]` }
+      : block;
+  }
+  if (block.type === "resource") {
+    const resource = block.resource;
+    if ("text" in resource && resource.text.length > MAX_CONTENT_DATA_CHARS) {
+      return {
+        ...block,
+        resource: {
+          ...resource,
+          text: `[truncated ${resource.text.length} chars]`,
+        },
+      };
+    }
+    if ("blob" in resource && resource.blob.length > MAX_CONTENT_DATA_CHARS) {
+      return {
+        ...block,
+        resource: {
+          ...resource,
+          blob: `[truncated ${resource.blob.length} chars]`,
+        },
+      };
+    }
+  }
+  return block;
+}
+
 /**
  * Reduce a rebuilt conversation to what a resume actually reads back.
- * The fold keeps tool payloads whole, which runs a long task's snapshot past the
- * stored size limit, while the prompt below only renders a recent window. Capping
- * payloads first keeps one oversized turn from starving the window selection.
+ * The fold keeps tool payloads and attachment data whole, which runs a long task's
+ * snapshot past the stored size limit, while the prompt below only renders a recent
+ * window of text. Capping tool payloads and content-block data first keeps one
+ * oversized turn from starving the window selection or overflowing the byte cap.
  * Dropping the synthetic resume preamble first matches formatConversationForResume:
  * that turn embeds the prior conversation summary, so leaving it in lets one giant
  * turn consume the budget and shed the real user turns the resume prompt needs.
@@ -153,10 +193,11 @@ export function trimConversationForSnapshot(
   conversation: ConversationTurn[],
 ): ConversationTurn[] {
   const filtered = conversation.filter((turn) => !isResumeContextTurn(turn));
-  const capped = filtered.map((turn) =>
-    turn.toolCalls?.length
+  const capped = filtered.map((turn) => ({
+    ...turn,
+    content: turn.content.map(capContentBlock),
+    ...(turn.toolCalls?.length
       ? {
-          ...turn,
           toolCalls: turn.toolCalls.map((toolCall) => ({
             ...toolCall,
             input: capToolPayload(toolCall.input),
@@ -165,8 +206,8 @@ export function trimConversationForSnapshot(
               : { result: capToolPayload(toolCall.result) }),
           })),
         }
-      : turn,
-  );
+      : {}),
+  }));
   return selectRecentTurns(capped, RESUME_HISTORY_TOKEN_BUDGET);
 }
 
