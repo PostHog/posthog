@@ -7,7 +7,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
@@ -52,16 +51,10 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
  * render inline (replacing the roster) when their sub-flow is open.
  */
 export function AgentsTab(): JSX.Element {
-    const { sessionAnalysisSetupOpen, dataSourceSetupSource } = useValues(signalSourcesLogic)
+    const { dataSourceSetupSource } = useValues(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const {
-        loadSources,
-        loadSourceConfigs,
-        loadToolDataEvents,
-        closeSessionAnalysisSetup,
-        closeDataSourceSetup,
-        onDataSourceSetupComplete,
-    } = useActions(signalSourcesLogic)
+    const { loadSources, loadSourceConfigs, loadToolDataEvents, closeDataSourceSetup, onDataSourceSetupComplete } =
+        useActions(signalSourcesLogic)
 
     useEffect(() => {
         loadSources()
@@ -75,13 +68,6 @@ export function AgentsTab(): JSX.Element {
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
                 <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
-            </div>
-        )
-    } else if (sessionAnalysisSetupOpen) {
-        agentsBody = (
-            <div className="flex flex-col gap-3">
-                <BackLink onClick={closeSessionAnalysisSetup} />
-                <SessionAnalysisSetup />
             </div>
         )
     } else {

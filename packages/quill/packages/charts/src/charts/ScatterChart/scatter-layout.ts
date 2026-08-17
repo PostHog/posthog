@@ -10,6 +10,8 @@ import type { ScatterSeries } from './types'
 export interface ScatterPointPosition {
     /** Global index into the flattened point list. */
     index: number
+    /** Which series drew this point, so per-series work (the best-fit line) can group by it. */
+    seriesIndex: number
     x: number
     y: number
     radius: number
@@ -24,6 +26,9 @@ export interface ScatterLayout {
     yScale: D3YScale
     /** Visible, drawable points in ascending x-pixel order, which the hit test binary-searches. */
     positions: ScatterPointPosition[]
+    /** Canvas-ready series colors by series index, for per-series chrome (the best-fit line) that has
+     *  to match the legend rather than whichever override a marker happens to carry. */
+    seriesColors: string[]
     /** Resolved once, so the grid lines, the tick marks, and the labels are the same set. */
     xTicks: ScatterXTick[]
     maxRadius: number
@@ -105,6 +110,7 @@ export function createScatterScales({
         maxRadius = Math.max(maxRadius, radius)
         positions.push({
             index: i,
+            seriesIndex: point.seriesIndex,
             x,
             y,
             radius,
@@ -123,6 +129,7 @@ export function createScatterScales({
                 xScale,
                 yScale,
                 positions,
+                seriesColors: coloredSeries.map((series) => resolveCssColor(series.color ?? fallbackColor)),
                 xTicks: resolveXTicks(xScale, xTickCount, xTickFormatter),
                 maxRadius,
             },

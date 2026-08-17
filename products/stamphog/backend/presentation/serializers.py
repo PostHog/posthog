@@ -1,5 +1,7 @@
 """DRF serializers for stamphog."""
 
+from typing import Any
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -69,6 +71,22 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Trigger label cannot be blank.")
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The digest reports what stamphog approved, so it has nothing to report without the review
+        # path running. PATCH sends only changed fields, so fall back to the stored values.
+        attrs = super().validate(attrs)
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
+        if enabled:
+            return attrs
+        if attrs.get("digest_enabled"):
+            raise serializers.ValidationError(
+                {"digest_enabled": "Digests report what stamphog approved, so they need 'enabled' set to true."}
+            )
+        # Turning reviews off takes the digest with it rather than failing the write — the same
+        # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
+        attrs["digest_enabled"] = False
+        return attrs
+
     class Meta:
         model = StamphogRepoConfig
         fields = [
@@ -104,7 +122,10 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             },
             "digest_enabled": {
                 "required": False,
-                "help_text": "Whether merged PRs on this repo are captured for the daily Slack digest.",
+                "help_text": (
+                    "Whether merged PRs on this repo are captured for the daily Slack digest. Requires "
+                    "'enabled', since the digest reports what stamphog approved."
+                ),
             },
             "review_mode": {
                 "required": False,

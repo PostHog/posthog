@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -294,37 +295,37 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "classifier_empty_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": []},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_missing_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p"},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_blank_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["bug", "   "]},
-                "Tags can't be blank.",
+                "Categories can't be blank.",
             ),
             (
                 "classifier_duplicate_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["Bug", "bug"]},
-                "Tags must be unique: 'Bug' and 'bug' are the same tag.",
+                "Categories must be unique: 'Bug' and 'bug' are the same category.",
             ),
             (
                 "classifier_slug_colliding_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["login issue", "login_issue"]},
-                "Tags must be unique: 'login issue' and 'login_issue' are the same tag.",
+                "Categories must be unique: 'login issue' and 'login_issue' are the same category.",
             ),
             (
                 "classifier_tag_without_alphanumerics",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["!!!"]},
-                "Tags must contain letters or numbers.",
+                "Categories must contain letters or numbers.",
             ),
             (
                 "monitor_missing_prompt",
@@ -366,13 +367,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "too_many_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": [f"tag-{i}" for i in range(101)]},
-                "Tag vocabulary can have at most 100 tags.",
+                "You can have at most 100 categories.",
             ),
             (
                 "overlong_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["ok", "x" * 101]},
-                "Tags can be at most 100 characters.",
+                "Categories can be at most 100 characters.",
             ),
             (
                 "unknown_config_key",
@@ -1045,6 +1046,46 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
         if expected_events:
             self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
+
+    @parameterized.expand(
+        [
+            ("drafted", None, 200, True),
+            ("model_failed", DraftError(), 503, False),
+        ]
+    )
+    def test_draft_reports_outcome(
+        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+    ) -> None:
+        # A draft that reports nothing would read as user abandonment instead of a model failure.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        drafted = ScannerDraft(
+            name="stuck-in-onboarding",
+            description="Sessions where onboarding stalls",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user get stuck?"},
+            rationale="Onboarding drop-off is the stated goal",
+            query={"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+        )
+        goal = "find users who get stuck in onboarding"
+        with (
+            patch(
+                "products.replay_vision.backend.api.scanners.draft_scanner_from_goal",
+                side_effect=error,
+                return_value=drafted,
+            ),
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            resp = self.client.post(f"{self.scanners_url}draft/", data={"goal": goal}, format="json")
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        drafted_events = [call for call in report.call_args_list if call.args[1] == "replay_vision_scanner_drafted"]
+        self.assertEqual(len(drafted_events), 1)
+        properties = drafted_events[0].args[2]
+        self.assertEqual(properties["success"], expected_success)
+        self.assertEqual(properties["goal_length"], len(goal))
+        # The goal is customer text; only its length may ride along.
+        self.assertNotIn("goal", properties)
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):

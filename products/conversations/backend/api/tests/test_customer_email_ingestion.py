@@ -1,9 +1,13 @@
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
@@ -13,7 +17,13 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.conversations.backend.api.email_events import MAX_RECIPIENTS, _parse_addresses, _parse_sent_at
+from products.conversations.backend.api.email_events import (
+    MAX_FORWARDING_CHALLENGE_TOKENS,
+    MAX_RECIPIENTS,
+    _forwarding_challenge_tokens,
+    _parse_addresses,
+    _parse_sent_at,
+)
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
@@ -23,9 +33,17 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailOutboxMessage,
     EmailThread,
+    EmailThreadAccountLink,
     EmailThreadMessage,
+    EmailThreadMessageDirection,
     Ticket,
 )
+from products.conversations.backend.services.email_channel_setup import (
+    FORWARDING_CHALLENGE_HEADER,
+    FORWARDING_CHALLENGE_MARKER,
+    create_forwarding_challenge,
+)
+from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
 
 class TestCustomerEmailIngestion(BaseTest):
@@ -74,6 +92,42 @@ class TestCustomerEmailIngestion(BaseTest):
         data.update(overrides)
         return self.client.post("/api/conversations/v1/email/inbound", data)
 
+    def _post_outbound_email(
+        self,
+        *,
+        message_id: str,
+        lookup_only: str = "",
+        **overrides: str,
+    ):
+        data = {
+            "token": "webhook-token",
+            "timestamp": "1749565800",
+            "signature": "webhook-signature",
+            "recipient": "sent@mg.posthog.com",
+            "from": "Customer success <csm@example.com>",
+            "sender": "csm@example.com",
+            "To": "Prospect <prospect@future.example>",
+            "Message-Id": message_id,
+            "Date": "Tue, 10 Jun 2025 14:00:00 +0000",
+            "subject": "Account update",
+            "stripped-text": "Here is your account update.",
+            "body-plain": "Here is your account update.",
+            "message-headers": json.dumps(
+                [
+                    ["X-Mailgun-Spf", "Fail"],
+                    ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                    ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                ]
+            ),
+        }
+        data.update(overrides)
+        endpoint = (
+            "/api/conversations/v1/email/capture?sender_lookup=1"
+            if lookup_only == "1"
+            else "/api/conversations/v1/email/capture"
+        )
+        return self.client.post(endpoint, data)
+
     def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
         self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
         self.channel.save(update_fields=["connection_status"])
@@ -119,6 +173,109 @@ class TestCustomerEmailIngestion(BaseTest):
         assert not Ticket.objects.filter(team=self.team).exists()
         assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
 
+    @parameterized.expand(["message_headers", "body_html"])
+    def test_forwarding_challenge_activates_pending_channel_and_consumes_retries(self, transport: str) -> None:
+        setup = self._start_google_setup()
+        challenge = create_forwarding_challenge(
+            team_id=self.team.id,
+            channel_id=self.channel.id,
+            setup_id=setup.id,
+        )
+        payload: dict[str, str] = {
+            "from": "PostHog <noreply@posthog.com>",
+            "sender": "noreply@posthog.com",
+            "subject": "Verify email forwarding to PostHog",
+            "body-plain": "PostHog is checking email forwarding.",
+            "stripped-text": "PostHog is checking email forwarding.",
+        }
+        if transport == "message_headers":
+            payload["message-headers"] = json.dumps([[FORWARDING_CHALLENGE_HEADER, challenge.token]])
+        else:
+            payload["body-html"] = f"<p>{FORWARDING_CHALLENGE_MARKER}{challenge.token}</p>"
+
+        first_response = self._post_email(message_id=f"<challenge-{transport}@posthog.com>", **payload)
+        retry_response = self._post_email(message_id=f"<challenge-{transport}-retry@posthog.com>", **payload)
+
+        assert first_response.status_code == 200
+        assert retry_response.status_code == 200
+        self.channel.refresh_from_db()
+        assert self.channel.connection_status == EmailChannelConnectionStatus.ACTIVE
+        assert not EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+        assert not Ticket.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(["wrong_team", "wrong_channel", "wrong_setup"])
+    def test_pending_channel_rejects_signed_challenge_for_another_setup(self, mismatch: str) -> None:
+        setup = self._start_google_setup()
+        challenge = create_forwarding_challenge(
+            team_id=self.team.id + 1 if mismatch == "wrong_team" else self.team.id,
+            channel_id=uuid4() if mismatch == "wrong_channel" else self.channel.id,
+            setup_id=uuid4() if mismatch == "wrong_setup" else setup.id,
+        )
+
+        response = self._post_email(
+            message_id=f"<challenge-{mismatch}@posthog.com>",
+            **{FORWARDING_CHALLENGE_HEADER: challenge.token},
+        )
+
+        assert response.status_code == 200
+        self.channel.refresh_from_db()
+        assert self.channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+        assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_active_channel_ingests_email_with_challenge_for_another_channel(self) -> None:
+        challenge = create_forwarding_challenge(
+            team_id=self.team.id,
+            channel_id=uuid4(),
+            setup_id=uuid4(),
+        )
+
+        response = self._post_email(
+            message_id="<cross-channel-challenge@customer.example>",
+            **{FORWARDING_CHALLENGE_HEADER: challenge.token},
+        )
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get(thread=thread)
+        assert message.comment.content == "Can you help?"
+
+    def test_pending_channel_rejects_expired_signed_challenge(self) -> None:
+        with freeze_time("2026-01-01 00:00:00"):
+            setup = self._start_google_setup(expires_at=timezone.now() + timedelta(hours=48))
+            challenge = create_forwarding_challenge(
+                team_id=self.team.id,
+                channel_id=self.channel.id,
+                setup_id=setup.id,
+            )
+
+        with freeze_time("2026-01-02 00:00:01"):
+            response = self._post_email(
+                message_id="<expired-challenge@posthog.com>",
+                **{FORWARDING_CHALLENGE_HEADER: challenge.token},
+            )
+
+        assert response.status_code == 200
+        self.channel.refresh_from_db()
+        assert self.channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+        assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_pending_channel_rejects_unsigned_direct_address_challenge(self) -> None:
+        setup = self._start_google_setup()
+
+        response = self._post_email(
+            message_id="<forged-challenge@attacker.example>",
+            **{FORWARDING_CHALLENGE_HEADER: "forged-token"},
+        )
+
+        assert response.status_code == 200
+        self.channel.refresh_from_db()
+        assert self.channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+        assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
     def test_pending_channel_accepts_live_mailgun_confirmation_shape(self) -> None:
         setup = self._start_google_setup()
         payload = self._valid_google_confirmation()
@@ -145,7 +302,13 @@ class TestCustomerEmailIngestion(BaseTest):
 
     @parameterized.expand(
         [
-            ("missing_spf", {"X-Mailgun-Spf": ""}),
+            (
+                "failed_spf_and_dkim",
+                {
+                    "X-Mailgun-Spf": "fail",
+                    "X-Mailgun-Dkim-Check-Result": "fail",
+                },
+            ),
             ("wrong_source", {"subject": "Gmail Forwarding Confirmation - Receive Mail from attacker@example.com"}),
             (
                 "wrong_dkim_domain",
@@ -262,6 +425,195 @@ class TestCustomerEmailIngestion(BaseTest):
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
 
+    @patch(
+        "products.conversations.backend.services.email_thread_ingestion.schedule_email_thread_link_recalculation_for_threads"
+    )
+    def test_forwarded_message_schedules_account_matching(self, mock_schedule: MagicMock) -> None:
+        response = self._post_email(message_id="<linked@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        mock_schedule.assert_called_once_with(self.team.id, [str(thread.id)])
+
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.current_app.send_task",
+        side_effect=Exception("account matching backend unavailable"),
+    )
+    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_send_task: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post_email(message_id="<recalc-fails@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread).count() == 1
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).exists()
+
+    def test_outbound_message_is_recovered_when_a_later_reply_matches_an_account(self) -> None:
+        outbound_message_id = "<outbound@customer-success.example>"
+        outbound_response = self._post_outbound_email(message_id=outbound_message_id)
+
+        assert outbound_response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).filter(thread=thread).exists()
+
+        account_model = apps.get_model("customer_analytics", "Account")
+        account = account_model.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Future account",
+            external_id="future-account",
+            _properties={"known_emails": ["prospect@future.example"]},
+        )
+        reply_response = self._post_email(
+            message_id="<reply@future.example>",
+            **{
+                "from": "Prospect <prospect@future.example>",
+                "sender": "prospect@future.example",
+                "To": "Customer success <csm@example.com>",
+                "In-Reply-To": outbound_message_id,
+                "Date": "Tue, 10 Jun 2025 15:00:00 +0000",
+                "body-plain": "Thanks for the update.",
+                "stripped-text": "Thanks for the update.",
+                "X-Mailgun-Spf": "pass",
+            },
+        )
+
+        assert reply_response.status_code == 200
+        recalculate_email_thread_links(self.team.id, thread_ids=[str(thread.id)])
+        thread.refresh_from_db()
+        messages = list(EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread))
+        assert thread.message_count == 2
+        assert [message.direction for message in messages] == [
+            EmailThreadMessageDirection.OUTBOUND,
+            EmailThreadMessageDirection.INBOUND,
+        ]
+        assert messages[0].sender_email == "csm@example.com"
+        assert messages[0].sender_authenticated is True
+        assert messages[1].in_reply_to == outbound_message_id
+        link = EmailThreadAccountLink.objects.for_team(self.team.id).get(thread=thread)
+        assert link.account_id == str(account.id)
+        assert not Ticket.objects.filter(team=self.team).exists()
+        assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            ("different_envelope", {"sender": "attacker@example.com"}),
+            (
+                "unaligned_dkim",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=attacker.example; s=mail"],
+                        ]
+                    )
+                },
+            ),
+            (
+                "conflicting_authentication_results",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Spf", "Pass"],
+                            ["X-Mailgun-Dkim-Check-Result", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                        ]
+                    )
+                },
+            ),
+        ]
+    )
+    def test_outbound_capture_rejects_an_unauthenticated_sender(self, _name: str, overrides: dict[str, str]) -> None:
+        response = self._post_outbound_email(
+            message_id=f"<spoofed-{_name}@customer-success.example>",
+            **overrides,
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("secondary_absent", 404, 200, True),
+            ("sender_in_both_regions", 204, 200, False),
+            ("secondary_unavailable", None, 502, False),
+            ("secondary_error", 500, 502, False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.request_secondary_region_status")
+    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    def test_primary_region_checks_secondary_before_ingesting(
+        self,
+        _name: str,
+        secondary_status: int | None,
+        expected_status: int,
+        expected_ingestion: bool,
+        _mock_primary: MagicMock,
+        mock_secondary_status: MagicMock,
+    ) -> None:
+        mock_secondary_status.return_value = secondary_status
+
+        response = self._post_outbound_email(message_id=f"<region-{_name}@example.com>")
+
+        assert response.status_code == expected_status
+        assert EmailThread.objects.for_team(self.team.id).exists() is expected_ingestion
+
+    @parameterized.expand(
+        [
+            ("active", EmailChannelConnectionStatus.ACTIVE, 204),
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION, 404),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED, 404),
+        ]
+    )
+    def test_outbound_sender_lookup_returns_only_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus, expected_status: int
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(
+            message_id=f"<lookup-{_name}@customer-success.example>",
+            lookup_only="1",
+        )
+
+        assert response.status_code == expected_status
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED),
+        ]
+    )
+    def test_outbound_capture_skips_non_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(message_id=f"<outbound-{_name}@customer-success.example>")
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_outbound_capture_drops_internal_only_messages(self) -> None:
+        colleague = User.objects.create(email="colleague@example.com", current_team=self.team)
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=colleague,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self._post_outbound_email(
+            message_id="<internal@example.com>",
+            To="Colleague <colleague@example.com>",
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"
         first_response = self._post_email(message_id=message_id)
@@ -310,6 +662,23 @@ class TestCustomerEmailIngestion(BaseTest):
 
         assert response.status_code == 200
         assert not EmailThread.objects.for_team(self.team.id).exists()
+
+
+class TestForwardingChallengeTokens(SimpleTestCase):
+    factory = RequestFactory()
+
+    def test_stops_reading_headers_after_reaching_the_token_limit(self) -> None:
+        class HeaderValues(list[list[str]]):
+            def __iter__(self) -> Iterator[list[str]]:
+                for index in range(MAX_FORWARDING_CHALLENGE_TOKENS):
+                    yield [FORWARDING_CHALLENGE_HEADER, f"token-{index}"]
+                raise AssertionError("challenge extraction read beyond its limit")
+
+        request = self.factory.post("/", {"message-headers": "[]"})
+        with patch("products.conversations.backend.api.email_events.json.loads", return_value=HeaderValues()):
+            tokens = _forwarding_challenge_tokens(request)
+
+        assert len(tokens) == MAX_FORWARDING_CHALLENGE_TOKENS
 
 
 class TestParseAddresses(SimpleTestCase):
