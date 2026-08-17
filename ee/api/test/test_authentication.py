@@ -434,6 +434,28 @@ class TestEEAuthenticationAPI(APILicensedTest):
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
 
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_with_an_identity_owned_by_another_user_is_rejected(self, mock_request):
+        # The picked Google identity is already linked to a different account. `social_user` raises
+        # `AuthAlreadyAssociated` before `social_reauth` runs, so the mapping to `reauth_user_mismatch`
+        # has to happen in the middleware instead of leaving the user at the generic failure.
+        other_user = self._create_user("someone-else@posthog.com")
+        UserSocialAuth.objects.create(user=other_user, provider="google-oauth2", uid="google-sub-other")
+        last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": other_user.email,
+                "sub": "google-sub-other",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/settings/user?error_code=reauth_user_mismatch", fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
         self.client.logout()

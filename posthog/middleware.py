@@ -33,7 +33,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthAlreadyAssociated, AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -44,7 +44,7 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
-from posthog.helpers.sso import sso_failure_redirect_url
+from posthog.helpers.sso import is_sso_reauth_complete, sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
@@ -1228,8 +1228,6 @@ class SocialAuthExceptionMiddleware:
     Middleware to handle custom social auth exceptions.
     """
 
-    _AUTH_FAILED_PREFIX = "Authentication failed: "
-
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -1258,27 +1256,19 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
-        # Handle any other social auth exception by passing the error detail to the frontend
+        # A step-up re-auth picks an identity already linked to a different account. `social_user`
+        # raises this before our `social_reauth` step runs, so map it to the same guidance that step
+        # gives instead of the generic failure - the user is told to pick the account they're signed
+        # in as. Only for a re-auth; a normal login keeps the generic message.
+        if isinstance(exception, AuthAlreadyAssociated) and is_sso_reauth_complete(request):
+            return redirect(sso_failure_redirect_url(request, "reauth_user_mismatch"))
+
+        # Any other social auth exception falls back to the generic failure message. Raw `social_core`
+        # strings ("This account is already in use.") are not shown to the user.
         if isinstance(exception, AuthException):
-            error_detail = self._get_error_detail(exception)
-            url = sso_failure_redirect_url(request, "social_login_failure")
-            separator = "&" if "?" in url else "?"
-            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
-
-    def _get_error_detail(self, exception: AuthException) -> str:
-        error_detail = str(exception).strip()
-
-        if isinstance(exception, AuthFailed):
-            error_detail = self._strip_auth_failed_prefix(error_detail)
-
-        return error_detail or "An unexpected error occurred during authentication."
-
-    def _strip_auth_failed_prefix(self, error_detail: str) -> str:
-        if error_detail.startswith(self._AUTH_FAILED_PREFIX):
-            return error_detail[len(self._AUTH_FAILED_PREFIX) :].strip()
-        return error_detail
 
 
 class ActiveOrganizationMiddleware:
