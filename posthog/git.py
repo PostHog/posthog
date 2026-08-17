@@ -113,3 +113,22 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
             linked.add(match)
 
     return next(iter(linked)) if len(linked) == 1 else None
+
+
+def extract_explicit_repo_from_scopes(scopes: list[str], all_repos: list[str]) -> str | None:
+    """Return the connected repo named by the first of `scopes` to name one.
+
+    Callers order `scopes` strongest evidence first, so the text someone wrote while asking
+    beats the text that happened to be nearby.
+
+    Each scope is matched on its own rather than joined into one string, which is what keeps
+    the ambiguity rule in `extract_explicit_repo` meaningful. Two repos named inside a single
+    scope is one person naming two things at once, so nothing resolves. Two repos named across
+    separate scopes is an ordinary thread accumulating links, so the stronger scope answers.
+    Joining them first would collapse that distinction and make a long thread resolve to
+    nothing almost every time.
+    """
+    for scope in scopes:
+        if match := extract_explicit_repo(scope, all_repos):
+            return match
+    return None

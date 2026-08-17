@@ -80,3 +80,55 @@ class TestCascadeTeamInstall(TestCase):
 
         assert outcome.mode == "auto"
         assert outcome.repository == "posthog/posthog"
+
+    @parameterized.expand(
+        [
+            (
+                "link_sits_in_the_thread_and_the_mention_carries_none",
+                "<@BOT> is this one flaky?",
+                [
+                    {"user": "amy", "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again"},
+                    {"user": "bo", "text": "<@BOT> is this one flaky?"},
+                ],
+                "posthog/posthog-js",
+                "explicit_thread_mention",
+            ),
+            (
+                "mention_names_a_repo_the_thread_did_not",
+                "<@BOT> look at posthog/posthog instead",
+                [
+                    {"user": "amy", "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again"},
+                    {"user": "bo", "text": "<@BOT> look at posthog/posthog instead"},
+                ],
+                "posthog/posthog",
+                "explicit_mention",
+            ),
+        ]
+    )
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_the_thread_resolves_a_repo_the_mention_left_out(
+        self, _name, event_text, thread_messages, expected_repository, expected_reason, mock_user_github_class
+    ):
+        from posthog.models.user_integration import UserIntegration
+
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-user-1",
+            config={},
+            sensitive_config={"access_token": "gh-user-token"},
+        )
+        mock_user_github = MagicMock()
+        mock_user_github.list_all_cached_repositories.return_value = [
+            {"id": 1, "name": "posthog", "full_name": "posthog/posthog"},
+            {"id": 2, "name": "posthog-js", "full_name": "posthog/posthog-js"},
+        ]
+        mock_user_github_class.return_value = mock_user_github
+
+        outcome = cascade_posthog_code_repository_activity(
+            _make_inputs(self.slack_integration.id), event_text, self.user.id, thread_messages
+        )
+
+        assert outcome.mode == "auto"
+        assert outcome.repository == expected_repository
+        assert outcome.reason == expected_reason

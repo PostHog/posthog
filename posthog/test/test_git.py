@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.git import extract_explicit_repo
+from posthog.git import extract_explicit_repo, extract_explicit_repo_from_scopes
 
 REPOS = ["posthog/posthog", "posthog/posthog-js", "posthog/posthog.com"]
 
@@ -66,3 +66,40 @@ class TestExtractExplicitRepo:
     )
     def test_returns_none_on_empty_inputs(self, _name: str, text: str, repos: list[str]):
         assert extract_explicit_repo(text, repos) is None
+
+
+class TestExtractExplicitRepoFromScopes:
+    @parameterized.expand(
+        [
+            (
+                "later_scope_answers_when_earlier_names_nothing",
+                ["can you look at this?", "https://github.com/posthog/posthog-js/actions/runs/2"],
+                "posthog/posthog-js",
+            ),
+            (
+                "typed_token_in_an_earlier_scope_beats_a_link_in_a_later_one",
+                ["fix posthog/posthog", "https://github.com/posthog/posthog-js/actions/runs/2"],
+                "posthog/posthog",
+            ),
+            (
+                "two_repos_in_one_scope_stay_ambiguous",
+                [
+                    "https://github.com/posthog/posthog/pull/1 broke https://github.com/posthog/posthog-js/actions/runs/2",
+                    "https://github.com/posthog/posthog.com/pull/3",
+                ],
+                "posthog/posthog.com",
+            ),
+            (
+                "two_repos_across_separate_scopes_resolve_to_the_first",
+                [
+                    "https://github.com/posthog/posthog/pull/1",
+                    "https://github.com/posthog/posthog-js/actions/runs/2",
+                ],
+                "posthog/posthog",
+            ),
+            ("no_scope_names_a_repo", ["can you look at this?", "it broke again"], None),
+            ("no_scopes_at_all", [], None),
+        ]
+    )
+    def test_first_scope_to_name_a_repo_answers(self, _name: str, scopes: list[str], expected: str | None):
+        assert extract_explicit_repo_from_scopes(scopes, REPOS) == expected

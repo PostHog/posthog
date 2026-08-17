@@ -22,18 +22,24 @@ def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     user_id: int | None = None,
+    thread_messages: list[dict[str, str]] | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
-    Resolves the trivial cases — no GitHub repos connected to the mentioning user's
-    personal install, exactly one connected, or an explicit `org/repo` mentioned in the
-    message — without paying for the sandbox-backed agent. Anything else returns
-    `mode='agent_needed'` and the workflow takes over.
+    Resolves the trivial cases without paying for the sandbox-backed agent: no GitHub
+    repos connected to the mentioning user's personal install, exactly one connected, or
+    an explicit `org/repo` named in the mention or in the thread it sits in. Anything
+    else returns `mode='agent_needed'` and the workflow takes over.
 
-    ``user_id`` defaults to ``None`` for backwards compatibility with the pre-2026-06
-    call shape: if a worker drains an activity task that was scheduled by an older
-    workflow (recorded with two positional args), the call still binds, and an
-    unidentifiable mentioner resolves no repos anyway.
+    The discovery agent this preempts reads the whole thread, so resolving from the
+    mention alone would hand it asks it then answers from thread text, which is the
+    sandbox run the fast path exists to avoid.
+
+    ``user_id`` and ``thread_messages`` default to ``None`` for backwards compatibility
+    with older call shapes: if a worker drains an activity task that was scheduled by an
+    older workflow (recorded with two or three positional args), the call still binds.
+    An unidentifiable mentioner resolves no repos anyway, and a missing thread degrades
+    to the mention-only behavior.
     """
     from posthog.models.integration import Integration
 
@@ -45,7 +51,11 @@ def cascade_posthog_code_repository_activity(
         )
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.api import (
+        _extract_explicit_repo,
+        _extract_explicit_repo_from_thread,
+        _get_full_repo_names,
+    )
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -67,6 +77,12 @@ def cascade_posthog_code_repository_activity(
     explicit_repo = _extract_explicit_repo(event_text, all_repos)
     if explicit_repo:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=explicit_repo, reason="explicit_mention")
+
+    # Separate reason from `explicit_mention` so the share of asks the thread scope saves from
+    # the discovery agent is readable without reproducing the resolution order in a query.
+    thread_repo = _extract_explicit_repo_from_thread(thread_messages or [], all_repos)
+    if thread_repo:
+        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=thread_repo, reason="explicit_thread_mention")
 
     return PostHogCodeRepoCascadeOutcome(mode="agent_needed", repository=None, reason="needs_agent")
 

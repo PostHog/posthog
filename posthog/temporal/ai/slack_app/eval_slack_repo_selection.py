@@ -83,7 +83,7 @@ from posthog.models import Team
 from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
-from products.slack_app.backend.api import _extract_explicit_repo
+from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
@@ -157,6 +157,20 @@ CASES: list[Case] = [
                 "user": "tester",
                 "text": "@PostHog is this flaky? https://github.com/{first_repo}/actions/runs/30560492835",
             }
+        ],
+        expected_stage="cascade",
+        expected_outcome="auto",
+    ),
+    Case(
+        name="ci_run_link_earlier_in_the_thread",
+        description="Cascade reads the repo from a link someone posted before the mention, the usual shape of a CI ask.",
+        text_template="@PostHog is this one flaky?",
+        thread_messages=[
+            {
+                "user": "tester",
+                "text": "https://github.com/{first_repo}/actions/runs/30560492835 went red again",
+            },
+            {"user": "tester", "text": "@PostHog is this one flaky?"},
         ],
         expected_stage="cascade",
         expected_outcome="auto",
@@ -438,8 +452,12 @@ class Command:
         self.stdout.write(f"  text:     {text}")
         self.stdout.write(f"  expected: {case.expected_stage}/{case.expected_outcome}")
 
-        # Stage 1: cascade (synchronous, no LLM)
-        explicit = _extract_explicit_repo(text, ctx.all_repos)
+        # Stage 1: cascade (synchronous, no LLM). Mention first, then the thread, matching
+        # `cascade_posthog_code_repository_activity`; reading only the mention here would pass
+        # every case whose link sits in the thread while production sent them to the agent.
+        explicit = _extract_explicit_repo(text, ctx.all_repos) or _extract_explicit_repo_from_thread(
+            thread_messages, ctx.all_repos
+        )
         if explicit:
             self.stdout.write(self.style.SUCCESS(f"  cascade → auto: {explicit}"))
             return CaseResult(case=case, actual_stage="cascade", actual_outcome="auto", detail=explicit)

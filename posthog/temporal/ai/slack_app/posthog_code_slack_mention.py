@@ -168,6 +168,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 inputs,
                 event.get("text", ""),
                 user_id,
+                thread_messages,
             )
 
             if cascade.mode == "auto":
