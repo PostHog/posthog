@@ -1,4 +1,5 @@
 import socket
+import threading
 from collections.abc import Generator
 
 from posthog.test.base import APIBaseTest
@@ -192,6 +193,12 @@ class TestDirectDuckgresQuery(APIBaseTest):
         )
         self.managed_warehouse_sql_editor_flag = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
+        resolver_patcher = patch(
+            "posthog.hogql.direct_sql.duckgres_adapter.resolve_psycopg_hostaddr_with_timeout",
+            return_value=["203.0.113.10"],
+        )
+        self.resolve_hostaddr = resolver_patcher.start()
+        self.addCleanup(resolver_patcher.stop)
 
     def _managed_source(
         self,
@@ -308,12 +315,14 @@ class TestDirectDuckgresQuery(APIBaseTest):
             user=f"posthog_team_{self.team.pk}",
             password="selected-source-password",
             connect_timeout=15,
+            hostaddr="203.0.113.10",
             sslmode="require",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
             sslrootcert="/tmp/no.txt",
             cursor_factory=_DuckgresStreamingClientCursor,
         )
+        self.resolve_hostaddr.assert_called_once_with("selected-source.example.com", 5432, 15)
         connection.execute.assert_called_once_with("USE ducklake")
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
@@ -397,6 +406,42 @@ class TestDirectDuckgresQuery(APIBaseTest):
         socket_factory.return_value.shutdown.assert_called_once_with(socket.SHUT_RDWR)
         socket_factory.return_value.detach.assert_called_once_with()
         connection.close.assert_not_called()
+        connection.commit.assert_not_called()
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_cancels_a_running_query_when_the_async_request_is_canceled(self, connect) -> None:
+        source = self._managed_source()
+        connection, cursor = self._connection_with_result([])
+        cancellation_observed = threading.Event()
+
+        def blocked_rows() -> Generator[tuple[object, ...]]:
+            if not cancellation_observed.wait(2):
+                raise AssertionError("The managed warehouse query was not canceled")
+            yield from ()
+            raise psycopg.OperationalError("query canceled")
+
+        cursor.stream.return_value = blocked_rows()
+        connection.cancel_safe.side_effect = lambda **_kwargs: cancellation_observed.set()
+        connect.return_value.__enter__.return_value = connection
+        query_tags = MagicMock(client_query_id="query-id", celery_task_id="2f3350d0-e641-4c33-bc9c-66898bf22317")
+
+        with (
+            patch("posthog.hogql.query.get_query_tags", return_value=query_tags),
+            patch(
+                "posthog.hogql.direct_sql.duckgres_adapter.is_direct_query_cancellation_requested",
+                return_value=True,
+            ),
+            self.assertRaises(ExposedHogQLError) as error,
+        ):
+            HogQLQueryExecutor(
+                query="SELECT slow_value",
+                team=self.team,
+                connection_id=str(source.id),
+                send_raw_query=True,
+            ).execute()
+
+        self.assertEqual(str(error.exception), "Managed warehouse query was canceled.")
+        connection.cancel_safe.assert_called()
         connection.commit.assert_not_called()
 
     def test_non_raw_managed_query_ignores_warehouse_object_access_control(self) -> None:

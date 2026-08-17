@@ -19,6 +19,7 @@ from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -243,6 +244,12 @@ def execute_process_query(
     if query_status.complete:
         return
 
+    if query_status.task_id:
+        try:
+            tag_queries(celery_task_id=uuid.UUID(query_status.task_id))
+        except ValueError:
+            logger.warning("Async query has a non-UUID task id", query_id=query_id)
+
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
@@ -452,6 +459,15 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
 
         if query_status.complete:
             return "Query already complete"
+
+        if not dequeue_only and query_status.task_id:
+            try:
+                request_direct_query_cancellation(
+                    team_id,
+                    build_direct_query_cancellation_token(query_id, query_status.task_id),
+                )
+            except Exception:
+                logger.exception("Failed to request direct query cancellation", team_id=team_id, query_id=query_id)
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)

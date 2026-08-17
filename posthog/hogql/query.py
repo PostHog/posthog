@@ -66,7 +66,8 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -477,6 +478,13 @@ class HogQLQueryExecutor:
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
 
+        query_tags = get_query_tags()
+        cancellation_token = (
+            build_direct_query_cancellation_token(query_tags.client_query_id, str(query_tags.celery_task_id))
+            if query_tags.client_query_id is not None and query_tags.celery_task_id is not None
+            else None
+        )
+
         result = adapter.execute(
             DirectQueryRequest(
                 source=source,
@@ -487,6 +495,7 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 query_type=self.query_type,
                 debug=bool(self.debug),
+                cancellation_token=cancellation_token,
             )
         )
 

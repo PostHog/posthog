@@ -22,8 +22,12 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.direct_query_cancellation import (
+    build_direct_query_cancellation_token,
+    is_direct_query_cancellation_requested,
+)
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
@@ -98,6 +102,22 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
+    @patch("posthog.clickhouse.cancel.cancel_query_on_cluster")
+    @patch("posthog.clickhouse.client.execute_async.celery.app.control.revoke")
+    def test_cancel_query_signals_a_running_direct_query(
+        self, revoke: MagicMock, cancel_query_on_cluster: MagicMock
+    ) -> None:
+        task_id = str(uuid.uuid4())
+        self.query_status.task_id = task_id
+        self.manager.store_query_status(self.query_status)
+
+        client.cancel_query(self.team_id, self.query_id)
+
+        cancellation_token = build_direct_query_cancellation_token(self.query_id, task_id)
+        self.assertTrue(is_direct_query_cancellation_requested(self.team_id, cancellation_token))
+        revoke.assert_called_once_with(task_id)
+        cancel_query_on_cluster.assert_called_once_with(self.team_id, self.query_id)
+
     def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
 
@@ -143,8 +163,15 @@ class TestExecuteProcessQuery(TestCase):
     @patch("posthog.api.services.query.process_query_dict")
     def test_execute_process_query(self, mock_process_query_dict, mock_redis_client):
         mock_redis = MagicMock()
+        task_id = uuid.uuid4()
         mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+            {
+                "id": self.query_id,
+                "team_id": self.team.id,
+                "complete": False,
+                "error": False,
+                "task_id": str(task_id),
+            }
         ).encode()
         mock_redis_client.return_value = mock_redis
 
@@ -154,6 +181,7 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
+        self.assertEqual(get_query_tags().celery_task_id, task_id)
 
         # Assert that Redis set method was called with the correct arguments
         self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion

@@ -28,6 +28,8 @@ from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.dataclasses import frozen
+from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
+from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 if TYPE_CHECKING:
     from psycopg.pq.abc import PGresult
@@ -42,12 +44,19 @@ DIRECT_DUCKGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS = 3
 DIRECT_DUCKGRES_CANCEL_RETRY_SECONDS = 0.25
 DIRECT_DUCKGRES_CANCEL_TIMEOUT_SECONDS = 1
+DIRECT_DUCKGRES_CANCELLATION_POLL_SECONDS = 1
+DIRECT_DUCKGRES_CANCEL_JOIN_SECONDS = (
+    DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS * DIRECT_DUCKGRES_CANCEL_TIMEOUT_SECONDS
+    + (DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS - 1) * DIRECT_DUCKGRES_CANCEL_RETRY_SECONDS
+    + 1
+)
 DIRECT_DUCKGRES_MAX_ROWS = 50_000
 DIRECT_DUCKGRES_ROW_CAP_ERROR = (
     f"Managed warehouse query returned more than {DIRECT_DUCKGRES_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
 MANAGED_WAREHOUSE_UNAVAILABLE_ERROR = "Managed warehouse is unavailable. Contact support if the problem persists."
 MANAGED_WAREHOUSE_TIMEOUT_ERROR = "Managed warehouse query exceeded the execution time limit."
+MANAGED_WAREHOUSE_CANCELED_ERROR = "Managed warehouse query was canceled."
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +68,12 @@ class _DuckgresProjectReaderConfig:
     database: str
     user: str
     password: str = field(repr=False)
+
+
+@frozen
+class _DuckgresCancellationState:
+    timed_out: threading.Event = field(default_factory=threading.Event)
+    canceled: threading.Event = field(default_factory=threading.Event)
 
 
 class _DuckgresStreamingClientCursor(psycopg.ClientCursor[tuple[object, ...]]):
@@ -105,14 +120,23 @@ class _DuckgresStreamingClientCursor(psycopg.ClientCursor[tuple[object, ...]]):
 
 
 @contextmanager
-def _cancel_duckgres_query_after(connection: psycopg.Connection, timeout_seconds: int) -> Iterator[threading.Event]:
-    timed_out = threading.Event()
+def _cancel_duckgres_query_on_signal(
+    connection: psycopg.Connection,
+    timeout_seconds: int,
+    team_id: int,
+    cancellation_token: str | None,
+) -> Iterator[_DuckgresCancellationState]:
+    state = _DuckgresCancellationState()
     stop_canceling = threading.Event()
+    interrupt_started = threading.Event()
+    interrupt_lock = threading.Lock()
 
-    def cancel_query() -> None:
-        if stop_canceling.is_set():
-            return
-        timed_out.set()
+    def interrupt_query(reason: str, signal: threading.Event) -> None:
+        with interrupt_lock:
+            if stop_canceling.is_set() or interrupt_started.is_set():
+                return
+            interrupt_started.set()
+            signal.set()
         cancellation_failure_logged = False
         for attempt in range(DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS):
             if stop_canceling.is_set():
@@ -121,7 +145,7 @@ def _cancel_duckgres_query_after(connection: psycopg.Connection, timeout_seconds
                 connection.cancel_safe(timeout=DIRECT_DUCKGRES_CANCEL_TIMEOUT_SECONDS)
             except Exception:
                 if not cancellation_failure_logged:
-                    logger.warning("Failed to cancel managed warehouse query at its execution deadline")
+                    logger.warning("Failed to cancel managed warehouse query", reason=reason)
                     cancellation_failure_logged = True
             if attempt < DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS - 1 and stop_canceling.wait(
                 DIRECT_DUCKGRES_CANCEL_RETRY_SECONDS
@@ -137,21 +161,42 @@ def _cancel_duckgres_query_after(connection: psycopg.Connection, timeout_seconds
                 # The request thread owns libpq's descriptor and closes it after the interrupted operation unwinds.
                 interrupt_socket.detach()
         except Exception:
-            logger.warning("Failed to interrupt managed warehouse connection at its execution deadline")
+            logger.warning("Failed to interrupt managed warehouse connection", reason=reason)
 
-    timer = threading.Timer(timeout_seconds, cancel_query)
+    def cancel_at_deadline() -> None:
+        interrupt_query("execution deadline", state.timed_out)
+
+    def watch_for_cancellation() -> None:
+        cancellation_check_failure_logged = False
+        while not stop_canceling.is_set():
+            try:
+                if cancellation_token is not None and is_direct_query_cancellation_requested(
+                    team_id, cancellation_token
+                ):
+                    interrupt_query("user request", state.canceled)
+                    return
+            except Exception:
+                if not cancellation_check_failure_logged:
+                    logger.warning("Failed to check for managed warehouse query cancellation")
+                    cancellation_check_failure_logged = True
+            if stop_canceling.wait(DIRECT_DUCKGRES_CANCELLATION_POLL_SECONDS):
+                return
+
+    timer = threading.Timer(timeout_seconds, cancel_at_deadline)
     timer.daemon = True
     timer.start()
+    cancellation_watcher: threading.Thread | None = None
+    if cancellation_token is not None:
+        cancellation_watcher = threading.Thread(target=watch_for_cancellation, daemon=True)
+        cancellation_watcher.start()
     try:
-        yield timed_out
+        yield state
     finally:
         stop_canceling.set()
         timer.cancel()
-        timer.join(
-            DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS * DIRECT_DUCKGRES_CANCEL_TIMEOUT_SECONDS
-            + (DIRECT_DUCKGRES_CANCEL_MAX_ATTEMPTS - 1) * DIRECT_DUCKGRES_CANCEL_RETRY_SECONDS
-            + 1
-        )
+        timer.join(DIRECT_DUCKGRES_CANCEL_JOIN_SECONDS)
+        if cancellation_watcher is not None:
+            cancellation_watcher.join(DIRECT_DUCKGRES_CANCEL_JOIN_SECONDS)
 
 
 def _fetch_capped_duckgres_rows(row_stream: Iterator[tuple[object, ...]]) -> list[tuple[object, ...]]:
@@ -224,7 +269,7 @@ class DuckgresRawAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
-        timed_out: threading.Event | None = None
+        cancellation: _DuckgresCancellationState | None = None
 
         try:
             with request.timings.measure("duckgres_execute"), observe_direct_query("duckgres"):
@@ -232,8 +277,18 @@ class DuckgresRawAdapter:
                     _, source_config = self.validate_source_config(request.source, request.team)
                 try:
                     with request.timings.measure("duckgres_connect", emit_span=True):
+                        addresses = resolve_psycopg_hostaddr_with_timeout(
+                            source_config.host,
+                            source_config.port,
+                            DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
+                        )
+                        connect_host = (
+                            ",".join([source_config.host] * len(addresses)) if addresses else source_config.host
+                        )
+                        hostaddr = ",".join(addresses) if addresses else None
                         connection_context = psycopg.connect(
-                            host=source_config.host,
+                            host=connect_host,
+                            hostaddr=hostaddr,
                             port=source_config.port,
                             dbname=source_config.database,
                             user=source_config.user,
@@ -253,7 +308,12 @@ class DuckgresRawAdapter:
                     raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
 
                 with connection_context as connection:
-                    with _cancel_duckgres_query_after(connection, statement_timeout_seconds) as timed_out:
+                    with _cancel_duckgres_query_on_signal(
+                        connection,
+                        statement_timeout_seconds,
+                        request.team.pk,
+                        request.cancellation_token,
+                    ) as cancellation:
                         with request.timings.measure("duckgres_session_setup"):
                             connection.execute("USE ducklake")
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
@@ -276,16 +336,22 @@ class DuckgresRawAdapter:
                                         if first_row is not None
                                         else []
                                     )
-                            if timed_out.is_set():
+                            if cancellation.canceled.is_set():
+                                raise ExposedHogQLError(MANAGED_WAREHOUSE_CANCELED_ERROR)
+                            if cancellation.timed_out.is_set():
                                 raise ExposedHogQLError(MANAGED_WAREHOUSE_TIMEOUT_ERROR)
                             description = cursor.description or []
                         with request.timings.measure("duckgres_commit", emit_span=True):
                             connection.commit()
-                        if timed_out.is_set():
+                        if cancellation.canceled.is_set():
+                            raise ExposedHogQLError(MANAGED_WAREHOUSE_CANCELED_ERROR)
+                        if cancellation.timed_out.is_set():
                             raise ExposedHogQLError(MANAGED_WAREHOUSE_TIMEOUT_ERROR)
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
-            if timed_out is not None and timed_out.is_set():
+            if cancellation is not None and cancellation.canceled.is_set():
+                error = ExposedHogQLError(MANAGED_WAREHOUSE_CANCELED_ERROR)
+            elif cancellation is not None and cancellation.timed_out.is_set():
                 error = ExposedHogQLError(MANAGED_WAREHOUSE_TIMEOUT_ERROR)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

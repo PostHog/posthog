@@ -1,0 +1,49 @@
+import socket
+import ipaddress
+import threading
+from typing import Any
+
+import psycopg
+
+
+def resolve_psycopg_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
+    """Resolve a hostname before psycopg's unbounded Python-side DNS lookup."""
+    if not host or host.startswith("/"):
+        return None
+
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return None
+    except ValueError:
+        pass
+
+    addrinfo: list[Any] = []
+    lookup_error: list[BaseException] = []
+
+    def _lookup() -> None:
+        try:
+            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
+        except BaseException as error:  # noqa: BLE001 — re-raised on the calling thread below
+            lookup_error.append(error)
+
+    # A daemon lets the caller abandon a stalled OS resolver without pinning the query worker.
+    thread = threading.Thread(target=_lookup, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
+    if lookup_error:
+        if isinstance(lookup_error[0], OSError):
+            return None
+        raise lookup_error[0]
+    if not addrinfo:
+        return None
+
+    seen: set[str] = set()
+    addresses: list[str] = []
+    for info in addrinfo:
+        address = str(info[4][0])
+        if address not in seen:
+            seen.add(address)
+            addresses.append(address)
+    return addresses

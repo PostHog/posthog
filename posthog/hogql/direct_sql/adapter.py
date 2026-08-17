@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DirectQueryRequest:
     source: "ExternalDataSource"
     team: "Team"
@@ -20,9 +20,10 @@ class DirectQueryRequest:
     timings: HogQLTimings
     query_type: str
     debug: bool
+    cancellation_token: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DirectQueryResult:
     results: list
     types: list[tuple[str, str]]
