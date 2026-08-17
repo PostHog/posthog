@@ -21,8 +21,24 @@ baseline grandfathers the errors that already existed so that gap could be
 closed today; its length is the cleanup still owed. Goal: 0.`;
 
 const ERROR_LINE = /^(\S.*?)\((\d+),(\d+)\): error (TS\d+): (.*)$/;
+const ABSOLUTE_PATH = /\/\S*\/(node_modules\/\S*)/g;
 
-/** Error identity excludes line/column so unrelated edits above it don't churn the baseline. */
+/**
+ * Some messages quote a resolved absolute path (TS7016 names the JS file it
+ * could not find types for). The path differs between a laptop and CI, so a
+ * baseline written on one machine would not match on the other.
+ */
+function normalizeMessage(message) {
+  return message.replaceAll(ROOT, "<desktop>").replace(ABSOLUTE_PATH, "$1");
+}
+
+/**
+ * Error identity is file + code + message, without line/column, so unrelated
+ * edits above an error don't churn the baseline. The cost: swapping one
+ * baselined error for an identical one elsewhere in the same file keeps the
+ * count level and passes. Keying on lines would trade that narrow hole for a
+ * baseline that needs rewriting on every edit, which is the worse deal.
+ */
 function runTsc() {
   const result = spawnSync(
     "pnpm",
@@ -40,7 +56,7 @@ function runTsc() {
     const match = ERROR_LINE.exec(line);
     if (!match) continue;
     const [, file, , , code, message] = match;
-    const key = `${code} ${message}`;
+    const key = `${code} ${normalizeMessage(message)}`;
     errors[file] ??= {};
     errors[file][key] = (errors[file][key] ?? 0) + 1;
     parsed += 1;
@@ -64,14 +80,14 @@ function loadBaseline() {
 function saveBaseline(files) {
   const sorted = Object.fromEntries(
     Object.keys(files)
-      .filter((f) => Object.keys(files[f]).length)
+      .filter((file) => Object.keys(files[file]).length)
       .sort()
-      .map((f) => [
-        f,
+      .map((file) => [
+        file,
         Object.fromEntries(
-          Object.keys(files[f])
+          Object.keys(files[file])
             .sort()
-            .map((k) => [k, files[f][k]]),
+            .map((message) => [message, files[file][message]]),
         ),
       ]),
   );

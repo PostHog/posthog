@@ -120,9 +120,6 @@
     },
     "src/features/tasks/utils/repositorySelection.test.ts": {
       "TS2322 Type '{ installation_id: string; account: { name: string; }; } | { installation_id: string; }' is not assignable to type 'UserGithubIntegration'.": 1
-    },
-    "src/test/setup.ts": {
-      "TS7016 Could not find a declaration file for module 'react-native-web'. '/tmp/workspace/repos/PostHog/posthog/products/desktop/node_modules/react-native-web/dist/cjs/index.js' implicitly has an 'any' type.": 1
     }
   }
 }
