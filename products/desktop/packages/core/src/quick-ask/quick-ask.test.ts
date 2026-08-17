@@ -287,7 +287,7 @@ describe("QuickAskService", () => {
     expect(callsTo(fetchMock, "/stream/")[1][1]).toContain("/runs/run-2/");
   });
 
-  it("separates agent messages around a tool call and surfaces tool labels", async () => {
+  it("splits text around tool activity into segments and surfaces tool labels", async () => {
     const stream = sseResponse([
       `data: ${USER_ECHO}\n\n`,
       `data: ${agentText("Checking.")}\n\n`,
@@ -304,11 +304,34 @@ describe("QuickAskService", () => {
       type: "reasoning",
       content: "Running execute-sql…",
     });
+    // The first segment completes when tool activity starts a second one.
     expect(events).toContainEqual({
       type: "text",
       id: "turn-1",
-      content: "Checking.\n\n1,204 signups this week.",
+      content: "Checking.",
       complete: true,
+    });
+    expect(events).toContainEqual({
+      type: "text",
+      id: "turn-1.2",
+      content: "1,204 signups this week.",
+      complete: true,
+    });
+  });
+
+  it("boot progress surfaces as a status label before the turn starts", async () => {
+    const stream = sseResponse([
+      `data: ${notification("_posthog/progress", { label: "Setting up sandbox", status: "in_progress", step: "sandbox" })}\n\n`,
+      `data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`,
+    ]);
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [stream],
+    });
+    const events = await collect(service);
+    expect(events).toContainEqual({
+      type: "reasoning",
+      content: "Setting up sandbox",
     });
   });
 

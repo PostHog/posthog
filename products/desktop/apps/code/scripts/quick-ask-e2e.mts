@@ -198,8 +198,6 @@ pass("sandbox warmed");
 // First question through the real input.
 await page.fill(".qa-pill input", REPLAY_QUESTION);
 await page.press(".qa-pill input", "Enter");
-// The input locks while the answer is in flight.
-await page.waitForSelector(".qa-pill input[disabled]", { timeout: 2_000 });
 await page.waitForSelector(".qa-actions", { timeout: 15_000 });
 const focused = (await page.evaluate(
   'document.activeElement === document.querySelector(".qa-pill input")',

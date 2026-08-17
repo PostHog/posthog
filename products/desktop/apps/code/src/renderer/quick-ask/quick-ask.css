@@ -141,8 +141,9 @@ html body {
   padding: 0 18px;
   border-radius: 21px;
   border-bottom-left-radius: 6px;
-  background: var(--qa-surface);
+  background: rgba(30, 31, 37, 0.92);
   border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transition: width 0.12s ease-out;
   animation: qa-pill-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
   transform-origin: left bottom;
@@ -174,18 +175,31 @@ html body {
 }
 
 /* Hidden mirror of the input text, used to size the pill. */
-.qa-pill-loading {
-  opacity: 0.55;
-}
-
-.qa-pill input:disabled {
-  cursor: default;
-}
-
 /* Mini mode: only the hedgehog and its status dot stay on screen. */
 .qa-mini > :not(.qa-pill-row),
 .qa-mini .qa-pill-row > :not(.qa-hog) {
   display: none;
+}
+
+.qa-mini .qa-mini-label {
+  display: inline-block;
+}
+
+.qa-mini-label {
+  display: none;
+  align-self: center;
+  max-width: 240px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--qa-fg-muted);
+  background: rgba(30, 31, 37, 0.92);
+  border: 1px solid var(--qa-border);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: qa-label-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* Status dot on the hedgehog's shoulder, mini mode only. */
@@ -265,8 +279,9 @@ html body {
   width: 464px;
   margin: 10px 0 0 53px;
   border-radius: 14px;
-  background: var(--qa-surface);
+  background: rgba(30, 31, 37, 0.94);
   border: 1px solid var(--qa-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
   animation: qa-card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.05);
   transform-origin: top left;
   overflow: hidden;
@@ -527,6 +542,41 @@ html body {
   height: 104px;
 }
 
+.qa-chart-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: qa-line-draw 0.7s cubic-bezier(0.3, 0.6, 0.3, 1) forwards;
+}
+
+.qa-chart-area {
+  opacity: 0;
+  animation: qa-fade-in 0.5s ease-out 0.35s forwards;
+}
+
+.qa-chart-bar {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: qa-bar-grow 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@keyframes qa-line-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes qa-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes qa-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
 .qa-chart-ytick {
   position: absolute;
   left: 0;
@@ -740,6 +790,66 @@ html body {
   color: var(--qa-fg-muted);
 }
 
+.qa-status-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px 0;
+  overflow: hidden;
+}
+
+.qa-status-row .qa-thinking-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.qa-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--qa-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.qa-pager button {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--qa-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qa-fg-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qa-pager button:hover:not(:disabled) {
+  color: var(--qa-fg);
+  background: var(--qa-hover);
+}
+
+.qa-pager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.qa-seg-in {
+  animation: qa-seg-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes qa-seg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ── Thinking skeleton ───────────────────────────────── */
 
 .qa-card-thinking {
@@ -852,6 +962,23 @@ html body {
 
 /* ── Motion preferences ──────────────────────────────── */
 
+[data-radix-popper-content-wrapper] {
+  animation: qa-pop-in 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+[data-radix-popper-content-wrapper] svg rect {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: qa-bar-grow 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) backwards;
+}
+
+@keyframes qa-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qa-hog,
   .qa-hog-thinking,
@@ -861,7 +988,21 @@ html body {
   .qa-thinking-dots span,
   .qa-thinking-label,
   .qa-streaming > :last-child::after,
-  .qa-status-busy {
+  .qa-status-busy,
+  .qa-seg-in,
+  .qa-mini-label,
+  .qa-chart-line,
+  .qa-chart-area,
+  .qa-chart-bar,
+  [data-radix-popper-content-wrapper],
+  [data-radix-popper-content-wrapper] svg rect {
     animation: none;
+  }
+  .qa-chart-line {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  .qa-chart-area {
+    opacity: 1;
   }
 }

@@ -118,9 +118,8 @@ export function QuickAsk(): React.JSX.Element {
 
   const loading = phase === "thinking" || phase === "streaming";
 
-  // Refocus on every summon (unless mid-answer; the input is disabled then).
-  // The previous session is kept — "New chat" or a new question clears it —
-  // so reopening restores the last answer.
+  // Refocus on every summon. The previous session is kept — "New chat" or a
+  // new question clears it — so reopening restores the last answer.
   useEffect(() => {
     const unsubscribe = window.quickAsk?.onShown(() => {
       // Summoning is an intent to type; leave mini mode.
@@ -133,15 +132,7 @@ export function QuickAsk(): React.JSX.Element {
     return () => unsubscribe?.();
   }, [reportSize]);
 
-  // The input is disabled while an answer is in flight; hand focus back the
-  // moment the turn settles (including after "New chat").
-  useEffect(() => {
-    if (!loading) {
-      inputRef.current?.focus();
-    }
-  }, [loading]);
-
-  // Esc dismisses from anywhere, including while the input is disabled.
+  // Esc dismisses from anywhere.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -311,8 +302,6 @@ export function QuickAsk(): React.JSX.Element {
     }
   }, [mini]);
 
-  const answerText = textParts.map((part) => part.content).join("\n\n");
-
   const status = loading
     ? "busy"
     : phase === "answered"
@@ -340,10 +329,12 @@ export function QuickAsk(): React.JSX.Element {
             aria-hidden="true"
           />
         </button>
-        <div
-          className={loading ? "qa-pill qa-pill-loading" : "qa-pill"}
-          style={{ width: pillWidth }}
-        >
+        {mini && loading && (
+          <span key={thinkingLabel} className="qa-mini-label">
+            {thinkingLabel}
+          </span>
+        )}
+        <div className="qa-pill" style={{ width: pillWidth }}>
           <input
             ref={inputRef}
             type="text"
@@ -352,7 +343,6 @@ export function QuickAsk(): React.JSX.Element {
             }
             autoComplete="off"
             spellCheck={false}
-            disabled={loading}
             onKeyDown={onKeyDown}
             onInput={syncPillWidth}
           />
@@ -407,8 +397,9 @@ export function QuickAsk(): React.JSX.Element {
       {phase === "error" && <ErrorCard message={errorMessage} />}
       {(phase === "streaming" || phase === "answered") && (
         <AnswerCard
-          text={answerText}
+          parts={textParts}
           streaming={phase === "streaming"}
+          statusLabel={phase === "streaming" ? thinkingLabel : null}
           onOpenInApp={openInApp}
         />
       )}

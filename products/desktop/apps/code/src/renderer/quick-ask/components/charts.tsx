@@ -132,12 +132,15 @@ function LinePlot({
           <g key={series.name}>
             {seriesIndex === 0 && (
               <path
+                className="qa-chart-area"
                 d={`${line} L${WIDTH} ${HEIGHT} L0 ${HEIGHT} Z`}
                 fill="url(#qa-line-fill)"
               />
             )}
             <path
+              className="qa-chart-line"
               d={line}
+              pathLength={1}
               fill="none"
               stroke={color}
               strokeWidth={2}
@@ -173,6 +176,8 @@ function BarPlot({
         return (
           <rect
             key={`${index}:${point}`}
+            className="qa-chart-bar"
+            style={{ animationDelay: `${Math.min(index * 24, 300)}ms` }}
             x={(index * slot + (slot - barWidth) / 2).toFixed(1)}
             y={Math.min(top, baseline).toFixed(1)}
             width={barWidth.toFixed(1)}

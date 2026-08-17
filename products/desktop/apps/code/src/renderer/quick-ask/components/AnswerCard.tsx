@@ -114,28 +114,59 @@ export function ErrorCard({ message }: { message: string }): React.JSX.Element {
   );
 }
 
+export interface AnswerPart {
+  id: string;
+  content: string;
+  complete: boolean;
+}
+
 interface AnswerCardProps {
-  /** Concatenated markdown of the answer so far. */
-  text: string;
+  /** Answer segments: text stretches separated by tool activity. */
+  parts: AnswerPart[];
   /** Still receiving tokens: show the streaming caret, hold the actions. */
   streaming: boolean;
+  /** Latest agent activity, shown above the answer until the turn is done. */
+  statusLabel: string | null;
   onOpenInApp: () => void;
 }
 
 export function AnswerCard({
-  text,
+  parts,
   streaming,
+  statusLabel,
   onOpenInApp,
 }: AnswerCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
+  // null follows the newest segment; a number pins an earlier one.
+  const [pinned, setPinned] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
+  const shownIndex =
+    pinned === null
+      ? Math.max(parts.length - 1, 0)
+      : Math.min(pinned, parts.length - 1);
+  const shown = parts[shownIndex];
+  const text = shown?.content ?? "";
+
   const copyAnswer = useCallback((): void => {
-    void navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(
+      parts.map((part) => part.content).join("\n\n"),
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
-  }, [text]);
+  }, [parts]);
+
+  const page = useCallback(
+    (direction: -1 | 1): void => {
+      setPinned((current) => {
+        const base = current === null ? parts.length - 1 : current;
+        const next = Math.min(Math.max(base + direction, 0), parts.length - 1);
+        return next === parts.length - 1 ? null : next;
+      });
+    },
+    [parts.length],
+  );
 
   // Follow the stream, but stop if the user scrolled up to read.
   const onScroll = useCallback((): void => {
@@ -153,11 +184,55 @@ export function AnswerCard({
     }
   }, [text, streaming]);
 
+  const pager =
+    parts.length > 1 ? (
+      <span className="qa-pager">
+        <button
+          type="button"
+          aria-label="Previous part"
+          disabled={shownIndex === 0}
+          onClick={() => page(-1)}
+        >
+          ‹
+        </button>
+        {shownIndex + 1}/{parts.length}
+        <button
+          type="button"
+          aria-label="Next part"
+          disabled={shownIndex === parts.length - 1}
+          onClick={() => page(1)}
+        >
+          ›
+        </button>
+      </span>
+    ) : null;
+
+  const streamingShown = streaming && shownIndex === parts.length - 1;
+
   return (
     <div className="qa-card">
+      {streaming && (
+        <div className="qa-status-row">
+          <span className="qa-thinking-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span key={statusLabel} className="qa-thinking-label">
+            {statusLabel || "Working…"}
+          </span>
+          {pager}
+        </div>
+      )}
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
-        <div className={streaming ? "qa-answer qa-streaming" : "qa-answer"}>
-          {/* Object tags in the markdown resolve into live chips and chart cards. */}
+        <div
+          key={shown?.id ?? "empty"}
+          className={
+            streamingShown
+              ? "qa-answer qa-streaming qa-seg-in"
+              : "qa-answer qa-seg-in"
+          }
+        >
           <MarkdownRenderer
             content={text}
             componentsOverride={panelComponents}
@@ -168,6 +243,7 @@ export function AnswerCard({
       {!streaming && (
         <div className="qa-actions">
           <span className="qa-source">PostHog AI</span>
+          {pager}
           <button type="button" className="qa-button" onClick={copyAnswer}>
             {copied ? "Copied" : "Copy"}
           </button>

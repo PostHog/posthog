@@ -144,6 +144,7 @@ export type TurnSignal =
   | { kind: "agent-text"; text: string }
   | { kind: "reasoning"; text: string }
   | { kind: "tool"; label: string }
+  | { kind: "status"; text: string }
   | { kind: "turn-complete" }
   | { kind: "run-terminal"; status: string; errorMessage?: string }
   | { kind: "ignore"; detail?: string };
@@ -190,6 +191,14 @@ export function translateFrame(parsed: unknown): TurnSignal {
   }
   if (method === "session/request_permission") {
     return { kind: "reasoning", text: "Waiting for a tool approval…" };
+  }
+  if (method === "_posthog/progress") {
+    const params = frame.notification.params as
+      | { label?: unknown; status?: unknown }
+      | undefined;
+    return typeof params?.label === "string" && params.status !== "completed"
+      ? { kind: "status", text: params.label }
+      : { kind: "ignore" };
   }
   if (method !== "session/update") {
     return { kind: "ignore", detail: method || undefined };
@@ -618,7 +627,12 @@ export class QuickAskService {
     controller: AbortController,
   ): AsyncGenerator<QuickAskEvent> {
     const turnId = `turn-${session.turns}`;
-    let answerText = "";
+    // Text between stretches of tool activity forms its own segment; the
+    // panel pages through them.
+    let segment = 0;
+    let segmentText = "";
+    const segmentId = (): string =>
+      segment === 0 ? turnId : `${turnId}.${segment + 1}`;
     let thoughtBuffer = "";
     let toolSinceText = false;
     // The run can carry prompts besides ours (the workflow prompts the task
@@ -640,9 +654,14 @@ export class QuickAskService {
         : freshStream && promptsBefore === 0;
 
     const finish = (): QuickAskEvent[] =>
-      answerText
+      segmentText
         ? [
-            { type: "text", id: turnId, content: answerText, complete: true },
+            {
+              type: "text",
+              id: segmentId(),
+              content: segmentText,
+              complete: true,
+            },
             { type: "done" },
           ]
         : [{ type: "done" }];
@@ -760,15 +779,22 @@ export class QuickAskService {
                 break;
               case "agent-text":
                 if (!inOurTurn()) break;
-                if (toolSinceText && answerText) {
-                  answerText += "\n\n";
+                if (toolSinceText && segmentText) {
+                  yield {
+                    type: "text",
+                    id: segmentId(),
+                    content: segmentText,
+                    complete: true,
+                  };
+                  segment += 1;
+                  segmentText = "";
                 }
                 toolSinceText = false;
-                answerText += signal.text;
+                segmentText += signal.text;
                 yield {
                   type: "text",
-                  id: turnId,
-                  content: answerText,
+                  id: segmentId(),
+                  content: segmentText,
                   complete: false,
                 };
                 break;
@@ -788,6 +814,9 @@ export class QuickAskService {
                   type: "reasoning",
                   content: `Running ${signal.label}…`,
                 };
+                break;
+              case "status":
+                yield { type: "reasoning", content: signal.text };
                 break;
               case "turn-complete":
                 if (matched) {
