@@ -20,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -59,11 +60,17 @@ class TaskTokenUsageUnavailable(Exception):
     pass
 
 
-def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None = None) -> tuple[str, str]:
+@frozen
+class TaskUsageRequestSignature:
+    signature: str
+    timestamp: str
+
+
+def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None = None) -> TaskUsageRequestSignature:
     request_timestamp = str(int(time.time()) if timestamp is None else timestamp)
     signed_value = f"v0:{request_timestamp}:{body.decode('utf-8')}"
     signature = hmac.new(secret.encode(), signed_value.encode(), hashlib.sha256).hexdigest()
-    return signature, request_timestamp
+    return TaskUsageRequestSignature(signature=signature, timestamp=request_timestamp)
 
 
 def _get_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
@@ -91,7 +98,7 @@ def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetim
         raise TaskTokenUsageUnavailable("Cross-region task usage is not configured")
 
     body = json.dumps({"task_id": str(task_id), "task_created_at": task_created_at.isoformat()}).encode()
-    signature, timestamp = sign_task_usage_request(body, secret)
+    signed = sign_task_usage_request(body, secret)
     target = f"{settings.SITE_URL if settings.DEBUG else 'https://us.posthog.com'}{TASK_USAGE_INTERNAL_PATH}"
     try:
         response = requests.post(
@@ -99,8 +106,8 @@ def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetim
             data=body,
             headers={
                 "Content-Type": "application/json",
-                TASK_USAGE_SIGNATURE_HEADER: signature,
-                TASK_USAGE_TIMESTAMP_HEADER: timestamp,
+                TASK_USAGE_SIGNATURE_HEADER: signed.signature,
+                TASK_USAGE_TIMESTAMP_HEADER: signed.timestamp,
             },
             timeout=TASK_USAGE_CROSS_REGION_TIMEOUT_SECONDS,
         )
