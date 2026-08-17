@@ -3,6 +3,7 @@
 Run with: uv run --with pytest --with defusedxml pytest .github/scripts/test_optimize_test_durations.py
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from optimize_test_durations import (
     MigrationTaxCorrector,
     _pick_outlier,
     average_durations,
+    main,
     outlier_merge_durations,
     run_average_files,
 )
@@ -117,6 +119,18 @@ class TestAverageDurations:
         # test_a measured in 2 of 3 runs; average over just those two.
         sources = [{"test_a": 2.0}, {"test_b": 5.0}, {"test_a": 6.0}]
         assert average_durations(sources)["test_a"] == 4.0
+
+    def test_segment_with_no_artifacts_refuses_to_write(self, tmp_path, monkeypatch):
+        # A run whose artifacts failed to download must not produce an empty durations
+        # file: it would contribute nothing to the union and drag a multi-run product
+        # average toward zero, un-sizing every product in it.
+        out = tmp_path / "products_durations"
+        monkeypatch.setattr(
+            sys, "argv", ["optimize_test_durations.py", str(tmp_path), str(out), "--segment", "Products"]
+        )
+        with pytest.raises(SystemExit):
+            main()
+        assert not out.exists()
 
     def test_run_average_files_refuses_empty_result(self, tmp_path):
         # Newest (anchor) run scoped to nothing must not silently wipe the plan,
