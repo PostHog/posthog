@@ -374,52 +374,31 @@ class TestRouteThreadMessage(TestCase):
 
     @parameterized.expand(
         [
-            (UntaggedFollowupMode.AUTO, True, False),
-            (UntaggedFollowupMode.ASK, False, True),
-            (UntaggedFollowupMode.NEVER, False, False),
+            ("auto_other_person", UntaggedFollowupMode.AUTO, "U_BOB", True),
+            # `ask` still dispatches here: the prompt is raised inside the workflow,
+            # once the classifier has judged the reply worth forwarding.
+            ("ask_other_person", UntaggedFollowupMode.ASK, "U_BOB", True),
+            ("ask_creator", UntaggedFollowupMode.ASK, "U_ALICE", True),
+            ("never_other_person", UntaggedFollowupMode.NEVER, "U_BOB", False),
+            # `never` means nobody, the creator included.
+            ("never_creator", UntaggedFollowupMode.NEVER, "U_ALICE", False),
             # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
-            (None, False, False),
+            ("unset", None, "U_BOB", False),
         ]
     )
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_reply_from_someone_else_follows_the_creators_mode(self, mode, expect_workflow, expect_prompt):
+    def test_webhook_dispatches_unless_the_creator_switched_followups_off(self, _name, mode, author, expect_workflow):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         self._set_creator_mode(mode)
-        with (
-            patch(
-                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
-            ) as mock_start,
-            patch("products.slack_app.backend.api._post_untagged_followup_prompt", return_value=True) as mock_prompt,
-        ):
-            result = self._route(self._make_event())  # U_BOB is not the thread creator
+        with patch(
+            "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+        ) as mock_start:
+            result = self._route(self._make_event(user=author))
         assert result == ROUTE_HANDLED_LOCALLY
         assert mock_start.called is expect_workflow
-        assert mock_prompt.called is expect_prompt
-
-    @parameterized.expand(
-        [
-            # `ask` judges other people's replies, so the creator is never asked
-            # about their own — but `never` means nobody, including them.
-            (UntaggedFollowupMode.ASK, True),
-            (UntaggedFollowupMode.NEVER, False),
-            (None, False),
-        ]
-    )
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_creators_own_reply_is_never_prompted_but_still_obeys_off(self, mode, expect_workflow):
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
-
-        self._set_creator_mode(mode)
-        with (
-            patch(
-                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
-            ) as mock_start,
-            patch("products.slack_app.backend.api._post_untagged_followup_prompt") as mock_prompt,
-        ):
-            self._route(self._make_event(user="U_ALICE"))
-        assert mock_start.called is expect_workflow
-        mock_prompt.assert_not_called()
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is True
 
     # --- Symmetry with the app_mention path -------------------------------
 

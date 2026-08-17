@@ -348,3 +348,65 @@ def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) 
             message_ts=input.message_ts,
             error=str(e),
         )
+
+
+@activity.defn
+@close_db_connections
+def request_untagged_followup_confirmation_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> bool:
+    """Apply the thread creator's `ask` mode to a reply the classifier just passed.
+
+    Returns ``True`` when the reply must not be forwarded: either the prompt is
+    now waiting on its author's answer, or the creator switched the thread off
+    while this run was in flight. ``False`` lets the workflow carry on.
+
+    Running here rather than in the webhook handler is the point of the mode:
+    the classifier has already judged the reply worth the agent's attention, so
+    the prompt only interrupts someone over a message that would otherwise have
+    started work.
+    """
+    from products.slack_app.backend.api import (
+        _post_untagged_followup_prompt,  # noqa: PLC0415 — keeps the webhook module off the worker import path
+    )
+    from products.slack_app.backend.models import SlackThreadTaskMapping, UntaggedFollowupMode  # noqa: PLC0415
+    from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode  # noqa: PLC0415
+
+    inputs = coerce_mention_workflow_inputs(inputs)
+    mapping = (
+        SlackThreadTaskMapping.objects.select_related("integration")
+        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
+        .first()
+    )
+    if mapping is None:
+        # The thread lost its mapping mid-run; the forward activity would drop this
+        # anyway, and there is nobody left to attribute a prompt to.
+        return True
+
+    integration = mapping.integration
+    mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
+    if mode == UntaggedFollowupMode.AUTO:
+        return False
+    if mode == UntaggedFollowupMode.NEVER:
+        logger.info(
+            "slack_app_untagged_followup_switched_off_mid_run",
+            integration_id=integration.id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return True
+
+    # The creator asked to be consulted about other people's replies, not their own.
+    if slack_user_id == mapping.mentioning_slack_user_id:
+        return False
+
+    _post_untagged_followup_prompt(
+        SlackIntegration(integration),
+        integration,
+        inputs.event,
+        is_ext_shared_channel=inputs.is_ext_shared_channel,
+    )
+    return True

@@ -125,6 +125,8 @@ class TestUntaggedFollowupInteractivity(TestCase):
         mock_start.assert_called_once()
         assert mock_start.call_args.args[0] == self.event
         assert mock_start.call_args.kwargs["untagged_followup"] is True
+        # Without this the re-dispatch would classify again and re-raise the prompt.
+        assert mock_start.call_args.kwargs["untagged_followup_confirmed"] is True
         assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
         # Burnt on use, so a forwarded or double click can't run the same message twice.
         assert cache.get(_picker_context_cache_key(self.context_token)) is None

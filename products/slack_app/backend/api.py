@@ -1253,65 +1253,40 @@ def _resolve_untagged_followup_mapping(
     return mapping
 
 
-def _route_untagged_followup_by_mode(
+def _untagged_followups_switched_off(
     event: dict[str, Any],
     integration: Integration,
     slack_team_id: str,
     *,
     mapping: SlackThreadTaskMapping,
-    slack: SlackIntegration,
-    author_slack_user_id: str,
     posthog_user: User,
-    is_ext_shared_channel: bool,
-) -> str | None:
-    """Apply the thread creator's untagged follow-up mode to this reply.
+) -> bool:
+    """Whether the thread creator has untagged follow-ups turned off.
 
-    Returns a terminal route when the reply must not start a run right now, or
-    ``None`` to let the caller dispatch as usual. Nobody has this on until they
-    turn it on, so an unset creator drops here.
+    Only ``never`` is decided here. ``ask`` waits until the classifier has judged
+    the reply worth forwarding, inside the workflow — prompting from the webhook
+    would raise one for every "thanks" in the thread. ``never`` costs nobody an
+    LLM call, so it drops before dispatch.
     """
-    mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
-    if mode == UntaggedFollowupMode.AUTO:
-        return None
+    if resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id) != UntaggedFollowupMode.NEVER:
+        return False
 
-    if mode == UntaggedFollowupMode.NEVER:
-        logger.info(
-            "slack_app_thread_message_mode_never",
-            slack_team_id=slack_team_id,
-            channel=event.get("channel"),
-            thread_ts=mapping.thread_ts,
-            integration_id=integration.id,
-        )
-        _report_slack_mention_dropped(
-            event,
-            slack_team_id,
-            reason="untagged_followup_mode_never",
-            replied=False,
-            integration=integration,
-            posthog_user=posthog_user,
-        )
-        return ROUTE_HANDLED_LOCALLY
-
-    # ``ask`` only judges other people's replies — the creator typing in the
-    # thread they handed to PostHog has already said what they want.
-    if author_slack_user_id == mapping.mentioning_slack_user_id:
-        return None
-
-    replied = _post_untagged_followup_prompt(
-        slack,
-        integration,
-        event,
-        is_ext_shared_channel=is_ext_shared_channel,
+    logger.info(
+        "slack_app_thread_message_mode_never",
+        slack_team_id=slack_team_id,
+        channel=event.get("channel"),
+        thread_ts=mapping.thread_ts,
+        integration_id=integration.id,
     )
     _report_slack_mention_dropped(
         event,
         slack_team_id,
-        reason="untagged_followup_mode_ask",
-        replied=replied,
+        reason="untagged_followup_mode_never",
+        replied=False,
         integration=integration,
         posthog_user=posthog_user,
     )
-    return ROUTE_HANDLED_LOCALLY
+    return True
 
 
 def _notify_missing_slack_scopes(
@@ -2242,24 +2217,17 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        # Last gate on the untagged path: the thread creator decides whether replies
-        # they didn't write get picked up automatically, only after a confirmation,
-        # or not at all. Runs here so the cheaper access and scope gates have already
-        # had their say, and so the prompt is only ever shown for a message we would
-        # otherwise have acted on.
-        if untagged_followup_mapping is not None:
-            followup_route = _route_untagged_followup_by_mode(
-                event,
-                mention_target,
-                slack_team_id,
-                mapping=untagged_followup_mapping,
-                slack=slack,
-                author_slack_user_id=slack_user_id_str,
-                posthog_user=posthog_user,
-                is_ext_shared_channel=is_ext_shared_channel,
-            )
-            if followup_route is not None:
-                return followup_route
+        # Last gate on the untagged path: a thread whose creator has follow-ups off
+        # never reaches the workflow. ``ask`` is decided there instead, once the
+        # classifier has judged the reply worth forwarding.
+        if untagged_followup_mapping is not None and _untagged_followups_switched_off(
+            event,
+            mention_target,
+            slack_team_id,
+            mapping=untagged_followup_mapping,
+            posthog_user=posthog_user,
+        ):
+            return ROUTE_HANDLED_LOCALLY
 
         return _start_mention_workflow(
             event,
@@ -2989,6 +2957,7 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         None,
         posthog_user=posthog_user,
         untagged_followup=True,
+        untagged_followup_confirmed=True,
         is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
     )
     logger.info(
@@ -3158,6 +3127,7 @@ def _start_mention_workflow(
     *,
     posthog_user: User | None,
     untagged_followup: bool = False,
+    untagged_followup_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
 ) -> str:
     """Start the mention workflow for either an explicit ``app_mention`` or an
@@ -3187,6 +3157,7 @@ def _start_mention_workflow(
         slack_event_id=event_id,
         user_id=posthog_user.id if posthog_user else None,
         untagged_followup=untagged_followup,
+        untagged_followup_confirmed=untagged_followup_confirmed,
         is_ext_shared_channel=is_ext_shared_channel,
     )
     # Events without channel/ts fall back to the per-message workflow.

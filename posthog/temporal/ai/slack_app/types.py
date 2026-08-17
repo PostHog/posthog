@@ -35,6 +35,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # True when the thread's author already confirmed this untagged reply from the
+    # ephemeral prompt. The classifier ran before the prompt was posted and the
+    # answer is in, so the run skips both on the way back through.
+    untagged_followup_confirmed: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
