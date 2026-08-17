@@ -68,6 +68,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_event i
     emit_observation_event_activity,
 )
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
+    MAX_ELEMENT_LENGTH,
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
 )
@@ -94,7 +95,13 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
-from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, SignalFinding, TextSegment
+from products.replay_vision.backend.temporal.scanners.base import (
+    MIN_SIGNAL_CONFIDENCE,
+    ChipSegment,
+    Segment,
+    SignalFinding,
+    TextSegment,
+)
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
@@ -1082,6 +1089,42 @@ class TestEmitObservationEventActivity:
 
         properties = capture.call_args.kwargs["properties"]
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+
+    def test_event_carries_recording_offsets_of_the_findings_that_were_emitted(self) -> None:
+        # The offsets are what lets a finding be joined back to the events at its own moment, so they
+        # have to name the same set emission did: findings under the confidence floor never became
+        # signals, and listing them here would measure coverage against findings that don't exist.
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+            signals=[
+                SignalFinding(
+                    problem_type="bug",
+                    start_time=139,
+                    end_time=145,
+                    url="https://app.example.com/cart",
+                    description="Checkout CTA is broken on /cart",
+                    confidence=0.8,
+                ),
+                SignalFinding(
+                    problem_type="ux_friction",
+                    start_time=200,
+                    end_time=205,
+                    url="https://app.example.com/cart",
+                    description="Hesitation before the promo field",
+                    confidence=MIN_SIGNAL_CONFIDENCE - 0.1,
+                ),
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        assert capture.call_args.kwargs["properties"]["signal_finding_rec_ts"] == [139]
 
     def test_event_carries_indexed_and_named_group_keys(self) -> None:
         # `$group_N` is what group analytics filters and breaks down on; `$groups` is what a webhook or alert
@@ -3104,6 +3147,45 @@ class TestEmitObservationSignalActivity:
 
         # The variant is `extra="forbid"`: every emitted key must be declared, or the facade silently
         # drops the signal (fail-soft to 0). Validate the real payload to pin that contract.
+        ReplayVisionScannerFindingSignalInput.model_validate(
+            {
+                "source_product": kwargs["source_product"],
+                "source_type": kwargs["source_type"],
+                "source_id": kwargs["source_id"],
+                "description": kwargs["description"],
+                "weight": kwargs["weight"],
+                "extra": extra,
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("checkout-submit", "checkout-submit"),
+            (None, None),
+            ("x" * (MAX_ELEMENT_LENGTH + 50), "x" * MAX_ELEMENT_LENGTH),
+        ]
+    )
+    def test_element_reaches_extra_bounded_and_only_when_an_event_backed_the_moment(
+        self, element: str | None, expected: str | None
+    ) -> None:
+        # Three things ride on this key. It is the research agent's starting point for finding the code
+        # behind a finding; the extra schema is `extra="forbid"`, so an undeclared key drops the signal
+        # entirely (fail-soft to 0); and every reader renders `extra` into a prompt verbatim, so a model
+        # that pastes a whole element chain instead of its identifier costs kilobytes on every report.
+        scanner = _make_scanner(emits_signals=True)
+        observation = _make_observation(scanner)
+
+        with (
+            patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit,
+            patch(_LOAD_LLM_INPUTS_PATCH, return_value=self._llm_inputs(observation)),
+        ):
+            inputs = self._inputs(observation, signals=[self._signal(element=element)])
+            assert emit_observation_signal_activity(inputs) == 1
+
+        assert mock_emit.await_args is not None
+        kwargs = mock_emit.await_args.kwargs
+        extra = kwargs["extra"]
+        assert extra.get("element") == expected
         ReplayVisionScannerFindingSignalInput.model_validate(
             {
                 "source_product": kwargs["source_product"],

@@ -58,6 +58,15 @@ class SignalFinding(BaseModel, frozen=True):
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
     )
+    element: str | None = Field(
+        default=None,
+        description=(
+            "What the event log names at this moment, copied verbatim from a `get_events_around` result: the "
+            "`data-attr`, `data-testid`, or id value on the interacted element if it has one, otherwise the "
+            "element's tag and text. Just the identifier, not the whole chain. Leave it null when no event "
+            "backs the moment; never read it off the video."
+        ),
+    )
     description: str = Field(
         description=(
             "Actionable prose a reader with no session context can act on. Lead with what you saw on screen that "

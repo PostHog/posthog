@@ -15,6 +15,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.scanners.base import MIN_SIGNAL_CONFIDENCE
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +69,12 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         # Priced at emit time, so it can drift from quota.py's repriced-at-current-rates totals.
         "credits": observation_credits_for_model(snapshot.model),
         "emits_signals": snapshot.emits_signals,
+        # Recording offsets of the findings that cleared the emission floor, so a finding can be joined
+        # to the events at its own moment. Without them the event says only that findings happened, and
+        # the share of findings an interaction backs can't be measured.
+        "signal_finding_rec_ts": [
+            signal.start_time for signal in inputs.signals if signal.confidence >= MIN_SIGNAL_CONFIDENCE
+        ],
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
         **_group_properties(team, observation),

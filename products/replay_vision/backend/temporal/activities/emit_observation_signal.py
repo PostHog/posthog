@@ -19,6 +19,9 @@ logger = structlog.get_logger(__name__)
 # Findings accumulate into a report across sessions; promotion (total_weight >= 1.0) needs corroboration.
 SIGNAL_WEIGHT = 0.5
 
+# An identifier a developer typed fits well inside this; anything longer is a model pasting the chain.
+MAX_ELEMENT_LENGTH = 200
+
 
 def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs | None:
     """Read the per-session inputs the scan already stashed in Redis; None if absent (TTL lapsed)."""
@@ -94,6 +97,11 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                         "start_time": signal.start_time,
                         "end_time": signal.end_time,
                         "url": signal.url,
+                        # Omitted rather than null when the moment had no backing event, so research
+                        # doesn't read an empty element as "there was nothing to interact with".
+                        # Capped because every reader renders `extra` into a prompt verbatim, and a
+                        # model that pastes a whole element chain instead of its identifier is kilobytes.
+                        **({"element": signal.element[:MAX_ELEMENT_LENGTH]} if signal.element else {}),
                     },
                 )
                 emitted += 1

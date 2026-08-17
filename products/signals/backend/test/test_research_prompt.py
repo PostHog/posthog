@@ -5,6 +5,7 @@ import pytest
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
+    _has_replay_signals,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
@@ -89,6 +90,24 @@ class TestBuildInitialResearchPrompt:
         assert ("## Business knowledge" in prompt) == expected_present
         for snippet in extra_checks:
             assert snippet in prompt
+
+    # The block only pays for itself on reports that carry a recording moment, and it is the only
+    # thing that tells the agent a moment is convertible to a file at all. Shipping it on every
+    # report taxes the fleet-wide path; dropping it from replay reports puts the agent back to
+    # guessing a file from prose.
+    @pytest.mark.parametrize(
+        "extra, expected_present",
+        [
+            ({"session_id": "0195b2c1-0000-7000-8000-000000000000"}, True),
+            ({}, False),
+            ({"session_id": ""}, False),
+        ],
+    )
+    def test_replay_attribution_block_presence(self, extra, expected_present):
+        signal = _make_signal(extra)
+        prompt = build_initial_research_prompt(signal, 1, has_replay_signals=_has_replay_signals([signal]))
+        assert ("## Attributing a session recording moment to code" in prompt) == expected_present
+        assert ("correlating-recordings-to-code" in prompt) == expected_present
 
     def test_resolved_report_context_present_when_provided(self):
         signal = _make_signal({})

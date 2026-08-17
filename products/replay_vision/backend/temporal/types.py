@@ -258,3 +258,6 @@ class EmitObservationEventInputs(BaseModel, frozen=True):
 
     observation_id: UUID
     model_output: AnyScannerOutput
+    # Side-mission findings, so the event can carry their recording offsets and be joined back to the
+    # events at those moments. Defaults to empty: old workflow histories decode without the field.
+    signals: list[SignalFinding] = Field(default_factory=list)

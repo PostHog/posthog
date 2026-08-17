@@ -329,7 +329,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             try:
                 await wf.execute_activity(
                     emit_observation_event_activity,
-                    EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
+                    EmitObservationEventInputs(
+                        observation_id=observation_id,
+                        model_output=call_output.model_output,
+                        signals=call_output.signals,
+                    ),
                     start_to_close_timeout=dt.timedelta(seconds=30),
                     schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
                     retry_policy=_STATE_ACTIVITY_RETRY,

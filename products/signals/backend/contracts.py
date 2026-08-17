@@ -369,6 +369,9 @@ class ReplayVisionScannerFindingSignalExtra(SignalExtraBase):
     end_time: float
     url: str
     exported_asset_id: int
+    # What the event log recorded at the finding's moment, when anything did — the starting point for
+    # attributing the finding to code.
+    element: str | None = None
     distinct_id: str | None = None
     recording_start_time: str | None = None
     recording_end_time: str | None = None
