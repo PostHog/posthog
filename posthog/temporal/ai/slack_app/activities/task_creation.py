@@ -863,17 +863,6 @@ def forward_posthog_code_followup_activity(
             user_text_prefix=followup_user_text_prefix,
         )
 
-    sandbox_url = (task_run.state or {}).get("sandbox_url")
-    if not sandbox_url:
-        logger.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
-        post_slack_thread_reply(
-            slack.client,
-            channel=channel,
-            thread_ts=thread_ts,
-            text="The agent is still starting up. Give it a moment and try again.",
-        )
-        return True
-
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         collect_thread_messages,
         decode_slack_event_text,
