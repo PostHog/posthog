@@ -693,6 +693,26 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     return source is not None and source != EventSource.WEB
 
 
+def _normalize_slack_channel_filters(filters: dict) -> None:
+    """Reduce a `channel` filter value to the bare Slack channel id, in place.
+
+    The channel picker identifies a channel as ``C123|#name``, but the event carries ``C123``, so
+    storing the picker's value verbatim compiles a filter that can never match. The frontend strips
+    it too; this is here because the same dead filter is one API or MCP call away otherwise.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        value = prop.get("value")
+        if isinstance(value, str):
+            prop["value"] = value.split("|")[0]
+        elif isinstance(value, list):
+            prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1179,6 +1199,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
                 filters.pop("events", None)
                 filters.pop("actions", None)
+                _normalize_slack_channel_filters(filters)
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)

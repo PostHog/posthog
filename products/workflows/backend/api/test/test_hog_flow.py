@@ -2277,6 +2277,35 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
+    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self):
+        # The channel picker identifies a channel as `C123|#name`, but the event carries `C123`, so
+        # storing the composite compiles a filter that never matches and the workflow never runs.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "slack-message",
+                "filters": {
+                    "properties": [
+                        {
+                            "key": "channel",
+                            "value": ["C0ALERTS|#alerts"],
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ]
+                },
+            },
+        }
+
+        hog_flow = {"name": "Test Slack Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
+        assert stored == ["C0ALERTS"]
+
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person
         # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.
