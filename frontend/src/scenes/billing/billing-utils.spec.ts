@@ -1,7 +1,8 @@
 import tk from 'timekeeper'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
@@ -21,6 +22,7 @@ import {
     getMinimumUsageSpendReadAccessLevel,
     getProration,
     getUsageLimitConsequence,
+    isMemberUsageSpendReadAccessEnabled,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -712,4 +714,38 @@ describe('canViewUsageAndSpend', () => {
             expect(canViewUsageAndSpend(level, memberAccess, ownerOnly)).toBe(expected)
         }
     )
+})
+
+describe('isMemberUsageSpendReadAccessEnabled', () => {
+    // Dropping the usage-spend-dashboards half of this lets a view-only member reach Usage and Spend
+    // by URL while the account menu and settings sidebar hide Billing from them entirely.
+    it.each<{ case: string; featureFlags: FeatureFlagsSet; expected: boolean }>([
+        {
+            case: 'both flags are on',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
+            },
+            expected: true,
+        },
+        {
+            case: 'the grant is on but there are no dashboards to reach',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: true,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: false,
+            },
+            expected: false,
+        },
+        {
+            case: 'the dashboards are on but the grant is not',
+            featureFlags: {
+                [FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS]: false,
+                [FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]: true,
+            },
+            expected: false,
+        },
+        { case: 'neither flag is present', featureFlags: {}, expected: false },
+    ])('returns $expected when $case', ({ featureFlags, expected }) => {
+        expect(isMemberUsageSpendReadAccessEnabled(featureFlags)).toBe(expected)
+    })
 })

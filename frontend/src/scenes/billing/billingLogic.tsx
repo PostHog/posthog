@@ -41,6 +41,7 @@ import {
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
+    isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -1069,7 +1070,7 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): OrganizationMembershipLevel =>
                 getMinimumUsageSpendReadAccessLevel(
-                    !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS],
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
         ],
@@ -1078,7 +1079,7 @@ export const billingLogic = kea<billingLogicType>([
             (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet): boolean =>
                 canViewUsageAndSpendUtil(
                     currentOrganization?.membership_level,
-                    !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS],
+                    isMemberUsageSpendReadAccessEnabled(featureFlags),
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
         ],
@@ -1094,15 +1095,12 @@ export const billingLogic = kea<billingLogicType>([
                 canOnlyViewUsageAndSpend: boolean,
                 featureFlags: FeatureFlagsSet
             ): string | null => {
-                const usageSpendDashboards = !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                 if (canAccessBilling) {
-                    return usageSpendDashboards
+                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
                         ? urls.organizationBillingSection('overview')
                         : urls.organizationBilling()
                 }
-                // Without the tabbed dashboards, the only billing surface is the admin-only Overview,
-                // so view-only members get no entry point
-                if (canOnlyViewUsageAndSpend && usageSpendDashboards) {
+                if (canOnlyViewUsageAndSpend) {
                     return urls.organizationBillingSection('usage')
                 }
                 return null
