@@ -26,8 +26,11 @@ const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/
 const SCOPED_AUTH_PATH_SUFFIXES = [
     // Verified in CdpApi.postHogFlowRescheduleParked against WORKFLOWS_RESCHEDULE_JWT_SECRET.
     '/reschedule_parked',
-    // Verified in CdpApi.postHogFlowCancelInvocations against the same key, audience-pinned.
-    '/invocations/cancel',
+    // Covers .../invocations/cancel (CdpApi.postHogFlowCancelInvocations) and
+    // .../batch_jobs/:batch_job_id/cancel (CdpApi.postHogFlowCancelBatchJob), both verified
+    // against the same key, audience-pinned. Any new route ending in /cancel inherits this
+    // exemption, so it must enforce its own scoped auth.
+    '/cancel',
 ]
 
 export interface InternalApiAuthOptions {
