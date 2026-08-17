@@ -336,7 +336,7 @@ def send_refresh_session(
     Send this when the session needs rebuilding, never to tell the sandbox
     something. Whatever the agent-server logs on receipt is relayed back as a
     stream event, and an event re-arms the run's inactivity timer while the
-    agent-active latch is set — so a notification on a cadence shorter than that
+    agent-active latch is set, so a notification on a cadence shorter than that
     window keeps an idle sandbox alive until the hard run-duration cap.
     """
     params: dict[str, Any] = {"mcpServers": mcp_servers}

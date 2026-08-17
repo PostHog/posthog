@@ -70,14 +70,13 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
     the sandbox may still be doing useful non-git work. The returned interval
     drives the workflow's refresh cadence.
 
-    Deliberately silent towards the agent-server. The token reaches the sandbox through
-    the git remote and the credential env file, so a refresh needs no announcing. Telling
-    it anyway makes the sandbox log a line, and any line re-arms the workflow's inactivity
-    timer while the agent-active latch is set — which it stays for a run whose agent
-    stopped without signalling the end of its turn. Since this cadence is shorter than the
-    inactivity window, that held the window open until the hard run-duration cap. What was
-    refreshed is recorded here instead, via `increment_credential_refresh` and the
-    `sandbox_credentials_refreshed` event.
+    Deliberately silent towards the agent-server. The token reaches the sandbox through the
+    git remote and the credential env file, so a refresh needs no announcing. Telling it anyway
+    makes the sandbox log a line, and any line re-arms the workflow's inactivity timer while the
+    agent-active latch is set, which it stays for a run whose agent stopped without signalling
+    the end of its turn. This cadence is shorter than that window, so an idle sandbox would run
+    to the hard duration cap. What was refreshed is recorded here instead, by
+    `increment_credential_refresh` and the `sandbox_credentials_refreshed` event.
     """
     ctx = input.context
 
