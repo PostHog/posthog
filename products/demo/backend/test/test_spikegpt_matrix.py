@@ -21,7 +21,7 @@ class TestSpikeGPTMatrixSimulation(SimpleTestCase):
             n_clusters=10,
         )
         # Real token counting is slow and tiktoken may hit the network on first load
-        matrix.gpt_4o_encoding = SimpleNamespace(encode=lambda text: [0] * max(1, len(text) // 4))  # type: ignore[assignment]
+        matrix.gpt_4o_encoding = SimpleNamespace(encode=lambda text: [0] * max(1, len(text) // 4))  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         matrix.simulate()
 
         all_events = [event for person in matrix.people for event in person.all_events]
