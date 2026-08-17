@@ -21,19 +21,13 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
-import {
-  formatHotkey,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
-  navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
@@ -46,8 +40,6 @@ import {
   useState,
 } from "react";
 import { ActivityHoverCard } from "./ActivityHoverCard";
-
-const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
@@ -184,10 +176,6 @@ export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
-  const { counts } = useInboxAllReports({
-    ignoreFilters: true,
-    refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
-  });
   const { unreadCount: unseenActivity } = useTaskActivity();
   const commandCenterCount = useCommandCenterActiveCount();
 
@@ -200,7 +188,6 @@ export function ChannelNav() {
     action();
   };
 
-  const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
 
@@ -212,18 +199,6 @@ export function ChannelNav() {
     // providers never share it.
     <TooltipProvider delay={400}>
       <div className="flex shrink-0 gap-2 p-2">
-        <NavIcon
-          icon={
-            <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
-          }
-          label="Inbox"
-          shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={isInbox}
-          onClick={withTrack("inbox", navigateToInbox)}
-          badge={
-            <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
-        />
         <ActivityNavItem
           isActive={isActivity}
           unreadCount={unseenActivity}

@@ -86,7 +86,7 @@ describe("sidebarStore navItemOverrides", () => {
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().navItemOrder).toEqual(["loops", "inbox"]);
+    expect(useSidebarStore.getState().navItemOrder).toEqual(["loops"]);
     localStorage.removeItem("sidebar-storage");
   });
 
@@ -102,7 +102,7 @@ describe("sidebarStore navItemOverrides", () => {
     localStorage.removeItem("sidebar-storage");
   });
 
-  it("rehydration drops unknown ids and non-boolean values", async () => {
+  it("rehydration drops retired ids and non-boolean values", async () => {
     localStorage.setItem(
       "sidebar-storage",
       JSON.stringify({
@@ -119,9 +119,7 @@ describe("sidebarStore navItemOverrides", () => {
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().navItemOverrides).toEqual({
-      inbox: true,
-    });
+    expect(useSidebarStore.getState().navItemOverrides).toEqual({});
     localStorage.removeItem("sidebar-storage");
   });
 });

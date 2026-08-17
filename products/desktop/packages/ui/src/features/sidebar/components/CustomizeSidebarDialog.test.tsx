@@ -138,30 +138,30 @@ describe("CustomizeSidebarSettings", () => {
 
   it("checking a hidden item promotes it and tracks the change", async () => {
     const user = userEvent.setup();
-    useSidebarStore.setState({ navItemOverrides: { inbox: false } });
+    useSidebarStore.setState({ navItemOverrides: { activity: false } });
     renderSettings();
 
-    await user.click(screen.getByRole("checkbox", { name: "Inbox" }));
+    await user.click(screen.getByRole("checkbox", { name: "Activity" }));
 
-    expect(useSidebarStore.getState().navItemOverrides.inbox).toBe(true);
+    expect(useSidebarStore.getState().navItemOverrides.activity).toBe(true);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED, {
-      item: "inbox",
+      item: "activity",
       visible: true,
     });
   });
 
   it("renders rows in the stored order", () => {
-    useSidebarStore.setState({ navItemOrder: ["configure", "inbox"] });
+    useSidebarStore.setState({ navItemOrder: ["configure", "activity"] });
     renderSettings();
 
-    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Inbox"]);
+    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Activity"]);
   });
 
   it("previews on dragover and persists only on drop", () => {
     renderSettings();
 
     dragStart("loops");
-    dragOver("loops", "inbox");
+    dragOver("loops", "activity");
 
     expect(rowLabels()[0]).toBe("Loops");
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
@@ -171,7 +171,6 @@ describe("CustomizeSidebarSettings", () => {
 
     expect(useSidebarStore.getState().navItemOrder).toEqual([
       "loops",
-      "inbox",
       "activity",
       "command-center",
       "configure",
@@ -186,8 +185,8 @@ describe("CustomizeSidebarSettings", () => {
     renderSettings();
 
     dragStart("loops");
-    dragOver("loops", "inbox");
-    dragOver("loops", "inbox");
+    dragOver("loops", "activity");
+    dragOver("loops", "activity");
 
     expect(rowLabels()[0]).toBe("Loops");
 
@@ -200,10 +199,10 @@ describe("CustomizeSidebarSettings", () => {
     renderSettings();
 
     dragStart("loops");
-    dragOver("loops", "inbox");
+    dragOver("loops", "activity");
     dragEnd("loops", { cancel: true });
 
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[0]).toBe("Activity");
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
     expect(track).not.toHaveBeenCalled();
   });
@@ -220,12 +219,12 @@ describe("CustomizeSidebarSettings", () => {
 
   it("reset clears the stored order back to the default", async () => {
     const user = userEvent.setup();
-    useSidebarStore.setState({ navItemOrder: ["loops", "inbox"] });
+    useSidebarStore.setState({ navItemOrder: ["loops", "activity"] });
     renderSettings();
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[0]).toBe("Activity");
   });
 });
