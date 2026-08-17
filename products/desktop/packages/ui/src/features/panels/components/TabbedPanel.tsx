@@ -129,6 +129,26 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       : content.activeTabId
         ? [content.activeTabId]
         : [];
+  const mountedTabIdSet = new Set(mountedTabIds);
+  const mountedTabContent = content.tabs.reduce<React.ReactNode[]>(
+    (renderedTabs, tab) => {
+      if (tab.id !== content.activeTabId && !mountedTabIdSet.has(tab.id)) {
+        return renderedTabs;
+      }
+      renderedTabs.push(
+        <div
+          key={tab.id}
+          style={
+            tab.id === content.activeTabId ? activeTabStyle : hiddenTabStyle
+          }
+        >
+          {tab.component}
+        </div>,
+      );
+      return renderedTabs;
+    },
+    [],
+  );
 
   const handleSplitClick = async () => {
     const result = await hostClient.contextMenu.showSplitContextMenu.mutate();
@@ -290,24 +310,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       >
         {content.tabs.length > 0 &&
         content.tabs.some((t) => t.id === content.activeTabId) ? (
-          content.tabs
-            .filter(
-              (tab) =>
-                tab.id === content.activeTabId ||
-                mountedTabIds.includes(tab.id),
-            )
-            .map((tab) => (
-              <div
-                key={tab.id}
-                style={
-                  tab.id === content.activeTabId
-                    ? activeTabStyle
-                    : hiddenTabStyle
-                }
-              >
-                {tab.component}
-              </div>
-            ))
+          mountedTabContent
         ) : emptyState ? (
           emptyState
         ) : (

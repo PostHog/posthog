@@ -16,9 +16,9 @@ import type { Task } from "@posthog/shared/domain-types";
 import { ActivityPanelBody } from "@posthog/ui/features/canvas/components/ActivityPanelBody";
 import {
   LazyCloudReviewPage as CloudReviewPage,
-  preloadReviewPages,
   LazyReviewPage as ReviewPage,
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
+import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
