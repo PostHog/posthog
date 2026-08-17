@@ -780,11 +780,9 @@ def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
     """Revoke every live member of a refresh token's family in a constant number of
     queries, and delete the access tokens still linked to them.
 
-    Use this when refresh-token reuse protection fires: the whole family is suspect, but
-    DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per
-    historical member, and rotating sessions grow a family by one row per refresh — so a
-    long-lived session retried on a timer turns each `/oauth/token` request into hundreds
-    of row-locking no-op SELECTs."""
+    Use this when refresh-token reuse protection fires and the whole family is suspect:
+    DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per family
+    member, even already-revoked ones."""
     # Rows without a family (pre-rotation-refresh tokens, non-rotating clients) are their
     # own lineage: sweeping them by token_family=None would revoke unrelated tokens.
     if refresh_token.token_family is None:

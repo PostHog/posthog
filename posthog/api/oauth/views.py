@@ -864,7 +864,7 @@ class OAuthValidator(OAuth2Validator):
         if not rt:
             return False
 
-        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+        if rt.revoked and rt.revoked <= timezone.now() - timedelta(
             seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
         ):
             if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
@@ -876,8 +876,8 @@ class OAuthValidator(OAuth2Validator):
         # Store the RefreshToken instance to be reused by get_original_scopes and save_bearer_token.
         request.refresh_token_instance = rt
 
-        # Compare by pk: rt.application would lazy-load a row the validator already has.
-        # Upstream's instance comparison also yields False when client is None, so guard the same way.
+        # application_id avoids lazy-loading the Application row; upstream's instance
+        # comparison yields False when client is None, so guard the same way.
         return client is not None and rt.application_id == client.pk
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
