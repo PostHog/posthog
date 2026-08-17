@@ -99,9 +99,11 @@ Nothing renders these, so skipping them fails silently in production rather than
 
 ## Other repos
 
-Two repos have to change too. Their file lists are not reproduced here, because this skill cannot verify them and a stale list is worse than a pointer — read the tree when you get there.
+**The Tier 1 and Tier 2 step components are also the public docs.** Each posthog.com installation page is a stub that imports `<Sdk>Installation` from this repo, so a snippet you write here is published at `posthog.com/docs/<product>/installation/<sdk>` as well as shown in the picker. Write them to that standard.
 
-**[PostHog/posthog.com](https://github.com/PostHog/posthog.com) — required.** Every `docsLink` in this repo points at it, so shipping the app wiring without the docs page gives customers a 404 from the picker. Trace an existing SDK with `git grep -Il "flutter" -- '*.ts' '*.tsx' '*.mdx' '*.js'`. As of writing that is five places: the page at `contents/docs/libraries/<sdk>/index.mdx` (whose frontmatter `features` block drives the support matrices), a `platformLogo` entry in `src/constants/logos.ts`, an entry in `src/constants/installation-taxonomy.ts`, the sidebar in `src/navs/index.js`, and the grid in `src/components/Docs/Integrate.tsx`.
+**[PostHog/posthog.com](https://github.com/PostHog/posthog.com) — required.** Follow the runbook at [handbook/wizard-and-docs/onboarding-docs](https://posthog.com/handbook/wizard-and-docs/onboarding-docs), which owns this procedure: a wrapper export in `contents/docs/<product>/installation/_snippets/<prefix>-installation-wrapper.tsx`, an `.mdx` stub per SDK, local testing with `GATSBY_POSTHOG_BRANCH=<your-branch> pnpm start`, and merging both PRs together. Do not re-derive those steps from this file — the runbook is maintained and this is not.
+
+The runbook covers the per-product installation pages. The SDK's own library page is separate and also required, because every `docsLink` in this repo points at it and a missing page is a 404 straight from the picker: `contents/docs/libraries/<sdk>/index.mdx`, whose frontmatter `features` block drives the support matrices, plus entries in `src/constants/logos.ts`, `src/constants/installation-taxonomy.ts`, `src/navs/index.js` and `src/components/Docs/Integrate.tsx`. Check `src/components/SdkReferences/utils.ts` too if the SDK has reference docs.
 
 **[PostHog/wizard](https://github.com/PostHog/wizard) — optional.** A framework under `src/frameworks/<sdk>/` plus a `SkillId` entry lets the AI setup wizard install the SDK. Only then set `wizardIntegrationName` here, or the banner promises something the wizard cannot do.
 
