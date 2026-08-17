@@ -27,7 +27,7 @@ export interface SourceSteeringFormValues {
 const STEERING_EXAMPLES: { label: string; line: string }[] = [
     { label: 'Skip chores', line: 'Skip anything labeled chore, internal, or dependencies.' },
     { label: 'Billing only', line: 'Only report issues about billing, checkout, or payments.' },
-    { label: 'Paying customers', line: 'Anything a paying customer opened is worth reporting.' },
+    { label: 'Crashes first', line: 'Anything mentioning a crash, outage, or data loss is worth reporting.' },
 ]
 
 export interface SteeringExample {
