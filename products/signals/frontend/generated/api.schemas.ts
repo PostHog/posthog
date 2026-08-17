@@ -839,8 +839,8 @@ export interface GithubIssueSignalExtraApi {
     updated_at: string
     locked: boolean
     state: string
-    author_login: string | null
-    author_association: string | null
+    author_login?: string | null
+    author_association?: string | null
 }
 
 export interface LinearIssueSignalExtraApi {
