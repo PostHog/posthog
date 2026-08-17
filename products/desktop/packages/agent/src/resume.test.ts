@@ -48,4 +48,41 @@ describe("trimConversationForSnapshot", () => {
     expect(trimmed.at(-1)?.toolCalls?.[0]?.result).toBeDefined();
     expect(serializedBytes(trimmed)).toBeLessThan(RESUME_STATE_MAX_BYTES);
   });
+
+  it("drops the resume preamble so it can't starve real user turns", () => {
+    // A resume preamble embeds the prior summary, so it is one huge user turn.
+    // Selecting before filtering it would spend the budget on it and shed the
+    // original task statement, which formatConversationForResume later strips.
+    const conversation: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Original task: do X" }],
+      },
+      { role: "assistant", content: [{ type: "text", text: "earlier reply" }] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `You are resuming a previous conversation. ${"summary ".repeat(30_000)}Continue from where you left off`,
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "resumed reply" }] },
+    ];
+
+    const trimmed = trimConversationForSnapshot(conversation);
+
+    const text = (turn: ConversationTurn): string =>
+      turn.content
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { type: "text"; text: string }).text)
+        .join("");
+    expect(trimmed.some((turn) => text(turn).includes("Original task"))).toBe(
+      true,
+    );
+    expect(
+      trimmed.some((turn) => text(turn).includes("You are resuming")),
+    ).toBe(false);
+  });
 });

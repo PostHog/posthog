@@ -145,11 +145,15 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
  * The fold keeps tool payloads whole, which runs a long task's snapshot past the
  * stored size limit, while the prompt below only renders a recent window. Capping
  * payloads first keeps one oversized turn from starving the window selection.
+ * Dropping the synthetic resume preamble first matches formatConversationForResume:
+ * that turn embeds the prior conversation summary, so leaving it in lets one giant
+ * turn consume the budget and shed the real user turns the resume prompt needs.
  */
 export function trimConversationForSnapshot(
   conversation: ConversationTurn[],
 ): ConversationTurn[] {
-  const capped = conversation.map((turn) =>
+  const filtered = conversation.filter((turn) => !isResumeContextTurn(turn));
+  const capped = filtered.map((turn) =>
     turn.toolCalls?.length
       ? {
           ...turn,
