@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
 
 DASHBOARD_GRID_SPACING_GAPS = {
-    "tight": 4,
-    "condensed": 8,
+    "tight": 8,
+    "condensed": 12,
     "standard": 16,
     "relaxed": 32,
     "wide": 48,
