@@ -1,6 +1,7 @@
+import { extractChartBlocks } from "@posthog/core/quick-ask/chart-blocks";
 import type { QuickAskChart } from "@posthog/core/quick-ask/quick-ask";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chart } from "./charts";
 import { Markdown } from "./Markdown";
 
@@ -59,11 +60,16 @@ export function AnswerCard({
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
+  // Charts can also arrive embedded in the answer markdown (the task-backed
+  // path streams plain agent text); they render beside the streamed ones.
+  const extracted = useMemo(() => extractChartBlocks(text), [text]);
+  const allCharts = [...charts, ...extracted.charts];
+
   const copyAnswer = useCallback((): void => {
-    void navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(extracted.text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
-  }, [text]);
+  }, [extracted.text]);
 
   // Follow the stream, but stop if the user scrolled up to read.
   const onScroll = useCallback((): void => {
@@ -85,11 +91,11 @@ export function AnswerCard({
     <div className="qa-card">
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
         <div className="qa-answer">
-          <Markdown text={text} />
+          <Markdown text={extracted.text} />
           {streaming && <span className="qa-caret" />}
         </div>
 
-        {charts.map((chart, index) => (
+        {allCharts.map((chart, index) => (
           <Chart key={`${index}:${chart.title}`} chart={chart} />
         ))}
 
