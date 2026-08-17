@@ -379,6 +379,5 @@
     },
     "engines": {
         "node": ">=24 <25"
-    },
-    "packageManager": "pnpm@10.23.0"
+    }
 }
