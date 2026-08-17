@@ -540,23 +540,58 @@ await annotate.goto(`${renderer.origin}/quick-ask-annotate.html`);
 await annotate.waitForSelector(".an-hint", { timeout: 15_000 });
 await annotate.waitForSelector(".an-shot", { timeout: 15_000 });
 
-// Crop: 300x200 at (100, 100). The shot is 2x the viewport, so the export
-// should be 600x400.
+// Crop: 300x200 at (100, 100). The shot is 2x the viewport, so the
+// dimension label reads export pixels.
 await annotate.mouse.move(100, 100);
 await annotate.mouse.down();
 await annotate.mouse.move(400, 300, { steps: 5 });
 await annotate.mouse.up();
-await annotate.waitForSelector('.an-tool.an-active:has-text("Box")', {
-  timeout: 5_000,
-});
+await annotate.waitForSelector(".an-toolbar", { timeout: 5_000 });
+const dims = await annotate.locator(".an-dims").textContent();
+if (dims?.trim() !== "600 × 400") {
+  fail(`dimension label reads "${dims}", expected "600 × 400"`);
+}
 
-await annotate.click('.an-tool:has-text("Arrow")');
+// Grow the selection by its south-east handle; the label follows.
+await annotate.mouse.move(400, 300);
+await annotate.mouse.down();
+await annotate.mouse.move(450, 350, { steps: 5 });
+await annotate.mouse.up();
+const grown = await annotate.locator(".an-dims").textContent();
+if (grown?.trim() !== "700 × 500") {
+  fail(`dimension label reads "${grown}" after resize, expected "700 × 500"`);
+}
+
+// Ink: an arrow, a text label, and a pixelated region.
+await annotate.click('[aria-label="Arrow (A)"]');
 await annotate.mouse.move(150, 150);
 await annotate.mouse.down();
 await annotate.mouse.move(320, 240, { steps: 5 });
 await annotate.mouse.up();
 
-await annotate.click('.an-tool:has-text("Attach")');
+await annotate.click('[aria-label="Text (T)"]');
+await annotate.mouse.click(200, 180);
+await annotate.waitForSelector(".an-text-input", { timeout: 5_000 });
+await annotate.keyboard.type("LGTM");
+await annotate.keyboard.press("Enter");
+
+await annotate.click('[aria-label="Pixelate (X)"]');
+await annotate.mouse.move(250, 210);
+await annotate.mouse.down();
+await annotate.mouse.move(340, 270, { steps: 5 });
+await annotate.mouse.up();
+
+// Undo removes the pixelation; redo restores it.
+await annotate.click('[aria-label="Undo (⌘Z)"]');
+const redoEnabled = await annotate
+  .locator('[aria-label="Redo (⇧⌘Z)"]')
+  .isEnabled();
+if (!redoEnabled) {
+  fail("undo did not enable redo");
+}
+await annotate.click('[aria-label="Redo (⇧⌘Z)"]');
+
+await annotate.click(".an-attach");
 await annotate.waitForFunction("typeof window.__annotated === 'string'", {
   timeout: 5_000,
 });
@@ -575,15 +610,15 @@ const exported = (await annotate.evaluate(`
 if (exported.prefix !== "data:image/png;base64,") {
   fail(`annotator exported ${exported.prefix}`);
 }
-if (exported.width !== 600 || exported.height !== 400) {
+if (exported.width !== 700 || exported.height !== 500) {
   fail(
-    `annotator export is ${exported.width}x${exported.height}, expected 600x400`,
+    `annotator export is ${exported.width}x${exported.height}, expected 700x500`,
   );
 }
 if (annotateErrors.length > 0) {
   fail(`annotator page errors: ${annotateErrors.join(" | ")}`);
 }
-pass("annotator crops, inks, and exports the flattened PNG");
+pass("annotator crops, resizes, inks arrow/text/pixelate, and exports");
 
 await browser.close();
 renderer.close();
