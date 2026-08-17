@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.temporal.volume_tick.aggregation import aggregate_buckets
+from products.logs.backend.temporal.volume_tick.aggregation import (
+    RollupPreview,
+    _rollup_parameters,
+    _rollup_sql,
+    preview_rollup,
+)
 from products.logs.backend.temporal.volume_tick.constants import BUCKET_SECONDS
 
 _START = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
@@ -40,19 +45,14 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
             "attributes_map_str": {},
         }
 
-    def _rollup_rows(self, generation: int) -> list[tuple]:
-        return sync_execute(
-            """
-            SELECT time_bucket, service_name, namespace, environment, severity_text, log_count
-            FROM logs_volume_buckets
-            WHERE team_id = %(team_id)s AND generation = %(generation)s
-            ORDER BY time_bucket, service_name, namespace, environment, severity_text
-            """,
-            {"team_id": self.team.id, "generation": generation},
-        )
+    def _rollup(self, *, start: datetime = _START, end: datetime = _END) -> list[tuple]:
+        """The rows the rollup would write, ordered. Runs the writer's own query,
+        so these assertions hold unchanged once it writes rather than counts."""
+        rows = sync_execute(_rollup_sql(), _rollup_parameters([self.team.id], start, end))
+        return sorted(rows, key=lambda row: (row[1], row[2], row[3], row[4], row[5]))
 
-    def _aggregate(self, generation: int, *, start: datetime = _START, end: datetime = _END) -> int:
-        return aggregate_buckets(team_ids=[self.team.id], start=start, end=end, generation=generation).rows_written
+    def _preview(self, *, start: datetime = _START, end: datetime = _END) -> RollupPreview:
+        return preview_rollup(team_ids=[self.team.id], start=start, end=end)
 
     def test_counts_match_a_direct_raw_query(self) -> None:
         self._insert_logs(
@@ -66,9 +66,8 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
                 ]
             ]
         )
-        self._aggregate(generation=1)
 
-        rolled_up = [(row[1], row[4], row[5]) for row in self._rollup_rows(generation=1)]
+        rolled_up = [(row[2], row[5], row[6]) for row in self._rollup()]
         direct = sync_execute(
             """
             SELECT service_name, lower(severity_text), count()
@@ -83,19 +82,55 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rolled_up, [("checkout", "error", 1), ("checkout", "info", 2), ("search", "info", 1)])
         self.assertEqual(rolled_up, [(row[0], row[1], row[2]) for row in direct])
 
-    def test_generations_are_disjoint(self) -> None:
-        self._insert_logs([self._log(_START)])
-
-        self._aggregate(generation=1)
-        self._aggregate(generation=2)
-
-        self.assertEqual(len(self._rollup_rows(generation=1)), 1)
-        self.assertEqual(len(self._rollup_rows(generation=2)), 1)
-        both = sync_execute(
-            "SELECT uniqExact(generation) FROM logs_volume_buckets WHERE team_id = %(team_id)s",
-            {"team_id": self.team.id},
+    def test_preview_summarizes_the_rows_the_rollup_would_write(self) -> None:
+        self._insert_logs(
+            [
+                self._log(_START, service="checkout", severity="info"),
+                self._log(_START, service="checkout", severity="info"),
+                self._log(_START, service="checkout", severity="error"),
+                self._log(_START, service="search", severity="info"),
+            ]
         )
-        self.assertEqual(both[0][0], 2)
+
+        preview = self._preview()
+
+        self.assertEqual(
+            preview,
+            RollupPreview(
+                rollup_rows=3,
+                source_rows=4,
+                distinct_services=2,
+                rows_without_namespace=3,
+                rows_without_environment=3,
+            ),
+        )
+
+    def test_preview_counts_resolved_dimensions_as_present(self) -> None:
+        self._insert_logs(
+            [
+                self._log(_START, resource_attributes={"k8s.namespace.name": "web", "env": "prod"}),
+                self._log(_START, service="search", resource_attributes={"k8s.namespace.name": "web"}),
+            ]
+        )
+
+        preview = self._preview()
+
+        self.assertEqual(preview.rows_without_namespace, 0)
+        self.assertEqual(preview.rows_without_environment, 1)
+
+    def test_preview_of_an_empty_window_is_all_zeroes(self) -> None:
+        preview = self._preview()
+
+        self.assertEqual(
+            preview,
+            RollupPreview(
+                rollup_rows=0,
+                source_rows=0,
+                distinct_services=0,
+                rows_without_namespace=0,
+                rows_without_environment=0,
+            ),
+        )
 
     def test_logs_land_in_their_own_grid_bucket(self) -> None:
         second_bucket = _START + timedelta(seconds=BUCKET_SECONDS)
@@ -105,13 +140,14 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
                 self._log(second_bucket),
             ]
         )
+        window = {"start": _START, "end": second_bucket + timedelta(seconds=BUCKET_SECONDS)}
 
-        self._aggregate(generation=1, start=_START, end=second_bucket + timedelta(seconds=BUCKET_SECONDS))
+        rows = self._rollup(**window)
 
-        # time_bucket is DateTime('UTC'), so the driver hands back aware datetimes.
-        buckets = [(row[0], row[5]) for row in self._rollup_rows(generation=1)]
-        self.assertEqual(buckets, [(_START, 1), (second_bucket, 1)])
-        self.assertEqual([row[0].utcoffset() for row in self._rollup_rows(generation=1)], [timedelta(0)] * 2)
+        # Aware, and UTC: the grid pins its timezone rather than inheriting the session's.
+        self.assertEqual([(row[1], row[6]) for row in rows], [(_START, 1), (second_bucket, 1)])
+        self.assertEqual([row[1].utcoffset() for row in rows], [timedelta(0)] * 2)
+        self.assertEqual(self._preview(**window).rollup_rows, 2)
 
     @parameterized.expand(
         [
@@ -127,9 +163,7 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
     ) -> None:
         self._insert_logs([self._log(_START, resource_attributes=resource_attributes)])
 
-        self._aggregate(generation=1)
-
-        self.assertEqual([row[3] for row in self._rollup_rows(generation=1)], [expected])
+        self.assertEqual([row[4] for row in self._rollup()], [expected])
 
     @parameterized.expand([("present", {"k8s.namespace.name": "web"}, "web"), ("absent", {}, "")])
     def test_namespace_is_verbatim_with_no_sentinel(
@@ -137,17 +171,12 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
     ) -> None:
         self._insert_logs([self._log(_START, resource_attributes=resource_attributes)])
 
-        self._aggregate(generation=1)
-
-        self.assertEqual([row[2] for row in self._rollup_rows(generation=1)], [expected])
+        self.assertEqual([row[3] for row in self._rollup()], [expected])
 
     def test_severity_casing_merges_into_one_series(self) -> None:
         self._insert_logs([self._log(_START, severity="ERROR"), self._log(_START, severity="error")])
 
-        self._aggregate(generation=1)
-
-        rows = self._rollup_rows(generation=1)
-        self.assertEqual([(row[4], row[5]) for row in rows], [("error", 2)])
+        self.assertEqual([(row[5], row[6]) for row in self._rollup()], [("error", 2)])
 
     @parameterized.expand(
         [
@@ -162,12 +191,9 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
     )
     def test_rejects_invalid_input(self, _name: str, team_ids: list[int], start: datetime, end: datetime) -> None:
         with self.assertRaises(ValueError):
-            aggregate_buckets(team_ids=team_ids, start=start, end=end, generation=1)
+            preview_rollup(team_ids=team_ids, start=start, end=end)
 
     def test_other_teams_are_not_rolled_up(self) -> None:
         self._insert_logs([self._log(_START), {**self._log(_START), "team_id": self.team.id + 10_000}])
 
-        rows_written = self._aggregate(generation=1)
-
-        self.assertEqual(rows_written, 1)
-        self.assertEqual(len(self._rollup_rows(generation=1)), 1)
+        self.assertEqual(self._preview().rollup_rows, 1)
