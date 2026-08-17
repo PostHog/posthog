@@ -2,18 +2,30 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
 import type { FeatureRequestApi } from '../../generated/api.schemas'
-import { FEATURE_REQUESTS_PAGE_SIZE, featureRequestsLogic } from './featureRequestsLogic'
+import {
+    FEATURE_REQUESTS_PAGE_SIZE,
+    featureRequestSearchParams,
+    featureRequestsLogic,
+    parseFeatureRequestSearchParams,
+} from './featureRequestsLogic'
 
 const createdRequest: FeatureRequestApi = {
     id: 'request-1',
     title: 'Export account-level retention data',
     description: 'The customer needs this for reporting.',
     request_status: 'requested',
+    request_priority: null,
+    is_archived: false,
+    archived_at: null,
+    archived_by: null,
+    version: 1,
     account: { id: 'account-1', name: 'Acme' },
     product_areas: [
         {
@@ -40,6 +52,7 @@ describe('featureRequestsLogic', () => {
                 '/api/projects/:team_id/feature_requests/': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:team_id/feature_requests/:id/': createdRequest,
                 '/api/projects/:team_id/feature_request_product_areas/': [],
+                '/api/projects/:team_id/feature_requests/:id/history/': [],
                 '/api/projects/:team_id/accounts/': { count: 0, next: null, previous: null, results: [] },
             },
         })
@@ -111,13 +124,75 @@ describe('featureRequestsLogic', () => {
             .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
             .toFinishAllListeners()
 
-        expect(listSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            limit: FEATURE_REQUESTS_PAGE_SIZE,
-            offset: FEATURE_REQUESTS_PAGE_SIZE,
-        })
+        expect(listSpy).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({
+                limit: FEATURE_REQUESTS_PAGE_SIZE,
+                offset: FEATURE_REQUESTS_PAGE_SIZE,
+                archive_state: 'active',
+                request_ordering: '-updated_at',
+            })
+        )
         expect(logic.values.featureRequestsPage).toBe(2)
         expect(logic.values.featureRequestsResponse.count).toBe(21)
         expect(logic.values.featureRequestsResponse.results).toEqual([createdRequest])
+    })
+
+    it('round-trips list filters through URL search parameters', () => {
+        const parsed = parseFeatureRequestSearchParams({
+            search: 'retention',
+            status: 'planned,completed,invalid',
+            priority: 'high,none',
+            product_area: 'area-1,area-2',
+            account: 'account-1',
+            archive: 'all',
+            sort: 'title',
+            page: '3',
+        })
+
+        expect(parsed).toMatchObject({
+            searchQuery: 'retention',
+            statusFilter: ['planned', 'completed'],
+            priorityFilter: ['high', 'none'],
+            productAreaFilter: ['area-1', 'area-2'],
+            accountFilter: ['account-1'],
+            archiveState: 'all',
+            requestOrdering: 'title',
+            featureRequestsPage: 3,
+        })
+        expect(featureRequestSearchParams(parsed)).toEqual({
+            search: 'retention',
+            status: 'planned,completed',
+            priority: 'high,none',
+            product_area: 'area-1,area-2',
+            account: 'account-1',
+            archive: 'all',
+            sort: 'title',
+            page: '3',
+        })
+    })
+
+    it('keeps an edit draft after a stale write and reloads only its version', async () => {
+        jest.spyOn(generatedApi, 'featureRequestsUpdate').mockRejectedValueOnce(new ApiError('Conflict', 409))
+        jest.spyOn(generatedApi, 'featureRequestsRetrieve').mockResolvedValue({ ...createdRequest, version: 2 })
+        logic.actions.setActiveRequestId(createdRequest.id)
+        logic.actions.openEditRequest(createdRequest)
+        logic.actions.setEditTitle('Unsaved title')
+
+        await expectLogic(logic, () => logic.actions.saveRequestChanges()).toFinishAllListeners()
+
+        expect(logic.values.editRequestOpen).toBe(true)
+        expect(logic.values.editTitle).toBe('Unsaved title')
+        expect(logic.values.editExpectedVersion).toBe(1)
+        expect(logic.values.editError).toContain('changed since')
+        expect(logic.values.editIsStale).toBe(true)
+
+        await expectLogic(logic, () => logic.actions.reloadLatestForEdit()).toFinishAllListeners()
+
+        expect(logic.values.editTitle).toBe('Unsaved title')
+        expect(logic.values.editExpectedVersion).toBe(2)
+        expect(logic.values.editError).toBeNull()
+        expect(logic.values.editIsStale).toBe(false)
     })
 
     it('ignores a second submit while the first request is in flight', async () => {

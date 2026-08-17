@@ -74,11 +74,17 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
             return None
         new_variants = value.get("variants", [])
         new_payloads = value.get("payloads", {})
-        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
-        # into its nested multivariate dict would mutate the flag's pre-change state in place and
-        # defeat the approval gate's old-vs-new comparison.
-        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
-        updated_multivariate["variants"] = new_variants
+        if not new_variants:
+            # Clearing variants makes the flag boolean; the canonical stored shape for that is
+            # multivariate: null. {"variants": []} is an invalid shape (#50084) that migration
+            # 0007 cleaned and the filters serializer rejects.
+            updated_multivariate = None
+        else:
+            # Deep-copy before mutating: current_filters is flag.filters (a live reference), so
+            # assigning into its nested multivariate dict would mutate the flag's pre-change state
+            # in place and defeat the approval gate's old-vs-new comparison.
+            updated_multivariate = copy.deepcopy(current_filters.get("multivariate") or {})
+            updated_multivariate["variants"] = new_variants
         return {
             "filters": {
                 **current_filters,

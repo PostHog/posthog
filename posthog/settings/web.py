@@ -592,6 +592,8 @@ SPECTACULAR_SETTINGS = {
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
+        "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
+        "EmailThreadParticipantKindEnum": "products.conversations.backend.models.email_thread.EmailThreadParticipantKind",
         # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
         "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
         "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
@@ -605,6 +607,7 @@ SPECTACULAR_SETTINGS = {
         ),
         "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
         "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
+        "FeatureRequestStatusEnum": "products.customer_analytics.backend.models.feature_request.FeatureRequestStatus",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
@@ -677,6 +680,8 @@ SPECTACULAR_SETTINGS = {
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
+        "CanvasStateScopeEnum": ["user", "shared"],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
         # `strength` and `kind` are generic enough that the next one added anywhere would collide,
@@ -1076,6 +1081,12 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
+
+# Monthly read-bytes allowance for organizations without an active subscription,
+# enforced from the product-owned counter in posthog/api_queries_quota.py. 0 disables it.
+API_QUERIES_FREE_TIER_READ_BYTES_LIMIT: int = get_from_env(
+    "API_QUERIES_FREE_TIER_READ_BYTES_LIMIT", 50_000_000_000_000, type_cast=int
+)
 
 ####
 # /api/environments deprecation

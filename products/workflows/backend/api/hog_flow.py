@@ -1893,6 +1893,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
+    def _stages_draft(self) -> bool:
+        # stage_draft rides the raw request body rather than being a serializer field, mirroring
+        # base_updated_at (see perform_update, which does the actual draft routing off it).
+        request = self.context.get("request")
+        return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
+
     def to_internal_value(self, data):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
@@ -1911,6 +1917,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if status is None and instance:
             status = instance.status
         if status != "active":
+            self.context["is_draft"] = True
+        elif (
+            instance is not None
+            and instance.status == HogFlow.State.ACTIVE
+            and isinstance(data, dict)
+            and bool(set(data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            and self._stages_draft()
+        ):
+            # A stage_draft content save writes the draft blob, not the live row (perform_update
+            # routes it there), so it validates like any other draft: the web builder saves
+            # incomplete steps mid-edit, and publish revalidates strictly before promoting
+            # anything. _should_validate_strictly keeps programmatic callers strict regardless.
             self.context["is_draft"] = True
 
         # Existing decrypted secrets, keyed by action id, so child action validation can recover a

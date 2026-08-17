@@ -266,6 +266,7 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
             kind: NodeKind.AccountsTableQuery,
             columns: columns.map(({ column }) => column),
             filters,
+            includeChurned: input.accountIdFilter !== null,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
         },
