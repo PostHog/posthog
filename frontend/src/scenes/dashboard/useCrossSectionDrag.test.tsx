@@ -156,6 +156,45 @@ describe('useCrossSectionDrag', () => {
         )
     })
 
+    it('uses the full tile area of a named section as its drop zone', () => {
+        const onTileDrop = jest.fn()
+        const { result } = renderHook(() =>
+            useCrossSectionDrag({
+                sections: [
+                    { key: 'first', group: null, isNamed: false, tiles: [] },
+                    {
+                        key: 'second',
+                        group: { id: 'second', name: 'Second', position: 0 },
+                        isNamed: true,
+                        tiles: [],
+                    },
+                ],
+                disabled: false,
+                onTileDrop,
+                onSectionDrop: jest.fn(),
+            })
+        )
+        const first = document.createElement('section')
+        const second = document.createElement('section')
+        first.getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 }) as DOMRect
+        second.getBoundingClientRect = () => ({ top: 120, bottom: 720, height: 600 }) as DOMRect
+
+        act(() => {
+            result.current.registerSection('first', first)
+            result.current.registerSection('second', second)
+            result.current.startTileDrag(1, 'first')
+            result.current.finishDrag(new MouseEvent('mouseup', { clientY: 700 }))
+        })
+
+        expect(onTileDrop).toHaveBeenCalledWith(
+            1,
+            { type: 'section', sectionKey: 'second', position: 1, after: true },
+            expect.any(MouseEvent),
+            null,
+            expect.any(Object)
+        )
+    })
+
     it('uses a collapsed section header as a tile drop zone', () => {
         const onTileDrop = jest.fn()
         const { result } = renderHook(() =>
