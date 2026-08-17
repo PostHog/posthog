@@ -569,6 +569,17 @@ function MetricDefinition({
     )
     const results = runResult ? <RunResult runResult={runResult} /> : null
 
+    const sourceInsightButton = metric.source_insight_short_id ? (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconGraph />}
+            to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
+        >
+            View source insight
+        </LemonButton>
+    ) : null
+
     if (kind === 'HogQLQuery') {
         return (
             <Section title="Definition">
@@ -583,6 +594,7 @@ function MetricDefinition({
                     >
                         Open in SQL editor
                     </LemonButton>
+                    {sourceInsightButton}
                 </div>
                 {results}
             </Section>
@@ -658,21 +670,34 @@ function MetricDefinition({
 
     return (
         <Section title="Definition">
-            <p className="text-secondary">
-                This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
-            </p>
+            {sourceInsightButton ? (
+                <p className="text-secondary">
+                    This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
+                </p>
+            ) : (
+                <>
+                    <p className="text-secondary">
+                        This metric was created from a query definition and has no linked insight. Run it to see the
+                        current results.
+                    </p>
+                    <LemonCollapse
+                        panels={[
+                            {
+                                key: 'definition',
+                                header: 'View definition',
+                                content: (
+                                    <CodeSnippet language={Language.JSON}>
+                                        {JSON.stringify(metric.definition, null, 2)}
+                                    </CodeSnippet>
+                                ),
+                            },
+                        ]}
+                    />
+                </>
+            )}
             <div className="flex gap-2">
                 {runButton}
-                {metric.source_insight_short_id && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGraph />}
-                        to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
-                    >
-                        View source insight
-                    </LemonButton>
-                )}
+                {sourceInsightButton}
             </div>
             {results}
         </Section>
