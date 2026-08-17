@@ -1689,6 +1689,19 @@ class TestWatchedModelsAllowance:
         )
         assert unwatched_model_surface(product_dir) == expected
 
+    def test_migrations_are_required_before_the_directory_exists(self, tmp_path: Path) -> None:
+        # a product with models but no migrations yet must still watch the glob, otherwise its first
+        # migration lands in an unwatched location and a data migration skips the suite
+        product_dir, _ = _write_facade_product(
+            tmp_path,
+            name="warehouse_sources",
+            facade_files=self._FACADE,
+            sources=self._SOURCES,
+            turbo_inputs=["backend/facade/**", "backend/models/**"],
+        )
+        assert not (product_dir / "backend/migrations").exists()
+        assert unwatched_model_surface(product_dir) == {"backend/migrations/"}
+
     def test_model_surface_inputs_count_as_narrowing_only_when_passed(self, tmp_path: Path) -> None:
         # the restored warehouse_sources turbo.json must register as narrowed — otherwise the skip
         # is silently inert forever — but only via the allowance, never for arbitrary products.

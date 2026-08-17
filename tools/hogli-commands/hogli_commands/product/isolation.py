@@ -794,7 +794,9 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
     negations = [i.removeprefix("!").removeprefix("./") for i in raw if i.startswith("!")]
     uncovered = set()
     for p in MODEL_SURFACE_PREFIXES:
-        if not (product_dir / p.rstrip("/")).exists():
+        # Migrations are required whether or not the directory exists yet: a product that narrows
+        # before its first migration would otherwise carry an unwatched location the moment one lands.
+        if p != "backend/migrations/" and not (product_dir / p.rstrip("/")).exists():
             continue
         negation_may_touch = any(_literal_prefix_overlaps(n, p) for n in negations)
         if location_input_glob(p) not in positive or negation_may_touch:
