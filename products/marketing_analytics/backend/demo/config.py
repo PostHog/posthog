@@ -90,10 +90,11 @@ def build_conversion_goals(team: Team) -> list[dict]:
                 "distinct_id_field": "distinct_id",
             },
         },
-        # Sums money and is flagged as neither, so ROAS and cost per customer stay
-        # blocked with a goal sitting right there that would unblock them. Drives
-        # mark_goal_as_revenue / mark_goal_as_customer, and gives the settings
-        # checkboxes something to turn on.
+        # Sums money and is flagged as neither, so the settings checkboxes have a goal
+        # to turn on. It does not produce mark_goal_as_revenue / mark_goal_as_customer:
+        # those ask "is there any flagged goal at all", and the two below are, which is
+        # what keeps ROAS and cost per customer unlocked here. A fixture can show the
+        # metrics working or the nudge to enable them, not both.
         {
             "kind": "EventsNode",
             "event": EVENT_PURCHASE,
