@@ -29,8 +29,9 @@ from ee.hogai.stream.redis_stream import (
     ConversationRedisStream,
     GenerationStatusEvent,
     MessageEvent,
-    StreamError,
     StreamEvent,
+    StreamNotAvailableError,
+    StreamTimeoutError,
     UpdateEvent,
     get_conversation_stream_key,
 )
@@ -38,6 +39,14 @@ from ee.hogai.utils.types import AssistantOutput
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
+
+# Shown when the conversation never starts streaming. This is usually a transient
+# Temporal problem, so the client also renders a retry button next to it.
+WORKFLOW_NOT_STARTED_MESSAGE = "Max couldn't start this conversation. This is usually temporary, so please try again."
+# Shown when the conversation runs past the allowed streaming window.
+STREAM_TIMEOUT_MESSAGE = "This conversation timed out before it finished. Please try again."
+# Kept for genuinely unknown faults where we can't say anything more specific.
+GENERIC_FAILURE_MESSAGE = "Oops! Something went wrong. Please try again."
 
 STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_django_event_loop_latency_seconds",
@@ -88,16 +97,58 @@ class AgentExecutor:
     async def start_workflow(
         self, workflow: type[AgentBaseWorkflow], inputs: Any
     ) -> AsyncGenerator[AssistantOutput, Any]:
-        # Capture the failure outcome inside the span and yield outside it — yielding from
-        # an async generator while a span is "current" leaks that span into the consumer
-        # task's contextvars. See stream_conversation for the longer note.
-        failed = False
+        """Start the workflow and stream its output.
+
+        A workflow that never becomes available is retryable: the automatic re-attempt
+        below absorbs transient Temporal faults before the client sees any failure.
+        """
+        max_attempts = 2  # one automatic retry for a workflow that never becomes available
+        for attempt in range(max_attempts):
+            is_last_attempt = attempt == max_attempts - 1
+
+            if not await self._start_workflow_once(workflow, inputs, attempt):
+                if is_last_attempt:
+                    yield self._failure_message(WORKFLOW_NOT_STARTED_MESSAGE)
+                    return
+                continue
+
+            yielded_any = False
+            try:
+                async for chunk in self._read_conversation_stream():
+                    yielded_any = True
+                    yield chunk
+                return
+            except StreamNotAvailableError as e:
+                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                logger.exception("Conversation stream not available", error=e)
+                # Only retry when nothing reached the client, so a retry can't duplicate output.
+                if is_last_attempt or yielded_any:
+                    yield self._failure_message(WORKFLOW_NOT_STARTED_MESSAGE)
+                    return
+                continue
+            except StreamTimeoutError as e:
+                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                logger.exception("Conversation stream timed out", error=e)
+                yield self._failure_message(STREAM_TIMEOUT_MESSAGE)
+                return
+            except Exception as e:
+                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                logger.exception("Error streaming conversation", error=e)
+                yield self._failure_message()
+                return
+
+    async def _start_workflow_once(self, workflow: type[AgentBaseWorkflow], inputs: Any, attempt: int) -> bool:
+        """Start the Temporal workflow and wait for it to reach the running state.
+
+        Returns True when the workflow is running, False when it could not be started.
+        """
         with _tracer.start_as_current_span(
             "posthog_ai.executor.start_workflow",
             attributes={
                 "posthog_ai.conversation_id": str(self._conversation.id),
                 "posthog_ai.workflow_id": self._workflow_id,
                 "posthog_ai.workflow_class": workflow.__name__,
+                "posthog_ai.start_attempt": attempt,
             },
         ):
             try:
@@ -115,18 +166,11 @@ class AgentExecutor:
                 is_workflow_running = await self._wait_for_workflow_to_start(handle)
                 if not is_workflow_running:
                     raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
-
             except Exception as e:
                 posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
                 logger.exception("Error starting workflow", error=e)
-                failed = True
-
-        if failed:
-            yield self._failure_message()
-            return
-
-        async for chunk in self.stream_conversation():
-            yield chunk
+                return False
+        return True
 
     async def _start_workflow_with_retry(
         self, client: Any, workflow: type[AgentBaseWorkflow], inputs: Any, max_retries: int = 3
@@ -217,10 +261,33 @@ class AgentExecutor:
             return False
 
     async def stream_conversation(self) -> AsyncGenerator[AssistantOutput, Any]:
-        """Stream conversation updates from Redis stream.
+        """Stream conversation updates, converting stream faults to differentiated messages.
 
-        Returns:
-            AssistantOutput generator
+        Used when reconnecting to an in-flight conversation, where the workflow cannot be
+        restarted, so faults become a message rather than an automatic retry.
+        """
+        try:
+            async for chunk in self._read_conversation_stream():
+                yield chunk
+        except StreamNotAvailableError as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+            logger.exception("Conversation stream not available", error=e)
+            yield self._failure_message(WORKFLOW_NOT_STARTED_MESSAGE)
+        except StreamTimeoutError as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+            logger.exception("Conversation stream timed out", error=e)
+            yield self._failure_message(STREAM_TIMEOUT_MESSAGE)
+        except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+            logger.exception("Error streaming conversation", error=e)
+            yield self._failure_message()
+
+    async def _read_conversation_stream(self) -> AsyncGenerator[AssistantOutput, Any]:
+        """Read conversation updates from the Redis stream.
+
+        Raises the underlying stream error (StreamNotAvailableError, StreamTimeoutError, or
+        another StreamError) so callers can differentiate the fault. Always deletes the stream
+        on exit.
         """
         chunk_count = 0
         # Use start_span + use_span (without making the span "current" across yields).
@@ -235,37 +302,31 @@ class AgentExecutor:
             attributes={"posthog_ai.conversation_id": str(self._conversation.id)},
         )
         try:
-            try:
+            with trace.use_span(span, end_on_exit=False):
+                # Wait for stream to be created
+                is_stream_available = await self._redis_stream.wait_for_stream()
+                if not is_stream_available:
+                    raise StreamNotAvailableError(
+                        "Stream for this conversation not available - Temporal workflow might have failed"
+                    )
+                last_chunk_time = time.time()
+            read_iter = self._redis_stream.read_stream().__aiter__()
+            while True:
                 with trace.use_span(span, end_on_exit=False):
-                    # Wait for stream to be created
-                    is_stream_available = await self._redis_stream.wait_for_stream()
-                    if not is_stream_available:
-                        raise StreamError(
-                            "Stream for this conversation not available - Temporal workflow might have failed"
-                        )
+                    try:
+                        chunk = await read_iter.__anext__()
+                    except StopAsyncIteration:
+                        break
+                    message = await self._redis_stream_to_assistant_output(chunk)
+
+                    temporal_to_code_latency = last_chunk_time - chunk.timestamp
+                    if temporal_to_code_latency > 0:
+                        STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
                     last_chunk_time = time.time()
-                read_iter = self._redis_stream.read_stream().__aiter__()
-                while True:
-                    with trace.use_span(span, end_on_exit=False):
-                        try:
-                            chunk = await read_iter.__anext__()
-                        except StopAsyncIteration:
-                            break
-                        message = await self._redis_stream_to_assistant_output(chunk)
+                    chunk_count += 1
 
-                        temporal_to_code_latency = last_chunk_time - chunk.timestamp
-                        if temporal_to_code_latency > 0:
-                            STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
-                        last_chunk_time = time.time()
-                        chunk_count += 1
-
-                    if message:
-                        yield message
-            except Exception as e:
-                with trace.use_span(span, end_on_exit=False):
-                    posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-                    logger.exception("Error streaming conversation", error=e)
-                yield self._failure_message()
+                if message:
+                    yield message
         finally:
             with trace.use_span(span, end_on_exit=False):
                 span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
@@ -298,10 +359,10 @@ class AgentExecutor:
         else:
             return None
 
-    def _failure_message(self) -> AssistantOutput:
+    def _failure_message(self, content: str = GENERIC_FAILURE_MESSAGE) -> AssistantOutput:
         """Returns a failure message as an Assistant output."""
         failure_message = FailureMessage(
-            content="Oops! Something went wrong. Please try again.",
+            content=content,
             id=str(uuid4()),
         )
         return (AssistantEventType.MESSAGE, failure_message)

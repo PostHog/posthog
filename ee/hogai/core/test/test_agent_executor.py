@@ -15,14 +15,21 @@ from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowI
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.core.executor import AgentExecutor
+from ee.hogai.core.executor import (
+    GENERIC_FAILURE_MESSAGE,
+    STREAM_TIMEOUT_MESSAGE,
+    WORKFLOW_NOT_STARTED_MESSAGE,
+    AgentExecutor,
+)
 from ee.hogai.stream.redis_stream import (
     ConversationEvent,
     MessageEvent,
     StatusPayload,
     StreamError,
     StreamEvent,
+    StreamNotAvailableError,
     StreamStatusEvent,
+    StreamTimeoutError,
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
@@ -49,7 +56,7 @@ class TestAgentExecutor(BaseTest):
                 yield chunk
 
         with (
-            patch.object(self.manager, "stream_conversation") as mock_stream,
+            patch.object(self.manager, "_read_conversation_stream") as mock_stream,
             patch.object(self.manager, "_wait_for_workflow_to_start") as mock_wait_for_start,
         ):
             mock_stream.return_value = mock_stream_gen()
@@ -87,7 +94,7 @@ class TestAgentExecutor(BaseTest):
 
     @patch("ee.hogai.core.executor.async_connect")
     async def test_start_workflow_and_stream_connection_error(self, mock_connect):
-        """Test error handling when connection fails."""
+        """A workflow that never starts yields the retryable message after exhausting retries."""
         # Setup mock to raise exception
         mock_connect.side_effect = Exception("Connection failed")
 
@@ -104,12 +111,46 @@ class TestAgentExecutor(BaseTest):
         async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
             results.append(chunk)
 
-        # Verify failure message is returned
+        # Verify failure message is returned, and the start was retried before giving up
+        self.assertEqual(mock_connect.call_count, 2)
         self.assertEqual(len(results), 1)
         event_type, message = results[0]
         self.assertEqual(event_type, "message")
         message = cast(AssistantMessage, message)
-        self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+        self.assertEqual(message.content, WORKFLOW_NOT_STARTED_MESSAGE)
+
+    async def test_start_workflow_retries_when_stream_not_available(self):
+        """A stream that is missing on the first attempt is retried, then streams normally."""
+
+        async def failing_stream():
+            raise StreamNotAvailableError("not available yet")
+            yield  # pragma: no cover - makes this an async generator
+
+        async def working_stream():
+            yield ("message", {"content": "chunk1"})
+
+        with (
+            patch.object(self.manager, "_start_workflow_once") as mock_start,
+            patch.object(self.manager, "_read_conversation_stream") as mock_stream,
+        ):
+            mock_start.return_value = True
+            mock_stream.side_effect = [failing_stream(), working_stream()]
+
+            workflow_inputs = ChatAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=self.user_id,
+                conversation_id=self.conversation.id,
+                stream_key=get_conversation_stream_key(self.conversation.id),
+                trace_id=str(uuid4()),
+            )
+
+            results = []
+            async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
+                results.append(chunk)
+
+            # The retry produced the real chunk and no failure message
+            self.assertEqual(results, [("message", {"content": "chunk1"})])
+            self.assertEqual(mock_stream.call_count, 2)
 
     async def test_stream_conversation_success(self):
         """Test successful conversation streaming."""
@@ -152,9 +193,13 @@ class TestAgentExecutor(BaseTest):
             mock_delete.assert_called_once()
 
     async def test_stream_conversation_stream_not_available(self):
-        """Test streaming when stream is not available."""
-        with patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait:
+        """A reconnection to a missing stream yields the retryable message."""
+        with (
+            patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+        ):
             mock_wait.return_value = False
+            mock_delete.return_value = True
 
             # Call the method
             results = []
@@ -166,7 +211,33 @@ class TestAgentExecutor(BaseTest):
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            self.assertEqual(message.content, WORKFLOW_NOT_STARTED_MESSAGE)
+
+    async def test_stream_conversation_timeout(self):
+        """A conversation that runs past the streaming window yields the timeout message."""
+        with (
+            patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait,
+            patch.object(self.manager._redis_stream, "read_stream") as mock_read,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+        ):
+
+            async def mock_read_stream_timeout():
+                raise StreamTimeoutError("Stream timeout - conversation took too long to complete")
+                yield  # pragma: no cover - makes this an async generator
+
+            mock_wait.return_value = True
+            mock_read.return_value = mock_read_stream_timeout()
+            mock_delete.return_value = True
+
+            results = []
+            async for chunk in self.manager.stream_conversation():
+                results.append(chunk)
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, "message")
+            message = cast(AssistantMessage, message)
+            self.assertEqual(message.content, STREAM_TIMEOUT_MESSAGE)
 
     async def test_stream_conversation_redis_error(self):
         """Test streaming with Redis error."""
@@ -193,7 +264,7 @@ class TestAgentExecutor(BaseTest):
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            self.assertEqual(message.content, GENERIC_FAILURE_MESSAGE)
 
     async def test_stream_conversation_general_error(self):
         """Test streaming with general exception."""
@@ -215,7 +286,7 @@ class TestAgentExecutor(BaseTest):
             event_type, message = results[0]
             self.assertEqual(event_type, "message")
             message = cast(AssistantMessage, message)
-            self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+            self.assertEqual(message.content, GENERIC_FAILURE_MESSAGE)
 
     def test_failure_message(self):
         """Test failure message generation."""
@@ -224,7 +295,7 @@ class TestAgentExecutor(BaseTest):
         # Verify message format
         self.assertEqual(event_type, AssistantEventType.MESSAGE)
         message = cast(AssistantMessage, message)
-        self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+        self.assertEqual(message.content, GENERIC_FAILURE_MESSAGE)
         self.assertIsNotNone(message.id)
 
     async def test_redis_stream_to_assistant_output_message(self):

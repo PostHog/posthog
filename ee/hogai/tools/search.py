@@ -83,11 +83,14 @@ Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool
 
 ENTITIES = [f"{entity}" for entity in EntityKind]
 
-SearchKind = Literal["docs", "business-knowledge", *ENTITIES]  # type: ignore
+SEARCH_KINDS = ["docs", "business-knowledge", *ENTITIES]
 
 
 class SearchToolArgs(BaseModel):
-    kind: SearchKind = Field(description="Select the entity you want to find")
+    # A plain string, not a Literal: an unsupported kind reaches the tool and is answered
+    # with the purpose-built INVALID_ENTITY_KIND_PROMPT retry hint, instead of failing schema
+    # validation before the tool runs and returning a raw pydantic error to the model.
+    kind: str = Field(description=f"Select the entity you want to find. One of: {', '.join(SEARCH_KINDS)}")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
     )

@@ -204,6 +204,22 @@ class StreamError(Exception):
     pass
 
 
+class StreamNotAvailableError(StreamError):
+    """Raised when the conversation stream never appears.
+
+    This means the Temporal workflow did not start or failed before it could
+    write anything, so the request is safe to retry.
+    """
+
+    pass
+
+
+class StreamTimeoutError(StreamError):
+    """Raised when the conversation runs past the allowed streaming window."""
+
+    pass
+
+
 class ConversationRedisStream:
     """Manages conversation streaming from Redis streams."""
 
@@ -299,7 +315,7 @@ class ConversationRedisStream:
             last_iteration_time = current_time
 
             if asyncio.get_running_loop().time() - start_time > self._timeout:
-                raise StreamError("Stream timeout - conversation took too long to complete")
+                raise StreamTimeoutError("Stream timeout - conversation took too long to complete")
 
             try:
                 messages = await self._redis_client.xread(

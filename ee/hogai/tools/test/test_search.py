@@ -17,6 +17,7 @@ from ee.hogai.tools.search import (
     DOCS_SEARCH_RESULTS_TEMPLATE,
     InkeepDocsSearchTool,
     SearchTool,
+    SearchToolArgs,
     format_inkeep_docs_response,
 )
 from ee.hogai.utils.tests import FakeChatOpenAI
@@ -71,6 +72,15 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         error_message = str(context.exception)
         self.assertIn("Invalid entity kind", error_message)
         self.assertIn("unknown", error_message)
+
+
+class TestSearchToolArgs(SimpleTestCase):
+    @parameterized.expand([("insights",), ("docs",), ("error_tracking",), ("made_up_kind",)])
+    def test_kind_accepts_any_string(self, kind: str) -> None:
+        # An unsupported kind must pass schema validation so the tool can answer it with a
+        # retry hint. Re-narrowing `kind` to a Literal would fail this and crash such calls.
+        args = SearchToolArgs.model_validate({"kind": kind, "query": "test"})
+        self.assertEqual(args.kind, kind)
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
