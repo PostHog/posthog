@@ -46,7 +46,7 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                             </div>
 
                             {/* Pick button */}
-                            <div className="flex flex-row item-center justify-center">
+                            <div className="flex flex-row justify-center">
                                 <IconArrowRight className="text-xl" />
                             </div>
                         </button>
