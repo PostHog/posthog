@@ -19,7 +19,6 @@ import {
   QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
-  QUICK_ASK_SET_INTERACTIVE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
@@ -34,7 +33,13 @@ const log = logger.scope("quick-ask");
 const QUICK_ASK_VITE_DEV_SERVER_URL = process.env.ELECTRON_RENDERER_URL;
 const QUICK_ASK_VITE_NAME = "main_window";
 
-const PANEL_WIDTH = 640;
+// The window's bounds always hug the visible content (the reliable way to
+// run a floating widget: anything outside the pill and card is simply not
+// part of the window, so clicks land on whatever is behind with no
+// click-through juggling). Width starts at the empty pill row and follows
+// the renderer's measurements, capped here.
+const PANEL_MAX_WIDTH = 640;
+const PANEL_INITIAL_WIDTH = 300;
 // Layout constants matching quick-ask.css: root padding top/bottom 10/14,
 // pill row 46px, card gap 10px. Non-card chrome is 80px of window height.
 const ROOT_PAD_TOP = 10;
@@ -60,6 +65,7 @@ interface QuickAskLayoutState {
 
 /** Last geometry the renderer reported; reused across hides/shows. */
 let cachedContentHeight = PANEL_INITIAL_HEIGHT;
+const cachedContentWidth = PANEL_INITIAL_WIDTH;
 /** Whether the current layout has the card above the pill. */
 let currentFlip = false;
 
@@ -127,7 +133,7 @@ let quickAskWindow: BrowserWindow | null = null;
 
 function createQuickAskWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: PANEL_WIDTH,
+    width: PANEL_INITIAL_WIDTH,
     height: PANEL_INITIAL_HEIGHT,
     show: false,
     frame: false,
@@ -165,12 +171,6 @@ function createQuickAskWindow(): BrowserWindow {
   if (process.platform !== "darwin") {
     window.setVisibleOnAllWorkspaces(true);
   }
-  // The window is a large transparent rect around a small pill. Let clicks
-  // fall through the empty area; the renderer re-enables interaction while
-  // the pointer is over actual content (`forward` keeps sending it the mouse
-  // events it needs to detect that).
-  window.setIgnoreMouseEvents(true, { forward: true });
-
   window.on("blur", () => {
     // Keep the panel up while its devtools are focused.
     if (window.webContents.isDevToolsFocused()) return;
@@ -234,11 +234,15 @@ function pushLayout(window: BrowserWindow): void {
     currentFlip,
     screen.getDisplayNearestPoint(bounds).workArea,
   );
-  if (layout.y !== bounds.y || layout.height !== bounds.height) {
+  if (
+    layout.y !== bounds.y ||
+    layout.height !== bounds.height ||
+    bounds.width !== cachedContentWidth
+  ) {
     window.setBounds({
       x: bounds.x,
       y: layout.y,
-      width: PANEL_WIDTH,
+      width: cachedContentWidth,
       height: layout.height,
     });
   }
@@ -272,7 +276,7 @@ function positionAtCursor(window: BrowserWindow): void {
         cursor.x + CURSOR_IN_WINDOW_X_OFFSET - CURSOR_IN_WINDOW_X,
         area.x + SCREEN_MARGIN,
       ),
-      area.x + area.width - PANEL_WIDTH - SCREEN_MARGIN,
+      area.x + area.width - PANEL_MAX_WIDTH - SCREEN_MARGIN,
     ),
   );
   const pillTopY = cursor.y + CURSOR_ABOVE_PILL_PX;
@@ -295,14 +299,14 @@ function positionAtCursor(window: BrowserWindow): void {
   const bounds = {
     x,
     y: Math.round(y),
-    width: PANEL_WIDTH,
+    width: cachedContentWidth,
     height: cachedContentHeight,
   };
   const layout = layoutFor(bounds, needsFlip, area);
   window.setBounds({
     x,
     y: layout.y,
-    width: PANEL_WIDTH,
+    width: cachedContentWidth,
     height: layout.height,
   });
 }
@@ -312,7 +316,6 @@ function showQuickAsk(): void {
     quickAskWindow = createQuickAskWindow();
   }
   positionAtCursor(quickAskWindow);
-  quickAskWindow.setIgnoreMouseEvents(true, { forward: true });
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
@@ -449,17 +452,6 @@ export function setupQuickAsk(): void {
     };
   });
   ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => stopDrag());
-  ipcMain.on(
-    QUICK_ASK_SET_INTERACTIVE_CHANNEL,
-    (_event, interactive: unknown) => {
-      if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
-      if (interactive === true) {
-        quickAskWindow.setIgnoreMouseEvents(false);
-      } else {
-        quickAskWindow.setIgnoreMouseEvents(true, { forward: true });
-      }
-    },
-  );
   ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {
     hideQuickAsk();
     focusMainWindow("quick-ask-open-in-app");

@@ -54,6 +54,10 @@ export function QuickAsk(): React.JSX.Element {
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
   const [flip, setFlip] = useState(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
+  const historyRef = useRef<string[]>([]);
+  /** Position while walking history with the arrows; null = editing the draft. */
+  const historyIndexRef = useRef<number | null>(null);
+  const draftRef = useRef("");
   const inputRef = useRef<HTMLInputElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -79,9 +83,16 @@ export function QuickAsk(): React.JSX.Element {
   const reportSize = useCallback((): void => {
     const root = rootRef.current;
     if (!root) return;
-    // +2 mirrors the -2 slack in the root's max-height so the reported
-    // height never exceeds the space the main process said was available.
-    window.quickAsk?.resize(Math.ceil(root.getBoundingClientRect().height) + 2);
+    // The window's bounds hug this measurement: everything outside the
+    // content is not part of the window at all, so clicks land on whatever
+    // is behind without any click-through machinery. +2 mirrors the -2
+    // slack in the root's max-height so the reported height never exceeds
+    // the space the main process said was available.
+    const rect = root.getBoundingClientRect();
+    window.quickAsk?.resize({
+      width: Math.ceil(rect.width) + 2,
+      height: Math.ceil(rect.height) + 2,
+    });
   }, []);
 
   // The main process owns screen geometry: it pushes the room available at
@@ -184,14 +195,6 @@ export function QuickAsk(): React.JSX.Element {
     document.addEventListener("mouseup", endDrag);
   }, []);
 
-  // The window is click-through except while the pointer is over content.
-  const enableMouse = useCallback((): void => {
-    window.quickAsk?.setInteractive(true);
-  }, []);
-  const disableMouse = useCallback((): void => {
-    window.quickAsk?.setInteractive(false);
-  }, []);
-
   // Figma-style pill: width hugs the typed text.
   const syncPillWidth = useCallback((): void => {
     const measure = measureRef.current;
@@ -208,6 +211,13 @@ export function QuickAsk(): React.JSX.Element {
   const submit = useCallback((): void => {
     const question = inputRef.current?.value.trim();
     if (!question) return;
+    // Shell-style history for the up/down arrows.
+    const history = historyRef.current;
+    if (history[history.length - 1] !== question) {
+      history.push(question);
+    }
+    historyIndexRef.current = null;
+    draftRef.current = "";
     if (inputRef.current) {
       inputRef.current.value = "";
     }
@@ -221,15 +231,50 @@ export function QuickAsk(): React.JSX.Element {
     window.quickAsk?.ask(question, conversationIdRef.current);
   }, [syncPillWidth]);
 
+  // Up/down arrows recall previously sent questions, shell-style: up walks
+  // back through history, down walks forward and lands on the unsent draft.
+  const recallHistory = useCallback(
+    (direction: -1 | 1): void => {
+      const input = inputRef.current;
+      if (!input) return;
+      const history = historyRef.current;
+      if (history.length === 0) return;
+      let index = historyIndexRef.current;
+      if (index === null) {
+        if (direction === 1) return; // Nothing newer than the draft.
+        draftRef.current = input.value;
+        index = history.length - 1;
+      } else {
+        index += direction;
+      }
+      if (index >= history.length) {
+        historyIndexRef.current = null;
+        input.value = draftRef.current;
+      } else {
+        historyIndexRef.current = Math.max(0, index);
+        input.value = history[historyIndexRef.current];
+      }
+      input.setSelectionRange(input.value.length, input.value.length);
+      syncPillWidth();
+    },
+    [syncPillWidth],
+  );
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>): void => {
       if (event.key === "Enter") {
         submit();
       } else if (event.key === "Escape") {
         window.quickAsk?.hide();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        recallHistory(-1);
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        recallHistory(1);
       }
     },
-    [submit],
+    [submit, recallHistory],
   );
 
   const openInApp = useCallback((): void => {
@@ -239,12 +284,7 @@ export function QuickAsk(): React.JSX.Element {
   const answerText = textParts.map((part) => part.content).join("\n\n");
 
   return (
-    <div
-      ref={rootRef}
-      className={flip ? "qa-root qa-flip" : "qa-root"}
-      onPointerEnter={enableMouse}
-      onPointerLeave={disableMouse}
-    >
+    <div ref={rootRef} className={flip ? "qa-root qa-flip" : "qa-root"}>
       <div className="qa-pill-row">
         <button
           type="button"

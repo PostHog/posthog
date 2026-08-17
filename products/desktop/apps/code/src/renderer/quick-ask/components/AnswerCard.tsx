@@ -9,9 +9,20 @@ const AUTOSCROLL_SLACK_PX = 48;
 export function ThinkingCard({ label }: { label: string }): React.JSX.Element {
   return (
     <div className="qa-card qa-card-thinking">
-      <div className="qa-thinking-label">{label}</div>
+      <div className="qa-thinking-header">
+        <span className="qa-thinking-dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        {/* Keyed so a new reasoning step slides in instead of just swapping. */}
+        <span key={label} className="qa-thinking-label">
+          {label}
+        </span>
+      </div>
       <div className="qa-skeleton qa-skeleton-line-wide" />
       <div className="qa-skeleton qa-skeleton-line" />
+      <div className="qa-skeleton qa-skeleton-line-short" />
     </div>
   );
 }

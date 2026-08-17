@@ -9,9 +9,9 @@ interface QuickAskLayout {
 /** Bridge exposed by the quick-ask preload branch (see src/main/preload.ts). */
 interface QuickAskBridge {
   hide: () => void;
-  resize: (height: number) => void;
+  /** Reports the content's bounding box; the window's bounds hug it. */
+  resize: (size: { width: number; height: number }) => void;
   openInApp: () => void;
-  setInteractive: (interactive: boolean) => void;
   /** Native app-region dragging fights click-through; the panel drags itself. */
   dragStart: (offset: { dx: number; dy: number }) => void;
   dragEnd: () => void;

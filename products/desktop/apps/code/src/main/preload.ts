@@ -15,7 +15,6 @@ import {
   QUICK_ASK_LAYOUT_CHANNEL,
   QUICK_ASK_OPEN_IN_APP_CHANNEL,
   QUICK_ASK_RESIZE_CHANNEL,
-  QUICK_ASK_SET_INTERACTIVE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
 } from "../shared/constants";
@@ -99,11 +98,9 @@ function setupApplicationPreload(argv: string[]): void {
 function setupQuickAskPreload(): void {
   contextBridge.exposeInMainWorld("quickAsk", {
     hide: () => ipcRenderer.send(QUICK_ASK_HIDE_CHANNEL),
-    resize: (height: number) =>
-      ipcRenderer.send(QUICK_ASK_RESIZE_CHANNEL, height),
+    resize: (size: { width: number; height: number }) =>
+      ipcRenderer.send(QUICK_ASK_RESIZE_CHANNEL, size),
     openInApp: () => ipcRenderer.send(QUICK_ASK_OPEN_IN_APP_CHANNEL),
-    setInteractive: (interactive: boolean) =>
-      ipcRenderer.send(QUICK_ASK_SET_INTERACTIVE_CHANNEL, interactive),
     dragStart: (offset: { dx: number; dy: number }) =>
       ipcRenderer.send(QUICK_ASK_DRAG_START_CHANNEL, offset),
     dragEnd: () => ipcRenderer.send(QUICK_ASK_DRAG_END_CHANNEL),
