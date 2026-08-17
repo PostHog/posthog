@@ -35,12 +35,8 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 @contextmanager
 def seeding_object_storage(test: BaseTest) -> Iterator[None]:
-    """Wrap a warehouse seeding call so unreachable object storage fails loudly in CI.
-
-    Locally a skip keeps the suite usable without the dev stack. In CI the same skip would
-    drop every warehouse-backed assertion in the class while the job still reported green,
-    so there the PermissionError propagates and the job goes red.
-    """
+    # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
+    # warehouse-backed assertion behind a green job, so there it raises.
     try:
         yield
     except PermissionError as err:

@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest import TestCase, mock
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import resolve
 
 import requests
@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     render_quarantine_file,
     request_quarantine,
 )
+from products.engineering_analytics.backend.presentation.serializers.suite_health import QuarantineRequestSerializer
 
 _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
@@ -559,19 +560,18 @@ class TestQuarantineRequest(BaseTest):
         assert github.create_pull_request.call_args.args[3] == result.branch  # head branch
         assert github.create_pull_request.call_args.args[4] == "master"  # base branch
 
+    @parameterized.expand(
+        [
+            ("skip_mode", {"mode": contracts.QuarantineMode.SKIP}, "mode", "skip"),
+            ("jest_runner", {"runner": contracts.QuarantineRunner.JEST}, "runner", "jest"),
+        ]
+    )
     @freeze_time("2026-06-12")
-    def test_skip_mode_is_persisted(self) -> None:
+    def test_request_field_is_persisted(self, _name: str, overrides: dict[str, Any], key: str, expected: str) -> None:
         github = self._install(_github_mock())
-        request_quarantine(team=self.team, request=_request(mode=contracts.QuarantineMode.SKIP))
+        request_quarantine(team=self.team, request=_request(**overrides))
         entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
-        assert entry["mode"] == "skip"
-
-    @freeze_time("2026-06-12")
-    def test_jest_runner_is_persisted(self) -> None:
-        github = self._install(_github_mock())
-        request_quarantine(team=self.team, request=_request(runner=contracts.QuarantineRunner.JEST))
-        entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
-        assert entry["runner"] == "jest"
+        assert entry[key] == expected
 
     @freeze_time("2026-06-12")
     def test_extend_reuses_existing_issue_and_files_no_new_one(self) -> None:
@@ -734,22 +734,41 @@ class TestQuarantineRequestAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not 'PostHog'" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("missing_selector", {"selector": None}),
-            ("missing_action", {"operation": None}),
-            ("bad_action", {"operation": "nuke"}),
-        ]
-    )
-    def test_invalid_body_is_rejected(self, _name: str, overrides: dict[str, Any]) -> None:
+    def test_invalid_body_is_rejected(self) -> None:
+        # Proves the viewset runs the serializer at all; the case matrix lives in
+        # TestQuarantineRequestValidation, which needs no DB.
         body = self._body()
-        for key, value in overrides.items():
-            if value is None:
-                body.pop(key, None)
-            else:
-                body[key] = value
+        body.pop("selector")
         with mock.patch(f"{_VIEWS}.request_quarantine") as called:
             response = self.client.post(self._url(), body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         called.assert_not_called()
+
+
+class TestQuarantineRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_selector", {"selector": None}, "selector", "required"),
+            ("missing_action", {"operation": None}, "operation", "required"),
+            ("bad_action", {"operation": "nuke"}, "operation", "invalid_choice"),
+        ]
+    )
+    def test_field_errors(self, _name: str, overrides: dict[str, Any], field: str, code: str) -> None:
+        body: dict[str, Any] = {
+            "operation": "quarantine",
+            "selector": "posthog/api/test/test_foo.py::TestFoo::test_bar",
+            "repo": "PostHog/posthog",
+            "reason": "flaky",
+            "owner": "@PostHog/team-foo",
+        }
+        for key, value in overrides.items():
+            if value is None:
+                body.pop(key, None)
+            else:
+                body[key] = value
+
+        serializer = QuarantineRequestSerializer(data=body)
+
+        assert not serializer.is_valid()
+        assert serializer.errors[field][0].code == code

@@ -520,8 +520,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
-        # Exact figures so a silently changed multiplier or rate can't hide behind "> 0":
-        # one 120s job on a 4-vCPU tier is 2 min x 0.004 x 2.
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
         assert ci.estimated_cost_usd == pytest.approx(0.016)
         assert ci.billable_minutes == pytest.approx(2.0)
 

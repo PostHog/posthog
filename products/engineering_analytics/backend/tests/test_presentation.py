@@ -197,7 +197,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         # Source resolution precedes input validation, so the non-mocked bad-input tests below
         # (window too large, malformed repo) need a connected source for those errors to surface
         # rather than the no-source error. The mocked tests bypass resolution entirely.
-        # Class-level because no test mutates the source and per-test creation pays ~35 redundant writes.
+        # Class-level: no test mutates the source, so per-test creation is redundant writes.
         connect_github_source_without_data(cls.team, prefix="presentation")
 
     def _url(self, action: str) -> str:

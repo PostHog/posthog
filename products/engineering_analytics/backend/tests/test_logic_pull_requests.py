@@ -322,8 +322,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
-        # Exact figures so a silently changed multiplier or rate can't hide behind "> 0":
-        # one 120s job on a 4-vCPU tier is 2 min x 0.004 x 2.
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
         assert item.estimated_cost_usd == pytest.approx(0.016)
         assert item.billable_minutes == pytest.approx(2.0)
 

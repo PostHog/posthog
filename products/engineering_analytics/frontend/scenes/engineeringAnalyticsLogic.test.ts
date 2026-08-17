@@ -518,20 +518,6 @@ describe('engineeringAnalyticsLogic', () => {
         ).toEqual(expected)
     })
 
-    it('resetWorkflowFilters returns the workflow filters to defaults and clears hasActiveWorkflowFilters', () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
-
-        logic.actions.setWorkflowSearch('e2e')
-        logic.actions.setWorkflowStatusFilter('failing')
-        expect(logic.values.hasActiveWorkflowFilters).toBe(true)
-
-        logic.actions.resetWorkflowFilters()
-        expect(logic.values.workflowFilters).toEqual(DEFAULT_WORKFLOW_FILTERS)
-        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
-    })
-
     it('workflowCostAvailable flips on once any row carries cost data', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -557,22 +543,62 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
     })
 
-    it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        expect(logic.values.hasActiveFilters).toBe(false)
+    it.each([
+        [
+            'pull request',
+            [
+                ['setStateFilter', 'all'],
+                ['setAuthor', 'alice'],
+                ['setRepo', 'posthog/posthog'],
+                ['setCiStatusFilter', 'failing'],
+                ['setSearch', 'fix'],
+            ],
+            'resetFilters',
+            'hasActiveFilters',
+            'filters',
+            DEFAULT_FILTERS,
+        ],
+        [
+            'workflow',
+            [
+                ['setWorkflowSearch', 'e2e'],
+                ['setWorkflowStatusFilter', 'failing'],
+            ],
+            'resetWorkflowFilters',
+            'hasActiveWorkflowFilters',
+            'workflowFilters',
+            DEFAULT_WORKFLOW_FILTERS,
+        ],
+        [
+            'quarantine',
+            [
+                ['setQuarantineSearch', 'flake'],
+                ['setQuarantineLifecycleFilter', 'active'],
+                ['setQuarantineModeFilter', 'skip'],
+                ['setQuarantineOwner', '@team/x'],
+            ],
+            'resetQuarantineFilters',
+            'hasActiveQuarantineFilters',
+            'quarantineFilters',
+            DEFAULT_QUARANTINE_FILTERS,
+        ],
+    ] as [string, [string, string][], string, string, string, object][])(
+        'the %s reset returns filters to defaults and clears the active flag',
+        (_label, dirtyCalls, resetAction, activeKey, filtersKey, defaults) => {
+            logic = engineeringAnalyticsLogic()
+            logic.mount()
+            const actions = logic.actions as unknown as Record<string, (value: string) => void>
+            const values = logic.values as unknown as Record<string, unknown>
+            expect(values[activeKey]).toBe(false)
 
-        logic.actions.setStateFilter('all')
-        logic.actions.setAuthor('alice')
-        logic.actions.setRepo('posthog/posthog')
-        logic.actions.setCiStatusFilter('failing')
-        logic.actions.setSearch('fix')
-        expect(logic.values.hasActiveFilters).toBe(true)
+            dirtyCalls.forEach(([action, value]) => actions[action](value))
+            expect(values[activeKey]).toBe(true)
 
-        logic.actions.resetFilters()
-        expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
-        expect(logic.values.hasActiveFilters).toBe(false)
-    })
+            ;(actions[resetAction] as unknown as () => void)()
+            expect(values[filtersKey]).toEqual(defaults)
+            expect(values[activeKey]).toBe(false)
+        }
+    )
 
     it.each([
         // Stacked bar: total height is completed (volume), the red portion is failures, so the red
@@ -821,22 +847,6 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.applyQuarantineCard('skipped')
         expect(logic.values.activeQuarantineCard).toBeNull()
         expect(logic.values.quarantineModeFilter).toBe('all')
-    })
-
-    it('resetQuarantineFilters returns filters to defaults and clears hasActiveQuarantineFilters', async () => {
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
-
-        logic.actions.setQuarantineSearch('flake')
-        logic.actions.setQuarantineLifecycleFilter('active')
-        logic.actions.setQuarantineModeFilter('skip')
-        logic.actions.setQuarantineOwner('@team/x')
-        expect(logic.values.hasActiveQuarantineFilters).toBe(true)
-
-        logic.actions.resetQuarantineFilters()
-        expect(logic.values.quarantineFilters).toEqual(DEFAULT_QUARANTINE_FILTERS)
-        expect(logic.values.hasActiveQuarantineFilters).toBe(false)
     })
 
     it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {

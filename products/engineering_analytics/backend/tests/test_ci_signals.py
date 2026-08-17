@@ -247,7 +247,6 @@ def test_flaky_check_emits_one_signal_per_job_per_week_not_per_rerun() -> None:
     findings = _detect_flaky_over(rows, min_flaky_runs=3)
     assert len(findings) == 1
     assert findings[0].extra["flaky_count"] == 3
-    # The most recent sighting is the worked example; the rest survive as the count.
     assert findings[0].extra["run_id"] == 3
     _assert_emittable(findings[0])
 
@@ -263,12 +262,10 @@ def test_flaky_check_groups_a_sharded_job_under_one_signal() -> None:
     rows = [_flaky_row(shard, run_id, head_sha=f"shaS{run_id}") for run_id, shard in enumerate(shards, start=1)]
     findings = _detect_flaky_over(rows, min_flaky_runs=3)
     assert len(findings) == 1
-    # The key and description group on the base name; extra keeps the worked example's real
-    # job name so investigation queries on the warehouse still match.
+    # extra keeps the worked example's real job name so warehouse investigation queries match.
     assert "CI job 'Product tests (warehouse-sources, events schema legacy)'" in findings[0].description
     assert findings[0].extra["job_name"] == "Product tests (warehouse-sources (1/6), events schema legacy)"
     assert findings[0].extra["flaky_count"] == 3
-    # The shard the worked example came from is evidence, so it survives outside the key.
     assert "Product tests (warehouse-sources (1/6), events schema legacy)" in findings[0].description
     # `(1/4)`..`(1/6)` are all shard slot 1, so no multi-shard spread is claimed.
     assert "spread over" not in findings[0].description
