@@ -70,9 +70,9 @@ describe('EventsTable', () => {
         ],
         [
             'falls back to the exception list when the derived arrays are absent',
-            { $exception_list: [{ type: 'ValueError', value: 'Child process gone' }] },
+            { $exception_list: [{ type: 'ValueError', value: 'Widget not found' }] },
             'ValueError',
-            'Child process gone',
+            'Widget not found',
         ],
         [
             'falls back to the exception list when the derived arrays are empty',
