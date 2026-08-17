@@ -154,6 +154,7 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
             "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
         ),
     )
+    agentRequests = serializers.BooleanField(required=False, default=False)
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -201,7 +202,14 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     capabilities = CanvasCapabilitiesSerializer(
         required=False,
         default=lambda: {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "actions": []},
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": [],
+                "actions": [],
+                "agentRequests": False,
+            },
             "network": {"origins": []},
         },
         help_text=(
@@ -576,6 +584,9 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     inline_queries_enabled = serializers.BooleanField(
         help_text="True when the draft enables inline queries and the current head does not."
     )
+    agent_requests_enabled = serializers.BooleanField(
+        help_text="True when the draft enables requests to the canvas's authoring agent and the current head does not."
+    )
     network_origins_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="Network origins the draft newly declares it may reach.",
@@ -741,3 +752,27 @@ class CanvasFixRequestResultSerializer(serializers.Serializer):
         ),
     )
     task_id = serializers.UUIDField(help_text="The authoring task the fix was routed to.")
+
+
+class CanvasAgentRequestSerializer(serializers.Serializer):
+    """A viewer-approved request for the canvas's authoring agent."""
+
+    prompt = serializers.CharField(
+        max_length=10_000,
+        trim_whitespace=False,
+        help_text="Exact change request the viewer reviewed and approved in the trusted host dialog.",
+    )
+
+
+class CanvasAgentRequestResultSerializer(serializers.Serializer):
+    """Outcome of routing a canvas change request."""
+
+    request_outcome = serializers.ChoiceField(
+        choices=["signaled", "new_run", "already_queued", "reported"],
+        help_text=(
+            "signaled: the live run received the request. new_run: a fresh run started. "
+            "already_queued: an identical run was already starting. reported: a non-creator's request was filed "
+            "in the task thread for the creator."
+        ),
+    )
+    task_id = serializers.UUIDField(help_text="Authoring task that received the request or report.")
