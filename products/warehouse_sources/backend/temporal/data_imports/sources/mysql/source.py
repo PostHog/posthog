@@ -312,6 +312,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 1041 (ER_OUT_OF_RESOURCES): the server (mysqld) or another process
+            # on its host has used up all available memory. Seen escaping the in-activity FORCE INDEX
+            # fallback (see `_is_bad_plan_error`) when the server is already so memory-starved from an
+            # unindexed filesort that it can't even open the probe connection used to look up an index.
+            # The host's available memory is static customer-side state, so every retry hits the same
+            # wall. Match the locale-independent error code (the trailing message text is translated on
+            # non-English servers).
+            "(1041,": "Your MySQL/MariaDB server ran out of memory (error 1041). This can happen when a large, unindexed sync query pushes the server (or another process on its host) to use all available memory. Add an index on this table's incremental field to avoid the large sort, free up memory or add swap space on your database server, or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 3024 (ER_QUERY_TIMEOUT): the server's own `max_execution_time`
             # cap killed the `ORDER BY <incremental_field>` query before the filesort could
             # finish. We already try to dodge the sort with the in-activity FORCE INDEX fallback
