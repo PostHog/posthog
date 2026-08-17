@@ -77836,6 +77836,11 @@ export namespace Schemas {
       relay_id?: string;
     }
 
+    export interface TaskRunResumeStateSyncResponse {
+      /** Whether the resume state was stored */
+      ok: boolean;
+    }
+
     export interface TaskRunStartRequest {
       /** Initial or follow-up user message to include in the run prompt. */
       pending_user_message?: string;
@@ -90664,6 +90669,8 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type TasksRunsResumeStateRetrieve200 = { [key: string]: unknown };
 
     export type TasksRunsSessionLogsRetrieveParams = {
     /**

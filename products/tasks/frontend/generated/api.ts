@@ -110,6 +110,7 @@ import type {
     TaskRunLivingArtifactsResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
+    TaskRunResumeStateSyncResponseApi,
     TaskRunStartRequestApi,
     TaskSearchResultApi,
     TaskSessionResponseApi,
@@ -127,6 +128,7 @@ import type {
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
+    TasksRunsResumeStateRetrieve200,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksSearchRetrieveParams,
@@ -1984,6 +1986,49 @@ export const tasksRunsResumeInCloudCreate = async (
     return apiMutator<TaskRunDetailDTOApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTasksRunsResumeStateRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_state/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Get the stored resume state for a task run
+ */
+export const tasksRunsResumeStateRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TasksRunsResumeStateRetrieve200> => {
+    return apiMutator<TasksRunsResumeStateRetrieve200>(getTasksRunsResumeStateRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsResumeStateSyncCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_state_sync/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Replace the stored resume state for a task run
+ */
+export const tasksRunsResumeStateSyncCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    tasksRunsResumeStateSyncCreateBody?: Blob,
+    options?: RequestInit
+): Promise<TaskRunResumeStateSyncResponseApi> => {
+    return apiMutator<TaskRunResumeStateSyncResponseApi>(getTasksRunsResumeStateSyncCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+        body: tasksRunsResumeStateSyncCreateBody,
     })
 }
 

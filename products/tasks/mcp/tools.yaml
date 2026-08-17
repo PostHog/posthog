@@ -565,6 +565,12 @@ tools:
     tasks-runs-resume-in-cloud-create:
         operation: tasks_runs_resume_in_cloud_create
         enabled: false
+    tasks-runs-resume-state-retrieve:
+        operation: tasks_runs_resume_state_retrieve
+        enabled: false
+    tasks-runs-resume-state-sync-create:
+        operation: tasks_runs_resume_state_sync_create
+        enabled: false
     tasks-runs-retrieve:
         operation: tasks_runs_retrieve
         enabled: true
