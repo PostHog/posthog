@@ -883,6 +883,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if not isinstance(detail_object, dict):
                     raise
                 if detail_object.get("code") == "permission_denied":
+                    # billing evaluates the same permission from its own cache, so flag rollout
+                    # windows can still return a downstream permission denial.
                     raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
                 return Response(
                     {

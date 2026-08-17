@@ -1865,6 +1865,44 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_get_usage_data.assert_not_called()
 
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_billing_service_permission_denied_returns_403(self, endpoint: str):
+        # The billing service gates these endpoints on the same flags we do, from its own cache, so a
+        # flag rollout can leave it denying a request we allowed. That must read as a permission
+        # denial, not as a generic failure.
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.side_effect = Exception(
+                "Billing service returned bad status code: 403",
+                "body:",
+                {
+                    "type": "authentication_error",
+                    "code": "permission_denied",
+                    "detail": "You do not have permission to perform this action.",
+                    "attr": None,
+                },
+            )
+
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], CanReadBillingUsageAndSpend.message)
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_billing_service_other_error_still_returns_400(self, endpoint: str):
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.side_effect = Exception(
+                "Billing service returned bad status code: 400",
+                "body:",
+                {"code": "invalid_input", "error_message": "start_date is invalid"},
+            )
+
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertEqual(data["code"], "invalid_input")
+        self.assertEqual(data["detail"], "start_date is invalid")
+
 
 class TestBillingPeriodAPI(APILicensedTest):
     def test_member_can_read_synced_organization_period(self):
