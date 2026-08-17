@@ -8,9 +8,12 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -20,6 +23,40 @@ from . import contracts
 from .enums import TERMINAL_STATUSES, ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
 
 logger = structlog.get_logger(__name__)
+
+_DTO = TypeVar("_DTO")
+
+
+class LazyDTOList(Sequence[_DTO]):
+    """DTOs backed by a queryset, converted only for the rows a caller actually slices.
+
+    A paginating view sizes the collection and then slices it, so a list endpoint reads one page
+    out of the database rather than converting every matching row. Nothing but DTOs leaves the
+    facade. Sizing goes through ``__len__``, which is a COUNT rather than a fetch.
+    """
+
+    def __init__(self, queryset: QuerySet, to_dto: Callable[[Any], _DTO]) -> None:
+        self._queryset = queryset
+        self._to_dto = to_dto
+
+    def __len__(self) -> int:
+        return self._queryset.count()
+
+    def __iter__(self) -> Iterator[_DTO]:
+        # Explicit: the Sequence mixin would iterate by index, one query per row.
+        return (self._to_dto(row) for row in self._queryset)
+
+    @overload
+    def __getitem__(self, index: int) -> _DTO: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[_DTO]: ...
+
+    def __getitem__(self, index: int | slice) -> _DTO | list[_DTO]:
+        rows = self._queryset[index]
+        if isinstance(index, slice):
+            return [self._to_dto(row) for row in rows]
+        return self._to_dto(rows)
 
 
 def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
@@ -182,9 +219,9 @@ def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullReques
 # --- Repo configs ---
 
 
-def list_repo_configs(team_id: int) -> list[contracts.RepoConfigDTO]:
+def list_repo_configs(team_id: int) -> LazyDTOList[contracts.RepoConfigDTO]:
     qs = StamphogRepoConfig.objects.for_team(team_id).order_by("repository")
-    return [_repo_config_to_dto(o) for o in qs]
+    return LazyDTOList(qs, _repo_config_to_dto)
 
 
 def create_repo_config(
@@ -276,7 +313,7 @@ def list_review_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     status: str | None = None,
-) -> list[contracts.ReviewRunDTO]:
+) -> LazyDTOList[contracts.ReviewRunDTO]:
     qs = ReviewRun.objects.for_team(team_id).select_related("pull_request__repo_config").order_by("-created_at")
     if repository:
         qs = qs.filter(pull_request__repo_config__repository=repository)
@@ -284,7 +321,7 @@ def list_review_runs(
         qs = qs.filter(pull_request__pr_number=pr_number)
     if status:
         qs = qs.filter(status=status)
-    return [_review_run_to_dto(o) for o in qs]
+    return LazyDTOList(qs, _review_run_to_dto)
 
 
 def list_pull_requests(
@@ -292,21 +329,21 @@ def list_pull_requests(
     *,
     pr_number: int | None = None,
     merged: bool | None = None,
-) -> list[contracts.PullRequestDTO]:
+) -> LazyDTOList[contracts.PullRequestDTO]:
     qs = PullRequest.objects.for_team(team_id).select_related("repo_config").order_by("-created_at")
     if pr_number is not None:
         qs = qs.filter(pr_number=pr_number)
     if merged is not None:
         qs = qs.filter(merged_at__isnull=not merged)
-    return [_pull_request_to_dto(o) for o in qs]
+    return LazyDTOList(qs, _pull_request_to_dto)
 
 
 # --- Digest channels ---
 
 
-def list_digest_channels(team_id: int) -> list[contracts.DigestChannelDTO]:
+def list_digest_channels(team_id: int) -> LazyDTOList[contracts.DigestChannelDTO]:
     qs = DigestChannel.objects.for_team(team_id).order_by("audience_key")
-    return [_digest_channel_to_dto(o) for o in qs]
+    return LazyDTOList(qs, _digest_channel_to_dto)
 
 
 def create_digest_channel(team_id: int, **fields: object) -> contracts.DigestChannelDTO:
@@ -348,8 +385,8 @@ def disable_digest_channel(team_id: int, channel_id: str) -> None:
 # --- Digest runs ---
 
 
-def list_digest_runs(team_id: int, *, digest_channel_id: UUID | None = None) -> list[contracts.DigestRunDTO]:
+def list_digest_runs(team_id: int, *, digest_channel_id: UUID | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
     qs = DigestRun.objects.for_team(team_id).order_by("-created_at")
     if digest_channel_id is not None:
         qs = qs.filter(digest_channel_id=digest_channel_id)
-    return [_digest_run_to_dto(o) for o in qs]
+    return LazyDTOList(qs, _digest_run_to_dto)
