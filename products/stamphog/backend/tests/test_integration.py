@@ -1329,16 +1329,19 @@ _DEVEX_WORKSPACE = [
 ]
 
 
+@pytest.mark.parametrize("registry_repo_digest_enabled", [True, False])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_one(
-    team, stamphog_chain: StamphogChain
+    team, stamphog_chain: StamphogChain, registry_repo_digest_enabled: bool
 ) -> None:
     # A deployment repo carries no ownership metadata, so its merges resolve to the author's team
     # slug and nothing else. Reading only the repo the merge came from would name-match that slug
     # and bind the team to a disabled #team-devex, even though a repo it also connected declares
-    # the real channel. Every connected repo is a candidate registry, so the declaration wins.
+    # the real channel. Every repo the team still uses is a candidate registry, so the declaration
+    # wins — including from a repo whose own digests are off, since the registry is ownership
+    # metadata rather than digest configuration.
     _repo_config(team.id, repository="acme/charts")
-    _repo_config(team.id, repository="acme/widgets")
+    _repo_config(team.id, repository="acme/widgets", digest_enabled=registry_repo_digest_enabled)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )

@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import cast
 
 from django.db import IntegrityError, router
+from django.db.models import Q
 
 import structlog
 from posthog_owners.resolver import TeamChannel, team_channel, teams_registry
@@ -113,20 +114,25 @@ class _RegistryLookup:
 
 
 def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
-    """Every digest-enabled repo the team connected, in a fixed order.
+    """Every repo the team still uses, in a fixed order.
 
     Any of them can carry the root ``owners.yaml`` that names a team's channel, so all of them are
     read rather than whichever repo happened to merge last: a team whose PRs arrive from several
     repos must not get a different channel depending on merge timing. Ordering by repository is
     what makes the winner reproducible when more than one declares the same slug.
 
-    Writer pin: a repo connected (or digest-enabled) seconds ago is a legitimate registry source,
-    and a lagged reader dropping it would change the answer for that run only.
+    Reviews are enough to qualify — the registry is ownership metadata, not digest configuration,
+    so a monorepo carrying it stays the source for a deployment repo even with its own digest off.
+    A repo switched off entirely is dropped: it can no longer be corrected, and a dead installation
+    would otherwise stall the decision below.
+
+    Writer pin: a repo connected seconds ago is a legitimate registry source, and a lagged reader
+    dropping it would change the answer for that run only.
     """
     return list(
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
-        .filter(digest_enabled=True)
+        .filter(Q(enabled=True) | Q(digest_enabled=True))
         .order_by("repository")
     )
 
