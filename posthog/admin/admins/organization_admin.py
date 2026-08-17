@@ -808,12 +808,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
         )
 
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        extra_context["show_usage_report_button"] = True
-        extra_context["show_bulk_deactivation_button"] = self.has_change_permission(request)
-        return super().changelist_view(request, extra_context=extra_context)
-
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         # Store request for access in display methods (needed for CSRF tokens in templates)

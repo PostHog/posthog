@@ -6,7 +6,9 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
+from django.urls import reverse
 
 from posthog.admin.admins.organization_admin import BulkDeactivateOrganizationsForm, OrganizationAdmin
 from posthog.models import Organization
@@ -15,6 +17,39 @@ from posthog.models import Organization
 def _attach_messages(request) -> None:
     request.session = {}
     request._messages = FallbackStorage(request)
+
+
+class _PostHogPermissions:
+    def __init__(self, *, change_organization: bool):
+        self.view_organization = True
+        self.change_organization = change_organization
+
+
+class _TemplatePermissions:
+    def __init__(self, *, change_organization: bool):
+        self.posthog = _PostHogPermissions(change_organization=change_organization)
+
+
+class TestOrganizationToolsAdminTemplate(SimpleTestCase):
+    def test_links_to_bulk_deactivation_for_users_with_change_permission(self) -> None:
+        rendered = render_to_string(
+            "organization_tools/app.html",
+            {"perms": _TemplatePermissions(change_organization=True)},
+        )
+
+        assert "Organization tools" in rendered
+        assert "Bulk deactivate organizations" in rendered
+        assert reverse("admin:organization_bulk_deactivate") in rendered
+
+    def test_hides_bulk_deactivation_without_change_permission(self) -> None:
+        rendered = render_to_string(
+            "organization_tools/app.html",
+            {"perms": _TemplatePermissions(change_organization=False)},
+        )
+
+        assert "Organization tools" in rendered
+        assert "Send usage report" in rendered
+        assert "Bulk deactivate organizations" not in rendered
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
