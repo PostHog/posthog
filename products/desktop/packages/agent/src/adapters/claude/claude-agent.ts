@@ -1868,12 +1868,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
     // Nothing from before the boundary should be able to reach the fresh
-    // session: reset the plan/notification state ExitPlanMode falls back
-    // to when its tool input omits an explicit plan, so a stale (possibly
-    // repo-injected) pre-clear plan can't resurface after approval.
+    // session: forget the plan file so a stale (possibly repo-injected)
+    // pre-clear plan can't resurface after approval.
     session.notificationHistory.length = 0;
     session.lastPlanFilePath = undefined;
-    session.lastPlanContent = undefined;
     this.fileContentCache = {};
 
     // Only broadcast (and thus persist) the "/clear" prompt once the new

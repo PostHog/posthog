@@ -1,6 +1,6 @@
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SessionNotification } from "@agentclientprotocol/sdk";
 
 function getClaudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
@@ -17,6 +17,17 @@ export function isClaudePlanFilePath(filePath: string | undefined): boolean {
   return resolved === plansDir || resolved.startsWith(plansDir + path.sep);
 }
 
+/**
+ * Subagents are assigned their own plan file, suffixed with their agent id.
+ * Treating one as the session's plan would put a subagent's working notes in
+ * front of the user instead of the plan they are being asked to approve.
+ */
+export function isSubagentPlanFilePath(filePath: string): boolean {
+  // Agent ids are long hex strings. Requiring length keeps an ordinary plan name
+  // that happens to end in "-agent-<word>" from being mistaken for one.
+  return /-agent-[0-9a-f]{8,}\.md$/i.test(path.basename(filePath));
+}
+
 export function isPlanReady(plan: string | undefined): boolean {
   if (!plan) return false;
   const trimmed = plan.trim();
@@ -24,33 +35,16 @@ export function isPlanReady(plan: string | undefined): boolean {
   return /(^|\n)#{1,6}\s+\S/.test(trimmed);
 }
 
-export function getLatestAssistantText(
-  notifications: SessionNotification[],
-): string | null {
-  const chunks: string[] = [];
-  let started = false;
-
-  for (let i = notifications.length - 1; i >= 0; i -= 1) {
-    const update = notifications[i]?.update;
-    if (!update) continue;
-
-    if (update.sessionUpdate === "agent_message_chunk") {
-      started = true;
-      const content = update.content as {
-        type?: string;
-        text?: string;
-      } | null;
-      if (content?.type === "text" && content.text) {
-        chunks.push(content.text);
-      }
-      continue;
-    }
-
-    if (started) {
-      break;
-    }
+/**
+ * The plan file is the source of truth. `ExitPlanMode` has no `plan` parameter,
+ * and the CLI has the model build the plan up incrementally with Write then
+ * Edit — so only the file on disk holds the current plan.
+ */
+export async function readPlanFile(filePath: string): Promise<string | null> {
+  try {
+    const content = await fs.readFile(filePath, "utf8");
+    return content.trim() ? content : null;
+  } catch {
+    return null;
   }
-
-  if (chunks.length === 0) return null;
-  return chunks.reverse().join("");
 }
