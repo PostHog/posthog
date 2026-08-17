@@ -1,6 +1,7 @@
 import {
   channelDisplayName,
-  GENERAL_CHANNEL_NAME,
+  isGeneralChannel,
+  isPersonalChannel,
 } from "@posthog/core/canvas/channelName";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -40,21 +41,18 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
   const channels = useMemo(
     () =>
       (query.data ?? []).map((channel) =>
-        channel.channel_type === "personal"
+        isPersonalChannel(channel)
           ? { ...channel, name: channelDisplayName(channel.name) }
           : channel,
       ),
     [query.data],
   );
   const personalChannel = useMemo(
-    () => channels.find((c) => c.channel_type === "personal"),
+    () => channels.find((c) => isPersonalChannel(c)),
     [channels],
   );
   const generalChannel = useMemo(
-    () =>
-      channels.find(
-        (c) => c.channel_type === "public" && c.name === GENERAL_CHANNEL_NAME,
-      ),
+    () => channels.find((c) => isGeneralChannel(c)),
     [channels],
   );
   return {
