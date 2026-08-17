@@ -158,6 +158,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { POSTHOG_OBJECT_REFERENCES_PROMPT } from "@posthog/shared";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -942,6 +943,10 @@ describe("AgentService", () => {
         true,
       ).append;
     }
+
+    it("uses the shared object-reference prompt", () => {
+      expect(buildChannelPrompt()).toContain(POSTHOG_OBJECT_REFERENCES_PROMPT);
+    });
 
     it("requires a task-specific clone instead of an existing checkout", () => {
       const prompt = buildChannelPrompt();

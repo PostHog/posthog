@@ -252,6 +252,7 @@ export {
   TOKEN_REFRESH_BUFFER_MS,
   TOKEN_REFRESH_FORCE_MS,
 } from "./oauth";
+export { POSTHOG_OBJECT_REFERENCES_PROMPT } from "./object-references";
 export {
   compactHomePath,
   expandTildePath,

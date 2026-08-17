@@ -241,12 +241,8 @@ test.describe("Pi enrichment", () => {
 
       expect(eventDefinitionRequests).toBe(1);
       expect(eventStatsRequests).toBe(1);
-      expect(initialModelRequest).toContain(
-        '<event id=\\"event name\\">event name</event>',
-      );
-      expect(initialModelRequest).toContain(
-        '<flag id=\\"flag key\\">flag key</flag>',
-      );
+      expect(initialModelRequest).toContain("## Rich output in replies");
+      expect(initialModelRequest).toContain('<kind id=\\"...\\">');
       expect(enrichedModelRequest).toContain(
         '[PostHog] Event: \\"checkout_completed\\"',
       );
