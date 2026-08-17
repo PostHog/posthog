@@ -60,6 +60,9 @@ class _Recorder:
         self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
+        # ts -> thread snapshot; missing means a one-message thread. An empty list is what
+        # a deleted trigger message reads as.
+        self.thread_messages: dict[str, list[dict[str, str]]] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
         self.cascade_modes: dict[str, Literal["auto", "no_repo", "agent_needed", "needs_user_github"]] = {}
         # ts per personal-GitHub gate call, in execution order.
@@ -109,7 +112,8 @@ def _fake_activities(rec: _Recorder) -> list:
     async def collect(
         inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
     ) -> list[dict[str, str]]:
-        return [{"user": "U1", "text": inputs.event["text"]}]
+        ts = inputs.event["ts"]
+        return rec.thread_messages.get(ts, [{"user": "U1", "text": inputs.event["text"]}])
 
     @activity.defn(name="cascade_posthog_code_repository_activity")
     async def cascade(
@@ -495,3 +499,19 @@ async def test_continue_as_new_carry_over_processes_pending_and_dedups_seen():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_deleted_trigger_message_creates_no_task_and_says_nothing():
+    # A prompt deleted right after posting reads back as an empty thread. Slack posts a
+    # reply with an unresolvable thread_ts at channel root, so anything we say here —
+    # including an "internal error" notice — lands in front of the whole channel.
+    rec = _Recorder()
+    rec.thread_messages["1.1"] = []
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert rec.created == []
+    assert rec.internal_errors == []
