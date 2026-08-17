@@ -18,9 +18,11 @@ from croniter import CroniterError, croniter
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -45,6 +47,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
+    resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
@@ -242,14 +245,21 @@ async def arun_signals_scout(
             skip_reason="prior run still in progress",
         )
 
-    # Resolve the acting user up front. Scouts don't clone a repo on the cadence path, so they
-    # don't need a GitHub integration — `resolve_acting_user_id_for_team` prefers the GitHub
-    # creator when present but falls back to any active org member, so a team that never connected
-    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
-    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
-    # genuine "no active user to act as" case; like the withheld / in-flight skips it leaves no
-    # row, no lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
-    user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+    # Resolve the acting user up front: the skill's creator (else the config's enabler/creator)
+    # when one resolves, so a scout's runs, and the AI spend attributed off the task row, land on
+    # the human who authored or enabled the scout instead of pooling on one team-level default
+    # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
+    # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
+    # falls back to any active org member, so a team that never connected GitHub still runs (these
+    # dominated the fleet failure rate when the run instead crashed ~5s into `_spawn_and_run` and
+    # booked a bogus `failed`). The only remaining short-circuit is the genuine "no active user to
+    # act as" case; like the withheld / in-flight skips it leaves no row, no lifecycle event, and
+    # a `skip_reason` the coordinator can surface — not a failure.
+    user_id = await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
+        team, skill.name, config
+    )
+    if user_id is None:
+        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
     if user_id is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
@@ -505,6 +515,20 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
         return False
 
 
+def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | None:
+    """Approved metric names for prompt injection, or None when the read fails.
+
+    Resolved as the run's acting user, the same identity the sandbox's MCP token carries, so the
+    injected listing can never be wider than what the run could have queried for itself through
+    `system.information_schema.metrics`.
+    """
+    try:
+        return approved_metric_names_for_team(team, User.objects.get(id=user_id))
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -590,6 +614,11 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
+    governed_metric_names = (
+        await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(team, user_id)
+        if data_catalog_enabled
+        else None
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -597,6 +626,7 @@ async def _spawn_and_run(
         started_at=started_at,
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
+        governed_metric_names=governed_metric_names,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
@@ -655,6 +685,12 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
         mcp_builtin_agent_key="scout",
+        # No credential owner on purpose: a scout is a team resource, so its runs mount only
+        # connections members shared to the whole team, never anyone's personal grants. That
+        # keeps runs identical no matter who created or edits the scout, and covers ownerless
+        # coordinator-discovered scouts. The per-scout selection below picks which of those
+        # team-shared servers this scout's runs mount. Empty selects none.
+        mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. `ai_stage` is the only run-shaped value the harness

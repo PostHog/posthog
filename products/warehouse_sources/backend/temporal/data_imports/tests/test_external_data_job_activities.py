@@ -6,7 +6,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    CANCELLED_RUN_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
@@ -38,6 +39,13 @@ class TestCustomerFacingError(SimpleTestCase):
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
         assert _customer_facing_error(ValueError("connection reset")) == "connection reset"
+
+    def test_cancelled_run_does_not_surface_the_bare_cancelled_word(self) -> None:
+        # A superseded/paused run cancels the activity; its cause is a CancelledError whose message
+        # is the bare word "Cancelled". The customer must get a readable message instead.
+        result = _customer_facing_error(CancelledError())
+        assert result == CANCELLED_RUN_MESSAGE
+        assert result != "Cancelled"
 
     def test_missing_cause_does_not_show_the_customer_none(self) -> None:
         assert _customer_facing_error(None) == UNEXPECTED_ERROR_MESSAGE

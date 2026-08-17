@@ -4,7 +4,6 @@ export const CLOUD_COMPUTE_BILLING_FLAG =
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
-export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";

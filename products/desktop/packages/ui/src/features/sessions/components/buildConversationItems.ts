@@ -79,6 +79,9 @@ export interface BuildResult {
   items: ConversationItem[];
   lastTurnInfo: LastTurnInfo | null;
   isCompacting: boolean;
+  /** A `/clear` is in flight (its status row shows the dedicated spinner), so
+   *  the generic "Generating…" footer must stay hidden — same as compaction. */
+  isClearing: boolean;
   /** Number of tool calls settled into a terminal status so far. Monotonic
    *  within a thread; consumers treat a change as "a tool/MCP call finished". */
   completedToolCallCount: number;
@@ -122,6 +125,7 @@ export interface ItemBuilder {
   pendingPrompts: Map<number | string, TurnState>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
+  isClearing: boolean;
   nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
@@ -152,6 +156,7 @@ export function createItemBuilder(): ItemBuilder {
     pendingPrompts: new Map(),
     shellExecutes: new Map(),
     isCompacting: false,
+    isClearing: false,
     nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
@@ -271,6 +276,7 @@ export function buildConversationItems(
     items: b.items,
     lastTurnInfo,
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
   };
 }
@@ -325,6 +331,7 @@ export function buildAgentConversationItems(
     items: b.items,
     lastTurnInfo: readLastTurnInfo(b),
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
   };
 }
@@ -717,6 +724,13 @@ function handleNotification(
     return;
   }
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+    ensureImplicitTurn(b, ts);
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, { sessionUpdate: "conversation_cleared" });
+    return;
+  }
+
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.STATUS)) {
     ensureImplicitTurn(b, ts);
     const params = msg.params as {
@@ -777,6 +791,26 @@ function handleRuntimeStatus(
     return;
   } else if (status.status === "retrying" && status.isComplete) {
     markRuntimeStatusComplete(b, "retrying");
+    return;
+  } else if (status.status === "clearing") {
+    if (status.isComplete) {
+      markRuntimeStatusComplete(b, "clearing");
+      return;
+    }
+    // The /clear prompt RPC keeps isPromptPending true for the whole swap,
+    // so without this flag the generic "Generating…" footer would render
+    // alongside the dedicated "Clearing…" row (compaction has the same
+    // gate via isCompacting).
+    b.isClearing = true;
+  } else if (status.status === "clearing_failed") {
+    // A timed-out clear emits no `conversation_cleared` marker, so clear
+    // the spinner and render the outcome as its own status row.
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, {
+      sessionUpdate: "status",
+      status: "clearing_failed",
+      error: status.error,
+    });
     return;
   }
 
@@ -896,6 +930,9 @@ function normalizeStepStatus(raw: string | undefined): StepStatus {
 function markRuntimeStatusComplete(b: ItemBuilder, status: string) {
   if (status === "compacting") {
     b.isCompacting = false;
+  }
+  if (status === "clearing") {
+    b.isClearing = false;
   }
   for (let i = b.items.length - 1; i >= 0; i--) {
     const item = b.items[i];
