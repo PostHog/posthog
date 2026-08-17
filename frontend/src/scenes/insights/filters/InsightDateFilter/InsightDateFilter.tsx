@@ -56,14 +56,17 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
         const daysChanged = showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)
         const incompleteChanged = next.incomplete !== exclusions.incomplete
-        if (daysChanged) {
-            updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
+        const daysUpdate = daysChanged ? computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange) : null
+        if (daysUpdate) {
+            updateQuerySource(daysUpdate)
         }
         if (incompleteChanged) {
             updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
         }
         if (daysChanged || incompleteChanged) {
-            reportInsightDateExclusionsChanged(querySource?.kind, next.incomplete, nextExcludedDaysOfWeek.length)
+            // Report what got persisted, not what was picked: a full-week selection normalizes back to "exclude nothing"
+            const persistedExcludedDays = daysUpdate ? getExcludedDaysOfWeek(daysUpdate.dateRange) : excludedDaysOfWeek
+            reportInsightDateExclusionsChanged(querySource?.kind, next.incomplete, persistedExcludedDays.length)
         }
     }
 
