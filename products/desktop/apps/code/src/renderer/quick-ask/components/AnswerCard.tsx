@@ -1,9 +1,6 @@
-import { extractChartBlocks } from "@posthog/core/quick-ask/chart-blocks";
-import type { QuickAskChart } from "@posthog/core/quick-ask/quick-ask";
+import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Chart } from "./charts";
-import { Markdown } from "./Markdown";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const AUTOSCROLL_SLACK_PX = 48;
 
@@ -41,9 +38,6 @@ interface AnswerCardProps {
   text: string;
   /** Still receiving tokens: show the streaming caret, hold the actions. */
   streaming: boolean;
-  charts: QuickAskChart[];
-  /** The answer produced a visualization the panel could not render. */
-  hasViz: boolean;
   onOpenInApp: () => void;
   onNewChat: () => void;
 }
@@ -51,8 +45,6 @@ interface AnswerCardProps {
 export function AnswerCard({
   text,
   streaming,
-  charts,
-  hasViz,
   onOpenInApp,
   onNewChat,
 }: AnswerCardProps): React.JSX.Element {
@@ -60,16 +52,11 @@ export function AnswerCard({
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
-  // Charts can also arrive embedded in the answer markdown (the task-backed
-  // path streams plain agent text); they render beside the streamed ones.
-  const extracted = useMemo(() => extractChartBlocks(text), [text]);
-  const allCharts = [...charts, ...extracted.charts];
-
   const copyAnswer = useCallback((): void => {
-    void navigator.clipboard.writeText(extracted.text);
+    void navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
-  }, [extracted.text]);
+  }, [text]);
 
   // Follow the stream, but stop if the user scrolled up to read.
   const onScroll = useCallback((): void => {
@@ -79,32 +66,23 @@ export function AnswerCard({
       el.scrollHeight - el.scrollTop - el.clientHeight < AUTOSCROLL_SLACK_PX;
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every text/chart growth
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on every text growth
   useEffect(() => {
     const el = scrollRef.current;
     if (el && streaming && pinnedToBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [text, charts.length, streaming]);
+  }, [text, streaming]);
 
   return (
     <div className="qa-card">
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
         <div className="qa-answer">
-          <Markdown text={extracted.text} />
+          {/* The shared evidence pipeline: object tags in the agent's
+              markdown resolve into live reference chips and chart cards. */}
+          <MarkdownRenderer content={text} />
           {streaming && <span className="qa-caret" />}
         </div>
-
-        {allCharts.map((chart, index) => (
-          <Chart key={`${index}:${chart.title}`} chart={chart} />
-        ))}
-
-        {hasViz && (
-          <button type="button" className="qa-viz-note" onClick={onOpenInApp}>
-            <span className="qa-viz-glyph">📈</span>
-            This answer includes a chart. Open in PostHog to see it.
-          </button>
-        )}
       </div>
 
       {!streaming && (

@@ -1,7 +1,4 @@
-import type {
-  QuickAskChart,
-  QuickAskEvent,
-} from "@posthog/core/quick-ask/quick-ask";
+import type { QuickAskEvent } from "@posthog/core/quick-ask/quick-ask";
 import { happyHog } from "@posthog/ui/assets/hedgehogs";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -48,8 +45,6 @@ export function QuickAsk(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>("idle");
   const [thinkingLabel, setThinkingLabel] = useState("Thinking…");
   const [textParts, setTextParts] = useState<TextPart[]>([]);
-  const [charts, setCharts] = useState<QuickAskChart[]>([]);
-  const [hasViz, setHasViz] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [pillWidth, setPillWidth] = useState(PILL_MIN_WIDTH);
   const [flip, setFlip] = useState(false);
@@ -63,13 +58,12 @@ export function QuickAsk(): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const reset = useCallback((): void => {
-    window.quickAsk?.cancel();
+    // Drops the whole thread main-side (and pre-warms the next one).
+    window.quickAsk?.reset();
     conversationIdRef.current = undefined;
     setPhase("idle");
     setThinkingLabel("Thinking…");
     setTextParts([]);
-    setCharts([]);
-    setHasViz(false);
     setErrorMessage("");
     setPillWidth(PILL_MIN_WIDTH);
     if (inputRef.current) {
@@ -143,20 +137,6 @@ export function QuickAsk(): React.JSX.Element {
               : current,
           );
           break;
-        case "chart":
-          setCharts((current) => [...current, event.chart]);
-          setPhase((current) =>
-            current === "thinking" || current === "idle"
-              ? "streaming"
-              : current,
-          );
-          break;
-        case "viz":
-          setHasViz(true);
-          setPhase((current) =>
-            current === "thinking" ? "streaming" : current,
-          );
-          break;
         case "error":
           setErrorMessage(event.message);
           setPhase("error");
@@ -223,8 +203,6 @@ export function QuickAsk(): React.JSX.Element {
     }
     syncPillWidth();
     setTextParts([]);
-    setCharts([]);
-    setHasViz(false);
     setErrorMessage("");
     setThinkingLabel("Thinking…");
     setPhase("thinking");
@@ -317,8 +295,6 @@ export function QuickAsk(): React.JSX.Element {
         <AnswerCard
           text={answerText}
           streaming={phase === "streaming"}
-          charts={charts}
-          hasViz={hasViz}
           onOpenInApp={openInApp}
           onNewChat={reset}
         />

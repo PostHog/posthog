@@ -1,7 +1,15 @@
 /* Quick-ask cursor pill + answer card. Color values mirror the quill dark
- * theme tokens (packages/quill/packages/tokens) so it matches the app; kept
- * as plain CSS because this entry deliberately avoids booting the full
- * renderer. */
+ * theme tokens (packages/quill/packages/tokens) so it matches the app. The
+ * pill and card chrome stay plain CSS; answer markdown renders through the
+ * shared evidence pipeline, which brings the app's global styles along. */
+
+/* The app's global styles paint opaque page backgrounds; the panel window is
+ * transparent outside its content, so neutralize them (this file loads after
+ * globals.css, so equal-specificity rules here win). */
+.radix-themes {
+  min-height: 0;
+  background: transparent;
+}
 
 :root {
   /* Opaque like Figma's cursor chat: no translucency, no blur, no shadow.
@@ -13,11 +21,6 @@
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
   --qa-accent: #f1a82c; /* quill primary (dark) */
-  /* Chart series 2 and 3 (series 1 is the accent). CVD-validated against
-   * --qa-surface with the dataviz palette checker. */
-  --qa-series-2: #5b86de;
-  --qa-series-3: #3aa658;
-  --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
   --qa-hover: rgba(255, 255, 255, 0.08);
   --qa-font:
@@ -32,8 +35,9 @@
   padding: 0;
 }
 
+/* `html body` outranks the app globals' plain `body` background rules. */
 html,
-body {
+html body {
   background: transparent;
   overflow: hidden;
   font-family: var(--qa-font);
@@ -362,220 +366,6 @@ body {
   font-size: 13px;
   line-height: 1.5;
   color: var(--qa-down);
-}
-
-/* Note shown when the answer carries a chart the panel cannot render. */
-.qa-viz-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin-top: 11px;
-  padding: 8px 11px;
-  font: 500 12px var(--qa-font);
-  text-align: left;
-  color: var(--qa-fg-muted);
-  background: var(--qa-surface-raised);
-  border: 1px solid var(--qa-border);
-  border-radius: 9px;
-  cursor: pointer;
-  transition:
-    color 0.12s,
-    background 0.12s;
-}
-
-.qa-viz-note:hover {
-  color: var(--qa-fg);
-  background: var(--qa-hover);
-}
-
-.qa-viz-glyph {
-  font-size: 14px;
-}
-
-/* Chart */
-
-.qa-chart {
-  margin-top: 12px;
-  padding: 11px 12px 9px;
-  background: var(--qa-surface-raised);
-  border: 1px solid var(--qa-border);
-  border-radius: 10px;
-}
-
-.qa-chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 9px;
-}
-
-.qa-chart-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--qa-fg-muted);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.qa-chart-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.qa-chart-stat-value {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--qa-fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-chart-delta {
-  font-size: 10px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-delta-up {
-  color: var(--qa-up);
-}
-
-.qa-delta-down {
-  color: var(--qa-down);
-}
-
-.qa-chart-plot {
-  position: relative;
-  /* Room for the tooltip; hover geometry maps onto this box. */
-  touch-action: none;
-}
-
-.qa-chart-svg {
-  display: block;
-  width: 100%;
-  height: 104px;
-}
-
-.qa-chart-ytick {
-  position: absolute;
-  left: 0;
-  transform: translateY(-110%);
-  font-size: 9px;
-  color: var(--qa-fg-subtle);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-
-.qa-chart-crosshair {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.22);
-  pointer-events: none;
-}
-
-.qa-chart-hover-dot {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--qa-surface);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.qa-chart-tip {
-  position: absolute;
-  top: -4px;
-  transform: translateX(10px);
-  min-width: 92px;
-  max-width: 190px;
-  padding: 6px 9px;
-  border-radius: 8px;
-  background: #26272e;
-  border: 1px solid var(--qa-border);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.qa-chart-tip-left {
-  transform: translateX(calc(-100% - 10px));
-}
-
-.qa-chart-tip-label {
-  font-size: 10px;
-  font-weight: 650;
-  color: var(--qa-fg);
-  margin-bottom: 3px;
-}
-
-.qa-chart-tip-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  color: var(--qa-fg-muted);
-}
-
-.qa-chart-tip-row + .qa-chart-tip-row {
-  margin-top: 2px;
-}
-
-.qa-chart-tip-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.qa-chart-tip-value {
-  margin-left: auto;
-  color: var(--qa-fg);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-chart-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.qa-chart-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 5px;
-  font-size: 9.5px;
-  color: var(--qa-fg-subtle);
-  font-variant-numeric: tabular-nums;
-}
-
-.qa-chart-labels span {
-  flex: 1;
-  text-align: center;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.qa-chart-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 7px;
-}
-
-.qa-chart-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  color: var(--qa-fg-muted);
 }
 
 /* ── Thinking skeleton ───────────────────────────────── */
