@@ -59,9 +59,6 @@ DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
 # https://posthog.com/docs/logs/link-session-replay tells backends to send. Ordered:
 # detection checks keys in list order and the first match wins. Customers whose pipeline
 # emits the session ID under different keys can override via the `logs_config` endpoint.
-#
-# This default is not what makes linking work — resolution also falls back to the
-# SESSION_ID_KEYS conventions in products/logs/frontend/utils.tsx.
 DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
 
 

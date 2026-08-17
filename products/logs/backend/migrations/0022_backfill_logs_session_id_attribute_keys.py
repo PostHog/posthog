@@ -2,20 +2,11 @@ from django.db import migrations
 
 BATCH_SIZE = 1000
 
-# Teams that existed when 0015 added the column carry its ADD COLUMN default,
-# `{posthogSessionId}`. Our SDKs emit `sessionId`, which is also what
-# https://posthog.com/docs/logs/link-session-replay tells backends to send, so those teams'
-# session links resolve nothing wherever detection trusts the configured keys. Some customer
-# pipelines do emit `posthogSessionId` directly — hence the append below rather than a swap.
+# Teams predating #83710 carry 0015's default, which our SDKs don't emit.
 OLD_DEFAULT = ["posthogSessionId"]
 
-# Appended rather than prepended, and rather than replaced. Detection is first-match-wins,
-# and a stored `["posthogSessionId"]` is indistinguishable from a team that configured it
-# deliberately — 31 teams do emit that key, 14 of them alongside `sessionId` (measured in
-# ClickHouse, 2026-08-17). Putting `sessionId` first would switch those 14 onto a different
-# attribute than the one they resolve on today. Keeping the old key first leaves every
-# team that emits it resolving exactly as before, while the ~2,150 teams that emit only
-# `sessionId` start resolving at all.
+# Old key stays first: 14 teams emit both, and detection is first-match-wins, so leading
+# with `sessionId` would move them onto a different attribute than they resolve on today.
 NEW_VALUE = ["posthogSessionId", "sessionId"]
 
 

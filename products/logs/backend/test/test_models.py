@@ -268,10 +268,7 @@ class TestTeamLogsConfig(BaseTest):
         assert customized.logs_distinct_id_attribute_keys == ["user.id"]
 
     def test_migration_backfill_appends_the_key_the_sdks_emit(self):
-        # A team that never opened the setting carries 0015's ADD COLUMN default. The old key
-        # stays FIRST: a deliberate `["posthogSessionId"]` is indistinguishable from this row,
-        # and detection is first-match-wins, so leading with `sessionId` would move the teams
-        # that emit both onto a different attribute than they resolve on today.
+        # Order matters — see the migration for why the old key stays first.
         untouched = get_or_create_team_extension(self.team, TeamLogsConfig)
         untouched.logs_session_id_attribute_keys = ["posthogSessionId"]
         untouched.save()
