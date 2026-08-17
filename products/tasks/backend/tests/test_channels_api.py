@@ -85,7 +85,54 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_list_provisions_general_channel_starred_once(self):
+        first = self.client.get(self._channels_url()).json()
+        general = [c for c in first if c["name"] == "general"]
+        self.assertEqual(len(general), 1)
+        self.assertEqual(general[0]["channel_type"], "public")
+        self.assertTrue(general[0]["starred"])
+
+        # Listing again reuses the same #general channel rather than creating another.
+        again = self.client.get(self._channels_url()).json()
+        self.assertEqual(
+            [c["id"] for c in again if c["name"] == "general"],
+            [general[0]["id"]],
+        )
+
+    def test_unstarring_general_sticks_on_later_lists(self):
+        first = self.client.get(self._channels_url()).json()
+        general_id = next(c["id"] for c in first if c["name"] == "general")
+
+        unstar = self.client.post(f"{self._channels_url()}{general_id}/star/", {"starred": False}, format="json")
+        self.assertEqual(unstar.status_code, status.HTTP_204_NO_CONTENT)
+
+        again = self.client.get(self._channels_url()).json()
+        self.assertFalse(next(c["starred"] for c in again if c["name"] == "general"))
+
+    def test_second_users_first_list_also_stars_general(self):
+        self.client.get(self._channels_url())  # provisions #general for the team
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        theirs = other_client.get(self._channels_url()).json()
+        self.assertTrue(next(c["starred"] for c in theirs if c["name"] == "general"))
+
+    @parameterized.expand(
+        [
+            ("rename", lambda client, url: client.patch(url, {"name": "not-general"})),
+            ("delete", lambda client, url: client.delete(url)),
+        ]
+    )
+    def test_general_channel_cannot_be_renamed_or_deleted(self, _name, act):
+        self.client.get(self._channels_url())
+        general = Channel.objects.unscoped().get(
+            team=self.team, name="general", channel_type=Channel.ChannelType.PUBLIC
+        )
+        response = act(self.client, f"{self._channels_url()}{general.id}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_all_cached_repositories")
+
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})

@@ -1275,7 +1275,7 @@ def create_and_run_task(
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
-        channel = _ensure_personal_channel(team.id, user_id)
+        channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -1398,7 +1398,7 @@ def create_task_without_run(
     """
     if channel is None:
         channel = (
-            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
@@ -5037,7 +5037,7 @@ def create_task(
         and not validated_data.get("internal", False)
         and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
     ):
-        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)
+        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)[0]
     validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
@@ -6450,7 +6450,7 @@ def _team_channels(team_id: int) -> QuerySet[Channel]:
     return Channel.objects.for_team(team_id)
 
 
-def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
     channels = _team_channels(team_id).select_related("created_by")
     lookup = {
@@ -6460,10 +6460,10 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
         "deleted": False,
     }
     try:
-        channel, _ = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
+        channel, created = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
     except IntegrityError:
-        channel = channels.get(**lookup)
-    return channel
+        channel, created = channels.get(**lookup), False
+    return channel, created
 
 
 def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
@@ -6471,25 +6471,63 @@ def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
 
     For callers outside a request (Temporal activities) that need somewhere to file a task.
     """
-    return _ensure_personal_channel(team_id, user_id).id
+    return _ensure_personal_channel(team_id, user_id)[0].id
+
+
+def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
+    """Get-or-create the team's default public "#general" channel, adopting a
+    channel a user already named "general" rather than creating a duplicate —
+    same resolve-or-create shape as ``resolve_channel``."""
+    channels = _team_channels(team_id).select_related("created_by")
+    lookup = {
+        "team_id": team_id,
+        "name": Channel.GENERAL_CHANNEL_NAME,
+        "channel_type": Channel.ChannelType.PUBLIC,
+        "deleted": False,
+    }
+    try:
+        channel, created = channels.get_or_create(**lookup, defaults={"created_by_id": user_id})
+    except IntegrityError:
+        channel, created = channels.get(**lookup), False
+    if created:
+        _emit_channel_created(channel, user_id)
+    return channel, created
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """All live public channels plus the requester's personal channel (provisioned lazily),
-    personal first, then by name. ``starred`` reflects the requester's stars."""
+    personal first, then the general channel, then the rest by name. ``starred`` reflects
+    the requester's stars."""
     channels: list[Channel] = []
+    general_id: UUID | None = None
+    # Everyone is a member of #general by default, Slack-style: star it for the requester
+    # the moment either #general or their personal channel is provisioned for the first
+    # time (i.e. this is their first list in the team). Later lists leave the star alone,
+    # so an explicit unstar sticks.
+    just_joined = False
     if user_id is not None:
-        channels.append(_ensure_personal_channel(team_id, user_id))
-    channels.extend(
+        personal_channel, personal_created = _ensure_personal_channel(team_id, user_id)
+        channels.append(personal_channel)
+        general_channel, general_created = _ensure_general_channel(team_id, user_id)
+        general_id = general_channel.id
+        just_joined = personal_created or general_created
+
+    public_channels = list(
         Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
         .select_related("created_by")
         .order_by("name")
     )
+    public_channels.sort(key=lambda channel: (channel.name != Channel.GENERAL_CHANNEL_NAME, channel.name))
+    channels.extend(public_channels)
+
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
         if user_id is not None
         else set()
     )
+    if user_id is not None and just_joined and general_id is not None:
+        _set_channel_star(general_id, team_id, user_id, starred=True)
+        starred_ids.add(general_id)
     return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
 
 
@@ -6566,6 +6604,9 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
+    if channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME:
+        if name is not None:
+            return "general"
     update_fields: list[str] = []
     if name is not None:
         normalized = normalize_channel_name(name)
@@ -6593,6 +6634,8 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
         return "personal" if channel.created_by_id == user_id else "not_found"
+    if channel.name == Channel.GENERAL_CHANNEL_NAME:
+        return "general"
     if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
         return "not_empty"
     channel.deleted = True

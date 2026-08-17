@@ -735,7 +735,7 @@ export const LoopsRunsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * All live public channels plus the requester's personal #me channel (created on first list).
+ * All live public channels plus the requester's personal #me channel and the team's #general channel, both provisioned and starred for the requester on first list.
  * @summary List channels
  */
 export const TaskChannelsListParams = /* @__PURE__ */ zod.object({
@@ -784,8 +784,9 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Get a channel
  */
 export const TaskChannelsRetrieveParams = /* @__PURE__ */ zod.object({

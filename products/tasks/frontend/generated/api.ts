@@ -736,7 +736,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel (created on first list).
+ * All live public channels plus the requester's personal #me channel and the team's #general channel, both provisioned and starred for the requester on first list.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -837,8 +837,9 @@ export const getTaskChannelsRetrieveUrl = (projectId: string, id: string) => {
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Get a channel
  */
 export const taskChannelsRetrieve = async (
@@ -858,8 +859,9 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Rename a public channel
  */
 export const taskChannelsPartialUpdate = async (
@@ -882,8 +884,9 @@ export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Delete a public channel
  */
 export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -899,8 +902,9 @@ export const getTaskChannelsContextGenerationRetrieveUrl = (projectId: string, i
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Get the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationRetrieve = async (
@@ -920,8 +924,9 @@ export const getTaskChannelsContextGenerationUpdateUrl = (projectId: string, id:
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationUpdate = async (
@@ -1007,8 +1012,9 @@ export const getTaskChannelsInstructionsDestroyUrl = (projectId: string, id: str
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Delete channel instructions
  */
 export const taskChannelsInstructionsDestroy = async (
@@ -1028,8 +1034,9 @@ export const getTaskChannelsInstructionsVersionsRetrieveUrl = (projectId: string
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary List channel instruction versions
  */
 export const taskChannelsInstructionsVersionsRetrieve = async (
@@ -1052,8 +1059,9 @@ export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
 
 /**
  * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * provisions the requester's personal "#me" channel and the team's shared "#general"
+ * channel (starred by default, like Slack); creation is resolve-or-create by
+ * normalized name so clients can map channel-like surfaces onto backend channels.
  * @summary Star or unstar a channel for the requesting user
  */
 export const taskChannelsStarCreate = async (
