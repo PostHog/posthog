@@ -211,11 +211,8 @@ async fn async_main(config: Config) -> Result<()> {
     let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
     let chunking = ChunkConfig::new(config.sub_batch_max_events, config.sub_batch_min_events);
     if chunking.enabled() {
-        info!(
-            max_events = config.sub_batch_max_events,
-            min_events = config.sub_batch_min_events,
-            "Sub-batch chunking enabled"
-        );
+        // Log the effective bands, so a min clamped down to the max is visible.
+        info!(?chunking, "Sub-batch chunking enabled");
     }
     dispatcher.set_chunking(chunking);
     if let Some(recorder) = &debug_recorder {
