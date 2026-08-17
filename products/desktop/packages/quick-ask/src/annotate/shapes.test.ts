@@ -1,5 +1,24 @@
-import { describe, expect, it } from "vitest";
-import { arrowHead, hitShape, type Shape, shapeBBox } from "./shapes";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  arrowHead,
+  hitShape,
+  type Shape,
+  shapeBBox,
+  textLines,
+} from "./shapes";
+
+// Text measuring goes through a module-level canvas context; give the node
+// environment a deterministic 10px-per-character measurer.
+beforeAll(() => {
+  vi.stubGlobal("document", {
+    createElement: () => ({
+      getContext: () => ({
+        font: "",
+        measureText: (text: string) => ({ width: text.length * 10 }),
+      }),
+    }),
+  });
+});
 
 describe("annotator shape geometry", () => {
   // A long horizontal arrow: the head is 26px deep and its wings flare
@@ -30,5 +49,20 @@ describe("annotator shape geometry", () => {
     expect(hitShape(arrow, wings[1])).toBe(true);
     // Well off the head stays a miss.
     expect(hitShape(arrow, { x: 200, y: 80 })).toBe(false);
+  });
+
+  it("breaks a word wider than the wrap width instead of overflowing", () => {
+    // 12 characters at 10px each against a 40px width: no line may exceed
+    // the width, and nothing may be dropped.
+    const lines = textLines("abcdefghijkl", 17, 40);
+    expect(lines).toEqual(["abcd", "efgh", "ijkl"]);
+  });
+
+  it("still wraps at spaces before resorting to breaking words", () => {
+    expect(textLines("ab cd efghijkl", 17, 50)).toEqual([
+      "ab cd",
+      "efghi",
+      "jkl",
+    ]);
   });
 });

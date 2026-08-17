@@ -109,7 +109,21 @@ function measurer(size: number): CanvasRenderingContext2D | null {
   return measureCtx;
 }
 
-/** Typed lines, word-wrapped to the shape's width when it has one. */
+/** User-perceived characters, so a long word never splits inside an emoji
+ * or a combining sequence. */
+function graphemes(word: string): string[] {
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    return Array.from(
+      new Intl.Segmenter().segment(word),
+      (part) => part.segment,
+    );
+  }
+  return Array.from(word);
+}
+
+/** Typed lines, word-wrapped to the shape's width when it has one. A word
+ * wider than the width is broken at grapheme boundaries, so no rendered line
+ * escapes the shape's background and selection box. */
 export function textLines(
   text: string,
   size: number,
@@ -123,11 +137,27 @@ export function textLines(
     let line = "";
     for (const word of raw.split(" ")) {
       const joined = line ? `${line} ${word}` : word;
-      if (line && ctx.measureText(joined).width > width) {
-        lines.push(line);
-        line = word;
-      } else {
+      if (ctx.measureText(joined).width <= width) {
         line = joined;
+        continue;
+      }
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      if (ctx.measureText(word).width <= width) {
+        line = word;
+        continue;
+      }
+      for (const grapheme of graphemes(word)) {
+        const candidate = line + grapheme;
+        // A single grapheme wider than the width still gets its own line.
+        if (line && ctx.measureText(candidate).width > width) {
+          lines.push(line);
+          line = grapheme;
+        } else {
+          line = candidate;
+        }
       }
     }
     lines.push(line);
@@ -152,8 +182,13 @@ function measureText(
   const ctx = measurer(size);
   if (!ctx) return { w: 0, h: 0 };
   const lines = textLines(text, size, width);
-  const w =
-    width ?? Math.max(...lines.map((line) => ctx.measureText(line).width));
+  const maxLineWidth = Math.max(
+    ...lines.map((line) => ctx.measureText(line).width),
+  );
+  // The requested width holds only while every rendered line fits it (a
+  // single grapheme can still exceed it); otherwise report what will draw,
+  // so the background and selection box cover the actual text.
+  const w = width !== undefined && maxLineWidth <= width ? width : maxLineWidth;
   return { w, h: lines.length * size * TEXT_LINE };
 }
 
