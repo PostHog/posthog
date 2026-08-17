@@ -1,5 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  isQuickAskShortcut,
+  QUICK_ASK_DEFAULT_SHORTCUT,
+} from "@posthog/shared/quick-ask-shortcuts";
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import {
   QUICK_ASK_HIDE_CHANNEL,
@@ -11,6 +15,7 @@ import {
 } from "../shared/constants";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
+import { quickAskStore } from "./utils/store";
 import { focusMainWindow } from "./window";
 
 const log = logger.scope("quick-ask");
@@ -25,9 +30,55 @@ const PANEL_MAX_HEIGHT = 620;
 const SCREEN_MARGIN = 16;
 const MENU_BAR_CLEARANCE = 40;
 
-// Deliberately not Option+Space (Raycast/Alfred/ChatGPT territory) so the
-// prototype registers reliably; a settings-backed accelerator comes later.
-const QUICK_ASK_SHORTCUT = "CommandOrControl+Shift+Space";
+export interface QuickAskState {
+  enabled: boolean;
+  shortcut: string;
+  /** False when another app owns the accelerator. */
+  registered: boolean;
+}
+
+let quickAskEnabled = false;
+let currentShortcut: string = QUICK_ASK_DEFAULT_SHORTCUT;
+let shortcutRegistered = false;
+
+function registerShortcut(accelerator: string): boolean {
+  if (shortcutRegistered) {
+    globalShortcut.unregister(currentShortcut);
+    shortcutRegistered = false;
+  }
+  const registered = globalShortcut.register(accelerator, toggleQuickAsk);
+  if (registered) {
+    currentShortcut = accelerator;
+    shortcutRegistered = true;
+    log.info("Quick ask shortcut registered", { shortcut: accelerator });
+  } else {
+    log.warn("Quick ask shortcut is taken by another app", {
+      shortcut: accelerator,
+    });
+  }
+  return registered;
+}
+
+export function getQuickAskState(): QuickAskState {
+  return {
+    enabled: quickAskEnabled,
+    shortcut: currentShortcut,
+    registered: shortcutRegistered,
+  };
+}
+
+export function setQuickAskShortcut(accelerator: string): QuickAskState {
+  if (!quickAskEnabled || !isQuickAskShortcut(accelerator)) {
+    return getQuickAskState();
+  }
+  const registered = registerShortcut(accelerator);
+  if (registered) {
+    quickAskStore.set("shortcut", accelerator);
+  }
+  // On failure `currentShortcut` keeps the last working accelerator; report
+  // the requested one so the settings UI can show it is taken.
+  return { enabled: true, shortcut: accelerator, registered };
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -159,6 +210,7 @@ export function setupQuickAsk(): void {
   if (!isDevBuild() && process.env.POSTHOG_QUICK_ASK !== "1") {
     return;
   }
+  quickAskEnabled = true;
 
   ipcMain.on(QUICK_ASK_HIDE_CHANNEL, () => hideQuickAsk());
   ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (_event, height: unknown) => {
@@ -187,22 +239,25 @@ export function setupQuickAsk(): void {
     app.focus({ steal: true });
   });
 
-  const registered = globalShortcut.register(
-    QUICK_ASK_SHORTCUT,
-    toggleQuickAsk,
-  );
-  if (!registered) {
-    log.warn("Quick ask shortcut is taken by another app", {
-      shortcut: QUICK_ASK_SHORTCUT,
-    });
-    return;
+  const stored = quickAskStore.get("shortcut");
+  const preferred =
+    stored && isQuickAskShortcut(stored) ? stored : QUICK_ASK_DEFAULT_SHORTCUT;
+  let registered = registerShortcut(preferred);
+  // The default may be taken (Option+Space is popular); fall back so the
+  // feature still works until the user picks another one in settings.
+  if (!registered && preferred !== "CommandOrControl+Shift+Space") {
+    registered = registerShortcut("CommandOrControl+Shift+Space");
   }
-  log.info("Quick ask enabled", { shortcut: QUICK_ASK_SHORTCUT });
+  if (!registered) {
+    currentShortcut = preferred;
+  }
 
   // Pre-create hidden so the first summon is instant.
   quickAskWindow = createQuickAskWindow();
 
   app.on("will-quit", () => {
-    globalShortcut.unregister(QUICK_ASK_SHORTCUT);
+    if (shortcutRegistered) {
+      globalShortcut.unregister(currentShortcut);
+    }
   });
 }

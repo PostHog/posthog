@@ -29,6 +29,10 @@ interface RendererStoreSchema {
   [key: string]: string;
 }
 
+interface QuickAskStoreSchema {
+  shortcut: string;
+}
+
 export interface WindowStateSchema {
   x: number | undefined;
   y: number | undefined;
@@ -52,6 +56,12 @@ export const focusStore = new Store<FocusStoreSchema>({
   name: "focus",
   cwd: userDataDir,
   defaults: { sessions: {} },
+});
+
+export const quickAskStore = new Store<QuickAskStoreSchema>({
+  name: "quick-ask",
+  cwd: userDataDir,
+  defaults: { shortcut: "" },
 });
 
 export type { FocusSession };

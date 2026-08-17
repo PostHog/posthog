@@ -144,7 +144,7 @@ export function QuickAsk(): React.JSX.Element {
             ref={inputRef}
             type="text"
             placeholder={
-              phase === "answered" ? "Ask a follow-up…" : "Ask PostHog AI"
+              phase === "answered" ? "Ask a follow-up…" : "Ask PostHog"
             }
             autoComplete="off"
             spellCheck={false}

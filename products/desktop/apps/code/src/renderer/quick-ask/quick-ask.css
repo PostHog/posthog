@@ -4,9 +4,11 @@
  * renderer. */
 
 :root {
-  --qa-surface: rgba(22, 23, 28, 0.94);
+  /* Opaque like Figma's cursor chat: no translucency, no blur, no shadow.
+   * (backdrop-filter also renders as a grey slab in a transparent window.) */
+  --qa-surface: #1e1f25;
   --qa-surface-raised: rgba(255, 255, 255, 0.04);
-  --qa-border: rgba(255, 255, 255, 0.1);
+  --qa-border: rgba(255, 255, 255, 0.14);
   --qa-fg: #f2f2f5;
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
@@ -14,7 +16,6 @@
   --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
   --qa-hover: rgba(255, 255, 255, 0.08);
-  --qa-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
   --qa-font:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
     Arial, sans-serif;
@@ -54,7 +55,6 @@ body {
   width: 46px;
   height: 46px;
   object-fit: contain;
-  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45));
   animation: qa-hog-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: bottom center;
 }
@@ -96,9 +96,6 @@ body {
   border-bottom-left-radius: 6px;
   background: var(--qa-surface);
   border: 1px solid var(--qa-border);
-  box-shadow: var(--qa-shadow);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   transition: width 0.12s ease-out;
   animation: qa-pill-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
   transform-origin: left bottom;
@@ -146,9 +143,6 @@ body {
   border-radius: 14px;
   background: var(--qa-surface);
   border: 1px solid var(--qa-border);
-  box-shadow: var(--qa-shadow);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   animation: qa-card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.05);
   transform-origin: top left;
 }
