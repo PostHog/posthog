@@ -638,6 +638,17 @@ def main():
         logger.info("  Filtering to segment: %s", args.segment)
     shards = ShardTimings.load_all(args.artifacts_dir, segment=args.segment)
     logger.info("  Loaded %d shards", len(shards))
+    if not shards:
+        # Same guard as run_merge_files/run_average_files: an empty durations file is
+        # worse than no file. It contributes nothing to the union merge, so every
+        # product the missing segment covers silently sizes to zero and gets packed
+        # into a bucket it then runs straight past.
+        logger.error(
+            "No timing artifacts for segment %s in %s — refusing to write an empty durations file",
+            args.segment or "all",
+            args.artifacts_dir,
+        )
+        sys.exit(1)
 
     # Merge using outlier detection (not naive last-wins)
     logger.info("Merging with outlier detection...")

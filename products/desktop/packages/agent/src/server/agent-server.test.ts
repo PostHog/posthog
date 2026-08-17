@@ -4491,7 +4491,7 @@ describe("AgentServer HTTP Mode", () => {
         };
       } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveWarmActivationSettings(): Promise<string | null>;
+      resolveActivationSettings(): Promise<string | null>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
@@ -4529,7 +4529,7 @@ describe("AgentServer HTTP Mode", () => {
           };
         };
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-        resolveWarmActivationSettings(): Promise<string | null>;
+        resolveActivationSettings(): Promise<string | null>;
       };
       t.prewarmedRun = true;
       t.session = {
@@ -4543,8 +4543,8 @@ describe("AgentServer HTTP Mode", () => {
         })),
       };
 
-      await t.resolveWarmActivationSettings();
-      await t.resolveWarmActivationSettings();
+      await t.resolveActivationSettings();
+      await t.resolveActivationSettings();
 
       expect(setSessionConfigOption).toHaveBeenCalledOnce();
       expect(setSessionConfigOption).toHaveBeenCalledWith({
@@ -4558,24 +4558,35 @@ describe("AgentServer HTTP Mode", () => {
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveWarmActivationSettings();
+      const override = await t.resolveActivationSettings();
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers auto-publish from run state when the launch flag is missing", async () => {
+      const t = makeWarmServer({ auto_publish: true });
+      t.prewarmedRun = false;
+
+      const override = await t.resolveActivationSettings();
+
+      expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
+      expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
     });
 
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -4587,7 +4598,7 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
@@ -4596,12 +4607,12 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(await t.resolveActivationSettings()).toBeNull();
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveWarmActivationSettings()).toContain(
+      expect(await t.resolveActivationSettings()).toContain(
         "gh pr create --draft",
       );
     });
@@ -4617,8 +4628,8 @@ describe("AgentServer HTTP Mode", () => {
         setSessionConfigOption,
       );
 
-      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
-      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveActivationSettings()).resolves.toBeNull();
 
       expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);

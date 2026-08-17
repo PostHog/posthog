@@ -69,7 +69,6 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -599,7 +598,7 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
-    def _execute_raw_direct_query(self) -> bool:
+    def _execute_raw_direct_query(self) -> None:
         if not isinstance(self.query, str):
             raise ExposedHogQLError("Sending a raw query requires a raw query string.")
 
@@ -629,49 +628,6 @@ class HogQLQueryExecutor:
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query(adapter)
-        return adapter.dialect is None
-
-    def _capture_send_raw_query_translation_error(self) -> None:
-        """Try a post-success HogQL translation for raw queries.
-
-        On success, this stores the translated HogQL in ``self.hogql`` for the response.
-        On failure, it records the exception for telemetry and leaves ``self.hogql`` unset.
-
-        This runs synchronously after the raw query succeeds, so it adds the cost of
-        ``_prepare_execution()`` to raw-query responses.
-        """
-        if not isinstance(self.query, str) or self.connection_id is None:
-            return
-
-        try:
-            shadow_executor = HogQLQueryExecutor(
-                query=str(self.query),
-                team=self.team,
-                query_type=self.query_type,
-                filters=self.filters,
-                placeholders=self.placeholders,
-                variables=self.variables,
-                workload=self.workload,
-                settings=self.settings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                pretty=self.pretty,
-                connection_id=self.connection_id,
-                user=self.user,
-            )
-            shadow_executor._prepare_execution()
-            self.hogql = shadow_executor.hogql
-        except Exception as error:
-            capture_exception(
-                error,
-                {
-                    "component": "send_raw_query_parse_and_print",
-                    "send_raw_query": True,
-                    "team_id": self.team.pk,
-                    "connection_id": self.connection_id,
-                    "query_type": self.query_type,
-                },
-            )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
@@ -773,9 +729,7 @@ class HogQLQueryExecutor:
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
-                native_raw_query = self._execute_raw_direct_query()
-                if not native_raw_query:
-                    self._capture_send_raw_query_translation_error()
+                self._execute_raw_direct_query()
             else:
                 prepared_execution = self._prepare_execution()
 

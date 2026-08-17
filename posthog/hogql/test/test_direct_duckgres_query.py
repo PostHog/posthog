@@ -299,7 +299,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 "products.warehouse_sources.backend.facade.source_management.SourceRegistry.get_source",
                 side_effect=AssertionError,
             ),
-            patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error", side_effect=AssertionError),
         ):
             response = HogQLQueryExecutor(
                 query="SELECT 1 AS value", team=self.team, connection_id=str(source.id), send_raw_query=True

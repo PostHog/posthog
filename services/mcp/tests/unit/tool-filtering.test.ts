@@ -832,7 +832,6 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-alerting',
                 'logs-anomalies',
-                'logs-patterns-view',
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
@@ -856,6 +855,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
+                'billing-alerts',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
