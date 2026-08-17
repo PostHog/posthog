@@ -195,18 +195,6 @@ jobs:
                           | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
                       # The dump is schema-only, so rows written by data migrations are absent.
                       python manage.py ensure_migration_defaults || return 1
-                      # The dump omits tables for the apps routed in products/db_routing.yaml but still
-                      # marks them applied, so drop those records to make migrate create them here.
-                      APPS=$(python - <<'EOF'
-                  import yaml
-                  with open("products/db_routing.yaml") as f:
-                      routes = yaml.safe_load(f)["routes"]
-                  print(",".join(sorted({"'%s'" % r["app_label"] for r in routes})))
-                  EOF
-                      ) || return 1
-                      if [ -n "$APPS" ]; then
-                          psql test_posthog -c "DELETE FROM django_migrations WHERE app IN ($APPS);" || return 1
-                      fi
                   }
                   if [ ! -f schema.sql.gz ]; then
                       echo "::notice::schema cache miss, so migrate runs from scratch"
