@@ -124,7 +124,7 @@ class TestAgentExecutor(BaseTest):
 
         async def failing_stream():
             raise StreamNotAvailableError("not available yet")
-            yield  # pragma: no cover - makes this an async generator
+            yield  # type: ignore[unreachable]  # unreachable; makes this an async generator
 
         async def working_stream():
             yield ("message", {"content": "chunk1"})
@@ -223,7 +223,7 @@ class TestAgentExecutor(BaseTest):
 
             async def mock_read_stream_timeout():
                 raise StreamTimeoutError("Stream timeout - conversation took too long to complete")
-                yield  # pragma: no cover - makes this an async generator
+                yield  # type: ignore[unreachable]  # unreachable; makes this an async generator
 
             mock_wait.return_value = True
             mock_read.return_value = mock_read_stream_timeout()
