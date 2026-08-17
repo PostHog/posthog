@@ -22,10 +22,10 @@ def cascade_select_repository(
     """Pick a connected repository without the sandbox-backed selection agent.
 
     Resolves only the trivial cases: with ``single_repo_wins``, a lone connected repo is taken
-    directly; otherwise the message has to name a connected ``owner/repo``, as a typed token or
-    as a GitHub link to exactly one connected repo. Anything ambiguous returns `None` and the
-    caller starts a repo-less run rather than paying for agentic discovery. Selection must never
-    block that run from starting, so this never raises — every failure degrades to "no repo".
+    directly; otherwise the message has to name a connected ``owner/repo`` explicitly. Anything
+    ambiguous returns `None` and the caller starts a repo-less run rather than paying for agentic
+    discovery. Selection must never block that run from starting, so this never raises — every
+    failure degrades to "no repo".
 
     ``user_id`` is passed as the requester, so their own connected GitHub stands in when the team
     has no team-level integration (their own credentials, not a cross-account leak), letting them
@@ -58,7 +58,6 @@ async def select_repository_for_message(
 
     The sandbox conversation open path must stay fast: it runs before the Run is created, so we
     avoid the repo-selection LLM agent here. A lone connected repo is deliberately *not* assumed —
-    an unprompted mention shouldn't pin a sandbox to a repo the user never named. Pasting a link
-    to one counts as naming it; two different linked repos pin nothing.
+    an unprompted mention shouldn't pin a sandbox to a repo the user never named.
     """
     return await database_sync_to_async(cascade_select_repository, thread_sensitive=False)(team_id, user_id, message)
