@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { firstErroredScannerStep, scannerEditorSceneLogic, scannerStepErrors } from './scannerEditorSceneLogic'
 
 describe('firstErroredScannerStep', () => {
     it.each([
@@ -15,6 +15,24 @@ describe('firstErroredScannerStep', () => {
         ['no errors maps nowhere', {}, null],
     ])('%s', (_label, errors, expected) => {
         expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
+
+describe('scannerStepErrors', () => {
+    it('carries the field-level messages through to each step', () => {
+        expect(
+            scannerStepErrors({
+                scanner_config: { prompt: 'Prompt is required' },
+                sampling_rate: 'Sampling rate must be between 0% and 100%',
+                duration: 'Duration filters above 1 hour match nothing',
+            })
+        ).toEqual({
+            template: [],
+            details: [],
+            configure: ['Prompt is required'],
+            triggers: ['Duration filters above 1 hour match nothing'],
+            budget: ['Sampling rate must be between 0% and 100%'],
+        })
     })
 })
 

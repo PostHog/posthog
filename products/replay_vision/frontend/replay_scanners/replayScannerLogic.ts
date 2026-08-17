@@ -74,8 +74,10 @@ import {
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
+    ScannerEditorStep,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
+    scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
@@ -344,6 +346,7 @@ export interface replayScannerLogicValues {
     scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
+    stepErrors: Partial<Record<ScannerEditorStep, string[]>>
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
     togglingEnabled: boolean
@@ -656,6 +659,11 @@ export interface replayScannerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (id: string) => boolean
         durationValidationError: (scanner: ScannerFormValues) => string | null
+        stepErrors: (
+            showScannerErrors: boolean,
+            scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>,
+            durationValidationError: string | null
+        ) => Partial<Record<ScannerEditorStep, string[]>>
         hasUnsavedChanges: (scanner: ScannerFormValues, originalScanner: ScannerFormValues | null) => boolean
         hasObservationsInFlight: (observationStatsApi: ObservationStatsApi | null) => boolean
         hasActiveObservationFilters: (
@@ -1268,6 +1276,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     : undefined
                 return durationFilter ? durationFilterError(clampDurationFilter(durationFilter)) : null
             },
+        ],
+        // Stepper badges show errors only after a failed submit; until then every step reads clean.
+        stepErrors: [
+            (s) => [s.showScannerErrors, s.scannerValidationErrors, s.durationValidationError],
+            (
+                showScannerErrors: boolean,
+                scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>,
+                durationValidationError: string | null
+            ): Partial<Record<ScannerEditorStep, string[]>> =>
+                showScannerErrors
+                    ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
+                    : {},
         ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
