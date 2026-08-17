@@ -72,7 +72,9 @@ NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    if not source.job_inputs:
+    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
+    # for a malformed source config — nothing to trim key-by-key in that case.
+    if not isinstance(source.job_inputs, dict):
         return
 
     did_update_inputs = False

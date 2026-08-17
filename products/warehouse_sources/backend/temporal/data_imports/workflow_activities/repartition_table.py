@@ -85,6 +85,11 @@ _TRANSIENT_ERROR_SNIPPETS = (
     "reduce your request rate",  # S3 503 SlowDown surfaced by the delta kernel as OSError
     "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
     "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
+    # S3 NoSuchKey from an s3fs purge/swap op (`_copy`/`_rm`/`_find`) that raced a concurrent delete —
+    # a temp file swept by another attempt, not a bug. A hollow *live* table surfaces the missing file
+    # with its path embedded and is routed to a revive inside `repartition_table_in_place` before it
+    # ever reaches here, so this bare, pathless variant only ever means a raced object-store operation.
+    "the specified key does not exist",
 )
 
 
