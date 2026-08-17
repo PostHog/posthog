@@ -12,10 +12,10 @@ export const QUICK_ASK_SERVICE = Symbol.for("posthog.core.quickAsk.service");
 export const QUICK_ASK_FETCH = Symbol.for("posthog.core.quickAsk.fetch");
 
 /**
- * Events the quick-ask panel renders, distilled from a PostHog AI sandbox
- * run's SSE stream (the same task-run stream the web app's PostHog AI and the
- * desktop's cloud sessions consume). Text arrives as growing snapshots keyed
- * by a per-turn id; the renderer replaces by id.
+ * Events the quick-ask panel renders, distilled from a prewarmed cloud task
+ * run's SSE stream (the same task-run stream desktop cloud sessions consume).
+ * Text arrives as growing snapshots keyed by a per-turn id; the renderer
+ * replaces by id.
  */
 export type QuickAskEvent =
   | { type: "conversation"; conversationId: string }
@@ -32,11 +32,20 @@ export interface QuickAskInput {
 }
 
 /**
+ * Everything about the transport is the raw tasks API rather than the PostHog
+ * AI conversations opener: `/tasks/warm/` boots an idling repo-less sandbox,
+ * `POST /tasks/` transparently reuses and activates it (delivering the first
+ * message), and follow-ups ride the run command relay. Every endpoint here
+ * declares token scopes the desktop's OAuth token already carries - the
+ * conversations opener rejects token auth until PostHog/posthog#83442 deploys.
+ */
+
+/**
  * Steering for the sandbox agent, sent after the user's first question (so
- * the task title stays the question). `<posthog_trusted_context>` is the
- * sanctioned channel for app-injected guidance: the PostHog AI system prompt
- * instructs the agent to follow it like system instructions. The tag
- * vocabulary is the shared block the renderer's object-tag pipeline parses.
+ * the task title and description stay the question). `<posthog_trusted_context>`
+ * is the app-injected guidance convention the sandbox agents are taught to
+ * follow. The tag vocabulary is the shared block the renderer's object-tag
+ * pipeline parses.
  */
 const PANEL_STEERING = `<posthog_trusted_context>
 This question was asked from PostHog Desktop's compact quick-ask panel, not a full chat. For this whole conversation:
@@ -95,28 +104,29 @@ interface NotificationFrame {
   error_message?: string | null;
 }
 
-interface OpenResponse {
-  task_id?: string;
-  run_id?: string;
-  run_status?: string;
+interface TaskResponse {
+  id?: string;
+  latest_run?: { id?: string; status?: string } | null;
+}
+
+interface RunResponse {
+  id?: string;
 }
 
 /** Terminal run statuses on `task_run_state` frames. */
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 /**
- * Per-conversation state. The conversation id is minted client-side and keyed
- * to a products/tasks `(task, run)` by the sandbox `open` endpoint; `cursor`
- * is the Redis stream id of the last ingested event, carried across turns and
- * stream rotations so no frame is ever re-rendered or missed.
+ * Per-thread state. The conversation id is a client-minted key the renderer
+ * echoes back so follow-ups land on the same task; `cursor` is the Redis
+ * stream id of the last ingested event, carried across turns and stream
+ * rotations so no frame is ever re-rendered or missed.
  */
 interface QuickAskSession {
   conversationId: string;
   taskId: string | null;
   runId: string | null;
   cursor: string | null;
-  /** The task has been filed into the user's personal channel. */
-  filed: boolean;
   /** Number of questions sent (the first carries the steering block). */
   turns: number;
 }
@@ -256,7 +266,6 @@ export class QuickAskService {
       taskId: null,
       runId: null,
       cursor: null,
-      filed: false,
       turns: 0,
     };
     return this.session;
@@ -268,33 +277,30 @@ export class QuickAskService {
     this.session = null;
   }
 
-  private async postOpen(
+  private post(
     apiHost: string,
-    projectId: number,
-    conversationId: string,
-    content: string | null,
+    path: string,
+    body: unknown,
     signal?: AbortSignal,
   ): Promise<Response> {
     return this.authService.authenticatedFetch(
       this.fetchImpl,
-      `${apiHost}/api/environments/${projectId}/conversations/${conversationId}/open/`,
+      `${apiHost}${path}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          content == null
-            ? {}
-            : { content, trace_id: globalThis.crypto.randomUUID() },
-        ),
+        body: JSON.stringify(body),
         signal,
       },
     );
   }
 
   /**
-   * Boots a sandbox ahead of the first question (called on panel summon), so
-   * asking costs a model turn instead of a cold sandbox boot. Best-effort:
-   * every failure is swallowed - a cold ask still works without it.
+   * Boots a repo-less sandbox ahead of the first question (called on panel
+   * summon), so asking costs a model turn instead of a cold sandbox boot.
+   * `POST /tasks/` matches this idling run server-side and activates it.
+   * Best-effort: every failure (flag off, pool full) is swallowed - a cold
+   * ask still works without it.
    */
   warm(): Promise<void> {
     if (this.warmPromise) return this.warmPromise;
@@ -302,20 +308,21 @@ export class QuickAskService {
     this.warmPromise = (async () => {
       const context = await this.context();
       if (!context) return;
-      const session = this.ensureSession();
-      const response = await this.postOpen(
+      const response = await this.post(
         context.apiHost,
-        context.projectId,
-        session.conversationId,
-        null,
+        `/api/projects/${context.projectId}/tasks/warm/`,
+        {
+          repository: null,
+          repositories: [],
+          github_integration: null,
+          branch: null,
+        },
       );
-      // 204 = warm pool full; anything non-ok is reported by the real ask.
-      if (!response.ok || response.status === 204) return;
-      const payload = (await response.json()) as OpenResponse;
-      if (payload.task_id && payload.run_id) {
-        session.taskId = payload.task_id;
-        session.runId = payload.run_id;
-      }
+      if (!response.ok) return;
+      // An empty body means the flag is off or the pool is full; a handle
+      // means a sandbox is booting. Either way `POST /tasks/` decides - it
+      // re-runs the warm-run lookup itself at ask time.
+      await response.text().catch(() => "");
     })()
       .catch(() => undefined)
       .finally(() => {
@@ -325,46 +332,162 @@ export class QuickAskService {
   }
 
   /**
-   * Files the conversation's task into the user's personal channel so the
-   * thread shows up in their personal space (and can be continued as a full
-   * desktop session). Best-effort: a failure never disturbs the answer.
+   * First question: create the task. `branch` must be present (null) so the
+   * backend runs its warm-run lookup - a matching idle sandbox is reused and
+   * the pending message is delivered to it; otherwise the task comes back
+   * runless and the caller cold-starts a run. The task auto-files into the
+   * user's personal channel (repo-less user-created tasks always do).
    */
-  private async fileTaskToPersonalChannel(
+  private async createTask(
+    apiHost: string,
+    projectId: number,
+    question: string,
+    content: string,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    return this.post(
+      apiHost,
+      `/api/projects/${projectId}/tasks/`,
+      {
+        description: question,
+        repositories: [],
+        branch: null,
+        pending_user_message: content,
+      },
+      signal,
+    );
+  }
+
+  /** Cold start (no warm run matched): create + start an interactive cloud run. */
+  private async startRun(
     apiHost: string,
     projectId: number,
     taskId: string,
-  ): Promise<void> {
-    const channelsResponse = await this.authService.authenticatedFetch(
-      this.fetchImpl,
-      `${apiHost}/api/projects/${projectId}/task_channels/`,
-      { method: "GET" },
+    content: string,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const createResponse = await this.post(
+      apiHost,
+      `/api/projects/${projectId}/tasks/${taskId}/runs/`,
+      { environment: "cloud", mode: "interactive", runtime_adapter: "claude" },
+      signal,
     );
-    if (!channelsResponse.ok) {
-      throw new Error(`task_channels failed with ${channelsResponse.status}`);
-    }
-    const channels = (await channelsResponse.json()) as {
-      results?: { id?: string; channel_type?: string }[];
-    };
-    const list = Array.isArray(channels)
-      ? (channels as { id?: string; channel_type?: string }[])
-      : (channels.results ?? []);
-    // The list is requester-scoped: the only personal channel is the user's own.
-    const personal = list.find((entry) => entry.channel_type === "personal");
-    if (!personal?.id) {
-      throw new Error("no personal channel in task_channels response");
-    }
-    const patchResponse = await this.authService.authenticatedFetch(
-      this.fetchImpl,
-      `${apiHost}/api/projects/${projectId}/tasks/${taskId}/`,
+    if (!createResponse.ok) return null;
+    const run = (await createResponse.json()) as RunResponse;
+    if (!run.id) return null;
+    const startResponse = await this.post(
+      apiHost,
+      `/api/projects/${projectId}/tasks/${taskId}/runs/${run.id}/start/`,
+      { pending_user_message: content },
+      signal,
+    );
+    return startResponse.ok ? run.id : null;
+  }
+
+  /** Follow-up: signal the question onto the live run via the command relay. */
+  private async sendUserMessage(
+    apiHost: string,
+    projectId: number,
+    taskId: string,
+    runId: string,
+    content: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const response = await this.post(
+      apiHost,
+      `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/command/`,
       {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: personal.id }),
+        jsonrpc: "2.0",
+        id: globalThis.crypto.randomUUID(),
+        method: "user_message",
+        params: { content },
       },
+      signal,
     );
-    if (!patchResponse.ok) {
-      throw new Error(`task channel patch failed with ${patchResponse.status}`);
+    return response.ok;
+  }
+
+  /** Route one question onto the session's task, minting runs as needed. */
+  private async placeTurn(
+    apiHost: string,
+    projectId: number,
+    session: QuickAskSession,
+    question: string,
+    content: string,
+    signal: AbortSignal,
+  ): Promise<{ ok: true } | { ok: false; status: number; detail: string }> {
+    // Live run: follow-up over the command relay. A run that died since the
+    // last turn rejects the command; fall through to a fresh run then.
+    if (session.taskId && session.runId) {
+      const sent = await this.sendUserMessage(
+        apiHost,
+        projectId,
+        session.taskId,
+        session.runId,
+        content,
+        signal,
+      );
+      if (sent) return { ok: true };
+      session.runId = null;
+      session.cursor = null;
     }
+
+    // Existing task without a live run: start a successor run on it.
+    if (session.taskId) {
+      const runId = await this.startRun(
+        apiHost,
+        projectId,
+        session.taskId,
+        content,
+        signal,
+      );
+      if (!runId) {
+        return { ok: false, status: 0, detail: "starting a run failed" };
+      }
+      session.runId = runId;
+      session.cursor = null;
+      return { ok: true };
+    }
+
+    // Fresh thread: create the task. A prewarmed sandbox is reused and the
+    // message delivered server-side; otherwise cold-start a run.
+    const response = await this.createTask(
+      apiHost,
+      projectId,
+      question,
+      content,
+      signal,
+    );
+    if (!response.ok) {
+      const detail = await response
+        .text()
+        .then((text) => text.slice(0, 500))
+        .catch(() => "");
+      return { ok: false, status: response.status, detail };
+    }
+    const task = (await response.json()) as TaskResponse;
+    if (!task.id) {
+      return { ok: false, status: 0, detail: "task creation returned no id" };
+    }
+    session.taskId = task.id;
+    if (task.latest_run?.id) {
+      session.runId = task.latest_run.id;
+      session.cursor = null;
+      return { ok: true };
+    }
+    const runId = await this.startRun(
+      apiHost,
+      projectId,
+      task.id,
+      content,
+      signal,
+    );
+    if (!runId) {
+      return { ok: false, status: 0, detail: "starting a run failed" };
+    }
+    session.runId = runId;
+    session.cursor = null;
+    return { ok: true };
   }
 
   async *ask(input: QuickAskInput): AsyncGenerator<QuickAskEvent> {
@@ -379,8 +502,8 @@ export class QuickAskService {
     }
     const { apiHost, projectId } = context;
 
-    // Let an in-flight summon warm finish first so the ask reuses its run
-    // instead of racing it for the conversation row.
+    // Let an in-flight summon warm finish first so the create call sees the
+    // idling sandbox instead of racing its provisioning.
     if (this.warmPromise) {
       await this.warmPromise;
     }
@@ -392,12 +515,13 @@ export class QuickAskService {
       ? `${input.question}\n\n${PANEL_STEERING}`
       : input.question;
 
-    let openResponse: Response;
+    let placed: Awaited<ReturnType<typeof this.placeTurn>>;
     try {
-      openResponse = await this.postOpen(
+      placed = await this.placeTurn(
         apiHost,
         projectId,
-        session.conversationId,
+        session,
+        input.question,
         content,
         controller.signal,
       );
@@ -409,51 +533,20 @@ export class QuickAskService {
       };
       return;
     }
-    if (!openResponse.ok) {
-      const detail = await openResponse
-        .text()
-        .then((text) => text.slice(0, 500))
-        .catch(() => "");
+    if (!placed.ok) {
       yield {
         type: "error",
         message:
-          openResponse.status === 402
-            ? "You are out of PostHog AI credits."
-            : openResponse.status === 400
-              ? "PostHog AI tasks are not enabled for this project."
-              : `PostHog AI is unavailable right now (${openResponse.status}).`,
-        detail,
+          placed.status === 402 || placed.status === 429
+            ? "Your organization is out of PostHog task credits."
+            : placed.status === 403
+              ? "Your account can't run PostHog tasks in this project."
+              : `PostHog AI is unavailable right now (${placed.status || "no run"}).`,
+        detail: placed.detail,
       };
       return;
     }
-    const opened = (await openResponse.json()) as OpenResponse;
-    if (!opened.task_id || !opened.run_id) {
-      yield {
-        type: "error",
-        message: OPEN_UNAVAILABLE_MESSAGE,
-        detail: "open returned no task/run handle",
-      };
-      return;
-    }
-    // A resume after a terminal run mints a successor run; reset the cursor
-    // so the new run's stream is read from its beginning.
-    if (session.runId !== opened.run_id) {
-      session.cursor = null;
-    }
-    session.taskId = opened.task_id;
-    session.runId = opened.run_id;
     session.turns += 1;
-
-    if (!session.filed) {
-      session.filed = true;
-      void this.fileTaskToPersonalChannel(
-        apiHost,
-        projectId,
-        opened.task_id,
-      ).catch(() => {
-        // Filing is cosmetic; the conversation itself is unaffected.
-      });
-    }
 
     yield* this.streamTurn(apiHost, projectId, session, controller);
   }

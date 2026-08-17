@@ -21,9 +21,15 @@ function sseResponse(frames: string[]): Response {
   return new Response(body, { status: 200 });
 }
 
-function openResponse(taskId = "task-1", runId = "run-1"): Response {
+function taskResponse(
+  taskId = "task-1",
+  runId: string | null = "run-1",
+): Response {
   return new Response(
-    JSON.stringify({ task_id: taskId, run_id: runId, run_status: "queued" }),
+    JSON.stringify({
+      id: taskId,
+      latest_run: runId ? { id: runId, status: "in_progress" } : null,
+    }),
     { status: 200 },
   );
 }
@@ -51,6 +57,7 @@ const USER_ECHO = sessionUpdate({
   content: { type: "text", text: "how many signups?" },
 });
 const TURN_COMPLETE = notification("_posthog/turn_complete", {});
+const SIMPLE_TURN = [`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`];
 
 interface MockedAuth {
   service: QuickAskService;
@@ -58,33 +65,44 @@ interface MockedAuth {
 }
 
 interface MockRoutes {
-  /** Responses for `/open/` POSTs, consumed in order. */
-  open?: Response[];
-  /** Responses for `/stream/` GETs, consumed in order. */
+  /** Responses for `POST /tasks/warm/`, consumed in order. */
+  warm?: Response[];
+  /** Responses for `POST /tasks/`, consumed in order. */
+  createTask?: Response[];
+  /** Responses for `POST .../runs/` (run creation), consumed in order. */
+  createRun?: Response[];
+  /** Responses for `POST .../runs/{id}/start/`, consumed in order. */
+  startRun?: Response[];
+  /** Responses for `POST .../runs/{id}/command/`, consumed in order. */
+  command?: Response[];
+  /** Responses for `GET .../stream/`, consumed in order. */
   stream?: Response[];
-  channels?: Response;
-  patch?: Response;
 }
 
-/**
- * URL-routed fetch mock: the channel-filing calls run detached from the ask
- * generator, so a strictly ordered response queue would be racy.
- */
+/** URL-routed fetch mock - the warm call runs detached from ask generators. */
 function serviceWith(routes: MockRoutes): MockedAuth {
-  const open = [...(routes.open ?? [])];
-  const stream = [...(routes.stream ?? [])];
+  const queues = {
+    warm: [...(routes.warm ?? [])],
+    createTask: [...(routes.createTask ?? [])],
+    createRun: [...(routes.createRun ?? [])],
+    startRun: [...(routes.startRun ?? [])],
+    command: [...(routes.command ?? [])],
+    stream: [...(routes.stream ?? [])],
+  };
+  const route = (url: string): keyof typeof queues => {
+    if (url.endsWith("/tasks/warm/")) return "warm";
+    if (url.endsWith("/tasks/")) return "createTask";
+    if (url.endsWith("/runs/")) return "createRun";
+    if (url.endsWith("/start/")) return "startRun";
+    if (url.endsWith("/command/")) return "command";
+    if (url.includes("/stream/")) return "stream";
+    throw new Error(`unrouted url: ${url}`);
+  };
   const fetchMock = vi.fn(
     async (_fetch: unknown, url: string): Promise<Response> => {
-      if (url.endsWith("/open/")) {
-        return open.shift() ?? new Response("exhausted", { status: 500 });
-      }
-      if (url.includes("/stream/")) {
-        return stream.shift() ?? new Response("exhausted", { status: 500 });
-      }
-      if (url.includes("/task_channels/")) {
-        return routes.channels ?? new Response("nope", { status: 404 });
-      }
-      return routes.patch ?? new Response("{}", { status: 200 });
+      return (
+        queues[route(url)].shift() ?? new Response("exhausted", { status: 500 })
+      );
     },
   );
   const authService = {
@@ -96,6 +114,12 @@ function serviceWith(routes: MockRoutes): MockedAuth {
     authenticatedFetch: fetchMock,
   } as unknown as AuthService;
   return { service: new QuickAskService(authService), fetchMock };
+}
+
+function callsTo(fetchMock: ReturnType<typeof vi.fn>, suffix: string) {
+  return fetchMock.mock.calls.filter((call) =>
+    String(call[1]).endsWith(suffix),
+  );
 }
 
 async function collect(
@@ -110,6 +134,12 @@ async function collect(
     }
   }
   return events;
+}
+
+function conversationIdOf(events: QuickAskEvent[]): string {
+  const event = events[0];
+  if (event.type !== "conversation") throw new Error("no conversation event");
+  return event.conversationId;
 }
 
 describe("QuickAskService", () => {
@@ -139,7 +169,7 @@ describe("QuickAskService", () => {
       `${`id: 4-0\ndata: ${agentText("up 12%.")}`.slice(40)}\n\nid: 5-0\ndata: ${TURN_COMPLETE}\n\n`,
     ]);
     const { service } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [stream],
     });
     await expect(collect(service)).resolves.toEqual([
@@ -161,70 +191,87 @@ describe("QuickAskService", () => {
     ]);
   });
 
-  it("sends the steering block on the first turn only, after the question", async () => {
+  it("creates the task with the question as description and warm-matching fields", async () => {
     const { service, fetchMock } = serviceWith({
-      open: [openResponse(), openResponse()],
-      stream: [
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-      ],
+      createTask: [taskResponse()],
+      stream: [sseResponse(SIMPLE_TURN)],
     });
-    const first = await collect(service);
-    const conversationId = (first[0] as { conversationId: string })
-      .conversationId;
-    await collect(service, "and yesterday?", conversationId);
-
-    const firstBody = JSON.parse(fetchMock.mock.calls[0][2].body as string);
-    // The question leads (it becomes the task title); steering follows.
-    expect(firstBody.content).toMatch(
+    await collect(service);
+    const body = JSON.parse(callsTo(fetchMock, "/tasks/")[0][2].body as string);
+    // The description stays the bare question (it becomes the task title);
+    // the steering block rides only the delivered message.
+    expect(body.description).toBe("how many signups?");
+    expect(body.pending_user_message).toMatch(
       /^how many signups\?\n\n<posthog_trusted_context>/,
     );
-    expect(firstBody.content).toContain('<hogql display="block"');
-    expect(fetchMock.mock.calls[0][1]).toContain(
-      `/conversations/${conversationId}/open/`,
-    );
-    const openCalls = fetchMock.mock.calls.filter((call) =>
-      String(call[1]).endsWith("/open/"),
-    );
-    const followUpBody = JSON.parse(openCalls[1]?.[2].body as string);
-    expect(followUpBody.content).toBe("and yesterday?");
+    expect(body.pending_user_message).toContain('<hogql display="block"');
+    // `branch` present (null) opts into the backend's warm-run lookup, and the
+    // repo-less shape matches what `warm()` provisioned.
+    expect(body).toMatchObject({ branch: null, repositories: [] });
   });
 
-  it("files the task into the personal channel once, best-effort", async () => {
-    const channels = new Response(
-      JSON.stringify([
-        { id: "chan-pub", channel_type: "public" },
-        { id: "chan-me", channel_type: "personal" },
-      ]),
-      { status: 200 },
-    );
+  it("follow-ups ride the command relay without the steering block", async () => {
     const { service, fetchMock } = serviceWith({
-      open: [openResponse(), openResponse()],
-      stream: [
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-      ],
-      channels,
+      createTask: [taskResponse()],
+      command: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(SIMPLE_TURN)],
     });
     const first = await collect(service);
-    const conversationId = (first[0] as { conversationId: string })
-      .conversationId;
-    // The filing fetches run detached from the ask generator.
-    await vi.waitFor(() => {
-      const patch = fetchMock.mock.calls.find(
-        (call) => call[2]?.method === "PATCH",
-      );
-      expect(patch).toBeDefined();
-      expect(patch?.[1]).toContain("/tasks/task-1/");
-      expect(JSON.parse(patch?.[2].body as string)).toEqual({
-        channel: "chan-me",
-      });
+    await collect(service, "and yesterday?", conversationIdOf(first));
+
+    const commandCalls = callsTo(fetchMock, "/command/");
+    expect(commandCalls).toHaveLength(1);
+    expect(commandCalls[0][1]).toContain("/tasks/task-1/runs/run-1/command/");
+    const body = JSON.parse(commandCalls[0][2].body as string);
+    expect(body.method).toBe("user_message");
+    expect(body.params).toEqual({ content: "and yesterday?" });
+  });
+
+  it("cold-starts a run when no warm sandbox matched", async () => {
+    const { service, fetchMock } = serviceWith({
+      createTask: [taskResponse("task-1", null)],
+      createRun: [
+        new Response(JSON.stringify({ id: "run-9" }), { status: 200 }),
+      ],
+      startRun: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN)],
     });
-    await collect(service, "and yesterday?", conversationId);
-    const patches = fetchMock.mock.calls.filter(
-      (call) => call[2]?.method === "PATCH",
+    const events = await collect(service);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    const createRun = JSON.parse(
+      callsTo(fetchMock, "/runs/")[0][2].body as string,
     );
-    expect(patches).toHaveLength(1);
+    expect(createRun).toMatchObject({
+      environment: "cloud",
+      mode: "interactive",
+    });
+    const start = JSON.parse(
+      callsTo(fetchMock, "/start/")[0][2].body as string,
+    );
+    expect(start.pending_user_message).toContain("how many signups?");
+    expect(callsTo(fetchMock, "/stream/")[0][1]).toContain("/runs/run-9/");
+  });
+
+  it("falls back to a fresh run when the live run rejects a follow-up", async () => {
+    const { service, fetchMock } = serviceWith({
+      createTask: [taskResponse()],
+      command: [new Response("no active sandbox", { status: 400 })],
+      createRun: [
+        new Response(JSON.stringify({ id: "run-2" }), { status: 200 }),
+      ],
+      startRun: [new Response("{}", { status: 200 })],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(SIMPLE_TURN)],
+    });
+    const first = await collect(service);
+    const events = await collect(
+      service,
+      "and yesterday?",
+      conversationIdOf(first),
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+    // The successor run is created on the same task and streamed from scratch.
+    expect(callsTo(fetchMock, "/runs/")[0][1]).toContain("/tasks/task-1/");
+    expect(callsTo(fetchMock, "/stream/")[1][1]).toContain("/runs/run-2/");
   });
 
   it("separates agent messages around a tool call and surfaces tool labels", async () => {
@@ -236,7 +283,7 @@ describe("QuickAskService", () => {
       `data: ${TURN_COMPLETE}\n\n`,
     ]);
     const { service } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [stream],
     });
     const events = await collect(service);
@@ -259,7 +306,7 @@ describe("QuickAskService", () => {
       `data: ${TURN_COMPLETE}\n\n`,
     ]);
     const { service } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [stream],
     });
     const events = await collect(service);
@@ -274,7 +321,7 @@ describe("QuickAskService", () => {
       `id: 8-0\ndata: ${agentText("Done.")}\n\nid: 9-0\ndata: ${TURN_COMPLETE}\n\n`,
     ]);
     const { service, fetchMock } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [first, second],
     });
     const events = await collect(service);
@@ -297,7 +344,7 @@ describe("QuickAskService", () => {
       `data: ${JSON.stringify({ type: "task_run_state", status: "completed" })}\n\n`,
     ]);
     const { service } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [stream],
     });
     const events = await collect(service);
@@ -310,7 +357,7 @@ describe("QuickAskService", () => {
       `data: ${JSON.stringify({ type: "task_run_state", status: "failed", error_message: "sandbox died" })}\n\n`,
     ]);
     const { service } = serviceWith({
-      open: [openResponse()],
+      createTask: [taskResponse()],
       stream: [stream],
     });
     const events = await collect(service);
@@ -321,15 +368,16 @@ describe("QuickAskService", () => {
     });
   });
 
-  it("maps open failures: quota, flag off, and everything else", async () => {
+  it("maps task creation failures: usage limits, access, and everything else", async () => {
     const cases: [number, string][] = [
-      [402, "You are out of PostHog AI credits."],
-      [400, "PostHog AI tasks are not enabled for this project."],
+      [402, "Your organization is out of PostHog task credits."],
+      [429, "Your organization is out of PostHog task credits."],
+      [403, "Your account can't run PostHog tasks in this project."],
       [503, "PostHog AI is unavailable right now (503)."],
     ];
     for (const [status, message] of cases) {
       const { service } = serviceWith({
-        open: [new Response("nope", { status })],
+        createTask: [new Response("nope", { status })],
       });
       const events = await collect(service);
       expect(events[1]).toEqual({
@@ -357,47 +405,43 @@ describe("QuickAskService", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("warm stores the run handle and the next ask reuses the conversation", async () => {
+  it("warm posts a repo-less warm request and swallows every outcome", async () => {
     const { service, fetchMock } = serviceWith({
-      open: [openResponse("task-w", "run-w"), openResponse("task-w", "run-w")],
-      stream: [
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-      ],
-    });
-    await service.warm();
-    const warmBody = JSON.parse(fetchMock.mock.calls[0][2].body as string);
-    expect(warmBody).toEqual({});
-    const events = await collect(service);
-    expect(events.at(-1)).toEqual({ type: "done" });
-    // Both open calls target the same client-minted conversation id.
-    expect(fetchMock.mock.calls[1][1]).toBe(fetchMock.mock.calls[0][1]);
-  });
-
-  it("warm failures are swallowed", async () => {
-    const { service } = serviceWith({
-      open: [new Response("boom", { status: 500 })],
+      // Flag off / pool full: the endpoint returns an empty 200 body.
+      warm: [new Response("", { status: 200 })],
     });
     await expect(service.warm()).resolves.toBeUndefined();
+    const body = JSON.parse(
+      callsTo(fetchMock, "/tasks/warm/")[0][2].body as string,
+    );
+    expect(body).toEqual({
+      repository: null,
+      repositories: [],
+      github_integration: null,
+      branch: null,
+    });
+
+    const failing = serviceWith({
+      warm: [new Response("boom", { status: 500 })],
+    });
+    await expect(failing.service.warm()).resolves.toBeUndefined();
   });
 
-  it("reset drops the session so the next ask starts a new conversation", async () => {
+  it("reset drops the session so the next ask creates a new task", async () => {
     const { service, fetchMock } = serviceWith({
-      open: [openResponse(), openResponse("task-2", "run-2")],
-      stream: [
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-        sseResponse([`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`]),
-      ],
+      createTask: [taskResponse(), taskResponse("task-2", "run-2")],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(SIMPLE_TURN)],
     });
     await collect(service);
     service.reset();
     await collect(service);
-    const openCalls = fetchMock.mock.calls.filter((call) =>
-      String(call[1]).endsWith("/open/"),
+    const creates = callsTo(fetchMock, "/tasks/");
+    expect(creates).toHaveLength(2);
+    // A fresh thread carries the steering block again.
+    const secondBody = JSON.parse(creates[1][2].body as string);
+    expect(secondBody.pending_user_message).toContain(
+      "<posthog_trusted_context>",
     );
-    expect(openCalls[0][1]).not.toBe(openCalls[1][1]);
-    // A fresh conversation carries the steering block again.
-    const secondBody = JSON.parse(openCalls[1][2].body as string);
-    expect(secondBody.content).toContain("<posthog_trusted_context>");
   });
 });
 
