@@ -378,6 +378,9 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
         _pageview(self.team, "u3", utm_source="linkedin", utm_medium="organic-social")
         _pageview(self.team, "u4", utm_source="linkedin")
         _pageview(self.team, "u5", utm_source="google", gclid="abc123")
+        # A link copied from an address bar that still held a Google click id, then
+        # shared organically. The gclid names Google Ads, not LinkedIn.
+        _pageview(self.team, "u6", utm_source="linkedin", utm_medium="social", gclid="stale123")
         flush_persons_and_events()
 
     def tearDown(self) -> None:
@@ -392,11 +395,20 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
     async def test_counts_cost_bearing_and_paid_prefixed_mediums(self) -> None:
         linkedin = await self._entry("linkedin_ads")
 
-        assert linkedin.events_matched_last_7d == 4
-        # `cpc` by name, `paid-social` by prefix. `organic-social` and the untagged one
-        # are not paid — and only the three tagged ones count as tagged.
+        assert linkedin.events_matched_last_7d == 5
+        # `cpc` by name, `paid-social` by prefix. `organic-social`, the untagged one and
+        # the stale-gclid one are not paid; four of the five carry a medium.
         assert linkedin.events_matched_paid_last_7d == 2
-        assert linkedin.events_matched_tagged_medium_last_7d == 3
+        assert linkedin.events_matched_tagged_medium_last_7d == 4
+
+    @pytest.mark.asyncio
+    async def test_a_google_click_id_does_not_make_another_platform_paid(self) -> None:
+        # gclid and gad_source name Google Ads specifically, and ride along on whatever
+        # URL carries them. Crediting them to whatever utm_source they land on would put
+        # `connect LinkedIn Ads` back in front of a team that only posts there.
+        linkedin = await self._entry("linkedin_ads")
+
+        assert linkedin.events_matched_paid_last_7d == 2
 
     @pytest.mark.asyncio
     async def test_a_click_id_is_paid_even_with_no_medium(self) -> None:

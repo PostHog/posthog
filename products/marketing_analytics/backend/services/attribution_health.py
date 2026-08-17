@@ -176,6 +176,8 @@ async def get_attribution_health(
             if acc is not None:
                 acc.matched_count += count
                 acc.paid_count += row.paid_event_count
+                if matched_key == "google_ads":
+                    acc.paid_count += row.google_click_id_count
                 acc.tagged_medium_count += row.tagged_medium_count
                 candidates = [d for d in (acc.last_matched_at, last_at) if d is not None]
                 acc.last_matched_at = max(candidates) if candidates else None
@@ -216,9 +218,13 @@ class _UtmRow:
     raw_utm_source: str
     event_count: int
     last_seen_at: datetime | None
-    # Paid per PostHog's own channel-type rule (posthog.com/docs/data/channel-type):
-    # a cost-bearing utm_medium, or a click id only ad platforms attach.
+    # A cost-bearing utm_medium, per PostHog's own channel-type rule
+    # (posthog.com/docs/data/channel-type). Platform-agnostic: any source can be paid.
     paid_event_count: int = 0
+    # Counted apart from the medium, because `gclid` and `gad_source` name Google Ads
+    # specifically. They ride along on whatever URL carries them, so a link shared with a
+    # stale gclid would otherwise mark LinkedIn traffic as paid LinkedIn.
+    google_click_id_count: int = 0
     # Events carrying any utm_medium at all. Separates "tagged, and organic" from
     # "not tagged", which are different answers to "is this paid?".
     tagged_medium_count: int = 0
@@ -282,9 +288,11 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
             countIf(
                 lower(trim(properties.utm_medium)) IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')
                 OR startsWith(lower(trim(properties.utm_medium)), 'paid')
-                OR (properties.gclid IS NOT NULL AND properties.gclid != '')
-                OR (properties.gad_source IS NOT NULL AND properties.gad_source != '')
             ) AS paid_event_count,
+            countIf(
+                (properties.gclid IS NOT NULL AND properties.gclid != '')
+                OR (properties.gad_source IS NOT NULL AND properties.gad_source != '')
+            ) AS google_click_id_count,
             countIf(properties.utm_medium IS NOT NULL AND trim(properties.utm_medium) != '') AS tagged_medium_count
         FROM events
         WHERE
@@ -306,7 +314,14 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
         )
     rows: list[_UtmRow] = []
     for row in result.results or []:
-        raw, count, last_at, paid_count, tagged_count = row[0], row[1], row[2], row[3], row[4]
+        raw, count, last_at, paid_count, click_id_count, tagged_count = (
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+        )
         if not raw:
             continue
         rows.append(
@@ -315,6 +330,7 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
                 event_count=int(count or 0),
                 last_seen_at=last_at if isinstance(last_at, datetime) else None,
                 paid_event_count=int(paid_count or 0),
+                google_click_id_count=int(click_id_count or 0),
                 tagged_medium_count=int(tagged_count or 0),
             )
         )
