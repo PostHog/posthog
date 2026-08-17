@@ -1,7 +1,8 @@
-from dataclasses import dataclass
 from typing import Protocol
 
 from posthog.schema import IntervalType
+
+from posthog.dataclasses import frozen
 
 # Codegen collapses the single-member ForecastEngineType TS enum into an inline Literal["prophet"]
 # on ForecastConfig.engine, so no Python symbol exists to import — hence a local constant. When a
@@ -20,7 +21,7 @@ def min_forecast_points(interval: IntervalType | None) -> int:
     return 48 if interval == IntervalType.HOUR else 14
 
 
-@dataclass
+@frozen
 class ForecastResult:
     """One point per future interval, chronologically ascending; lists share length == horizon."""
 
