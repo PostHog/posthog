@@ -82,8 +82,9 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
-// No SDK emits `posthogSessionId`, but it was the team-config default between #70414 and
-// #83710, so teams configured in that window still have it stored. Keep it.
+// No SDK emits `posthogSessionId`, but 31 teams send it themselves — it was the team-config
+// default between #70414 and #83710, so pipelines configured from the settings UI in that
+// window emit it. Keep it: removing it would break them.
 const SESSION_ID_KEYS = [
     'session.id',
     'session_id',
