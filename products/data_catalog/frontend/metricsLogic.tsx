@@ -521,6 +521,9 @@ export const metricsLogic = kea<metricsLogicType>([
                 }
                 if (response.skipped.length) {
                     lemonToast.warning(skippedMessage(response.skipped))
+                    // A skipped metric kept the state the page rendered (e.g. still proposed, or no
+                    // drift tag). Reload so the table matches the server the batch reconciled against.
+                    actions.loadMetrics()
                 }
                 onSuccess?.()
             } catch (error) {
@@ -543,6 +546,9 @@ export const metricsLogic = kea<metricsLogicType>([
                 }
                 if (response.skipped.length) {
                     lemonToast.warning(skippedMessage(response.skipped))
+                    // A skipped metric may already be gone server-side (e.g. "Not found") yet still
+                    // shows in the table. Reload so the table matches the server.
+                    actions.loadMetrics()
                 }
                 onSuccess?.()
             } catch (error) {

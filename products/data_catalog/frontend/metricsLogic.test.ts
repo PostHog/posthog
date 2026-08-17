@@ -187,7 +187,7 @@ describe('metricsLogic', () => {
         expect((dataCatalogMetricsList as jest.Mock).mock.calls.map((call) => call[1].offset)).toEqual([0, 0, 100])
     })
 
-    it('patches the approved rows, leaves the skipped ones, and reports why', async () => {
+    it('patches approved rows and reloads to reconcile skipped ones', async () => {
         logic.actions.loadMetricsSuccess([
             buildMetric({ id: 'metric-1', name: 'first' }),
             buildMetric({ id: 'metric-2', name: 'second' }),
@@ -196,14 +196,25 @@ describe('metricsLogic', () => {
             approved: [buildMetric({ id: 'metric-1', name: 'first', status: 'approved' })],
             skipped: [{ name: 'second', reason: 'Drifted from its source insight' }],
         })
+        // The skip means the page's copy of 'second' is stale, so the reload returns the server's
+        // current state, where 'second' is now drifted.
+        ;(dataCatalogMetricsList as jest.Mock).mockResolvedValue({
+            results: [
+                buildMetric({ id: 'metric-1', name: 'first', status: 'approved' }),
+                buildMetric({ id: 'metric-2', name: 'second', is_drifted: true }),
+            ],
+            next: null,
+        })
+        const listCallsBefore = (dataCatalogMetricsList as jest.Mock).mock.calls.length
         const onSuccess = jest.fn()
 
         logic.actions.bulkApproveMetrics(['first', 'second'], onSuccess)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.allMetrics.map((metric) => [metric.name, metric.status])).toEqual([
-            ['first', 'approved'],
-            ['second', 'proposed'],
+        expect((dataCatalogMetricsList as jest.Mock).mock.calls.length).toBeGreaterThan(listCallsBefore)
+        expect(logic.values.allMetrics.map((metric) => [metric.name, metric.is_drifted])).toEqual([
+            ['first', false],
+            ['second', true],
         ])
         expect(onSuccess).toHaveBeenCalled()
         expect(lemonToast.warning).toHaveBeenCalledWith('Skipped 1 metric: Drifted from its source insight (1)')
@@ -223,6 +234,28 @@ describe('metricsLogic', () => {
 
         expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['second'])
         expect(onSuccess).toHaveBeenCalled()
+    })
+
+    it('reloads to drop skipped rows after bulk delete', async () => {
+        logic.actions.loadMetricsSuccess([
+            buildMetric({ id: 'metric-1', name: 'first' }),
+            buildMetric({ id: 'metric-2', name: 'second' }),
+        ])
+        ;(dataCatalogMetricsBulkDeleteCreate as jest.Mock).mockResolvedValue({
+            deleted: ['first'],
+            skipped: [{ name: 'second', reason: 'Not found' }],
+        })
+        // 'second' was skipped as already gone, so the reload returns the server's current list
+        // without it and the stale row leaves the table.
+        ;(dataCatalogMetricsList as jest.Mock).mockResolvedValue({ results: [], next: null })
+        const onSuccess = jest.fn()
+
+        logic.actions.bulkDeleteMetrics(['first', 'second'], onSuccess)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.allMetrics).toHaveLength(0)
+        expect(onSuccess).toHaveBeenCalled()
+        expect(lemonToast.warning).toHaveBeenCalledWith('Skipped 1 metric: Not found (1)')
     })
 
     it.each(BULK_ACTIONS)('keeps the selection when bulk %s fails', async (_label, client, actionName) => {
