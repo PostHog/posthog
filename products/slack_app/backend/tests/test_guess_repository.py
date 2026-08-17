@@ -319,11 +319,17 @@ class TestPostRepoPickerPrewarm:
 
 
 class TestExtractExplicitRepo:
-    # Matching is covered where the helper lives, in posthog/test/test_git.py. All this
-    # wrapper adds is stripping the bot mention off the front of the Slack message.
-    def test_strips_bot_mention_before_matching(self):
+    # Matching is covered where the helpers live, in posthog/test/test_git.py. All this
+    # wrapper adds is stripping the bot mention and composing the token tier over the link tier.
+    @parameterized.expand(
+        [
+            ("typed_token", "<@U123> fix posthog/posthog-js", "posthog/posthog-js"),
+            ("github_link", "<@U123> is https://github.com/posthog/posthog/actions/runs/2 flaky?", "posthog/posthog"),
+        ]
+    )
+    def test_strips_bot_mention_and_matches_both_tiers(self, _name, text, expected):
         repos = ["posthog/posthog", "posthog/posthog-js", "posthog/plugin-server"]
-        assert _extract_explicit_repo("<@U123> fix posthog/posthog-js", repos) == "posthog/posthog-js"
+        assert _extract_explicit_repo(text, repos) == expected
 
 
 class TestParseRulesCommand:

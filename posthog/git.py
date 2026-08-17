@@ -125,8 +125,8 @@ def extract_linked_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def extract_repo_from_scopes(scopes: list[str], all_repos: list[str]) -> str | None:
-    """Return the repo named by the first of `scopes` to name one, typed tokens before links
-    within each scope, and callers ordering the scopes strongest evidence first.
+    """Return the repo named by the first of `scopes` to name one, a typed token beating a
+    link within each scope. Callers order the scopes strongest evidence first.
 
     Each scope is matched on its own rather than joined into one string, which keeps the
     ambiguity rule in `extract_linked_repo` meaningful: two repos linked inside one scope is

@@ -31,9 +31,9 @@ def cascade_posthog_code_repository_activity(
     an explicit `org/repo` named in the mention or in the thread it sits in. Anything
     else returns `mode='agent_needed'` and the workflow takes over.
 
-    The discovery agent this preempts reads the whole thread, so resolving from the
-    mention alone would hand it asks it then answers from thread text, which is the
-    sandbox run the fast path exists to avoid.
+    The discovery agent this preempts reads the whole thread, so the fast path must too:
+    a mention-only read sends every ask whose link sits in an earlier message to a
+    sandbox run that then finds the repo in text the fast path skipped.
 
     ``user_id`` and ``thread_messages`` default to ``None`` for backwards compatibility
     with older call shapes: if a worker drains an activity task that was scheduled by an
@@ -71,8 +71,7 @@ def cascade_posthog_code_repository_activity(
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
 
     outcome = _resolve_explicit_repo(event_text, thread_messages or [], all_repos)
-    # Logged so the share of mentions the fast path saves from the discovery agent, and which
-    # scope produced it, is measurable without rerunning the resolution order over Slack text.
+    # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
     logger.info(
         "posthog_code_cascade_outcome",
         reason=outcome.reason,
