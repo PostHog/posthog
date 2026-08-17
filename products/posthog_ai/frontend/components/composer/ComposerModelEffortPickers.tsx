@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconRevert } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconRevert, IconRefresh } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -49,6 +49,11 @@ export interface ComposerModelEffortPickersProps {
      * offered as disabled. `null`/omitted means nothing is running and every harness is selectable.
      */
     lockedRuntimeAdapter?: string | null
+    /** The selection shown is the resolved default (user/project preference), not an explicit pick for
+     * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
+    isDefaultSelection?: boolean
+    /** Clears the explicit pick so the run falls back to the resolved default. Omit to hide the row. */
+    onResetToDefault?: () => void
 }
 
 interface PickerSectionProps {
@@ -94,6 +99,8 @@ export function ComposerModelEffortPickers({
     onModelChange,
     onEffortChange,
     lockedRuntimeAdapter,
+    isDefaultSelection = false,
+    onResetToDefault,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
@@ -183,7 +190,7 @@ export function ComposerModelEffortPickers({
             <DropdownMenuTrigger
                 render={
                     <Button variant="outline" size="sm">
-                        {modelLabel}
+                        {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
@@ -283,6 +290,22 @@ export function ComposerModelEffortPickers({
                             setAdvanced(true)
                         }}
                     />
+                )}
+
+                {onResetToDefault && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            disabled={isDefaultSelection}
+                            onClick={() => {
+                                onResetToDefault()
+                                setOpen(false)
+                            }}
+                        >
+                            <IconRefresh />
+                            Reset to default
+                        </DropdownMenuItem>
+                    </>
                 )}
             </DropdownMenuContent>
         </DropdownMenu>

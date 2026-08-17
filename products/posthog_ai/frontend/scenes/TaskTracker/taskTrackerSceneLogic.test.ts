@@ -12,6 +12,7 @@ import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { DEFAULT_COMPOSER_MODEL } from '../../utils/composerModels'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
@@ -40,6 +41,16 @@ describe('taskTrackerSceneLogic', () => {
     let runBody: Record<string, any> | null
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
+    const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
+        ai_run_preferences: {},
+        resolved_ai_run_defaults: resolved ?? {
+            runtime_adapter: null,
+            model: null,
+            reasoning_effort: null,
+            source: 'none',
+        },
+    })
+
     beforeEach(() => {
         createBody = null
         runBody = null
@@ -48,6 +59,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
                 '/api/environments/:team/integrations/': { results: [] },
             },
             post: {
@@ -201,6 +213,59 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.unmount()
         consent.unmount()
         jest.restoreAllMocks()
+    })
+    // The runtime selection on submit decides whether server-side defaults can apply: an untouched picker
+    // with a Claude default must OMIT the triple (re-pinning it client-side would defeat team/user defaults
+    // and warm-run matching), while no default / a Codex default must pin the built-in Claude model (the web
+    // tracker can't drive Codex runs), and an explicit pick must always be sent for that run.
+    it.each([
+        {
+            description: 'omits the runtime selection when a Claude server default exists',
+            resolved: {
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-4-6',
+                reasoning_effort: 'high',
+                source: 'team',
+            },
+            pick: null,
+            expectModel: undefined,
+        },
+        {
+            description: 'pins the built-in model when no server default exists',
+            resolved: null,
+            pick: null,
+            expectModel: DEFAULT_COMPOSER_MODEL,
+        },
+        {
+            description: 'pins the built-in model when the server default is a Codex runtime',
+            resolved: { runtime_adapter: 'codex', model: 'gpt-5.5', reasoning_effort: 'medium', source: 'user' },
+            pick: null,
+            expectModel: DEFAULT_COMPOSER_MODEL,
+        },
+        {
+            description: 'sends an explicit pick even when a server default exists',
+            resolved: {
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-4-6',
+                reasoning_effort: 'high',
+                source: 'team',
+            },
+            pick: 'claude-opus-4-8',
+            expectModel: 'claude-opus-4-8',
+        },
+    ])('$description', async ({ resolved, pick, expectModel }) => {
+        useMocks({ get: { '/api/projects/:team/tasks/@me/config/': myConfigResponse(resolved) } })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setNewTaskData({ description: 'do the thing', ...(pick ? { model: pick } : {}) })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody?.model).toEqual(expectModel)
+        expect(runBody?.runtime_adapter).toEqual(expectModel === undefined ? undefined : 'claude')
+        // The one-off pick resets after submit, back to "use default".
+        expect(logic.values.newTaskData.model).toBeNull()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
