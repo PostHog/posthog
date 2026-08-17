@@ -367,64 +367,15 @@ function generateMessageId(): string {
   return id;
 }
 
-const ADJECTIVES = [
-  "bright",
-  "calm",
-  "daring",
-  "eager",
-  "fair",
-  "gentle",
-  "happy",
-  "keen",
-  "lively",
-  "merry",
-  "noble",
-  "polite",
-  "quick",
-  "sharp",
-  "warm",
-  "witty",
-];
-const VERBS = [
-  "blazing",
-  "crafting",
-  "dashing",
-  "flowing",
-  "gliding",
-  "humming",
-  "jumping",
-  "linking",
-  "melting",
-  "nesting",
-  "pacing",
-  "roaming",
-  "sailing",
-  "turning",
-  "waving",
-  "zoning",
-];
-const NOUNS = [
-  "aurora",
-  "breeze",
-  "cedar",
-  "delta",
-  "ember",
-  "frost",
-  "grove",
-  "haven",
-  "inlet",
-  "jewel",
-  "knoll",
-  "lotus",
-  "maple",
-  "nexus",
-  "oasis",
-  "prism",
-];
-
-function generateSlug(): string {
-  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-  return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
+/**
+ * The slug rides into the CLI's plan filename, so it has to come out the same on
+ * every rehydration of a session. A fresh slug per rehydration sent the CLI looking
+ * for a plan file that does not exist, so it reported "No plan file exists yet" and
+ * the plan from before the resume was gone.
+ */
+function sessionSlug(sessionId: string): string {
+  const compact = sessionId.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return `session-${compact.slice(0, 12) || "unknown"}`;
 }
 
 export function conversationTurnsToJsonlEntries(
@@ -436,7 +387,7 @@ export function conversationTurnsToJsonlEntries(
   const model = config.model ?? DEFAULT_GATEWAY_MODEL;
   const version = config.version ?? "2.1.63";
   const gitBranch = config.gitBranch ?? "";
-  const slug = config.slug ?? generateSlug();
+  const slug = config.slug ?? sessionSlug(config.sessionId);
   const permissionMode = config.permissionMode ?? "default";
   const baseTime = Date.now() - turns.length * 3000;
   let turnIndex = 0;

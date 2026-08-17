@@ -18,6 +18,8 @@ import type { CloudPendingPermissionRequest } from "../types";
 interface ToolData {
   toolCallId: string;
   status: ToolStatus;
+  /** The tool call's own rawInput — the plan's only source on a resumed thread. */
+  args?: Record<string, unknown>;
 }
 
 interface PermissionResponseArgs {
@@ -47,8 +49,11 @@ export function PlanApprovalCard({
 
   const response = permission?.response;
   const planText = useMemo(
-    () => (permission ? extractPlanText(permission.toolCall) : null),
-    [permission],
+    () =>
+      permission
+        ? extractPlanText(permission.toolCall)
+        : extractPlanText({ rawInput: toolData.args }),
+    [permission, toolData.args],
   );
   const selectedOption = useMemo(
     () =>
@@ -62,7 +67,10 @@ export function PlanApprovalCard({
     toolData.status === "completed" ||
     toolData.status === "error";
 
-  if (!permission) {
+  // A reopened task has no live permission, but the plan still has to render.
+  // Returning null whenever the permission was absent left the row blank for
+  // every resumed thread.
+  if (!permission && !planText) {
     return null;
   }
 
@@ -126,7 +134,7 @@ export function PlanApprovalCard({
         </View>
       )}
 
-      {isResolved ? (
+      {isResolved || !permission ? (
         <View className="px-3 pb-3">
           <View className="flex-row items-start gap-2 rounded-lg border border-gray-6 bg-gray-3 px-3 py-2.5">
             {resolvedAsReject ? (

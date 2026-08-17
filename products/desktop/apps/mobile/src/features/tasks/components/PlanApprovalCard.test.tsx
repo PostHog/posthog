@@ -83,6 +83,32 @@ describe("PlanApprovalCard", () => {
     expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
   });
 
+  // Reopening a task replays the tool call without its permission. The card used to
+  // return null whenever the permission was absent, so a resumed thread showed no
+  // plan at all.
+  it("renders the plan from the tool call when the permission is gone", () => {
+    const plan = "# Plan\n\n1. Inspect renderer\n2. Fix markdown output";
+    let renderer: ReturnType<typeof create> | null = null;
+
+    act(() => {
+      renderer = create(
+        createElement(PlanApprovalCard, {
+          toolData: {
+            toolCallId: "tool-plan",
+            status: "completed",
+            args: { plan },
+          },
+        }),
+      );
+    });
+
+    if (!renderer) {
+      throw new Error("Renderer not created");
+    }
+
+    expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
+  });
+
   it("sends the selected approval option immediately", () => {
     const onSendPermissionResponse = vi.fn();
     let renderer: ReturnType<typeof create> | null = null;
