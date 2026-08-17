@@ -258,7 +258,7 @@ export const MatchedOnEnumApi = {
 export interface _TracingAttributeEntryApi {
     /** Attribute key name. */
     name: string
-    /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+    /** Property filter type: "span_attribute", "span_resource_attribute", or "span" for a built-in span field such as name. Use this as the `type` field when filtering. */
     propertyFilterType: string
     /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
      *

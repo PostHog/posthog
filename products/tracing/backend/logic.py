@@ -894,6 +894,58 @@ def run_attribute_names_query(
     return results, count
 
 
+# Keys whose name matches the search.
+_ATTRIBUTE_KEY_MATCH_BRANCH = """
+    SELECT
+        attribute_key,
+        'key' AS match_type,
+        '' AS sample_value,
+        sum(attribute_count) AS total_count
+    FROM posthog.trace_attributes
+    WHERE time_bucket >= {date_from_start_of_interval}
+    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+    AND attribute_type = {attributeType}
+    AND attribute_key ILIKE {search}
+    GROUP BY team_id, attribute_key
+"""
+
+# Keys whose values match the search but whose name does NOT — the NOT-ILIKE dedupes
+# against the key branch, so a key never appears twice.
+_ATTRIBUTE_VALUE_MATCH_BRANCH = """
+    SELECT
+        attribute_key,
+        'value' AS match_type,
+        argMax(attribute_value, attribute_count) AS sample_value,
+        sum(attribute_count) AS total_count
+    FROM posthog.trace_attributes
+    WHERE time_bucket >= {date_from_start_of_interval}
+    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+    AND attribute_type = {attributeType}
+    AND attribute_value ILIKE {search}
+    AND attribute_key NOT ILIKE {search}
+    GROUP BY team_id, attribute_key
+"""
+
+# Built-in span columns (currently only `name`) whose values match the search. Span names
+# are a column on the span rather than an entry in the attribute maps, so they're aggregated
+# under attribute_type='span' and are invisible to the branches above — which leaves the one
+# identifier people paste in when hunting for a specific trace unsearchable.
+_SPAN_COLUMN_VALUE_MATCH_BRANCH = """
+    SELECT
+        attribute_key,
+        'span' AS match_type,
+        argMax(attribute_value, attribute_count) AS sample_value,
+        sum(attribute_count) AS total_count
+    FROM posthog.trace_attributes
+    WHERE time_bucket >= {date_from_start_of_interval}
+    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+    AND attribute_type = {spanAttributeType}
+    AND attribute_value ILIKE {search}
+    AND attribute_key NOT ILIKE {search}
+    GROUP BY team_id, attribute_key
+"""
+
+
 def _run_attribute_names_value_search(
     team: "Team",
     date_range: DateRange,
@@ -902,11 +954,8 @@ def _run_attribute_names_value_search(
     limit: int,
     offset: int,
 ) -> tuple[list[dict], int]:
-    # UNION ALL of two branches:
-    #   (1) keys whose name matches the search
-    #   (2) keys whose values match the search but whose name does NOT match
-    # The NOT-ILIKE on the value branch dedupes — a key never appears twice.
-    # match_type lets the outer ORDER BY put key matches above value matches.
+    # match_type lets the outer ORDER BY rank key matches first, then span-column matches,
+    # then the remaining attribute value matches.
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
@@ -920,53 +969,39 @@ def _run_attribute_names_value_search(
         attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
     )
 
+    # Only the span-attribute search carries branch (3), so a matching span name is offered
+    # once rather than once per attribute tab.
+    include_span_columns = attribute_type == "span_attribute"
+    branches = [_ATTRIBUTE_KEY_MATCH_BRANCH, _ATTRIBUTE_VALUE_MATCH_BRANCH]
+    if include_span_columns:
+        branches.append(_SPAN_COLUMN_VALUE_MATCH_BRANCH)
+
     query = parse_select(
-        """
+        f"""
         SELECT
             attribute_key,
             match_type,
             sample_value,
             total_count
-        FROM (
-            SELECT
-                attribute_key,
-                'key' AS match_type,
-                '' AS sample_value,
-                sum(attribute_count) AS total_count
-            FROM posthog.trace_attributes
-            WHERE time_bucket >= {date_from_start_of_interval}
-            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
-            AND attribute_type = {attributeType}
-            AND attribute_key ILIKE {search}
-            GROUP BY team_id, attribute_key
-
-            UNION ALL
-
-            SELECT
-                attribute_key,
-                'value' AS match_type,
-                argMax(attribute_value, attribute_count) AS sample_value,
-                sum(attribute_count) AS total_count
-            FROM posthog.trace_attributes
-            WHERE time_bucket >= {date_from_start_of_interval}
-            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
-            AND attribute_type = {attributeType}
-            AND attribute_value ILIKE {search}
-            AND attribute_key NOT ILIKE {search}
-            GROUP BY team_id, attribute_key
-        )
+        FROM ({" UNION ALL ".join(branches)})
         ORDER BY
             match_type = 'key' DESC,
+            match_type = 'span' DESC,
             total_count DESC,
             attribute_key ASC
-        LIMIT {limit}
-        OFFSET {offset}
+        LIMIT {{limit}}
+        OFFSET {{offset}}
         """,
         placeholders={
             "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
+            **(
+                {"spanAttributeType": ast.Constant(value=SpanPropertyFilterType.SPAN.value)}
+                if include_span_columns
+                else {}
+            ),
             **query_date_range.to_placeholders(),
         },
     )
@@ -992,7 +1027,11 @@ def _run_attribute_names_value_search(
             results.append(
                 {
                     "name": attribute_key,
-                    "propertyFilterType": property_filter_type,
+                    # A span-column match filters on the span itself, not on an attribute map,
+                    # so it has to carry the `span` filter type rather than the searched one.
+                    "propertyFilterType": (
+                        SpanPropertyFilterType.SPAN.value if match_type == "span" else property_filter_type
+                    ),
                     "matchedOn": "key" if matched_on_key else "value",
                     "matchedValue": None if matched_on_key else (sample_value or None),
                 }

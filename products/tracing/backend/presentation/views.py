@@ -346,7 +346,7 @@ class _TracingAttributesQuerySerializer(serializers.Serializer):
 class _TracingAttributeEntrySerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Attribute key name.")
     propertyFilterType = serializers.CharField(
-        help_text='Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering.',
+        help_text='Property filter type: "span_attribute", "span_resource_attribute", or "span" for a built-in span field such as name. Use this as the `type` field when filtering.',
     )
     matchedOn = serializers.ChoiceField(
         choices=["key", "value"],

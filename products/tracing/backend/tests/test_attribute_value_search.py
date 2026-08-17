@@ -42,6 +42,11 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
             # ILIKE-escaping fixtures: "50%off" must not wildcard-match "50ABCoff".
             ("promo.code", "50%off", 4, "span_attribute"),
             ("promo.alt", "50ABCoff", 4, "span_attribute"),
+            # Span names are aggregated under attribute_type='span' with a fixed 'name' key.
+            # The attribute below shares the searched substring and is far more common, so
+            # ranking rather than raw counts is what has to put the span name first.
+            ("name", "GET /api/projects/list", 6, "span"),
+            ("http.route", "/api/projects/list", 90, "span_attribute"),
         ]
         values_sql = ",".join(
             f"({cls.team.id}, '{bucket}', '{expiry_bucket}', 'svc', 0, '{k}', '{v}', {c}, '{t}')" for k, v, c, t in rows
@@ -124,6 +129,27 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("http.target", names)
         self.assertIn("http.method", names)
         self.assertTrue(all(r["matchedOn"] == "key" for r in results))
+
+    def test_search_values_finds_a_span_name_and_ranks_it_above_attribute_values(self):
+        results = self._attributes(
+            {"attribute_type": "span_attribute", "search": "projects/list", "search_values": "true"}
+        )
+        by_name = {r["name"]: r for r in results}
+        self.assertIn("name", by_name)
+        # `span`, not `span_attribute` — the filter has to land on the span column.
+        self.assertEqual(by_name["name"]["propertyFilterType"], "span")
+        self.assertEqual(by_name["name"]["matchedOn"], "value")
+        self.assertEqual(by_name["name"]["matchedValue"], "GET /api/projects/list")
+
+        order = [r["name"] for r in results]
+        self.assertLess(order.index("name"), order.index("http.route"))
+
+    def test_span_name_is_not_offered_by_the_resource_attribute_search(self):
+        # Otherwise the same span name is offered once per attribute tab.
+        results = self._attributes(
+            {"attribute_type": "span_resource_attribute", "search": "projects/list", "search_values": "true"}
+        )
+        self.assertNotIn("name", {r["name"] for r in results})
 
     def test_key_search_case_insensitive_with_value_search(self):
         # The value-search path matches keys case-insensitively too: "TRACE" matches the
