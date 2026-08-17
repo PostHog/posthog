@@ -103,6 +103,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     link_url_region,
     parse_posthog_resource_link,
 )
+from products.slack_app.backend.slack_workflow_events import emit_slack_message_event
 
 logger = structlog.get_logger(__name__)
 
@@ -1910,6 +1911,17 @@ def route_posthog_code_event_to_relevant_region(
         )
 
     if event_type in ("app_mention", "message"):
+        # Above every drop below, because a workflow trigger watches a whole channel: the top-level
+        # posts the follow-up pipeline discards are the ones it exists for. Emitting here rather
+        # than inside that pipeline keeps the two independent.
+        if event_type == "message":
+            emit_slack_message_event(
+                event,
+                slack_team_id,
+                event_id=event_id,
+                is_ext_shared_channel=is_ext_shared_channel,
+            )
+
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:

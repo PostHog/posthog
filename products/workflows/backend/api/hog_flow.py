@@ -99,6 +99,7 @@ from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     HogFlow,
@@ -947,7 +948,11 @@ class HogFlowActionSerializer(serializers.Serializer):
     config = HogFlowActionConfigField(
         help_text=(
             "Type-specific config keyed by action type. "
-            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and "
+            "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. "
+            "slack-message runs once per message posted in a connected Slack channel, and takes only "
+            "filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, "
+            "subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. "
+            "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
@@ -1158,6 +1163,24 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
                 filters["source"] = "data-warehouse-table"
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
+            elif data.get("config", {}).get("type") == "slack-message":
+                # Everything the trigger selects on — channel, poster, text, thread — is a property
+                # of the Slack message, so there is no config beyond the filters. The event name is
+                # fixed, which is what makes an events/actions entry here meaningless.
+                filters = data.get("config", {}).get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters.pop("events", None)
+                filters.pop("actions", None)
+                # Left on the default "events" source: the internal event is event-shaped, so
+                # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                 if is_draft:
                     if serializer.is_valid():
@@ -2034,12 +2057,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Warehouse-triggered workflows are person-less ("row-scoped"): one run per synced row with no
-        # associated person. Person-dependent steps and person-aware exit conditions would silently
-        # assume person data, so we block them here — the serializer is the source of truth, so the API,
-        # MCP, and frontend can't bypass it. We force exit_only_at_end since the other exit conditions
-        # re-evaluate trigger/conversion filters that may reference person properties.
-        if data["trigger"].get("type") == "data-warehouse-table":
+        # Some triggers are person-less ("row-scoped"): a synced warehouse row and a Slack poster are
+        # both things no PostHog person is attached to. Person-dependent steps and person-aware exit
+        # conditions would silently assume person data, so we block them here — the serializer is the
+        # source of truth, so the API, MCP, and frontend can't bypass it. We force exit_only_at_end
+        # since the other exit conditions re-evaluate trigger/conversion filters that may reference
+        # person properties.
+        if data["trigger"].get("type") in ROW_SCOPED_TRIGGER_TYPES:
             data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
             if not is_draft:
                 offending_types = sorted(
@@ -2053,8 +2077,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     raise serializers.ValidationError(
                         {
                             "actions": (
-                                "These step types rely on person data, which is unavailable for data warehouse "
-                                f"table triggers: {', '.join(offending_types)}"
+                                "These step types rely on person data, which a "
+                                f"{data['trigger'].get('type')} trigger has none of: "
+                                f"{', '.join(offending_types)}"
                             )
                         }
                     )

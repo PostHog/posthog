@@ -633,6 +633,10 @@ class Integration(models.Model):
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
+        # The unique constraint above leads with `team`, so it can't serve a lookup that knows only
+        # the external id — which is every inbound webhook, since the sender names its own workspace
+        # and not our project.
+        indexes = [models.Index(fields=["kind", "integration_id"], name="posthog_integration_kind_ext")]
 
     @property
     def display_name(self) -> str:
