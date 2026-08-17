@@ -63,9 +63,15 @@ export const experimentsSetupLogic = kea<experimentsSetupLogicType>([
             null as number | null,
             {
                 loadExperimentCount: async (_: void, breakpoint): Promise<number> => {
-                    const response = await experimentsList(String(values.currentProjectId), { limit: 1 })
+                    // The list excludes archived experiments unless asked for them, and no value of
+                    // `archived` returns both, so a project that archived all of its experiments
+                    // would count zero and lose the scene it unarchives them from.
+                    const [live, archived] = await Promise.all([
+                        experimentsList(String(values.currentProjectId), { limit: 1 }),
+                        experimentsList(String(values.currentProjectId), { limit: 1, archived: true }),
+                    ])
                     breakpoint()
-                    return response.count
+                    return live.count + archived.count
                 },
             },
         ],

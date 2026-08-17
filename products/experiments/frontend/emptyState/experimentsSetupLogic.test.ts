@@ -23,12 +23,16 @@ describe('experimentsSetupLogic', () => {
         initKeaTests()
     })
 
+    // The list answers archived and non-archived separately, so the count is the sum of both.
     it.each([
-        [0, 'needs-setup'],
-        [1, 'has-data'],
-        [42, 'has-data'],
-    ])('pushes an experiment count of %i as status %s', async (count, expected) => {
-        mockExperimentsList.mockResolvedValue({ count, next: null, previous: null, results: [] })
+        [0, 0, 'needs-setup'],
+        [1, 0, 'has-data'],
+        [42, 0, 'has-data'],
+        [0, 3, 'has-data'],
+    ])('pushes %i live and %i archived experiments as status %s', async (live, archived, expected) => {
+        mockExperimentsList.mockImplementation((_projectId, params) =>
+            Promise.resolve({ count: params?.archived ? archived : live, next: null, previous: null, results: [] })
+        )
         const logic = experimentsSetupLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
