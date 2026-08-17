@@ -54,7 +54,9 @@ jobs:
                   echo "local-version=$local" >> $GITHUB_OUTPUT
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                       # 200 = version already on PyPI, 404 = needs release.
-                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")
+                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' \
+                          --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                          "https://pypi.org/pypi/hogql-parser-rs/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           parser_release_needed='true'
                           # Version was bumped — mark any reminder from an earlier push resolved.
