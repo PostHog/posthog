@@ -29,6 +29,7 @@ from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -589,13 +590,16 @@ class SlackMessageArtifactAdapter(LivingArtifactAdapter):
         mapping = _get_slack_mapping(run)
         text = content.strip() or name
         if artifact is None:
-            response = _slack_client_for_mapping(mapping).chat_postMessage(
+            response = post_slack_thread_reply(
+                _slack_client_for_mapping(mapping),
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
                 text=text,
                 unfurl_links=False,
                 unfurl_media=False,
             )
+            if response is None:
+                raise ValueError("Slack message artifact has no thread left to deliver into")
             message_ts = response.get("ts")
             if not message_ts:
                 raise ValueError("Slack message delivery did not return a message timestamp")
@@ -891,8 +895,6 @@ def deliver_pending_slack_file_artifacts(
     if not _canvas_file_artifacts_enabled(mapping):
         logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
         return result
-
-    from products.slack_app.backend.services.slack_messages import slack_message_exists  # noqa: PLC0415
 
     slack_integration = _slack_integration_for_mapping(mapping)
     # Nobody is waiting on charts or file shares for a prompt that has been deleted.
@@ -1240,8 +1242,9 @@ def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> bool:
     """Post one plain text message, reporting whether it landed — callers use this to decide
     whether the answer still needs a fallback, so a swallowed failure must not read as sent."""
     try:
-        slack.chat_postMessage(channel=mapping.channel, thread_ts=mapping.thread_ts, text=text)
-        return True
+        return (
+            post_slack_thread_reply(slack, channel=mapping.channel, thread_ts=mapping.thread_ts, text=text) is not None
+        )
     except Exception:
         logger.warning("task_artifact.slack_thread_text_failed", exc_info=True)
         return False
@@ -1339,7 +1342,7 @@ def _post_blocks_with_processing_retry(
 ) -> None:
     for attempt in range(1, attempts + 1):
         try:
-            slack.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+            post_slack_thread_reply(slack, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
             return
         except SlackApiError as e:
             error = e.response.get("error")
@@ -1583,7 +1586,8 @@ def _post_canvas_created_message(
     escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
     canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
     try:
-        slack.chat_postMessage(
+        post_slack_thread_reply(
+            slack,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
             text=f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`).",

@@ -225,23 +225,6 @@ def _message_exists_cache_key(channel: str, ts: str) -> str:
     return f"slack_message_exists:{channel}:{ts}"
 
 
-def _probe_message_exists(client: WebClient, channel: str, ts: str) -> bool:
-    # A one-message window on `ts` itself. Slack answers with that message when it is
-    # there and an empty list when it isn't, which is the question asked here — unlike
-    # `conversations.replies`, whose answer also depends on whether a thread was ever
-    # started and on how Slack represents a deleted parent.
-    try:
-        response = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
-    except Exception:
-        # Rate limits, transient 5xx, a scope we happen to lack — none of these are
-        # evidence the message is gone, and treating them as such would silence real
-        # replies. Fail open and let the post itself surface any real problem.
-        logger.warning("slack_app_message_exists_probe_failed", channel=channel, ts=ts, exc_info=True)
-        return True
-
-    return bool(response.get("messages"))
-
-
 def slack_message_exists(
     client: WebClient,
     channel: str,
@@ -251,6 +234,11 @@ def slack_message_exists(
 ) -> bool:
     """Whether a Slack message is still there.
 
+    Asked with a one-message window on `ts` itself: Slack answers with that message when
+    it is there and an empty list when it isn't. `conversations.replies` would answer a
+    different question — its result also depends on whether a thread was ever started and
+    on how Slack represents a deleted parent.
+
     Cached on the same short TTL as the thread snapshot: a burst of relay chunks for one
     reply collapses onto a single `conversations.history` call, while a message deleted
     mid-run is noticed within seconds.
@@ -259,7 +247,17 @@ def slack_message_exists(
     cached = cache.get(key)
     if cached is not None:
         return bool(cached)
-    exists = _probe_message_exists(client, channel, ts)
+
+    try:
+        response = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+        exists = bool(response.get("messages"))
+    except Exception:
+        # Rate limits, transient 5xx, a scope we happen to lack — none of these are
+        # evidence the message is gone, and treating them as such would silence real
+        # replies. Fail open and let the post itself surface any real problem.
+        logger.warning("slack_app_message_exists_probe_failed", channel=channel, ts=ts, exc_info=True)
+        return True
+
     try:
         cache.set(key, exists, timeout=ttl)
     except Exception:
