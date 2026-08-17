@@ -49,6 +49,7 @@ class TestRecordRasterizationFailure:
             ("compositor_deadlock", "BEGINFRAME_DEADLOCK", FAILURE_TYPE_TIMEOUT_GENERATION),
             ("no_snapshots", "NO_SNAPSHOTS", FAILURE_TYPE_USER),
             ("upload_failed", "S3_UPLOAD_UNDECODABLE_RESPONSE", FAILURE_TYPE_SYSTEM),
+            ("worker_death_timeout", "ACTIVITY_TIMEOUT", FAILURE_TYPE_TIMEOUT_GENERATION),
             # An unmapped code must land in "unknown" rather than being absorbed into a real bucket,
             # so a code the rasterizer adds later shows up as needing classification.
             ("unrecognized", "SOMETHING_NEW", FAILURE_TYPE_UNKNOWN),

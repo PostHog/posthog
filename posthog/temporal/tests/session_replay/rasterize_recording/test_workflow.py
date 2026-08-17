@@ -9,6 +9,12 @@ from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.client import WorkflowHistory
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    TimeoutType,
+)
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
@@ -21,7 +27,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     RasterizeRecordingInputs,
     RecordRasterizationFailureInput,
 )
-from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
+from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow, _resolve_error_code
 
 
 def _record_failure_into(calls: list[RecordRasterizationFailureInput]):
@@ -348,3 +354,35 @@ async def test_bump_failure_does_not_break_workflow_failure():
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     search_attributes=_search_attributes(),
                 )
+
+
+def test_resolve_error_code_maps_temporal_timeouts():
+    """A worker that dies by heartbeat or start-to-close timeout raises no ApplicationError, so
+    without the explicit TimeoutError check the asset would classify as an opaque ActivityError.
+    The TimeoutError sits directly on the raised error or one wrapper deeper depending on where
+    the deadline fired."""
+    timeout = TemporalTimeoutError("activity timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+    wrapped = _activity_error()
+    wrapped.__cause__ = timeout
+
+    assert _resolve_error_code(timeout) == "ACTIVITY_TIMEOUT"
+    assert _resolve_error_code(wrapped) == "ACTIVITY_TIMEOUT"
+
+
+def test_resolve_error_code_keeps_the_renderers_own_code():
+    error = _activity_error()
+    error.__cause__ = ApplicationError("render failed", type="NO_SNAPSHOTS")
+
+    assert _resolve_error_code(error) == "NO_SNAPSHOTS"
+
+
+def _activity_error() -> ActivityError:
+    return ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=1,
+        identity="worker",
+        activity_type="rasterize",
+        activity_id="1",
+        retry_state=None,
+    )
