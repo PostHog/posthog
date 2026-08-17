@@ -26,7 +26,7 @@ interface FixtureSeries {
     seriesOrder: number
     breakdown_value?: string
     compareLabel?: CompareLabelType
-    /** The period this series covers — a previous-period series carries its own dates. */
+    /** This series' own period. A previous-period series covers earlier dates than the chart's. */
     days?: string[]
 }
 
@@ -153,8 +153,7 @@ export const SameEventSeriesWithBreakdown: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
 }
 
-// Comparing to the previous period: the previous row is dated, so its value never has to be
-// matched back to a date by hand. The current row's date is the header above it.
+// The previous row is dated; the current row's date is the header above it.
 export const CompareToPreviousPeriod: Story = {
     render: () => (
         <TooltipChart
@@ -180,8 +179,7 @@ export const CompareToPreviousPeriod: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
 }
 
-// Compare doubles the row count once a breakdown is on, and the date has to stay readable next to
-// a breakdown value competing for the same width.
+// Compare with a breakdown: the date competes with the breakdown value for row width.
 export const CompareToPreviousPeriodWithBreakdown: Story = {
     render: () => (
         <TooltipChart

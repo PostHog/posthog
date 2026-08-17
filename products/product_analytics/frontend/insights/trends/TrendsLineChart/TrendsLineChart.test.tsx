@@ -199,11 +199,9 @@ describe('TrendsLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            // Index 2 is 2024-06-05 for the previous period, so its date has to come from its own
-            // series rather than from the hovered label (2024-06-12).
+            // Index 2 is 12 Jun in the current period, so 5 Jun can only come from the previous one.
             expect(tooltip.row('Current')).toContain('134')
             expect(tooltip.row('5 Jun')).toContain('100')
-            // The date replaces "Previous" rather than joining it.
             expect(tooltip.element.textContent).not.toContain('Previous')
         })
 
