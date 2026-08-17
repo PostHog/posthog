@@ -2935,10 +2935,8 @@ def write_task_run_resume_state(
     """Store a run's teardown resume snapshot, unless a `/clear` has since retired it.
 
     Takes the row lock `clear_task_run_conversation` holds across its delete-then-append,
-    so the two paths serialize: a clear that lands first leaves the boundary at the log's
-    tail and this refuses, and a clear that lands second deletes what this just wrote.
-    Without the lock a fold that started before the clear could write the retired
-    conversation back afterwards, and resume reads the snapshot before it reads the log.
+    so the two paths serialize instead of racing on the one fixed key: whichever arrives
+    second observes the other's result.
     """
     from posthog.storage import object_storage  # noqa: PLC0415
 
@@ -2948,16 +2946,12 @@ def write_task_run_resume_state(
     if not content or len(content) > RESUME_STATE_MAX_SIZE_BYTES:
         raise ValueError("The resume state content size is invalid")
     with transaction.atomic():
-        run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
-        # Tail rather than "ever cleared": a run cleared and then resumed appends past the
-        # boundary, and that later snapshot folds the marker in, so it is legitimate.
-        if run._log_tail_is_conversation_cleared():
+        run = TaskRun.objects.select_for_update(of=("self",)).get(pk=run.pk)
+        if run.conversation_is_cleared():
             return "superseded"
         object_storage.write(run.resume_state_url, content)
     # The snapshot is a derived cache of the log, so it must not outlive the log's
-    # retention: tag it for the same expiry the log carries. Tagging outside the lock
-    # keeps the hold to the read and the write; a tag failure leaves the object in place
-    # but must not fail the write that already landed.
+    # retention. Tagging outside the lock keeps the hold to the read and the write.
     try:
         object_storage.tag(
             run.resume_state_url,

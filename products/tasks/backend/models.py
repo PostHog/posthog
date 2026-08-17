@@ -2516,7 +2516,7 @@ class TaskRun(models.Model):
         A repeat call while the log already ends at the boundary appends nothing, so a
         double-submitted or retried clear doesn't stack duplicate markers.
         """
-        if self._log_tail_is_conversation_cleared():
+        if self.conversation_is_cleared():
             return
         timestamp = django_timezone.now().isoformat()
         events = [
@@ -2550,9 +2550,13 @@ class TaskRun(models.Model):
         for event in events:
             self.publish_stream_event(event)
 
-    def _log_tail_is_conversation_cleared(self) -> bool:
-        # Reads the whole object because S3 offers no cheap tail read; clears are rare
-        # and the subsequent append re-reads it anyway.
+    def conversation_is_cleared(self) -> bool:
+        """Whether a `/clear` boundary sits at the end of this run's log.
+
+        The tail rather than "ever cleared", because a run that was cleared and then
+        resumed appends past the boundary, which makes its conversation live again.
+        Reads the whole object because S3 offers no ranged read.
+        """
         content = object_storage.read(self.log_url, missing_ok=True) or ""
         last_line = content.strip().rsplit("\n", 1)[-1]
         if not last_line:

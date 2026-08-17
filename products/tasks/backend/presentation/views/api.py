@@ -1737,8 +1737,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if outcome == "not_found":
             raise NotFound()
-        # A snapshot that a `/clear` already retired is declined, not failed: the caller
-        # wanted no stale snapshot stored, and none is.
         return Response(TaskRunResumeStateSyncResponseSerializer({"ok": outcome == "written"}).data)
 
     @validated_request(

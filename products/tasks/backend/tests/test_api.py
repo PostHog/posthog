@@ -10027,10 +10027,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         run = self._create_run_with_sandbox(task)
         self._open_sandbox_session(run)
         content = b'{"last_event_id":"42"}'
-        # The write path reads the log to check for a clear boundary; only the snapshot
-        # key serves the stored bytes back.
-        stored: dict[str, str] = {}
-        mock_read.side_effect = lambda key, missing_ok=False: stored.get(key)
+        # The write path reads the log first to check for a clear boundary.
+        mock_read.return_value = None
 
         write_response = self.client.generic(
             "POST",
@@ -10045,7 +10043,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(write_response.json(), {"ok": True})
         mock_write.assert_called_once_with(run.resume_state_url, content)
 
-        stored[run.resume_state_url] = content.decode()
+        mock_read.return_value = content.decode()
         read_response = self.client.get(self._resume_state_url(task, run))
 
         self.assertEqual(read_response.status_code, status.HTTP_200_OK)
