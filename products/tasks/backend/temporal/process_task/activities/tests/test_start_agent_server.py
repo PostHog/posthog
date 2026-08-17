@@ -290,6 +290,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         mcp_builtin_agent_key="support",
         mcp_credential_owner_id=17,
         mcp_gateway_server_allowlist=["srv-1"],
+        mcp_store_mounts_disabled=False,
     )
     task_queryset = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
@@ -340,6 +341,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         task_agent_key="support",
         credential_owner_id=17,
         allowed_gateway_server_ids=["srv-1"],
+        store_mounts_disabled=False,
     )
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"

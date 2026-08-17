@@ -15,6 +15,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     TurnPollTimeout,
     create_task_and_trigger,
     extract_json_from_text,
+    get_agent_run_mcp_server_names,
     poll_for_turn,
 )
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -31,6 +32,7 @@ __all__ = [
     "TurnPollTimeout",
     "create_task_and_trigger",
     "extract_json_from_text",
+    "get_agent_run_mcp_server_names",
     "poll_for_turn",
     "resolve_sandbox_context_for_local_dev",
 ]
