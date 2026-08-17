@@ -627,6 +627,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             eventUuid?: string
         }[] = []
         for (const row of found.rows) {
+            // A watcher with no usable goal can never convert. Skipping it keeps a malformed row from
+            // throwing out of the whole batch, which also carries the unrelated wake path.
+            if (!row.goal || typeof row.goal !== 'object') {
+                counterHogflowMatcherWatchersSkipped.inc()
+                continue
+            }
             const candidateGlobals = collectCandidateGlobals(
                 { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
                 byDistinctId,
