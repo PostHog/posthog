@@ -5,6 +5,7 @@ import hashlib
 import dataclasses
 from copy import deepcopy
 from datetime import timedelta
+from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
 
 from django.conf import settings
@@ -2875,9 +2876,13 @@ class HogFlowViewSet(
             {"invocation_ids": [str(i) for i in invocation_ids]} if invocation_ids is not None else {"all": True}
         )
 
-        # One CDP call flags a bounded chunk of rows, so a very large workflow needs several;
-        # the cap keeps one API request from pinning a worker on a pathological backlog. The
-        # response's `done: false` tells the caller to request again for the rest.
+        # One CDP call flags a bounded chunk of rows, so a very large workflow needs several.
+        # Two stopping conditions keep one request from pinning a worker on a pathological
+        # backlog: a cap on the number of calls, and a wall-clock budget so that a
+        # slow-but-responsive CDP cannot stack several near-timeout (30s each) calls into a
+        # multi-minute hold. Either way the response's `done: false` tells the caller to
+        # request again for the rest.
+        sweep_deadline = monotonic() + 20
         data: dict = {"marked": 0, "remaining": 0, "done": False}
         for _ in range(5):
             res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=str(hog_flow.id), payload=payload)
@@ -2889,7 +2894,7 @@ class HogFlowViewSet(
                 "remaining": page.get("remaining", 0),
                 "done": page.get("done", False),
             }
-            if data["done"]:
+            if data["done"] or monotonic() >= sweep_deadline:
                 break
 
         self._report_workflow_action(
