@@ -27,6 +27,7 @@ export interface DashboardSectionDragPreview {
 const SECTION_EDGE_PX = 32
 const SECTION_TILE_DROP_EDGE_PX = 96
 const SECTION_HEADER_HEIGHT_PX = 44
+const SECTION_TILE_DROP_SPACE_PX = 160
 
 function dropTargetsEqual(first: DashboardDropTarget, second: DashboardDropTarget): boolean {
     if (!first || !second) {
@@ -76,6 +77,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
     const sectionDragStartY = useRef<number | null>(null)
     const sectionDragPointerOffset = useRef<{ x: number; y: number } | null>(null)
     const dragged = useRef<DragSession>(null)
+    const tileDropCompleted = useRef(false)
     const frame = useRef<number | null>(null)
     const sectionCollapseFrame = useRef<number | null>(null)
     const latestEvent = useRef<MouseEvent | null>(null)
@@ -200,7 +202,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 if (draggedGroupId) {
                     return SECTION_EDGE_PX
                 }
-                if (section.group) {
+                if (section.isNamed) {
                     return 0
                 }
                 if (rect.height <= 64) {
@@ -212,15 +214,26 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
             for (const { section, position, rect } of orderedRects) {
                 const sectionDrag = draggedGroupId !== null
                 const sectionEdge = edgeForSection(section, rect)
+                const activeNamedTarget =
+                    !sectionDrag &&
+                    section.isNamed &&
+                    currentTarget.current?.type === 'section' &&
+                    currentTarget.current.sectionKey === section.key
+                const liveRect = activeNamedTarget
+                    ? sectionElements.current.get(section.key)?.getBoundingClientRect()
+                    : undefined
+                const sectionTop = liveRect?.top ?? rect.top
+                const dropSpaceHeight = activeNamedTarget ? SECTION_TILE_DROP_SPACE_PX : 0
+                const sectionBottom = Math.max(rect.bottom + dropSpaceHeight, liveRect?.bottom ?? 0)
                 const isInsideNamedSectionHeader =
                     !sectionDrag &&
-                    section.group !== null &&
-                    event.clientY >= rect.top &&
-                    event.clientY <= Math.min(rect.bottom, rect.top + SECTION_HEADER_HEIGHT_PX)
+                    section.isNamed &&
+                    event.clientY >= sectionTop &&
+                    event.clientY <= Math.min(sectionBottom, sectionTop + SECTION_HEADER_HEIGHT_PX)
                 const isInsideSection = sectionDrag
                     ? event.clientY >= rect.top && event.clientY <= rect.bottom
                     : isInsideNamedSectionHeader ||
-                      (event.clientY >= rect.top + sectionEdge && event.clientY <= rect.bottom - sectionEdge)
+                      (event.clientY >= sectionTop + sectionEdge && event.clientY <= sectionBottom - sectionEdge)
                 if (isInsideSection) {
                     if (position === draggedGroupPosition) {
                         return null
@@ -298,7 +311,12 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
             const session = dragged.current
             const target = currentTarget.current ?? resolveTarget(event)
             clearDrag()
-            if (!session || !target) {
+            if (!session) {
+                const completed = tileDropCompleted.current
+                tileDropCompleted.current = false
+                return completed
+            }
+            if (!target) {
                 return false
             }
             if (session.kind === 'tile') {
@@ -307,6 +325,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 }
                 const targetRect =
                     target.type === 'section' ? (sectionRects.current.get(target.sectionKey) ?? null) : null
+                tileDropCompleted.current = true
                 onTileDropRef.current(session.tileId, target, event, layout, targetRect)
                 return true
             }
@@ -343,16 +362,28 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 return
             }
             dragged.current = { kind: 'tile', tileId, sectionKey }
+            tileDropCompleted.current = false
             scrollContainer.current = document.getElementById('main-content')
             measure()
             attachScrollMeasure()
             const handleMove = (event: PointerEvent): void => {
                 updateDrag(event)
             }
+            const finish = (event: MouseEvent): void => {
+                finishDrag(event)
+            }
             window.addEventListener('pointermove', handleMove)
-            detachPointerListeners.current = () => window.removeEventListener('pointermove', handleMove)
+            window.addEventListener('pointerup', finish)
+            window.addEventListener('pointercancel', finish)
+            window.addEventListener('mouseup', finish)
+            detachPointerListeners.current = () => {
+                window.removeEventListener('pointermove', handleMove)
+                window.removeEventListener('pointerup', finish)
+                window.removeEventListener('pointercancel', finish)
+                window.removeEventListener('mouseup', finish)
+            }
         },
-        [attachScrollMeasure, disabled, measure, updateDrag]
+        [attachScrollMeasure, disabled, finishDrag, measure, updateDrag]
     )
 
     const startSectionDrag = useCallback(

@@ -35,6 +35,7 @@ export interface DashboardSectionProps {
     dragPreview?: DashboardSectionDragPreview
     showDropPreview?: boolean
     highlighted?: boolean
+    showTileDropSpace?: boolean
     gridProps: Omit<ComponentProps<typeof ReactGridLayout>, 'children'>
     gridBackgroundProps: ComponentProps<typeof GridBackground> | null
     onToggle: () => void
@@ -56,6 +57,7 @@ export function DashboardSection({
     dragPreview,
     showDropPreview = false,
     highlighted = false,
+    showTileDropSpace = false,
     gridProps,
     gridBackgroundProps,
     onToggle,
@@ -151,7 +153,10 @@ export function DashboardSection({
                     style={{ height: contentHeight === 'auto' ? 'auto' : `${contentHeight}px` }}
                     onTransitionEnd={handleContentTransitionEnd}
                 >
-                    <div className={clsx('relative min-h-0', group && 'pt-2')}>
+                    <div
+                        className={clsx('relative min-h-0', group && 'pt-2', showTileDropSpace && 'pb-40')}
+                        data-attr={showTileDropSpace ? 'dashboard-section-tile-drop-space' : undefined}
+                    >
                         {gridBackgroundProps && <GridBackground {...gridBackgroundProps} />}
                         <ReactGridLayout {...gridProps} className={clsx('dashboard-section-grid', gridProps.className)}>
                             {children}

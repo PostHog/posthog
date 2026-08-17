@@ -245,6 +245,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             finalLayout: DashboardTileDropLayout | null,
             targetRect: DOMRect | null
         ): void => {
+            interactionInProgress.current = false
+            pendingLayouts.current = null
             const targetSection =
                 target.type === 'section' ? sections.find((section) => section.key === target.sectionKey) : null
             const targetLayouts = targetSection ? (sectionLayouts[targetSection.key]?.sm ?? []) : []
@@ -531,6 +533,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             const mouseEvent = e as MouseEvent
             crossSectionDrag.updateDrag(mouseEvent)
 
+            const tileDropSpace = document.querySelector<HTMLElement>('[data-attr="dashboard-section-tile-drop-space"]')
+            const tileDropSpaceRect = tileDropSpace?.getBoundingClientRect()
+            if (
+                tileDropSpaceRect &&
+                mouseEvent.clientY >= tileDropSpaceRect.top &&
+                mouseEvent.clientY <= tileDropSpaceRect.bottom
+            ) {
+                return
+            }
+
             const scrollContainer = scrollContainerRef.current
             const containerRect = scrollContainerRectRef.current
             if (!scrollContainer || !containerRect) {
@@ -622,6 +634,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             section.isNamed &&
                             section.group !== null &&
                             collapsedSectionIds.has(section.group.id)
+                        const showTileDropSpace =
+                            !collapsed &&
+                            section.isNamed &&
+                            !crossSectionDrag.draggedGroupId &&
+                            crossSectionDrag.dropTarget?.type === 'section' &&
+                            crossSectionDrag.dropTarget.sectionKey === section.key
                         const isLastSection = sectionIndex === displayedSections.length - 1
                         return (
                             <Fragment key={section.key}>
@@ -654,6 +672,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         crossSectionDrag.dropTarget?.type === 'section' &&
                                         crossSectionDrag.dropTarget.sectionKey === section.key
                                     }
+                                    showTileDropSpace={showTileDropSpace}
                                     onToggle={() => section.group && toggleDashboardSectionCollapsed(section.group.id)}
                                     onRename={(name) => section.group && renameDashboardGroup(section.group.id, name)}
                                     onDelete={(memberHandling) =>
@@ -699,7 +718,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                                   rowHeight,
                                                   margin,
                                                   containerPadding: CONTAINER_PADDING,
-                                                  rows: sectionGridRows,
+                                                  rows: sectionGridRows + (showTileDropSpace ? 2 : 0),
                                                   color: 'var(--color-bg-surface-secondary)',
                                               }
                                             : null

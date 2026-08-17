@@ -164,7 +164,16 @@ describe('useCrossSectionDrag', () => {
                     { key: 'first', group: null, isNamed: false, tiles: [] },
                     {
                         key: 'second',
-                        group: { id: 'second', name: 'Second', position: 0 },
+                        group: {
+                            id: 'second',
+                            name: 'Second',
+                            position: 0,
+                            member_tile_ids: [],
+                            created_at: '',
+                            created_by: null,
+                            last_modified_at: '',
+                            last_modified_by: null,
+                        },
                         isNamed: true,
                         tiles: [],
                     },

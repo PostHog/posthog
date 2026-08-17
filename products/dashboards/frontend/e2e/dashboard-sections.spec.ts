@@ -2,7 +2,7 @@ import { DashboardPage } from '@playwright-pages/dashboardPage'
 import { expect, test } from '@playwright-utils/workspace-test-base'
 
 test.describe('Dashboard sections', () => {
-    test('moves a tile into and out of a section', async ({ page, playwrightSetup }) => {
+    test('adds a tile to new rows at the bottom of a section', async ({ page, playwrightSetup }) => {
         const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
         await playwrightSetup.login(page, workspace)
 
@@ -15,41 +15,49 @@ test.describe('Dashboard sections', () => {
 
         await dashboard.addTextCard('Second tile')
         await dashboard.addTextCard('Third tile')
-        await dashboard.addTextCard('Fourth tile')
-        await dashboard.addTextCard('Fifth tile')
-        await dashboard.addTextCard('Sixth tile')
-        await dashboard.addTextCard('Seventh tile')
-        await dashboard.addTextCard('Eighth tile')
 
         const sectionHeader = page.getByTestId('dashboard-section-header').filter({ hasText: 'New section' })
         await expect(sectionHeader).toContainText('0 tiles')
+        await page.waitForTimeout(300)
 
-        const dragHandle = dashboard.textCards.filter({ hasText: 'First tile' }).locator('.TextCard__body')
-        const looseTile = dashboard.textCards.filter({ hasText: 'Second tile' })
-        const sourceBox = await dragHandle.boundingBox()
-        const targetBox = await sectionHeader.boundingBox()
-        expect(sourceBox).not.toBeNull()
-        expect(targetBox).not.toBeNull()
-
-        await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2)
-        await page.mouse.down()
-        await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 20 })
-        await expect(sectionHeader.locator('..')).toHaveClass(/border-accent/)
-        await page.mouse.up()
+        const secondTile = dashboard.textCards.filter({ hasText: 'Second tile' })
+        const firstTile = dashboard.textCards.filter({ hasText: 'First tile' })
+        await firstTile.getByRole('button', { name: 'more' }).click()
+        await page.getByTestId('dashboard-tile-move-to-section').click()
+        await page.getByRole('menuitem', { name: 'New section' }).click()
 
         await expect(sectionHeader).toContainText('1 tile')
+        await dashboard.enterEditMode()
         await expect.poll(async () => (await sectionHeader.locator('..').boundingBox())!.height).toBeGreaterThan(200)
         await page.waitForTimeout(300)
 
-        const movedTile = dashboard.textCards.filter({ hasText: 'First tile' }).locator('.TextCard__body')
-        const movedTileBox = await movedTile.boundingBox()
-        const looseTileBox = await looseTile.locator('.TextCard__body').boundingBox()
-        await page.mouse.move(movedTileBox!.x + movedTileBox!.width / 2, movedTileBox!.y + movedTileBox!.height / 2)
+        const secondTileBody = secondTile.locator('.TextCard__body')
+        const secondTileBox = await secondTileBody.boundingBox()
+        const populatedSectionBox = await sectionHeader.locator('..').boundingBox()
+        expect(secondTileBox).not.toBeNull()
+        expect(populatedSectionBox).not.toBeNull()
+
+        const secondTileDragX = secondTileBox!.x + 20
+        const secondTileDragY = secondTileBox!.y + secondTileBox!.height - 30
+        await secondTileBody.hover({ position: { x: 20, y: secondTileBox!.height - 30 } })
         await page.mouse.down()
-        await page.mouse.move(looseTileBox!.x + looseTileBox!.width / 2, looseTileBox!.y + looseTileBox!.height / 2, {
+        await page.mouse.move(secondTileDragX + 30, secondTileDragY - 30, { steps: 5 })
+        await expect(secondTile).toHaveClass(/react-draggable-dragging/)
+        await page.mouse.move(populatedSectionBox!.x + populatedSectionBox!.width / 2, populatedSectionBox!.y + 20, {
             steps: 20,
         })
+        const tileDropSpace = page.getByTestId('dashboard-section-tile-drop-space')
+        await expect(tileDropSpace).toBeVisible()
+        const tileDropSpaceBox = await tileDropSpace.boundingBox()
+        expect(tileDropSpaceBox).not.toBeNull()
+        await page.mouse.move(
+            tileDropSpaceBox!.x + tileDropSpaceBox!.width / 2,
+            tileDropSpaceBox!.y + tileDropSpaceBox!.height - 100,
+            { steps: 10 }
+        )
+        await expect(tileDropSpace).toBeVisible()
         await page.mouse.up()
-        await expect(sectionHeader).toContainText('0 tiles')
+        await expect(sectionHeader).toContainText('2 tiles')
+        await expect(tileDropSpace).not.toBeVisible()
     })
 })
