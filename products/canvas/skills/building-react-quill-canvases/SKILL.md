@@ -20,10 +20,14 @@ typed-node result reading. Keep that wiring; replace the sample metric and layou
 
 ## Imports
 
-Import only from: `react`, `react-dom`, `react-dom/client`, `@posthog/quill`, `recharts`,
-`lucide-react`, `dayjs`. Anything else — including dynamic `import()`, `require()`, `fetch()`,
-`<script>` tags, or remote code — fails validation. Use `@posthog/quill` for UI, `recharts` for
-charts, `lucide-react` for icons, `dayjs` for dates.
+Use React, Quill, Recharts, Lucide, and Day.js for the standard application shell. The platform
+also admits ten optional libraries for specialized work. Read
+[references/platform-libraries.md](references/platform-libraries.md) before choosing one.
+
+Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
+validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
+and works only in the **published** canvas — the edit-mode preview blocks all direct network
+access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
 
 ## Quill component rules
 
@@ -47,6 +51,7 @@ control or a styled `<div>` standing in for one:
 
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
+- Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.
 - The canvas follows the user's PostHog theme; a `.dark` class on the document root flips at runtime.
   Color only from the design-token utilities — surfaces `bg-background bg-card bg-muted bg-primary
 bg-success bg-warning bg-info bg-destructive`; text `text-foreground text-muted-foreground
@@ -75,6 +80,41 @@ through to zeros, an empty chart, or a "no data yet" message. A query that silen
 error makes real breakage (a missing table, an auth failure, a bad query) look like missing data.
 Reserve the empty state for a query that succeeded with no rows.
 
+## Data-product patterns
+
+Treat these as starting shapes and adapt them to the request and available data.
+
+### Product dashboard
+
+- Build a live board from verified PostHog data, never a static mockup.
+- Start with a `Heading`, then a responsive grid of compact `Card` KPIs, trend charts, and useful
+  breakdown tables.
+- Show a `Badge` delta for KPIs when a meaningful comparison period exists.
+- Use a `LineChart` for time series and a `BarChart` for discrete categories. Do not turn every
+  result into a table.
+- Give every KPI, chart, and table its own loading, empty, and error state.
+
+### Web analytics board
+
+Use this shape when the request or legacy requested pattern says `web-analytics`:
+
+1. Show Visitors, Page views, Sessions, Session duration, and Bounce rate as KPI cards, with deltas
+   against the previous equal-length period.
+2. Plot unique visitors over time, with a second line for the previous period when comparison data
+   is available.
+3. Follow with compact tables for top paths, traffic sources or channels, devices, and geography.
+4. Prefix countries with flag emoji. Add retention or active-hours views only when the available
+   data makes them useful.
+
+Use the web analytics query kinds described in `querying-canvas-data`; do not recreate bounce rate,
+sessionization, attribution, or unique visitors in HogQL. Format large values for display, such as
+`236K`, while preserving the raw value for calculations and accessible labels.
+
+### Interactive explorer
+
+Use controlled Quill inputs for each dimension, event, or date choice. Keep result sets small and
+refresh every dependent query when a control changes.
+
 ## Date window
 
 A data board owns its own date control — render Quill's `DateTimePicker` (never a custom Select or
@@ -82,3 +122,12 @@ native date input) inside a `Popover` whose trigger is a Quill `Button`. `Popove
 exactly `className="w-auto p-0"` and nothing is added to `DateTimePicker` beyond
 `value`/`onApply`/`onCancel` (it self-sizes; don't pass `compact` or widths). Re-run every query
 when the window changes — see the `querying-canvas-data` skill for feeding it into `dateRange`.
+
+## State and actions
+
+Persisting values across reloads (`ph.state`, with user/shared scopes) and writing into PostHog
+from a button (`ph.actions.invoke`, e.g. filing a task or an annotation) have their own API
+contracts, capability declarations, and gesture rules — read the "Runtime memory" and "PostHog
+writes" sections of the `querying-canvas-data` skill before using either. Wire actions to a
+`Button` `onClick` that disables itself while the call is in flight, and render the returned
+error (they are real PostHog writes, throttled server-side).

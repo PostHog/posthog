@@ -31,6 +31,7 @@ export const INBOX_EVENTS = {
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -432,6 +433,28 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
 
 export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
+}
+
+/**
+ * A source's steering rules were saved. Carries only lengths and flags: the rules text names the
+ * customer's own labels, projects, and workflows, so it never leaves their project. Fired once the
+ * request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceSteeringChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    steeringLength: number
+    defaultNotActionable: boolean
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_STEERING_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        steering_length: params.steeringLength,
+        has_steering: params.steeringLength > 0,
+        default_not_actionable: params.defaultNotActionable,
+        success: params.success,
+    })
 }
 
 /**

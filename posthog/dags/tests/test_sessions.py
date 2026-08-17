@@ -310,10 +310,10 @@ class TestSubChunking:
         self, parent_i: int, all_have_upper_bound: bool, all_have_lower_bound: bool
     ):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
-        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
-        assert num_chunks == 4
+        chunking = _get_experimental_chunking(config)
+        assert chunking.num_chunks == 4
 
-        sub_filters = [sub_chunk_where_fn(parent_i, sub_i, 8) for sub_i in range(8)]
+        sub_filters = [chunking.sub_chunk_where_fn(parent_i, sub_i, 8) for sub_i in range(8)]
 
         # Every sub-chunk filters cityHash64(distinct_id) — primary-index aligned
         assert all("cityHash64(distinct_id)" in f for f in sub_filters)
@@ -326,12 +326,12 @@ class TestSubChunking:
 
     def test_distinct_id_sub_chunks_cover_parent_range_without_gaps(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
-        _num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
+        chunking = _get_experimental_chunking(config)
 
         # Parent chunk 1 (middle) — bounded on both sides, easy to extract numbers
         sub_bounds = []
         for sub_i in range(8):
-            f = sub_chunk_where_fn(1, sub_i, 8)
+            f = chunking.sub_chunk_where_fn(1, sub_i, 8)
             # Filters look like "cityHash64(distinct_id) >= LOW AND cityHash64(distinct_id) < HIGH"
             parts = f.replace("cityHash64(distinct_id)", "").replace("AND", "").split()
             nums = [int(p) for p in parts if p.lstrip("-").isdigit()]
@@ -352,20 +352,20 @@ class TestSubChunking:
         # team_id parent uses modulo (not primary-index-aligned), but sub-chunks should still split by
         # cityHash64(distinct_id) ranges across the full uint64 space so the SELECT can skip granules.
         config = ExperimentalSessionsBackfillConfig(team_id_chunks=3, distinct_id_chunks=None, client_overrides={})
-        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
-        assert num_chunks == 3
+        chunking = _get_experimental_chunking(config)
+        assert chunking.num_chunks == 3
 
-        f = sub_chunk_where_fn(parent_i, sub_i, 4)
-        assert f"team_id % {num_chunks} = {parent_i}" in f
+        f = chunking.sub_chunk_where_fn(parent_i, sub_i, 4)
+        assert f"team_id % {chunking.num_chunks} = {parent_i}" in f
         assert "cityHash64(distinct_id)" in f
 
     def test_no_chunk_sub_chunks_use_distinct_id_hash(self):
         # No parent chunking — sub-chunks should still split by cityHash64(distinct_id) ranges
         config = ExperimentalSessionsBackfillConfig(team_id_chunks=None, distinct_id_chunks=None, client_overrides={})
-        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
-        assert num_chunks == 1
+        chunking = _get_experimental_chunking(config)
+        assert chunking.num_chunks == 1
 
-        sub_filters = [sub_chunk_where_fn(0, sub_i, 4) for sub_i in range(4)]
+        sub_filters = [chunking.sub_chunk_where_fn(0, sub_i, 4) for sub_i in range(4)]
         assert all("cityHash64(distinct_id)" in f for f in sub_filters)
 
     def test_oom_retry_executes_sub_chunks_within_parent_range(self):

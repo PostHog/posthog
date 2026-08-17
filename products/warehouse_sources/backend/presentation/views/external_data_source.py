@@ -45,6 +45,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -221,6 +222,17 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
 
 
+def _credentials_validation_failed(source: AnySource, team_id: int, error: Exception) -> tuple[bool, str | None]:
+    """Fallback result for an *unexpected* exception raised by a source's credential probe.
+
+    Sources are expected to catch their own errors and return ``(False, message)``. One that raises
+    instead would 500 the create/update request and show someone mid-onboarding an opaque server
+    error, so capture it for us and hand back an actionable message — the same treatment schema
+    discovery already gives an unexpected error just below the credential check."""
+    capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
+
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
@@ -277,10 +289,16 @@ def _add_name_variants(target: set[str], name: str) -> None:
         target.add(normalised)
 
 
-def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+@frozen
+class FieldSensitivitySplit:
+    nonsensitive: set[str]
+    sensitive: set[str]
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> FieldSensitivitySplit:
     """Classify source config field names as nonsensitive or sensitive.
 
-    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    Returns the field-name sets flattened across all nesting levels.
     """
     nonsensitive: set[str] = set()
     sensitive: set[str] = set()
@@ -297,14 +315,14 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             for option in field.options:
                 if option.fields:
-                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
-                    nonsensitive.update(ns)
-                    sensitive.update(s)
+                    nested = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(nested.nonsensitive)
+                    sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             _add_name_variants(nonsensitive, field.name)
-            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
-            nonsensitive.update(ns)
-            sensitive.update(s)
+            nested = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(nested.nonsensitive)
+            sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
             # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
             # GSC site_url), not a secret — keep it so the form can prefill on edit.
@@ -316,7 +334,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
-    return nonsensitive, sensitive
+    return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)
 
 
 # Config metadata keys that are always safe to include in nested dicts
@@ -908,9 +926,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
-            nonsensitive = nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
+            nonsensitive = split.nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
         except (ValueError, KeyError):
             representation["job_inputs"] = {}
             return representation
@@ -930,7 +948,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
@@ -1200,29 +1218,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         if job_inputs_were_submitted:
             effective_api_version = source.resolve_api_version(instance.api_version)
-            if isinstance(source, (PostgresSource, MySQLSource)):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config),
-                    instance.team_id,
-                    instance.access_method,
-                    api_version=effective_api_version,
-                )
-            elif isinstance(source, CustomSource):
-                # Pass the source being updated so an integration-backed OAuth2 source can only validate
-                # with the integration bound to it — not another source's, whose token the probe would
-                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
-                # an as-yet-unbound integration to its creator.
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config,
-                    instance.team_id,
-                    source_id=str(instance.pk),
-                    owner_user_id=self.context["request"].user.id,
-                    api_version=effective_api_version,
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, api_version=effective_api_version
-                )
+            try:
+                if isinstance(source, (PostgresSource, MySQLSource)):
+                    credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                        cast(Any, source_config),
+                        instance.team_id,
+                        instance.access_method,
+                        api_version=effective_api_version,
+                    )
+                elif isinstance(source, CustomSource):
+                    # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                    # with the integration bound to it — not another source's, whose token the probe would
+                    # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                    # an as-yet-unbound integration to its creator.
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config,
+                        instance.team_id,
+                        source_id=str(instance.pk),
+                        owner_user_id=self.context["request"].user.id,
+                        api_version=effective_api_version,
+                    )
+                else:
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config, instance.team_id, api_version=effective_api_version
+                    )
+            except Exception as e:
+                credentials_valid, credentials_error = _credentials_validation_failed(source, instance.team_id, e)
             if not credentials_valid:
                 raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
@@ -2100,13 +2121,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
-        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
-        # Upgrade that machine-injected value when the transport identifies one of them, so their
-        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        # The setup wizard and PostHog's agent surfaces drive creation through the MCP tools, which
+        # inject `created_via=mcp` before the request reaches us — the agent can't set the field
+        # itself. Upgrade that machine-injected value when the transport identifies one of them, so
+        # their runs are distinguishable from other MCP clients. Explicit `web`/`api` values are
+        # left alone. The PostHog apps and the headless agents all map to `self_driving`: the
+        # distinction between them is an analytics one, and splitting it here would need a new
+        # stored value.
         if created_via == ExternalDataSource.CreatedVia.MCP:
             transport_created_via = {
                 EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
@@ -3095,19 +3121,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
-            # an unbound integration owned by the requester, or the probe could send another source's token
-            # to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+                # an unbound integration owned by the requester, or the probe could send another source's token
+                # to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3567,18 +3596,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Create-time validation for an integration-backed manifest may only use an unbound integration
-            # owned by the requester, so the probe can't send another source's token to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Create-time validation for an integration-backed manifest may only use an unbound integration
+                # owned by the requester, so the probe can't send another source's token to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return (
                 Response(

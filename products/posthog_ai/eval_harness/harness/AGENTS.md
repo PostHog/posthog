@@ -92,6 +92,12 @@ Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a f
 
 After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 15051 / 15052, no `task-sandbox-*` containers, no Temporal dev server, and no Tailscale Funnel mappings left enabled on 443 / 8443 / 10000.
 
+A case can also own a sandbox the harness never created: a notebook python or duckdb cell provisions the notebook kernel through the notebook Temporal workflow.
+Nothing upstream reclaims it — the docker backend ignores `SandboxConfig.ttl_seconds`, and the sweeps below match agent containers by task id, which a kernel container's name never carries.
+`kernel_sandboxes.release_kernels` is what reclaims them, from three places: once at startup (a prior interrupted run's rows survive in the reused test database), per case inside the sandbox slot so the memory is free before the next case takes it, and once at the end of the run.
+It is scoped by team per case and unscoped for the sweeps, which is safe only because the eval test database holds nothing but this harness's own teams.
+Keep those calls on the stack that still holds the provider settings overrides, or the sandbox class resolves differently than it did at create time.
+
 Three layers tear a case's sandbox down, outermost last:
 
 - Every case signals its `ProcessTaskWorkflow` with a terminal status and waits for the workflow result, which includes the workflow's own `cleanup_sandbox` call.
