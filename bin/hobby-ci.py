@@ -436,13 +436,25 @@ runcmd:
         # The signup wizard gates on these keys from /_preflight, so they must
         # report true once the stack is healthy (regression test for
         # https://github.com/PostHog/posthog/issues/57899 and siblings).
-        preflight_required_keys = ["django", "redis", "plugins", "celery", "clickhouse", "kafka", "db", "object_storage"]
+        preflight_required_keys = [
+            "django",
+            "redis",
+            "plugins",
+            "celery",
+            "clickhouse",
+            "kafka",
+            "db",
+            "object_storage",
+        ]
         print("🩺 Checking /_preflight reports healthy...", flush=True)
         preflight_deadline = time.time() + timeout_seconds
         last_preflight_detail = ""
         while time.time() < preflight_deadline:
             try:
-                preflight_resp = requests.get(f"{base_url}/_preflight", timeout=10)
+                preflight_resp = requests.get(
+                    f"{base_url}/_preflight",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    timeout=10,
+                )
                 if preflight_resp.status_code == 200:
                     failing_keys = [key for key in preflight_required_keys if not preflight_resp.json().get(key)]
                     if not failing_keys:
@@ -791,7 +803,10 @@ runcmd:
                 )
                 if query_resp.status_code == 200 and query_resp.json().get("results", []):
                     print(f"✅ Trace found after {attempt} poll(s)", flush=True)
-                    return True, "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully"
+                    return (
+                        True,
+                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                    )
                 if query_resp.status_code != 200:
                     print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
                 else:
