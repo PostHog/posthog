@@ -30,9 +30,9 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # corepack fetches the pinned pnpm with a bare fetch() — no timeout, no retries — so a stalled
-# registry connection blocks until the job timeout kills the build. Seed it in a layer keyed on the
-# pin alone, then take corepack off the network: a pin this layer does not cover fails in
-# milliseconds naming the URL it wanted, instead of hanging.
+# registry connection blocks until the job timeout kills the build. Seeding it here keeps that fetch
+# off every source change: only a root package.json edit re-runs this layer. Then take corepack off
+# the network, so a pin this layer does not cover fails in milliseconds naming the URL it wanted.
 COPY package.json ./
 RUN corepack enable && corepack install
 ENV COREPACK_ENABLE_NETWORK=0
