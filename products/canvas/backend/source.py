@@ -85,6 +85,7 @@ _PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
 _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -213,6 +214,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_insights = set(posthog_capabilities.get("insights") or [])
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
+    agent_requests = bool(posthog_capabilities.get("agentRequests"))
 
     declared_state = set(posthog_capabilities.get("state") or [])
     if not declared_state:
@@ -349,6 +351,20 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     "declare every event name the canvas captures",
                     path=path,
                     line=line,
+                )
+            )
+
+    if not agent_requests:
+        request_match = _PH_AGENT_REQUEST_RE.search(code)
+        if request_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_agent_requests",
+                    "ph.agent.request() requires capabilities.posthog.agentRequests: true — "
+                    "the host rejects undeclared agent requests at runtime",
+                    path=path,
+                    line=_line_of(code, request_match.start()),
                 )
             )
 

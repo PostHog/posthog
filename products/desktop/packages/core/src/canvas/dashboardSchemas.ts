@@ -213,3 +213,8 @@ export const canvasActionResultSchema = z.object({
   result: z.record(z.string(), z.unknown()),
 });
 export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
+
+export const requestCanvasAgentInput = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1).max(10_000),
+});

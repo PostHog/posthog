@@ -14480,6 +14480,48 @@ export namespace Schemas {
     }
 
     /**
+     * A viewer-approved request for the canvas's authoring agent.
+     */
+    export interface CanvasAgentRequest {
+      /**
+         * Exact change request the viewer reviewed and approved in the trusted host dialog.
+         * @maxLength 10000
+         */
+      prompt: string;
+    }
+
+    /**
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     * * `reported` - reported
+     */
+    export type RequestOutcomeEnum = typeof RequestOutcomeEnum[keyof typeof RequestOutcomeEnum];
+
+
+    export const RequestOutcomeEnum = {
+      Signaled: 'signaled',
+      NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
+      Reported: 'reported',
+    } as const;
+
+    /**
+     * Outcome of routing a canvas change request.
+     */
+    export interface CanvasAgentRequestResult {
+      /** signaled: the live run received the request. new_run: a fresh run started. already_queued: an identical run was already starting. reported: a non-creator's request was filed in the task thread for the creator.
+       *
+       * * `signaled` - signaled
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued
+       * * `reported` - reported */
+      request_outcome: RequestOutcomeEnum;
+      /** Authoring task that received the request or report. */
+      task_id: string;
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -14660,6 +14702,7 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       actions?: string[];
+      agentRequests?: boolean;
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14688,6 +14731,8 @@ export namespace Schemas {
       capture_events_added: string[];
       /** True when the draft enables inline queries and the current head does not. */
       inline_queries_enabled: boolean;
+      /** True when the draft enables requests to the canvas's authoring agent and the current head does not. */
+      agent_requests_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
       /** State scopes (user, shared) the draft newly declares for ph.state. */
@@ -51755,7 +51800,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
@@ -60253,7 +60298,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id?: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *

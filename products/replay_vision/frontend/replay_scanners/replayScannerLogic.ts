@@ -17,6 +17,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -1606,6 +1607,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
 
+            // Fires on request rather than result, so failed drafts still count as entering the AI path.
+            draftScannerFromGoal: ({ goal }) => {
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: 'ai',
+                    template_key: null,
+                    // The goal is customer text, so only its length is captured.
+                    goal_length: goal.trim().length,
+                })
+            },
+
             // A successful AI draft seeds the wizard form, then the configure step opens for review.
             draftScannerFromGoalSuccess: ({ goalDraft }) => {
                 if (!goalDraft) {
@@ -1679,6 +1690,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
+                // Counterpart of the AI capture, so the creation funnel can split by path.
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: templateKey ? 'template' : 'scratch',
+                    template_key: templateKey,
+                })
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
                 // An experiment prefill (targeted query, scoped name) has to survive the template
