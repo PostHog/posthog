@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from temporalio import activity
 
+from posthog.redis import get_client
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
@@ -27,6 +28,10 @@ from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
+# Outlives the longest run the duration cap allows, so the marker cannot expire mid-run and
+# re-open the every-pass notice that keeps an idle sandbox alive.
+_AUTHORSHIP_NOTICE_TTL_SECONDS = 24 * 60 * 60
+
 
 def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
     """Re-read the run's PR authorship, which `ctx.state` can no longer be trusted for.
@@ -42,6 +47,42 @@ def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContex
     if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
         return ctx
     return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
+
+
+def _authorship_notice_key(sandbox_id: str) -> str:
+    return f"tasks:sandbox_authorship_notified:{sandbox_id}"
+
+
+def _authorship_notice_due(sandbox_id: str, authorship: str | None) -> bool:
+    """Whether this authorship value still needs sending, or a previous pass already sent it.
+
+    Authorship is the only part of the refresh notice the agent-server acts on: the token itself
+    reaches the sandbox through the git remote and the credential env file, but the git
+    author/committer vars are read once at boot, so a mid-run promotion to user authorship only
+    reaches a running agent-server over this channel. It therefore has to keep working.
+
+    What it must not do is repeat. The notice makes the sandbox log a line, that line arrives as a
+    stream event, and any event re-arms the workflow's inactivity timer while the agent-active latch
+    is still set — which it stays for a run whose agent stopped without signalling the end of its
+    turn. The refresh cadence is shorter than the inactivity window, so a notice on every pass holds
+    that window open for as long as the run is allowed to live, and an idle sandbox bills to the hard
+    run-duration cap.
+
+    A read failure returns ``True``: re-sending a redundant notice is cheap next to dropping a real
+    authorship change on the floor.
+    """
+    try:
+        client = get_client()
+        previous = client.get(_authorship_notice_key(sandbox_id))
+        if isinstance(previous, bytes):
+            previous = previous.decode()
+        if previous == (authorship or ""):
+            return False
+        client.set(_authorship_notice_key(sandbox_id), authorship or "", ex=_AUTHORSHIP_NOTICE_TTL_SECONDS)
+        return True
+    except Exception:
+        logger.warning("sandbox_authorship_notice_state_unavailable", sandbox_id=sandbox_id, exc_info=True)
+        return True
 
 
 def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
@@ -101,6 +142,8 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
     drives the workflow's refresh cadence.
     """
     ctx = input.context
+    # The authorship the sandbox booted against, before the persisted value is overlaid below.
+    booted_authorship = (ctx.state or {}).get("pr_authorship_mode")
 
     with log_activity_execution(
         "refresh_sandbox_credentials",
@@ -218,7 +261,12 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         if intervals:
             next_refresh = min(intervals)
 
-        if refreshed_kinds:
+        current_authorship = (ctx.state or {}).get("pr_authorship_mode")
+        if (
+            refreshed_kinds
+            and current_authorship != booted_authorship
+            and _authorship_notice_due(input.sandbox_id, current_authorship)
+        ):
             _notify_agent_server_of_refresh(ctx, task, refreshed_kinds)
 
         track_event(
