@@ -181,11 +181,15 @@ describe('logs utils', () => {
             'posthog.session_id',
         ]
 
+        // Keys of the log-attribute filters only. Every key also gets a resource-attribute
+        // twin, asserted separately below.
         const filterKeys = (configuredKeys?: string[]): string[] => {
             const innerGroup = buildLogsSessionFilters('sess-1', configuredKeys).filterGroup!
                 .values[0] as UniversalFiltersGroup
             expect(innerGroup.type).toBe('OR')
-            return (innerGroup.values as { key: string }[]).map((filter) => filter.key)
+            return (innerGroup.values as { key: string; type: string }[])
+                .filter((filter) => filter.type === 'log_attribute')
+                .map((filter) => filter.key)
         }
 
         it.each([
@@ -217,17 +221,27 @@ describe('logs utils', () => {
             expect(filterKeys(['posthogSessionId'])).toContain('sessionId')
         })
 
-        it('builds one exact log-attribute filter per key', () => {
+        it('queries each key as both a log attribute and a resource attribute', () => {
+            // A log carrying the session id only under resource_attributes still renders the
+            // session link, so View Logs has to match that map too.
             const filters = buildLogsSessionFilters('sess-1', ['custom.key'])
 
             const innerGroup = filters.filterGroup!.values[0] as UniversalFiltersGroup
-            expect(innerGroup.values[0]).toEqual({
-                key: 'custom.key',
-                value: ['sess-1'],
-                operator: 'exact',
-                type: 'log_attribute',
-            })
+            expect(innerGroup.values.slice(0, 2)).toEqual([
+                { key: 'custom.key', value: ['sess-1'], operator: 'exact', type: 'log_attribute' },
+                { key: 'custom.key', value: ['sess-1'], operator: 'exact', type: 'log_resource_attribute' },
+            ])
             expect(filters.dateRange).toBeUndefined()
+        })
+
+        it('pairs every queried key across both maps', () => {
+            const innerGroup = buildLogsSessionFilters('sess-1', ['custom.key']).filterGroup!
+                .values[0] as UniversalFiltersGroup
+            const values = innerGroup.values as { key: string; type: string }[]
+            const keysByType = (type: string): string[] =>
+                values.filter((filter) => filter.type === type).map((filter) => filter.key)
+
+            expect(keysByType('log_resource_attribute')).toEqual(keysByType('log_attribute'))
         })
 
         it('scopes the date range around the timestamp', () => {

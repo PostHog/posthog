@@ -188,12 +188,23 @@ export function buildLogsSessionFilters(
             values: [
                 {
                     type: FilterLogicalOperator.Or,
-                    values: keys.map((key) => ({
-                        key,
-                        value: [sessionId],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.LogAttribute,
-                    })),
+                    // Each key is queried in both maps, because getSessionIdWithKey renders the
+                    // session link off attributes or resource_attributes. Person scoping resolves
+                    // distinct ids across both maps for the same reason.
+                    values: keys.flatMap((key) => [
+                        {
+                            key,
+                            value: [sessionId],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                        {
+                            key,
+                            value: [sessionId],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogResourceAttribute,
+                        },
+                    ]),
                 },
             ],
         },
