@@ -169,7 +169,8 @@ curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10
     -o "$out" "$url"
 ```
 
-- **`--retry-all-errors` is the flag that matters.** Plain `--retry` covers only timeouts and HTTP 408, 429 and 5xx. A connection reset (exit 35) is not in that set, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- **`--retry-all-errors` is the flag that matters when downloading a file.** Plain `--retry` covers only timeouts and HTTP 408, 429 and 5xx. A connection reset (exit 35) is not in that set, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- **Leave it off for GitHub API calls.** Combined with `-f` it retries 403 and 404, so an exhausted `GITHUB_TOKEN` bucket spends five more requests it cannot succeed with. Plain `--retry` already covers 429 and 5xx, and curl honors `Retry-After`.
 - **Omit `--retry-delay`.** It replaces curl's exponential backoff with a fixed wait.
 - **Bound the total with `--retry-max-time`** so retries can't outlive the job's `timeout-minutes`.
 - **Keep `--fail`/`-f`**, or an error page lands in your output file and curl still exits 0.
