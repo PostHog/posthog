@@ -1034,7 +1034,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
         )
