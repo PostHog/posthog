@@ -88,6 +88,7 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
     ignore_result=True,
     max_retries=0,
 )
+@skip_team_scope_audit  # SignalReport still uses RootTeamManager; this lookup intentionally spans teams.
 def refresh_report_canvases_for_task(task_id: str) -> None:
     from asgiref.sync import async_to_sync  # noqa: PLC0415 — keeps Temporal off Celery task discovery
 
