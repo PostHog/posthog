@@ -112,7 +112,7 @@ function VisionActionsTable({
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
     // The scanner's built-in daily digest is listed here alongside user-created digests and alerts
-    // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
+    // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
     const rows = visionActions
 

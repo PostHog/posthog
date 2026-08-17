@@ -280,7 +280,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     const created = await visionActionsCreate(String(teamId), {
                         // Mirrors the backend provisioning defaults (digest.py) for scanners created before
                         // digests existed, or after the digest was deleted.
-                        name: `Daily digest: ${props.scannerName}`.slice(0, 255),
+                        name: `Featured digest: ${props.scannerName}`.slice(0, 255),
                         scanner: props.scannerId,
                         is_scanner_digest: true,
                         trigger_config: {

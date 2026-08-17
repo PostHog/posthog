@@ -278,7 +278,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
     def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
         # The "Turn on daily digest" button derives a fixed name from the scanner. If another action
         # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
-        taken = f"Daily digest: {self.scanner.name}"
+        taken = f"Featured digest: {self.scanner.name}"
         VisionAction.all_teams.create(
             team=self.team,
             scanner=self.scanner,

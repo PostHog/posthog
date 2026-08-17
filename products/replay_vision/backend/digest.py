@@ -16,7 +16,7 @@ SCANNER_DIGEST_RRULE = "FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
 
 
 def digest_name_for_scanner(scanner: "ReplayScanner") -> str:
-    return f"Daily digest: {scanner.name}"[:255]
+    return f"Featured digest: {scanner.name}"[:255]
 
 
 def unique_digest_name(team_id: int, base: str) -> str:
