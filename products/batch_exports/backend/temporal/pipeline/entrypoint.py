@@ -62,7 +62,9 @@ class _ComposedBatchExportInputsProtocol(typing.Protocol):
 BatchExportInputs = _BatchExportInputsProtocol | _ComposedBatchExportInputsProtocol
 
 BatchExportResultType = typing.TypeVar("BatchExportResultType", bound=BatchExportResult)
-BatchExportInsertActivity = collections.abc.Callable[..., collections.abc.Awaitable[BatchExportResultType]]
+BatchExportInsertActivity = collections.abc.Callable[
+    [BatchExportInputs], collections.abc.Awaitable[BatchExportResultType]
+]
 
 INITIAL_RETRY_INTERVAL_SECONDS = 1
 DEFAULT_MAX_RETRY_INTERVAL_SECONDS = 3600
