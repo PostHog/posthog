@@ -165,7 +165,16 @@ html body {
 }
 
 /* Hidden mirror of the input text, used to size the pill. */
-.qa-close {
+.qa-pill-loading {
+  opacity: 0.55;
+}
+
+.qa-pill input:disabled {
+  cursor: default;
+}
+
+.qa-close,
+.qa-new {
   width: 22px;
   height: 22px;
   margin-bottom: 12px;
@@ -183,7 +192,8 @@ html body {
     background 0.12s;
 }
 
-.qa-close:hover {
+.qa-close:hover,
+.qa-new:hover {
   color: var(--qa-fg);
   background: var(--qa-hover);
 }

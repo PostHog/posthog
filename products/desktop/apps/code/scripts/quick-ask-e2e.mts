@@ -197,7 +197,15 @@ pass("sandbox warmed");
 // First question through the real input.
 await page.fill(".qa-pill input", REPLAY_QUESTION);
 await page.press(".qa-pill input", "Enter");
+// The input locks while the answer is in flight.
+await page.waitForSelector(".qa-pill input[disabled]", { timeout: 2_000 });
 await page.waitForSelector(".qa-actions", { timeout: 15_000 });
+const focused = (await page.evaluate(
+  'document.activeElement === document.querySelector(".qa-pill input")',
+)) as boolean;
+if (!focused) {
+  fail("input did not regain focus after the answer");
+}
 
 const answer = (await page.evaluate(
   'document.querySelector(".qa-answer")?.textContent ?? ""',
@@ -236,7 +244,9 @@ pass(`hogql block tag drew the compact chart (latest ${stat})`);
 
 // Hovering a chip mounts the live preview card.
 await page.hover(".qa-answer .qa-ref");
-await page.waitForSelector("[data-radix-popper-content-wrapper]", { timeout: 5_000 });
+await page.waitForSelector("[data-radix-popper-content-wrapper]", {
+  timeout: 5_000,
+});
 pass("chip hover mounts the preview card");
 
 // The close button hides the panel; clicking elsewhere must not.
@@ -301,6 +311,25 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 pass("follow-up answer rendered");
+
+// New chat clears the thread and hands focus back to the input.
+await page.click(".qa-new");
+await page.waitForSelector(".qa-card", { state: "detached", timeout: 5_000 });
+// Focus returns on the next frame after the re-render.
+await page
+  .waitForFunction(
+    'document.activeElement === document.querySelector(".qa-pill input")',
+    undefined,
+    { timeout: 2_000 },
+  )
+  .catch(() => {});
+const focusedAfterReset = (await page.evaluate(
+  'document.activeElement === document.querySelector(".qa-pill input")',
+)) as boolean;
+if (!focusedAfterReset) {
+  fail("input not focused after new chat");
+}
+pass("new chat clears the thread and focuses the input");
 
 if (pageErrors.length > 0) {
   fail(`page errors: ${pageErrors.join(" | ")}`);

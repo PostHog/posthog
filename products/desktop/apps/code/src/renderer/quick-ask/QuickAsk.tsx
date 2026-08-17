@@ -77,6 +77,8 @@ export function QuickAsk(): React.JSX.Element {
     if (inputRef.current) {
       inputRef.current.value = "";
     }
+    // After the re-render: the click left focus on the new-chat button.
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
   // Tell the main process how tall the window should be. Called on every
@@ -113,10 +115,12 @@ export function QuickAsk(): React.JSX.Element {
     });
   }, [reportSize]);
 
-  // Refocus on every summon. The previous session is kept — "New chat" or a
-  // new question clears it — so reopening restores the last answer.
+  const loading = phase === "thinking" || phase === "streaming";
+
+  // Refocus on every summon (unless mid-answer; the input is disabled then).
+  // The previous session is kept — "New chat" or a new question clears it —
+  // so reopening restores the last answer.
   useEffect(() => {
-    inputRef.current?.focus();
     const unsubscribe = window.quickAsk?.onShown(() => {
       inputRef.current?.focus();
       reportSize();
@@ -125,6 +129,25 @@ export function QuickAsk(): React.JSX.Element {
     });
     return () => unsubscribe?.();
   }, [reportSize]);
+
+  // The input is disabled while an answer is in flight; hand focus back the
+  // moment the turn settles (including after "New chat").
+  useEffect(() => {
+    if (!loading) {
+      inputRef.current?.focus();
+    }
+  }, [loading]);
+
+  // Esc dismisses from anywhere, including while the input is disabled.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        window.quickAsk?.hide();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Answer stream from the main process.
   useEffect(() => {
@@ -151,7 +174,6 @@ export function QuickAsk(): React.JSX.Element {
           break;
         case "done":
           setPhase((current) => (current === "error" ? current : "answered"));
-          inputRef.current?.focus();
           break;
       }
     });
@@ -250,8 +272,6 @@ export function QuickAsk(): React.JSX.Element {
     (event: React.KeyboardEvent<HTMLInputElement>): void => {
       if (event.key === "Enter") {
         submit();
-      } else if (event.key === "Escape") {
-        window.quickAsk?.hide();
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         recallHistory(-1);
@@ -285,7 +305,10 @@ export function QuickAsk(): React.JSX.Element {
         >
           <img src={HEDGEHOGS[hedgehog]} alt="" draggable={false} />
         </button>
-        <div className="qa-pill" style={{ width: pillWidth }}>
+        <div
+          className={loading ? "qa-pill qa-pill-loading" : "qa-pill"}
+          style={{ width: pillWidth }}
+        >
           <input
             ref={inputRef}
             type="text"
@@ -294,10 +317,33 @@ export function QuickAsk(): React.JSX.Element {
             }
             autoComplete="off"
             spellCheck={false}
+            disabled={loading}
             onKeyDown={onKeyDown}
             onInput={syncPillWidth}
           />
         </div>
+        {phase !== "idle" && (
+          <button
+            type="button"
+            aria-label="New chat"
+            title="New chat"
+            className="qa-new"
+            onClick={reset}
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M5 1.5V8.5M1.5 5H8.5" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           aria-label="Close"
@@ -329,7 +375,6 @@ export function QuickAsk(): React.JSX.Element {
           text={answerText}
           streaming={phase === "streaming"}
           onOpenInApp={openInApp}
-          onNewChat={reset}
         />
       )}
     </div>

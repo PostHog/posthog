@@ -120,14 +120,12 @@ interface AnswerCardProps {
   /** Still receiving tokens: show the streaming caret, hold the actions. */
   streaming: boolean;
   onOpenInApp: () => void;
-  onNewChat: () => void;
 }
 
 export function AnswerCard({
   text,
   streaming,
   onOpenInApp,
-  onNewChat,
 }: AnswerCardProps): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -171,9 +169,6 @@ export function AnswerCard({
       {!streaming && (
         <div className="qa-actions">
           <span className="qa-source">PostHog AI</span>
-          <button type="button" className="qa-button" onClick={onNewChat}>
-            New chat
-          </button>
           <button type="button" className="qa-button" onClick={copyAnswer}>
             {copied ? "Copied" : "Copy"}
           </button>
