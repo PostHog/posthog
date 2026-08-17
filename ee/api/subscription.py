@@ -699,27 +699,27 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     {"dashboard_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]}
                 )
 
-            # Ensure all selected insights belong to the team
+            # Every selected insight must belong to the team and be viewable by the caller: each
+            # selected tile is rendered and delivered on its own, and an insight can be restricted
+            # independently of the dashboard it sits on, so viewer access to the dashboard doesn't
+            # cover them. The dashboard API redacts such tiles for the same reason.
             team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
-            if team_insights.count() != len(selected_ids):
-                raise ValidationError(
-                    {"dashboard_export_insights": ["Some insights do not belong to your team or do no longer exist."]}
-                )
-
-            # Each selected tile is rendered and delivered on its own, and an insight can be restricted
-            # independently of the dashboard it sits on, so viewer access to the dashboard doesn't cover
-            # them. The dashboard API redacts such tiles for the same reason.
             user_access_control = self.context["view"].user_access_control
-            if user_access_control.access_controls_supported:
-                viewable_ids = set(
-                    user_access_control.filter_queryset_by_access_level(
-                        team_insights, include_all_if_admin=True
-                    ).values_list("id", flat=True)
-                )
-                if selected_ids - viewable_ids:
+            viewable_ids = set(_viewable_queryset(user_access_control, team_insights).values_list("id", flat=True))
+            unusable_ids = selected_ids - viewable_ids
+            if unusable_ids:
+                # An id outside the team can never be viewable, so the membership error stays reachable.
+                if team_insights.count() != len(selected_ids):
                     raise ValidationError(
-                        {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
+                        {
+                            "dashboard_export_insights": [
+                                "Some insights do not belong to your team or do no longer exist."
+                            ]
+                        }
                     )
+                raise ValidationError(
+                    {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
+                )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
             dashboard_insight_ids = set(

@@ -3109,12 +3109,6 @@ class TestAISubscriptionAPI(APILicensedTest):
 
 @patch("ee.api.subscription.sync_connect")
 class TestSubscriptionObjectAccessControl(APILicensedTest):
-    """Object-level access control on a subscription's insight/dashboard target.
-
-    Saving a subscription renders the target server-side and delivers it to an arbitrary address,
-    so `subscription:write` on its own must never reach a restricted insight or dashboard.
-    """
-
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
@@ -3129,6 +3123,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.open_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         self.restricted_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         self.restricted_dashboard = Dashboard.objects.create(team=self.team, name="Private numbers")
+        DashboardTile.objects.create(dashboard=self.restricted_dashboard, insight=self.open_insight)
         for resource, obj in (("insight", self.restricted_insight), ("dashboard", self.restricted_dashboard)):
             AccessControl.objects.create(
                 team=self.team,
@@ -3166,33 +3161,34 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("restricted_insight", "insight", "restricted_insight", status.HTTP_400_BAD_REQUEST),
-            ("restricted_dashboard", "dashboard", "restricted_dashboard", status.HTTP_400_BAD_REQUEST),
-            # The open insight proves the gate doesn't block a member's ordinary subscription.
-            ("open_insight", "insight", "open_insight", status.HTTP_201_CREATED),
+            ("restricted_insight", "insight"),
+            ("restricted_dashboard", "dashboard"),
         ]
     )
-    def test_create_requires_viewer_access_to_target(self, mock_sync, _name, field, target_attr, expected_status):
-        mock_client = MagicMock()
-        mock_client.start_workflow = AsyncMock()
+    def test_create_rejects_a_restricted_target(self, mock_sync, target_attr, field):
+        mock_client = MagicMock(start_workflow=AsyncMock())
         mock_sync.return_value = mock_client
-
         target = getattr(self, target_attr)
-        extra = {}
-        if field == "dashboard":
-            DashboardTile.objects.create(dashboard=target, insight=self.open_insight)
-            extra = {"dashboard_export_insights": [self.open_insight.id]}
+        extra = {"dashboard_export_insights": [self.open_insight.id]} if field == "dashboard" else {}
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions", self._payload(**{field: target.id}, **extra)
         )
 
-        assert response.status_code == expected_status, response.json()
-        if expected_status == status.HTTP_201_CREATED:
-            return
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "Viewer access" in str(response.json()), response.json()
         # No delivery may be enqueued for a rejected target — send_test_now defaults to true on create.
         mock_client.start_workflow.assert_not_called()
+
+    def test_create_allows_an_open_insight(self, mock_sync):
+        # Proves the gate doesn't block a member's ordinary subscription.
+        mock_sync.return_value = MagicMock(start_workflow=AsyncMock())
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_create_rejects_restricted_insight_among_dashboard_exports(self, mock_sync):
         # An insight can be restricted independently of the dashboard it sits on, and each selected
@@ -3218,20 +3214,17 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         [
             # A PATCH that omits insight/dashboard must not skip the check, and neither may a
             # soft-delete or a test delivery on someone else's subscription.
-            ("patch", "patch"),
-            ("retrieve", "get"),
-            ("test_delivery", "post"),
+            ("patch", "patch", "", {"target_value": "attacker@example.com"}),
+            ("retrieve", "get", "", None),
+            ("test_delivery", "post", "/test-delivery", None),
         ]
     )
-    def test_restricted_subscription_is_not_reachable_by_id(self, mock_sync, flow, method):
+    def test_restricted_subscription_is_not_reachable_by_id(self, mock_sync, _name, method, url_suffix, body):
         mock_sync.return_value = MagicMock(start_workflow=AsyncMock())
         subscription = self._subscription_for(insight=self.restricted_insight)
-        url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}"
-        if flow == "test_delivery":
-            url = f"{url}/test-delivery"
 
-        args = ({"target_value": "attacker@example.com"},) if flow == "patch" else ()
-        response = getattr(self.client, method)(url, *args)
+        url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
+        response = getattr(self.client, method)(url, body)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
