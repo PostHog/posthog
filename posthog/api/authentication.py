@@ -1266,10 +1266,12 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
 class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
     def _make_hash_value(self, user, timestamp):
-        # Due to type differences between the user model and the token generator, we need to
-        # re-fetch the user from the database to get the correct type.
+        # Re-fetch the user to read the persisted password hash with the correct type.
+        # The token depends on the password hash, so it stops working once the password
+        # changes. It no longer depends on requested_password_reset_at, which every new
+        # request overwrote, so earlier links stay valid until they reach PASSWORD_RESET_TIMEOUT.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{user.pk}{user.email}{usable_user.requested_password_reset_at}{timestamp}{usable_user.password}"
+        return f"{user.pk}{user.email}{timestamp}{usable_user.password}"
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()

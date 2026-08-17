@@ -1774,6 +1774,32 @@ class TestPasswordResetAPI(APIBaseTest):
                 },
             )
 
+    def test_reissuing_a_reset_keeps_the_earlier_link_valid(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        assert self.CONFIG_EMAIL is not None
+
+        def request_reset_and_extract_token() -> str:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+            html_message = mail.outbox[-1].alternatives[0][0]  # type: ignore
+            link_index = html_message.find("https://my.posthog.net/reset")
+            reset_link = html_message[link_index : html_message.find('"', link_index)]
+            return reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
+
+        # Two requests ten seconds apart, so each token carries a distinct timestamp.
+        with freeze_time("2021-10-05T12:00:00"):
+            first_token = request_reset_and_extract_token()
+        with freeze_time("2021-10-05T12:00:10"):
+            second_token = request_reset_and_extract_token()
+        self.assertNotEqual(first_token, second_token)
+
+        # The earlier link stays usable after a fresh request replaces the stored timestamp.
+        with freeze_time("2021-10-05T12:00:20"):
+            for token in [first_token, second_token]:
+                response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # Password reset completion
 
     @patch("posthoganalytics.capture")

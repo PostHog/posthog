@@ -500,6 +500,7 @@ def send_password_reset(user_id: int, token: str) -> None:
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
             "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
+            "link_valid_hours": settings.PASSWORD_RESET_TIMEOUT // 3600,
         },
     )
     message.add_user_recipient(user)
