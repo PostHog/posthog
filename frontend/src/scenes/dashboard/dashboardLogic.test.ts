@@ -2601,6 +2601,73 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('insight tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+        let lemonToastDismissSpy: jest.SpiedFunction<typeof lemonToast.dismiss>
+        let lemonDialogOpenSpy: jest.SpiedFunction<typeof LemonDialog.open>
+
+        beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+            lemonToastDismissSpy = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => undefined)
+            lemonDialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+            lemonToastDismissSpy.mockRestore()
+            lemonDialogOpenSpy.mockRestore()
+        })
+
+        it('offers to delete a removed insight and explains its other dashboard usage', async () => {
+            const { fireEvent, render } = await import('@testing-library/react')
+            const reportDeleteClicked = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardInsightDeleteAfterRemovalClicked'
+            )
+            const insightTile = logic.values.insightTiles[0]
+            const insight = insightTile.insight!
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile({
+                    ...insightTile,
+                    insight: {
+                        ...insight,
+                        dashboard_tiles: [
+                            ...(insight.dashboard_tiles || []),
+                            { id: 999, dashboard_id: 8, deleted: true },
+                        ],
+                    },
+                })
+            }).toFinishAllListeners()
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { getByText } = render(toastContent)
+            fireEvent.click(getByText('Delete insight everywhere'))
+            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(lemonToastDismissSpy).not.toHaveBeenCalled()
+
+            const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
+            expect(dialogProps).toEqual(
+                expect.objectContaining({ title: 'Delete insight everywhere?', shouldAwaitSubmit: true })
+            )
+            if (!dialogProps) {
+                throw new Error('Delete dialog did not open')
+            }
+
+            const { container, getByText: getDialogText } = render(dialogProps.description)
+            expect(getDialogText('This insight is also used on:')).not.toBeNull()
+            expect(container.querySelector('a')?.getAttribute('href')).toMatch(/\/dashboard\/6$/)
+            expect(
+                getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
+            ).not.toBeNull()
+
+            reportDeleteClicked.mockRestore()
+        })
+    })
+
     describe('widget tiles', () => {
         let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
 
