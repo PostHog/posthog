@@ -12,11 +12,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 from llm_gateway.config import get_settings
-from llm_gateway.services.desktop_access_resolver import (
-    FAIL_OPEN_CACHE_TTL_SECONDS,
-    DesktopAccessResolver,
-    _redis_key,
-)
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver, _redis_key
 
 
 def _make_response(status_code: int, payload: dict[str, object] | None = None) -> httpx.Response:
@@ -65,50 +61,36 @@ def _clear_settings_cache() -> Iterator[None]:
 
 class TestDesktopAccessResolver:
     @pytest.mark.asyncio
-    async def test_entitled_user_allowed(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, {"has_access": True})))
-        assert await resolver.has_access(7, "Bearer tok") is True
-
-    @pytest.mark.asyncio
-    async def test_unentitled_user_denied(self) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, {"has_access": False})))
-        assert await resolver.has_access(7, "Bearer tok") is False
-
-    @pytest.mark.asyncio
-    async def test_no_auth_header_allows_without_asking(self) -> None:
-        http = _make_http_client(_make_response(200, {"has_access": False}))
-        resolver = _make_resolver(_FakeRedis(), http)
-        assert await resolver.has_access(7, "") is True
-        http.get.assert_not_called()
+    @pytest.mark.parametrize("has_access", [True, False])
+    async def test_returns_django_answer(self, has_access: bool) -> None:
+        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, {"has_access": has_access})))
+        assert await resolver.has_access(7, "Bearer tok") is has_access
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "response",
         [
             pytest.param(httpx.ConnectError("boom"), id="transport_error"),
+            pytest.param(httpx.ReadTimeout("slow"), id="timeout"),
             pytest.param(_make_response(500), id="server_error"),
             pytest.param(_make_response(404), id="route_missing"),
+            pytest.param(_make_response(401), id="unauthorized"),
+            pytest.param(_make_response(429), id="throttled"),
             pytest.param(_make_response(200, {"has_access": "yes"}), id="malformed_payload"),
         ],
     )
-    async def test_unavailable_answer_fails_open_and_is_cached_briefly(
+    async def test_anything_but_an_explicit_grant_denies_and_is_cached_briefly(
         self, response: httpx.Response | Exception
     ) -> None:
         redis = _FakeRedis()
         http = _make_http_client(response)
         resolver = _make_resolver(redis, http)
 
-        assert await resolver.has_access(7, "Bearer tok") is True
-        assert await resolver.has_access(7, "Bearer tok") is True
+        assert await resolver.has_access(7, "Bearer tok") is False
+        assert await resolver.has_access(7, "Bearer tok") is False
 
         assert http.get.await_count == 1
-        assert redis.ttls[_redis_key(7)] == FAIL_OPEN_CACHE_TTL_SECONDS
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("status_code", [400, 401, 403, 429])
-    async def test_caller_attributable_rejection_is_denied(self, status_code: int) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(status_code)))
-        assert await resolver.has_access(7, "Bearer tok") is False
+        assert redis.ttls[_redis_key(7)] == get_settings().desktop_access_denied_cache_ttl
 
     @pytest.mark.asyncio
     async def test_result_is_cached_and_reused(self) -> None:

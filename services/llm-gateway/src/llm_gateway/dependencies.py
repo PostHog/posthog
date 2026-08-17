@@ -172,7 +172,6 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
         return
     if user.auth_method != "oauth_access_token":
         return
-    # Sandbox tokens already passed Django's code_access_required gate.
     if INTERNAL_RUN_SCOPE in (user.scopes or []):
         return
 

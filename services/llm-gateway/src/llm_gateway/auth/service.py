@@ -75,7 +75,6 @@ def upstream_auth_header(request: Request) -> str:
     token = extract_token(request)
     if token is None:
         return request.headers.get("authorization", "")
-    # Django matches the Bearer scheme case-sensitively; extract_token does not.
     # Not a route handler: this builds an outbound header value from the
     # caller's own credential; nothing is rendered to a response body.
     # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string

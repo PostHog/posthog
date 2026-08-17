@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DESKTOP_ACCESS_CACHE_PREFIX = "desktop_access"
-FAIL_OPEN_CACHE_TTL_SECONDS = 60
 
 
 def _redis_key(user_id: int) -> str:
@@ -31,9 +30,6 @@ class DesktopAccessResolver:
         self._http = http_client
 
     async def has_access(self, user_id: int, auth_header: str) -> bool:
-        if not auth_header:
-            return True
-
         cached = await self._get_cached(user_id)
         if cached is not None:
             return cached
@@ -42,11 +38,7 @@ class DesktopAccessResolver:
             allowed = await self._fetch_access(auth_header)
         except Exception:
             logger.warning("desktop_access_fetch_failed", user_id=user_id, exc_info=True)
-            allowed = None
-
-        if allowed is None:
-            await self._set_cached(user_id, True, FAIL_OPEN_CACHE_TTL_SECONDS)
-            return True
+            allowed = False
 
         settings = get_settings()
         ttl = settings.desktop_access_cache_ttl if allowed else settings.desktop_access_denied_cache_ttl
@@ -75,10 +67,11 @@ class DesktopAccessResolver:
         except Exception:
             logger.debug("desktop_access_cache_write_failed", user_id=user_id)
 
-    async def _fetch_access(self, auth_header: str) -> bool | None:
+    async def _fetch_access(self, auth_header: str) -> bool:
         settings = get_settings()
         if not settings.posthog_api_base_url:
-            return None
+            logger.warning("desktop_access_check_unconfigured")
+            return False
 
         url = f"{settings.posthog_api_base_url.rstrip('/')}/api/code/invites/check-access/"
         resp = await self._http.get(
@@ -86,20 +79,13 @@ class DesktopAccessResolver:
             headers={"Authorization": auth_header},
             timeout=settings.desktop_access_request_timeout,
         )
-
-        if resp.status_code == 404:
-            # Deploy skew, not a verdict on the user.
-            logger.warning("desktop_access_check_route_missing")
-            return None
-        if 400 <= resp.status_code < 500:
-            # A caller can induce a 4xx (bad credential, own throttle), so failing open here would be a bypass.
-            logger.warning("desktop_access_check_rejected", status_code=resp.status_code)
+        if resp.status_code != 200:
+            logger.warning("desktop_access_check_failed", status_code=resp.status_code)
             return False
-        resp.raise_for_status()
 
         data = resp.json()
         has_access = data.get("has_access") if isinstance(data, dict) else None
         if not isinstance(has_access, bool):
             logger.warning("desktop_access_check_malformed_response")
-            return None
+            return False
         return has_access
