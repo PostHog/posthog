@@ -6,21 +6,25 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventsNode,
+    FunnelCorrelationQuery,
+    FunnelCorrelationResultsType,
     FunnelExclusionEventsNode,
+    FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
     StepOrderValue,
 )
 
+from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     MAX_FUNNEL_STEPS,
     RequireAtLeastTwoFunnelSteps,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
-    ValidateMaxFunnelSteps,
     ValidateOptionalFunnelSteps,
 )
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
@@ -42,7 +46,7 @@ class TestFunnelValidationRules(BaseTest):
         query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS + 1)])
 
         with self.assertRaises(ValidationError) as context:
-            ValidateMaxFunnelSteps().validate(self._context(query))
+            FunnelsQueryRunner(query=query, team=self.team).validate()
 
         self.assertIn("Funnels support up to 32 steps.", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnel_max_steps_exceeded"])
@@ -50,7 +54,27 @@ class TestFunnelValidationRules(BaseTest):
     def test_allows_max_funnel_steps(self):
         query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS)])
 
-        ValidateMaxFunnelSteps().validate(self._context(query))
+        FunnelsQueryRunner(query=query, team=self.team).validate()
+
+    def test_allows_more_than_max_steps_for_trends_funnels(self):
+        query = FunnelsQuery(
+            series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS + 1)],
+            funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+
+        FunnelsQueryRunner(query=query, team=self.team).validate()
+
+    def test_rejects_correlation_on_funnels_beyond_max_steps(self):
+        funnels_query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS + 1)])
+        query = FunnelCorrelationQuery(
+            source=FunnelsActorsQuery(source=funnels_query),
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            FunnelCorrelationQueryRunner(query=query, team=self.team).to_query()
+
+        self.assertEqual(context.exception.get_codes(), ["funnel_max_steps_exceeded"])
 
     @parameterized.expand(
         [
