@@ -166,7 +166,7 @@ class TestReportCanvasGeneration(APIBaseTest):
         with (
             patch("products.signals.backend.report_canvas.tasks_facade.task_run_is_terminal", return_value=True),
             patch(
-                "products.signals.backend.report_canvas.canvas_facade.canvas_generation_result",
+                "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
                 return_value=(True, False),
             ),
             patch("products.signals.backend.report_canvas._reviewer_user_ids", return_value={self.user.id}),
