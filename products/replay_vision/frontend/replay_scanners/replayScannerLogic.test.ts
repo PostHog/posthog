@@ -366,6 +366,25 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
 
+        it('routes a field the API rejects back to the step rendering it, with the reason attached', async () => {
+            createSpy.mockImplementation(() => [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'max_length',
+                    detail: 'Ensure this field has no more than 1000 characters.',
+                    attr: 'description',
+                },
+            ])
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            // Description is a details-step field, so a toast on the budget step names nothing the user can see.
+            expect(router.values.location.pathname).toContain('/replay-vision/new/details')
+            expect(logic.values.scannerErrors.description).toBe('Ensure this field has no more than 1000 characters.')
+        })
+
         it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
             const success = jest.spyOn(lemonToast, 'success')
             router.actions.push('/replay-vision/new/budget')

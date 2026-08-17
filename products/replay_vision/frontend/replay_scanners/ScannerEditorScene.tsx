@@ -54,7 +54,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
+import { MAX_DESCRIPTION_LENGTH, SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -244,7 +244,11 @@ function DetailsStep(): JSX.Element {
                 label="Description (optional)"
                 help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
             >
-                <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
+                <LemonTextArea
+                    placeholder="What this scanner looks for and why."
+                    minRows={2}
+                    maxLength={MAX_DESCRIPTION_LENGTH}
+                />
             </LemonField>
 
             <LemonField

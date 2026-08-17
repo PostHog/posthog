@@ -447,6 +447,9 @@ export type ScannerFormValues = ReplayScanner & { credit_limit_enabled?: boolean
 // Mirrors the API's int4 bound on credit_limit (visionScannersCreateBodyCreditLimitMax in generated/api.zod.ts).
 export const MAX_CREDIT_LIMIT = 2147483647
 
+// Mirrors the API's cap on description (visionScannersCreateBodyDescriptionMax in generated/api.zod.ts).
+export const MAX_DESCRIPTION_LENGTH = 1000
+
 /** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
 export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {
     const config = snapshot?.scanner_config

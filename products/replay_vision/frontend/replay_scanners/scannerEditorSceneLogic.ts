@@ -50,6 +50,29 @@ export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEdit
 }
 
 /**
+ * Which step renders each field the API can reject on save. The save button lives on the last step,
+ * so without this a rejected field two steps back surfaces as a toast naming no field at all.
+ */
+const SCANNER_FIELD_STEPS: Record<string, ScannerEditorStep> = {
+    name: 'details',
+    description: 'details',
+    tags: 'details',
+    scanner_type: 'configure',
+    scanner_config: 'configure',
+    model: 'configure',
+    query: 'triggers',
+    duration: 'triggers',
+    sampling_rate: 'budget',
+    sampling_mode: 'budget',
+    credit_limit: 'budget',
+}
+
+/** Step owning the field the API rejected, or null for a field the editor doesn't render. */
+export function scannerStepForField(field: string): ScannerEditorStep | null {
+    return SCANNER_FIELD_STEPS[field] ?? null
+}
+
+/**
  * Step URL carrying the current query string. ?template drives the type selector and the reload
  * prefill, so every hop between steps has to preserve it, backwards as well as forwards.
  */

@@ -77,6 +77,7 @@ import {
     SCANNER_EDITOR_STEPS,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
+    scannerStepForField,
     scannerStepUrl,
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
@@ -875,10 +876,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
-                    // A duplicate name is the one field error the details step can fix, so route back to it.
-                    if (error.attr === 'name' && error.detail) {
-                        actions.setScannerManualErrors({ name: error.detail })
-                        router.actions.push(urls.replayVisionScannerDetails(props.id))
+                    // The API names the field it rejected, but the save button sits on the last step, so
+                    // route back to the step rendering that field instead of leaving an unattributed toast.
+                    const erroredStep = error.attr && error.detail ? scannerStepForField(error.attr) : null
+                    if (erroredStep) {
+                        // scanner_config's form error is an object its sub-fields render, so it only routes.
+                        if (error.attr !== 'scanner_config') {
+                            actions.setScannerManualErrors({ [error.attr]: error.detail })
+                        }
+                        router.actions.push(scannerStepUrl(erroredStep, props.id))
                         lemonToast.error(error.detail)
                         throw error
                     }
