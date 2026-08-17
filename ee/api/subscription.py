@@ -39,6 +39,7 @@ from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
+from posthog.scopes import APIScopeObject
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -97,6 +98,10 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
+# Which rows a target filter is being built for. See _viewable_target_filter for what it changes.
+_Surface = Literal["subscription", "delivery"]
+
+
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
         raise ValidationError(
@@ -104,8 +109,17 @@ def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight 
         )
 
 
-def _viewable_queryset(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
-    return user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+def _viewable_queryset(
+    user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
+) -> QuerySet:
+    viewable = user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    if user_access_control.is_organization_admin or user_access_control.has_resource_access(resource):
+        return viewable
+    # A member denied the whole resource keeps the objects granted to them one by one, plus the ones
+    # they created. filter_queryset_by_access_level applies that rule only once such a grant exists,
+    # so a member with no grants at all would otherwise get every row back.
+    allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get(resource, frozenset())
+    return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
 
 def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
@@ -700,7 +714,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # independently of its dashboard, so dashboard access alone is not enough.
             team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
             user_access_control = self.context["view"].user_access_control
-            viewable_ids = set(_viewable_queryset(user_access_control, team_insights).values_list("id", flat=True))
+            viewable_ids = set(
+                _viewable_queryset(user_access_control, team_insights, "insight").values_list("id", flat=True)
+            )
             unusable_ids = selected_ids - viewable_ids
             if unusable_ids:
                 if team_insights.count() != len(selected_ids):
@@ -947,28 +963,46 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
-def _blocked_target_ids(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
-    return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset).values("id")).values("id")
+def _blocked_target_ids(
+    user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
+) -> QuerySet:
+    return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset, resource).values("id")).values(
+        "id"
+    )
 
 
-def _viewable_target_filter(
-    user_access_control: UserAccessControl, team_id: int, prefix: Literal["", "subscription__"] = ""
-) -> Q:
-    """Match only subscriptions whose rendered targets the caller can view."""
+def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, surface: _Surface) -> Q:
+    """Match only rows whose rendered targets the caller can view.
+
+    `surface` says what is being filtered, and decides how a soft-deleted target counts. On
+    "subscription" a soft-deleted target no longer restricts anything, so the owner can still find
+    the subscription and turn it off. On "delivery" it still does, because a delivery keeps the
+    results it rendered in content_snapshot long after the target is gone.
+    """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
     rules = (user_access_control.blocked_resource_ids_by_scope, user_access_control.allowlisted_resource_ids_by_scope)
-    if not any(scope.get("insight") or scope.get("dashboard") for scope in rules):
+    has_object_rules = any(scope.get("insight") or scope.get("dashboard") for scope in rules)
+    # Both maps hold object rows only, so a member denied a whole resource shows up in neither.
+    denies_a_target_resource = not user_access_control.has_resource_access(
+        "insight"
+    ) or not user_access_control.has_resource_access("dashboard")
+    if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    blocked_insights = _blocked_target_ids(user_access_control, Insight.objects.filter(team_id=team_id))
-    blocked_dashboards = _blocked_target_ids(user_access_control, Dashboard.objects.filter(team_id=team_id))
-    dashboards_with_blocked_tiles = DashboardTile.objects.filter(
-        dashboard__team_id=team_id, insight_id__in=blocked_insights
-    ).values("dashboard_id")
+    prefix = "subscription__" if surface == "delivery" else ""
+    insights = Insight.objects_including_soft_deleted if surface == "delivery" else Insight.objects
+    dashboards = Dashboard.objects_including_soft_deleted if surface == "delivery" else Dashboard.objects
+    tiles = DashboardTile.objects_including_soft_deleted if surface == "delivery" else DashboardTile.objects
 
-    # The lookup keys below interpolate `prefix`, which the signature limits to two literals,
-    # so no caller input reaches a field path. That is what each nosemgrep line asserts.
+    blocked_insights = _blocked_target_ids(user_access_control, insights.filter(team_id=team_id), "insight")
+    blocked_dashboards = _blocked_target_ids(user_access_control, dashboards.filter(team_id=team_id), "dashboard")
+    dashboards_with_blocked_tiles = tiles.filter(dashboard__team_id=team_id, insight_id__in=blocked_insights).values(
+        "dashboard_id"
+    )
+
+    # The lookup keys below interpolate `prefix`, which is set from `surface` right above and never
+    # from caller input. That is what each nosemgrep line asserts.
     # nosemgrep: orm-field-injection
     targets_a_blocked_insight = Q(**{f"{prefix}insight_id__in": blocked_insights})
     # nosemgrep: orm-field-injection
@@ -1217,7 +1251,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
-        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id))
+        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, "subscription"))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1555,7 +1589,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                     )
                 queryset = queryset.filter(status=status_param)
         # Delivery rows carry the rendered results (content_snapshot), so they get the same gate.
-        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, prefix="subscription__"))
+        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, "delivery"))
 
 
 def unsubscribe(request: HttpRequest):

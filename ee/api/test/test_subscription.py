@@ -3445,3 +3445,93 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_ai_prompt_subscription_stays_visible(self):
+        # An AI subscription has no insight and no dashboard, so every target lookup reads NULL.
+        # Both querysets must still return it: the filter negates its lookups, and in SQL a negated
+        # NULL comparison is unknown, which drops the row unless each lookup is guarded.
+        subscription = self._subscription_for(prompt="How did signups do last week?")
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-ai",
+            idempotency_key="ai-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id in [row["id"] for row in listed.json()["results"]]
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert [row["subscription"] for row in deliveries.json()["results"]] == [subscription.id]
+
+    @parameterized.expand([("alongside object rules", False), ("as the only rule", True)])
+    def test_resource_wide_deny_hides_subscriptions_on_that_resource(self, _name, only_rule):
+        # A deny on the resource itself carries no resource_id, so it appears in neither the blocked
+        # nor the allowlisted object map. Reading those maps alone leaves every insight subscription
+        # readable for a member denied insights outright.
+        if only_rule:
+            AccessControl.objects.filter(team=self.team).delete()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        subscription = self._subscription_for(insight=self.open_insight)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert [row["id"] for row in listed.json()["results"]] == []
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND, retrieved.json()
+
+    def test_resource_wide_deny_keeps_an_explicitly_granted_insight_visible(self):
+        # The deny above must not swallow the objects the member was granted one by one.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(self.open_insight.id),
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
+        cache.clear()
+        subscription = self._subscription_for(insight=self.open_insight)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+
+        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+
+    def test_deliveries_stay_hidden_when_a_restricted_target_is_soft_deleted(self):
+        # Soft-deleting a target stops it restricting the subscription, so the owner can still turn
+        # the row off. The deliveries keep what they rendered, so for them it must still restrict.
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-deleted-target",
+            idempotency_key="deleted-target-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+        )
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert subscription.id in [row["id"] for row in listed.json()["results"]]
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.json()["results"] == []
