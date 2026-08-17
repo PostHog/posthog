@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../auth/auth";
 import {
+  PANEL_STEERING,
   parseSseChunk,
   type QuickAskEvent,
   QuickAskService,
@@ -52,9 +53,16 @@ function agentText(text: string): string {
   });
 }
 
-const USER_ECHO = notification("session/prompt", {
-  prompt: [{ type: "text", text: "how many signups?" }],
-});
+function promptEcho(text: string): string {
+  return notification("session/prompt", {
+    prompt: [{ type: "text", text }],
+  });
+}
+
+const QUESTION = "how many signups?";
+const FIRST_TURN_CONTENT = `${QUESTION}\n\n${PANEL_STEERING}`;
+/** Echo of the first question as the run logs it (question + steering). */
+const USER_ECHO = promptEcho(FIRST_TURN_CONTENT);
 const TURN_COMPLETE = notification("_posthog/turn_complete", {});
 const SIMPLE_TURN = [`data: ${USER_ECHO}\n\ndata: ${TURN_COMPLETE}\n\n`];
 
@@ -209,10 +217,13 @@ describe("QuickAskService", () => {
   });
 
   it("follow-ups ride the command relay without the steering block", async () => {
+    const followUpTurn = [
+      `data: ${promptEcho("and yesterday?")}\n\ndata: ${TURN_COMPLETE}\n\n`,
+    ];
     const { service, fetchMock } = serviceWith({
       createTask: [taskResponse()],
       command: [new Response("{}", { status: 200 })],
-      stream: [sseResponse(SIMPLE_TURN), sseResponse(SIMPLE_TURN)],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(followUpTurn)],
     });
     const first = await collect(service);
     await collect(service, "and yesterday?", conversationIdOf(first));
@@ -252,6 +263,9 @@ describe("QuickAskService", () => {
   });
 
   it("falls back to a fresh run when the live run rejects a follow-up", async () => {
+    const followUpTurn = [
+      `data: ${promptEcho("and yesterday?")}\n\ndata: ${TURN_COMPLETE}\n\n`,
+    ];
     const { service, fetchMock } = serviceWith({
       createTask: [taskResponse()],
       command: [new Response("no active sandbox", { status: 400 })],
@@ -259,7 +273,7 @@ describe("QuickAskService", () => {
         new Response(JSON.stringify({ id: "run-2" }), { status: 200 }),
       ],
       startRun: [new Response("{}", { status: 200 })],
-      stream: [sseResponse(SIMPLE_TURN), sseResponse(SIMPLE_TURN)],
+      stream: [sseResponse(SIMPLE_TURN), sseResponse(followUpTurn)],
     });
     const first = await collect(service);
     const events = await collect(
@@ -335,6 +349,40 @@ describe("QuickAskService", () => {
     );
     expect(streamCalls).toHaveLength(2);
     expect(streamCalls[1][2].headers["Last-Event-ID"]).toBe("7-0");
+  });
+
+  it("takes only its own turn when the boot prompts the task description first", async () => {
+    // The workflow prompts the task description at boot; prompt queueing logs
+    // our prompt before that turn completes. The panel must skip the first
+    // turn's output and completion, and take the second turn's.
+    const stream = sseResponse([
+      `data: ${promptEcho(QUESTION)}\n\n`,
+      `data: ${USER_ECHO}\n\n`,
+      `data: ${agentText("Description-turn answer.")}\n\n`,
+      `data: ${TURN_COMPLETE}\n\n`,
+      `data: ${agentText("Steered answer.")}\n\ndata: ${TURN_COMPLETE}\n\n`,
+    ]);
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [stream],
+    });
+    const events = await collect(service);
+    const texts = events.filter((event) => event.type === "text");
+    expect(texts).toEqual([
+      {
+        type: "text",
+        id: "turn-1",
+        content: "Steered answer.",
+        complete: false,
+      },
+      {
+        type: "text",
+        id: "turn-1",
+        content: "Steered answer.",
+        complete: true,
+      },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done" });
   });
 
   it("ends the turn when the run reaches a terminal status", async () => {
@@ -477,7 +525,7 @@ describe("QuickAskService", () => {
 describe("translateFrame", () => {
   it.each([
     ["agent text", agentText("hi"), { kind: "agent-text", text: "hi" }],
-    ["user echo", USER_ECHO, { kind: "user-echo" }],
+    ["prompt echo", promptEcho("hello"), { kind: "prompt", text: "hello" }],
     ["turn complete", TURN_COMPLETE, { kind: "turn-complete" }],
     [
       "tool call falls back to claudeCode tool name",
@@ -508,7 +556,7 @@ describe("translateFrame", () => {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: "hi" },
       }),
-      { kind: "user-echo" },
+      { kind: "ignore", detail: "user_message_chunk" },
     ],
     [
       "permission request",

@@ -35,7 +35,7 @@ export interface QuickAskInput {
  * The tag vocabulary is the shared block the renderer's object-tag pipeline
  * parses.
  */
-const PANEL_STEERING = `<posthog_trusted_context>
+export const PANEL_STEERING = `<posthog_trusted_context>
 This question was asked from PostHog Desktop's compact quick-ask panel. For this whole conversation:
 - Answer from PostHog data using the PostHog MCP tools. Do not clone repositories or modify code.
 - Keep the text answer short - a few sentences at most.
@@ -86,6 +86,7 @@ interface NotificationFrame {
       update?: SessionUpdate;
       message?: unknown;
       status?: string;
+      prompt?: { type?: string; text?: string }[];
     };
   };
   status?: string;
@@ -126,7 +127,7 @@ interface QuickAskSession {
 
 /** What one stream frame means for the current turn. */
 export type TurnSignal =
-  | { kind: "user-echo" }
+  | { kind: "prompt"; text: string }
   | { kind: "agent-text"; text: string }
   | { kind: "reasoning"; text: string }
   | { kind: "tool"; label: string }
@@ -157,9 +158,14 @@ export function translateFrame(parsed: unknown): TurnSignal {
   if (method === "_posthog/turn_complete") {
     return { kind: "turn-complete" };
   }
-  // The harness logs the user's message as the `session/prompt` request.
+  // The harness logs every prompt as a `session/prompt` request; the run can
+  // carry prompts besides ours (the workflow prompts the task description at
+  // boot), so the caller matches the text to find its own turn.
   if (method === "session/prompt") {
-    return { kind: "user-echo" };
+    const text = (frame.notification.params?.prompt ?? [])
+      .map((block) => block.text ?? "")
+      .join("");
+    return { kind: "prompt", text };
   }
   if (method === "_posthog/error") {
     const message = frame.notification.params?.message;
@@ -174,8 +180,6 @@ export function translateFrame(parsed: unknown): TurnSignal {
   }
   const update = frame.notification.params?.update;
   switch (update?.sessionUpdate) {
-    case "user_message_chunk":
-      return { kind: "user-echo" };
     case "agent_message_chunk":
     case "agent_message":
       return update.content?.type === "text" && update.content.text
@@ -577,7 +581,7 @@ export class QuickAskService {
     }
     session.turns += 1;
 
-    yield* this.streamTurn(apiHost, projectId, session, controller);
+    yield* this.streamTurn(apiHost, projectId, session, content, controller);
   }
 
   /**
@@ -589,18 +593,30 @@ export class QuickAskService {
     apiHost: string,
     projectId: number,
     session: QuickAskSession,
+    content: string,
     controller: AbortController,
   ): AsyncGenerator<QuickAskEvent> {
     const turnId = `turn-${session.turns}`;
     let answerText = "";
     let thoughtBuffer = "";
     let toolSinceText = false;
-    // Frames before this turn's user-message echo are a previous turn's tail
-    // or boot noise; skip them. A fresh stream (no cursor) also opens the
-    // gate on the first agent activity, in case the harness never echoes the
-    // first message.
-    let gateOpen = false;
+    // The run can carry prompts besides ours (the workflow prompts the task
+    // description at boot), and prompt queueing logs a prompt when queued, so
+    // ordering alone cannot attribute frames. Find our prompt by text, count
+    // the prompts still unanswered ahead of it, and take only the output
+    // between their completions and ours. A stream with no logged prompts
+    // falls back to treating all agent activity as ours.
+    const target = content.trim();
+    let promptsBefore = 0;
+    let completionsBefore = 0;
+    let matched = false;
+    let turnsAhead = 0;
+    let completionsAfter = 0;
     const freshStream = session.cursor == null;
+    const inOurTurn = (): boolean =>
+      matched
+        ? completionsAfter === turnsAhead
+        : freshStream && promptsBefore === 0;
 
     const finish = (): QuickAskEvent[] =>
       answerText
@@ -686,12 +702,17 @@ export class QuickAskService {
           }
           const signal = translateFrame(parsed);
           switch (signal.kind) {
-            case "user-echo":
-              gateOpen = true;
+            case "prompt":
+              if (matched) break; // Queued behind ours; not our concern.
+              if (signal.text.trim() === target) {
+                matched = true;
+                turnsAhead = Math.max(0, promptsBefore - completionsBefore);
+              } else {
+                promptsBefore += 1;
+              }
               break;
             case "agent-text":
-              if (!gateOpen && !freshStream) break;
-              gateOpen = true;
+              if (!inOurTurn()) break;
               if (toolSinceText && answerText) {
                 answerText += "\n\n";
               }
@@ -705,8 +726,7 @@ export class QuickAskService {
               };
               break;
             case "reasoning": {
-              if (!gateOpen && !freshStream) break;
-              gateOpen = true;
+              if (!inOurTurn()) break;
               thoughtBuffer += signal.text;
               const label = reasoningLabel(thoughtBuffer);
               if (label) {
@@ -715,15 +735,25 @@ export class QuickAskService {
               break;
             }
             case "tool":
-              if (!gateOpen && !freshStream) break;
-              gateOpen = true;
+              if (!inOurTurn()) break;
               toolSinceText = true;
               yield { type: "reasoning", content: `Running ${signal.label}…` };
               break;
             case "turn-complete":
-              if (!gateOpen) break; // A previous turn's boundary.
-              yield* finish();
-              return;
+              if (matched) {
+                completionsAfter += 1;
+                if (completionsAfter > turnsAhead) {
+                  yield* finish();
+                  return;
+                }
+                break;
+              }
+              if (freshStream && promptsBefore === 0) {
+                yield* finish();
+                return;
+              }
+              completionsBefore += 1;
+              break;
             case "run-terminal":
               // The sandbox ended; the next question starts a successor run.
               session.runId = null;
