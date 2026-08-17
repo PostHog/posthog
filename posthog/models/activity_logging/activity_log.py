@@ -437,7 +437,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {
         "scope": "User",
-        "activities": ["created", "updated"],
+        "activities": ["created", "updated", "deleted"],
         "exclude_when": {},
         "allow_staff": True,
     },
