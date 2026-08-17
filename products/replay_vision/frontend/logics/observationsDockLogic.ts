@@ -232,10 +232,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
-        // Shared by every dock trigger: show the row that is coming, and re-read the quota the scan spent.
-        // Only call this when a scan actually started, or the poll window opens for work that will never land.
+        // Show the row that is coming, and re-read the quota the scan spent. Only call this when a scan
+        // actually started, or the poll window opens for work that will never land. The dock is opened
+        // by the summarize path alone; it only surfaces summaries.
         const afterScanStarted = (): void => {
-            actions.setDockOpen(true)
             actions.loadObservations()
             refreshVisionQuota()
         }
@@ -363,6 +363,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                         // A scan is in flight either way — ours, or one this project already had running
                         // against the shared inline scanner — so the poll window has a row to wait for.
                         actions.summarizeSuccess()
+                        actions.setDockOpen(true)
                         afterScanStarted()
                     } else {
                         // Nothing started and nothing to read, so the poll window would watch for a row

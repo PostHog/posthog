@@ -11,10 +11,19 @@ import dns.resolver
 import dns.exception
 
 from posthog.cloud_utils import is_dev_mode
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
 ResolvedIPs = set[ipaddress.IPv4Address | ipaddress.IPv6Address]
+
+
+@frozen
+class PinnedUrlVerdict:
+    allowed: bool
+    reason: str | None
+    pinned_ips: ResolvedIPs
+
 
 DNS_RESOLUTION_LIFETIME_SECONDS = 2.0
 DNS_RESOLUTION_BATCH_TIMEOUT_SECONDS = 2.5
@@ -271,13 +280,11 @@ def is_url_allowed(
     - Host must not be localhost, metadata service, or internal domain
     - Resolved IPs must not be private/internal
     """
-    allowed, reason, _ips = _validate_url_with_ips(raw_url, resolved_ips_by_host=resolved_ips_by_host)
-    return allowed, reason
+    verdict = _validate_url_with_ips(raw_url, resolved_ips_by_host=resolved_ips_by_host)
+    return verdict.allowed, verdict.reason
 
 
-def validate_url_and_pin_ips(
-    raw_url: str,
-) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+def validate_url_and_pin_ips(raw_url: str) -> PinnedUrlVerdict:
     """
     Like ``is_url_allowed`` but also returns the validated IP set.
 
@@ -292,17 +299,15 @@ def _validate_url_with_ips(
     raw_url: str,
     *,
     resolved_ips_by_host: Mapping[str, ResolvedIPs] | None = None,
-) -> tuple[bool, str | None, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
-    empty: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+) -> PinnedUrlVerdict:
+    empty: ResolvedIPs = set()
 
     if _dev_bypass_enabled():
-        return True, None, empty
+        return PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=empty)
 
-    def _blocked(
-        reason: str, **log_kwargs: object
-    ) -> tuple[bool, str, set[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
+    def _blocked(reason: str, **log_kwargs: object) -> PinnedUrlVerdict:
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
-        return False, reason, empty
+        return PinnedUrlVerdict(allowed=False, reason=reason, pinned_ips=empty)
 
     if has_authority_bypass_chars(raw_url):
         return _blocked("Invalid URL: ambiguous authority")
@@ -335,7 +340,7 @@ def _validate_url_with_ips(
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))
-    return True, None, ips
+    return PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=ips)
 
 
 def should_block_url(u: str) -> bool:

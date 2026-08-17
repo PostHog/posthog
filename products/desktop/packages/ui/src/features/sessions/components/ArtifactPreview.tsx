@@ -26,7 +26,6 @@ import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import {
   type ReactElement,
   useCallback,
@@ -95,7 +94,6 @@ export function ArtifactPreview({
   artifactId: string;
   name: string;
 }): ReactElement {
-  const commentsEnabled = useCommentsEnabled();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const [showRendered, setShowRendered] = useState(true);
@@ -159,10 +157,8 @@ export function ArtifactPreview({
     () => ({ scope: "task_artifact", itemId: displayedArtifactId }),
     [displayedArtifactId],
   );
-  const commentsQuery = useCommentsQuery(commentTarget, taskId, {
-    enabled: commentsEnabled,
-  });
-  const { members } = useOrgMembers({ enabled: commentsEnabled });
+  const commentsQuery = useCommentsQuery(commentTarget, taskId);
+  const { members } = useOrgMembers();
   const createComment = useCreateComment(commentTarget, taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
@@ -171,17 +167,21 @@ export function ArtifactPreview({
     (state) => state.setCommentResolutions,
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
+  // Take each request once: focus is durable, so otherwise stepping the pager
+  // off a commented version snaps straight back to it.
+  const takenNonce = useRef<number | null>(null);
   useEffect(() => {
     if (
       !focus ||
       focus.target.scope !== "task_artifact" ||
-      focus.target.itemId === activeArtifactId ||
+      takenNonce.current === focus.nonce ||
       !versions.some((version) => version.id === focus.target.itemId)
     ) {
       return;
     }
+    takenNonce.current = focus.nonce;
     setSelectedVersionId(focus.target.itemId);
-  }, [activeArtifactId, focus, versions]);
+  }, [focus, versions]);
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,
@@ -195,10 +195,8 @@ export function ArtifactPreview({
     authIdentity,
     openArtifactTab,
   });
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
-  const commentLoadError = commentsEnabled && commentsQuery.isError && (
+  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
+  const commentLoadError = commentsQuery.isError && (
     <div
       role="alert"
       className="shrink-0 border-amber-6 border-b bg-amber-2 px-3 py-2 text-amber-12 text-xs"
@@ -342,7 +340,6 @@ export function ArtifactPreview({
       versionNav={versionNav}
       taskId={taskId}
       commentTarget={commentTarget}
-      commentsEnabled={commentsEnabled}
       canEdit={editing.canEdit}
       beginEditing={editing.beginEditing}
       previewData={previewData}

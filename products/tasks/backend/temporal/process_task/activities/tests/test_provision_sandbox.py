@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -18,10 +19,85 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
+    _prepare_posthog_desktop_cloud_task,
     _sandbox_image_kind,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
+
+
+def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stack") -> TaskProcessingContext:
+    return TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={},
+        custom_image_name=image_name,
+    )
+
+
+def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _prepare_posthog_desktop_cloud_task(
+        _context_for_desktop_bootstrap(),
+        sandbox,
+        "PostHog/posthog",
+    )
+
+    sandbox.execute.assert_called_once_with(
+        "cd /tmp/workspace/repos/posthog/posthog/products/desktop && pnpm bootstrap:cloud-task",
+        timeout_seconds=10 * 60,
+    )
+
+
+@pytest.mark.parametrize(
+    "image_name, repository, image_fallback",
+    [
+        (None, "posthog/posthog", None),
+        ("team-image", "posthog/posthog", None),
+        ("posthog-dev-stack", "posthog/posthog-js", None),
+        ("posthog-dev-stack", "posthog/posthog", "custom image -> base image"),
+    ],
+)
+def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_fallbacks(
+    mocker, image_name, repository, image_fallback
+):
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = image_fallback
+
+    _prepare_posthog_desktop_cloud_task(
+        _context_for_desktop_bootstrap(image_name=image_name),
+        sandbox,
+        repository,
+    )
+
+    sandbox.execute.assert_not_called()
+
+
+def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
+    from temporalio.exceptions import ApplicationError
+
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="build failed", exit_code=1)
+
+    with pytest.raises(ApplicationError) as error:
+        _prepare_posthog_desktop_cloud_task(
+            _context_for_desktop_bootstrap(),
+            sandbox,
+            "posthog/posthog",
+        )
+
+    assert error.value.non_retryable is True
+    assert "build failed" in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -36,6 +112,16 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, expected: str) -> None:
     assert _sandbox_image_kind(image_source, custom_image_name) == expected
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
+def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+    if value is None:
+        monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
+    else:
+        monkeypatch.setenv("MODAL_SANDBOX_V2", value)
+
+    assert modal_sandbox_backend_label() == expected
 
 
 @pytest.mark.asyncio

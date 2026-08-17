@@ -1,10 +1,26 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
     <p>
-        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert failed to evaluate for insight <a
-            href="{% absolute_uri insight_url %}">{{ insight_name }}</> with the error, below. There could be something wrong with the alert or the insight config.
+        PostHog could not evaluate this alert. This can happen when the insight or alert settings need attention, or
+        when PostHog has a temporary problem.
     </p>
-    <p><i>{{ alert_error }}</i></p>
+    <p>
+        <strong>Insight</strong><br />
+        <a href="{% absolute_uri insight_url %}">{{ insight_name }}</a>
+    </p>
+    <p>
+        <strong>Error</strong><br />
+        <i>{{ alert_error }}</i>
+    </p>
+    <p>
+        Review the alert settings.
+        {% if next_check_at %}
+            PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
+        {% else %}
+            PostHog will try again at the next scheduled check.
+        {% endif %}
+        If it fails again, contact support.
+    </p>
     <div class="mb mt text-center">
-        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+        <a class="button" href="{% absolute_uri alert_url %}">Review alert</a>
     </div>
 {% endblock %}{% load posthog_filters %}
