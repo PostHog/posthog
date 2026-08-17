@@ -26,12 +26,14 @@ describe("startup location", () => {
           name: "me",
           channel_type: "personal",
           starred: false,
+          system_role: "personal",
         },
         {
           id: "general-id",
           name: "general",
           channel_type: "public",
           starred: true,
+          system_role: "general",
         },
       ]),
     };

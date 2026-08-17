@@ -22,6 +22,7 @@ function taskChannel(
   id: string,
   name: string,
   channelType: TaskChannel["channel_type"] = "public",
+  systemRole?: TaskChannel["system_role"],
 ): TaskChannel {
   return {
     id,
@@ -29,6 +30,7 @@ function taskChannel(
     channel_type: channelType,
     starred: false,
     created_at: "2026-01-01T00:00:00Z",
+    system_role: systemRole ?? null,
   };
 }
 
@@ -48,8 +50,8 @@ describe("useTaskChannels", () => {
   });
 
   it("surfaces the personal and general channels from the list", async () => {
-    const personal = taskChannel("p1", "me", "personal");
-    const general = taskChannel("g1", "general");
+    const personal = taskChannel("p1", "me", "personal", "personal");
+    const general = taskChannel("g1", "general", "public", "general");
     mockClient.getTaskChannels.mockResolvedValue([
       taskChannel("1", "growth"),
       general,
