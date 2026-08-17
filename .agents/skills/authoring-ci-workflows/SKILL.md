@@ -159,6 +159,28 @@ Default to shallow; go deep only for real merge-base or version math, and even t
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
+## Network fetches — retry them
+
+Every fetch to a host outside the runner is a bet on someone else's network.
+Unretried, one transient reset becomes a red check with no findings and a rerun that passes unchanged, which teaches everyone to rerun instead of read ([actionlint died on `curl: (35)` before it linted anything](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
+
+```bash
+curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+    -o "$out" "$url"
+```
+
+- **`--retry-all-errors` is the flag that matters.** Plain `--retry` covers only timeouts and HTTP 408, 429 and 5xx. A connection reset (exit 35) is not in that set, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- **Omit `--retry-delay`.** It replaces curl's exponential backoff with a fixed wait.
+- **Bound the total with `--retry-max-time`** so retries can't outlive the job's `timeout-minutes`.
+- **Keep `--fail`/`-f`**, or an error page lands in your output file and curl still exits 0.
+- **Shorten the budget when a `||` mirror follows** (`--retry 3 --retry-max-time 30`), so a dead primary fails over instead of exhausting backoff first.
+- A standalone tool install is usually better as a composite that already does this: `./.github/actions/setup-protoc`, `setup-emsdk`, `setup-sccache`.
+
+Don't add retries where a repeat has a side effect: webhook posts, telemetry events, anything non-idempotent.
+A duplicate release announcement is worse than a missed one.
+Skip them too where a shell loop already retries (the OIDC mint steps) or the target is localhost inside a readiness wait.
+Never move these into `~/.curlrc`. Curl's own manual warns against `--retry-all-errors` as a default, because it can duplicate sent data.
+
 ## Tokens — dedicated App tokens for high-volume calls
 
 `GITHUB_TOKEN` shares one ~15k req/hr bucket across every job of every run in the repo; it goes hot at merge peaks and change-detection jobs fail before real work starts.
@@ -233,6 +255,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] Caching through the shared composites; writes gated to master.
