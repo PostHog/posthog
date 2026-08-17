@@ -1,6 +1,6 @@
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Theme } from "@radix-ui/themes";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
@@ -34,9 +34,9 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
-  // The ring carries no text, so the accessible name is the only way the
+  // The ring carries no text, so the accessible name is the only way the token
   // numbers reach a reader — including the "/0 · 0%" an unknown window must
-  // never claim, and the cost the flag is supposed to surface.
+  // never claim. Cost is deliberately absent: it renders as visible text.
   it.each([
     ["a known window", {}, false, "Context usage: 25%"],
     [
@@ -49,7 +49,7 @@ describe("ContextUsageIndicator", () => {
       "cost enabled",
       { cost: { amount: 0.42, currency: "USD" } },
       true,
-      "Context usage: 25% · $0.42",
+      "Context usage: 25%",
     ],
   ])("names itself for %s", (_case, overrides, costEnabled, expected) => {
     flagState.enabled = costEnabled;
@@ -63,6 +63,31 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
       expected,
     );
+  });
+
+  it("shows the cost as visible text beside the ring", () => {
+    flagState.enabled = true;
+    render(
+      <Theme>
+        <ContextUsageIndicator
+          usage={usage({ cost: { amount: 0.42, currency: "USD" } })}
+        />
+      </Theme>,
+    );
+    // Previously the figure lived only in the aria-label and the popover, so
+    // spend was invisible until you opened it.
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+  });
+
+  it("renders no cost text when the harness reports none", () => {
+    flagState.enabled = true;
+    render(
+      <Theme>
+        <ContextUsageIndicator usage={usage({ cost: null })} />
+      </Theme>,
+    );
+    // Null means "not reported" (codex), not "free" — $0.00 would misstate it.
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
   });
 
   it("renders a finite stroke offset at 0% (no NaN/Infinity)", () => {
