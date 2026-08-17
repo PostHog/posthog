@@ -25,6 +25,8 @@
   --qa-series-3: #3aa658;
   --qa-up: #6bcf7e;
   --qa-down: #ff7b6b;
+  /* Hover-card sparklines pick up the panel's accent. */
+  --evidence-spark-color: var(--qa-accent);
   --qa-hover: rgba(255, 255, 255, 0.08);
   --qa-font:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
@@ -380,15 +382,17 @@ html body {
   margin-top: 3px;
 }
 
-/* Streaming caret at the end of the growing answer. */
-.qa-caret {
+/* Streaming caret, drawn inline at the end of the last rendered block so it
+ * never opens a stray line of its own. */
+.qa-streaming > :last-child::after {
+  content: "";
   display: inline-block;
-  width: 7px;
-  height: 14px;
+  width: 3px;
+  height: 13px;
   margin-left: 3px;
   vertical-align: -2px;
+  border-radius: 1px;
   background: var(--qa-accent);
-  border-radius: 1.5px;
   animation: qa-caret-blink 1s steps(1) infinite;
 }
 
@@ -803,7 +807,8 @@ html body {
   .qa-card,
   .qa-skeleton,
   .qa-thinking-dots span,
-  .qa-thinking-label {
+  .qa-thinking-label,
+  .qa-streaming > :last-child::after {
     animation: none;
   }
 }

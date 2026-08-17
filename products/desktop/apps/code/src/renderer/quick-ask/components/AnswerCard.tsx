@@ -156,13 +156,12 @@ export function AnswerCard({
   return (
     <div className="qa-card">
       <div ref={scrollRef} className="qa-card-scroll" onScroll={onScroll}>
-        <div className="qa-answer">
+        <div className={streaming ? "qa-answer qa-streaming" : "qa-answer"}>
           {/* Object tags in the markdown resolve into live chips and chart cards. */}
           <MarkdownRenderer
             content={text}
             componentsOverride={panelComponents}
           />
-          {streaming && <span className="qa-caret" />}
         </div>
       </div>
 
