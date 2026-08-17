@@ -81,6 +81,11 @@ export function MetricsTab(): JSX.Element {
     } = useActions(metricsLogic)
 
     const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
+    // Reload replaces the whole list and takes no breakpoint, so a load that resolves after a
+    // mutation would repaint pre-mutation rows (e.g. bring back rows a bulk delete just removed).
+    // Block it while any mutation is in flight; the view is authoritative again on the next load.
+    const reloadDisabledReason =
+        bulkBusyReason ?? (Object.values(actionsInFlight).some(Boolean) ? 'A metric action is running' : undefined)
     const otherBulkActionReason = (self: BulkMetricAction): string | undefined =>
         bulkActionInFlight && bulkActionInFlight !== self ? 'Another bulk action is running' : undefined
 
@@ -258,6 +263,7 @@ export function MetricsTab(): JSX.Element {
                         icon={<IconRefresh />}
                         onClick={() => loadMetrics()}
                         loading={allMetricsLoading}
+                        disabledReason={reloadDisabledReason}
                         size="small"
                     >
                         Reload
