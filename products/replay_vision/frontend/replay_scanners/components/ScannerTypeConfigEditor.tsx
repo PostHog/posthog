@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { IconAI, IconPlus, IconX } from '@posthog/icons'
@@ -175,12 +176,16 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner, isNew, goalDraft, tagSuggestionsLoading } = useValues(logic)
     const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
+    const { searchParams } = useValues(router)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
     const hasTags = (config?.tags ?? []).length > 0
     // The draft already filled these in, so the offer is more of them, not a first set.
     const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
+    // The param only survives on a new scanner whose config a valid template prefilled; the
+    // logic strips it when a goal draft outranks the template or the key is unknown.
+    const startedFromTemplate = isNew && typeof searchParams.template === 'string'
 
     return (
         <div className="space-y-2">
@@ -230,7 +235,9 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 )}
             </LemonField>
             <div className="text-xs text-muted">
-                If you started from a template, these categories are examples. Edit or clear them to fit your product.
+                The classifier sorts each session it scans into these categories.
+                {startedFromTemplate &&
+                    " The template's categories are examples. Edit or clear them to fit your product."}
             </div>
             <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
