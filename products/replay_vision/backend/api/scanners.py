@@ -1480,6 +1480,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         redacts a query that no longer validates and an experiment the caller can't view;
         duplicating through the create endpoint would silently drop both. Unlike create, no
         digest is provisioned: the copy starts disabled and unreviewed."""
+        # An object-level editor grant on one scanner is enough to get past the permission
+        # class, but this action creates a new scanner, so it must clear the same
+        # resource-level bar the create action enforces.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Duplicating a scanner requires editor access to Replay Vision scanners.")
         source = self.get_object()
         if not self.team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(

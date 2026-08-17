@@ -1121,6 +1121,26 @@ class TestScannerDuplicateAction(_VisionAPITestCase):
         self.assertEqual(first.json()["name"], "my-scanner (copy)")
         self.assertEqual(second.json()["name"], "my-scanner (copy 2)")
 
+    def test_duplicate_rejected_without_resource_level_editor_access(self) -> None:
+        source = self._create_scanner(name="my-scanner")
+        # A caller holding an object-level editor grant while the resource level is "none":
+        # the permission class admits the request, so the action must enforce the
+        # resource-level bar itself, exactly as the create action does.
+        with (
+            patch(
+                "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, **_: resource != "replay_scanner",
+            ),
+            patch(
+                "posthog.rbac.user_access_control.UserAccessControl.has_any_specific_access_for_resource",
+                return_value=True,
+            ),
+        ):
+            resp = self._duplicate(source.id)
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("editor access", resp.json()["detail"])
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1)
+
     def test_duplicate_provisions_no_digest_and_reports_a_distinct_event(self) -> None:
         source = self._create_scanner(name="my-scanner")
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
