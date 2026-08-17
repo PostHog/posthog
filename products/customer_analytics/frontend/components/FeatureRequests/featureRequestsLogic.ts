@@ -449,7 +449,7 @@ export interface featureRequestsLogicMeta {
         activeProductAreas: (productAreas: FeatureRequestProductAreaApi[]) => FeatureRequestProductAreaApi[]
         accountOptions: (
             accounts: AccountApi[],
-            selectedAccount: any
+            selectedAccount: FeatureRequestAccountApi | null
         ) => {
             key: string
             label: string
