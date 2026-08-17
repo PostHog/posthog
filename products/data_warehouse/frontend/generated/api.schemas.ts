@@ -4353,7 +4353,7 @@ export interface TableApi {
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, and `materialized_view` for the table behind a materialized view. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
      *
      * * `web` - web
      * * `api` - api
@@ -4411,7 +4411,7 @@ export interface PatchedTableApi {
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, and `materialized_view` for the table behind a materialized view. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
      *
      * * `web` - web
      * * `api` - api
