@@ -1063,7 +1063,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             202: CanvasAgentRequestResultSerializer,
             403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
             409: OpenApiResponse(description="The canvas has no authoring task."),
-            429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
+            429: OpenApiResponse(
+                description=(
+                    "The request was denied for compute: the team's quota is exhausted (retry later), "
+                    "or the organization is deactivated (not retryable)."
+                )
+            ),
         },
     )
     # task:write as well: the dispatched run executes with the creator's
