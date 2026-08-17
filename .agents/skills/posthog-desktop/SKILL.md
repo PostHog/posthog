@@ -94,7 +94,7 @@ auto-assignment and Slack routing; do not delete it.
 ## Desktop-local skills
 
 `products/desktop/.claude/skills/` ships its own: `test-electron-app` (drive the running app
-over CDP `:9222`), `quill-code`, `storybook-stories`, `canvas-templates`, `onboarding-videos`.
+over CDP `:9222`), `quill-code`, `storybook-stories`, `onboarding-videos`.
 Prefer these over monorepo equivalents while in this tree.
 
 ## Before reporting done

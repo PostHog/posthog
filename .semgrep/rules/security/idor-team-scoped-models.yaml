@@ -88,6 +88,7 @@ rules:
                               |Canvas
                               |CanvasBuild
                               |CanvasSourceVersion
+                              |CanvasState
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
@@ -139,6 +140,7 @@ rules:
                               |EmailMessageMapping
                               |EmailChannelSetup
                               |EmailThread
+                              |EmailThreadAccountLink
                               |EmailThreadMessage
                               |EmailThreadParticipant
                               |EmailReputationSnapshot
@@ -265,6 +267,7 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
@@ -451,6 +454,7 @@ rules:
                         |Canvas
                         |CanvasBuild
                         |CanvasSourceVersion
+                        |CanvasState
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
@@ -502,6 +506,7 @@ rules:
                         |EmailMessageMapping
                         |EmailChannelSetup
                         |EmailThread
+                        |EmailThreadAccountLink
                         |EmailThreadMessage
                         |EmailThreadParticipant
                         |EmailReputationSnapshot
@@ -622,6 +627,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
@@ -806,7 +812,10 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDVerificationToken
+                              BillingAlertConfiguration
+                              |BillingAlertEvaluationClaim
+                              |BillingAlertEvent
+                              |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
@@ -874,7 +883,10 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDVerificationToken
+                        BillingAlertConfiguration
+                        |BillingAlertEvaluationClaim
+                        |BillingAlertEvent
+                        |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership

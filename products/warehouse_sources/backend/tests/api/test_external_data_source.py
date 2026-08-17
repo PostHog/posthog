@@ -2303,6 +2303,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
                 {
@@ -2312,6 +2313,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": "Prod Postgres replica",
                 },
                 {
@@ -2321,6 +2323,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
             ],
@@ -8792,11 +8795,11 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 secret=True,
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "host" in nonsensitive
-        assert "password" in sensitive
-        assert "password" not in nonsensitive
-        assert "host" not in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "host" in split.nonsensitive
+        assert "password" in split.sensitive
+        assert "password" not in split.nonsensitive
+        assert "host" not in split.sensitive
 
     def test_classifies_file_upload_as_sensitive(self):
         fields: list[FieldType] = [
@@ -8807,9 +8810,9 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 fileFormat=SourceFieldFileUploadJsonFormatConfig(keys=["project_id", "private_key"]),
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "key_file" in sensitive
-        assert "key_file" not in nonsensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "key_file" in split.sensitive
+        assert "key_file" not in split.nonsensitive
 
     def test_classifies_select_with_nested_password(self):
         fields: list[FieldType] = [
@@ -8844,23 +8847,23 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ],
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "auth_type" in nonsensitive
-        assert "user" in nonsensitive
-        assert "password" in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "auth_type" in split.nonsensitive
+        assert "user" in split.nonsensitive
+        assert "password" in split.sensitive
 
     def test_classifies_ssh_tunnel_nested_fields(self):
         fields: list[FieldType] = [SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="SSH Tunnel")]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "ssh_tunnel" in nonsensitive
-        assert "host" in nonsensitive
-        assert "port" in nonsensitive
-        assert "username" in nonsensitive
-        assert "auth" in nonsensitive
-        assert "auth_type" in nonsensitive
-        assert "password" in sensitive
-        assert "passphrase" in sensitive
-        assert "private_key" in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "ssh_tunnel" in split.nonsensitive
+        assert "host" in split.nonsensitive
+        assert "port" in split.nonsensitive
+        assert "username" in split.nonsensitive
+        assert "auth" in split.nonsensitive
+        assert "auth_type" in split.nonsensitive
+        assert "password" in split.sensitive
+        assert "passphrase" in split.sensitive
+        assert "private_key" in split.sensitive
 
     def test_classifies_secret_flag_as_sensitive_regardless_of_type(self):
         fields: list[FieldType] = [
@@ -8881,11 +8884,11 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 secret=False,
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "client_private_key" in sensitive
-        assert "client_private_key" not in nonsensitive
-        assert "namespace" in nonsensitive
-        assert "namespace" not in sensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "client_private_key" in split.sensitive
+        assert "client_private_key" not in split.nonsensitive
+        assert "namespace" in split.nonsensitive
+        assert "namespace" not in split.sensitive
 
     def test_strip_sensitive_from_dict_basic(self):
         data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
@@ -8941,9 +8944,9 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ),
             ),
         ]
-        nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(fields)
-        assert "temporary-dataset" in nonsensitive
-        assert "temporary_dataset" in nonsensitive
+        split = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "temporary-dataset" in split.nonsensitive
+        assert "temporary_dataset" in split.nonsensitive
 
     def test_strip_preserves_aliased_switch_group_from_to_dict(self):
         """job_inputs persisted via to_dict() uses snake_case keys even when
@@ -8976,7 +8979,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 ),
             ),
         ]
-        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        split = get_nonsensitive_and_sensitive_field_names(fields)
 
         # Simulate job_inputs as persisted by dataclasses.asdict() (snake_case keys)
         persisted_data = {
@@ -8986,7 +8989,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 "temporary_dataset_id": "tmp-dataset",
             },
         }
-        result = strip_sensitive_from_dict(persisted_data, nonsensitive, sensitive)
+        result = strip_sensitive_from_dict(persisted_data, split.nonsensitive, split.sensitive)
         assert "temporary_dataset" in result
         assert result["temporary_dataset"]["enabled"] is True
         assert result["temporary_dataset"]["temporary_dataset_id"] == "tmp-dataset"
@@ -8994,10 +8997,10 @@ class TestSensitiveFieldClassification(APIBaseTest):
     def test_all_registered_sources_have_valid_classification(self):
         for source in SourceRegistry.get_all_sources().values():
             config = source.get_source_config
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(config.fields)
 
             # No field should appear in both sets
-            overlap = nonsensitive & sensitive
+            overlap = split.nonsensitive & split.sensitive
             assert not overlap, f"{config.name}: fields in both sets: {overlap}"
 
     def test_password_typed_fields_must_be_marked_secret(self):
@@ -9073,8 +9076,8 @@ class TestSensitiveFieldClassification(APIBaseTest):
         all_nonsensitive: set[str] = set()
         for source in SourceRegistry.get_all_sources().values():
             config = source.get_source_config
-            nonsensitive, _ = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(nonsensitive)
+            split = get_nonsensitive_and_sensitive_field_names(config.fields)
+            all_nonsensitive.update(split.nonsensitive)
 
         missing = old_allowed - all_nonsensitive
         assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"

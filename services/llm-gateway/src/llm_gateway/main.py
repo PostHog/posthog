@@ -40,6 +40,7 @@ from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.plan_resolver import PlanResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
 
@@ -220,6 +221,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     app.state.http_client = httpx.AsyncClient()
     app.state.plan_resolver = PlanResolver(
+        redis=app.state.redis,
+        http_client=app.state.http_client,
+    )
+    app.state.desktop_access_resolver = DesktopAccessResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )

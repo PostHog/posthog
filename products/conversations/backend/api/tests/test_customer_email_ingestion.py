@@ -5,8 +5,9 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
@@ -32,7 +33,9 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailOutboxMessage,
     EmailThread,
+    EmailThreadAccountLink,
     EmailThreadMessage,
+    EmailThreadMessageDirection,
     Ticket,
 )
 from products.conversations.backend.services.email_channel_setup import (
@@ -40,6 +43,7 @@ from products.conversations.backend.services.email_channel_setup import (
     FORWARDING_CHALLENGE_MARKER,
     create_forwarding_challenge,
 )
+from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
 
 class TestCustomerEmailIngestion(BaseTest):
@@ -87,6 +91,42 @@ class TestCustomerEmailIngestion(BaseTest):
         }
         data.update(overrides)
         return self.client.post("/api/conversations/v1/email/inbound", data)
+
+    def _post_outbound_email(
+        self,
+        *,
+        message_id: str,
+        lookup_only: str = "",
+        **overrides: str,
+    ):
+        data = {
+            "token": "webhook-token",
+            "timestamp": "1749565800",
+            "signature": "webhook-signature",
+            "recipient": "sent@mg.posthog.com",
+            "from": "Customer success <csm@example.com>",
+            "sender": "csm@example.com",
+            "To": "Prospect <prospect@future.example>",
+            "Message-Id": message_id,
+            "Date": "Tue, 10 Jun 2025 14:00:00 +0000",
+            "subject": "Account update",
+            "stripped-text": "Here is your account update.",
+            "body-plain": "Here is your account update.",
+            "message-headers": json.dumps(
+                [
+                    ["X-Mailgun-Spf", "Fail"],
+                    ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                    ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                ]
+            ),
+        }
+        data.update(overrides)
+        endpoint = (
+            "/api/conversations/v1/email/capture?sender_lookup=1"
+            if lookup_only == "1"
+            else "/api/conversations/v1/email/capture"
+        )
+        return self.client.post(endpoint, data)
 
     def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
         self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
@@ -262,7 +302,13 @@ class TestCustomerEmailIngestion(BaseTest):
 
     @parameterized.expand(
         [
-            ("missing_spf", {"X-Mailgun-Spf": ""}),
+            (
+                "failed_spf_and_dkim",
+                {
+                    "X-Mailgun-Spf": "fail",
+                    "X-Mailgun-Dkim-Check-Result": "fail",
+                },
+            ),
             ("wrong_source", {"subject": "Gmail Forwarding Confirmation - Receive Mail from attacker@example.com"}),
             (
                 "wrong_dkim_domain",
@@ -378,6 +424,195 @@ class TestCustomerEmailIngestion(BaseTest):
         assert messages[1].references == (
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
+
+    @patch(
+        "products.conversations.backend.services.email_thread_ingestion.schedule_email_thread_link_recalculation_for_threads"
+    )
+    def test_forwarded_message_schedules_account_matching(self, mock_schedule: MagicMock) -> None:
+        response = self._post_email(message_id="<linked@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        mock_schedule.assert_called_once_with(self.team.id, [str(thread.id)])
+
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.current_app.send_task",
+        side_effect=Exception("account matching backend unavailable"),
+    )
+    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_send_task: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post_email(message_id="<recalc-fails@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread).count() == 1
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).exists()
+
+    def test_outbound_message_is_recovered_when_a_later_reply_matches_an_account(self) -> None:
+        outbound_message_id = "<outbound@customer-success.example>"
+        outbound_response = self._post_outbound_email(message_id=outbound_message_id)
+
+        assert outbound_response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).filter(thread=thread).exists()
+
+        account_model = apps.get_model("customer_analytics", "Account")
+        account = account_model.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Future account",
+            external_id="future-account",
+            _properties={"known_emails": ["prospect@future.example"]},
+        )
+        reply_response = self._post_email(
+            message_id="<reply@future.example>",
+            **{
+                "from": "Prospect <prospect@future.example>",
+                "sender": "prospect@future.example",
+                "To": "Customer success <csm@example.com>",
+                "In-Reply-To": outbound_message_id,
+                "Date": "Tue, 10 Jun 2025 15:00:00 +0000",
+                "body-plain": "Thanks for the update.",
+                "stripped-text": "Thanks for the update.",
+                "X-Mailgun-Spf": "pass",
+            },
+        )
+
+        assert reply_response.status_code == 200
+        recalculate_email_thread_links(self.team.id, thread_ids=[str(thread.id)])
+        thread.refresh_from_db()
+        messages = list(EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread))
+        assert thread.message_count == 2
+        assert [message.direction for message in messages] == [
+            EmailThreadMessageDirection.OUTBOUND,
+            EmailThreadMessageDirection.INBOUND,
+        ]
+        assert messages[0].sender_email == "csm@example.com"
+        assert messages[0].sender_authenticated is True
+        assert messages[1].in_reply_to == outbound_message_id
+        link = EmailThreadAccountLink.objects.for_team(self.team.id).get(thread=thread)
+        assert link.account_id == str(account.id)
+        assert not Ticket.objects.filter(team=self.team).exists()
+        assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            ("different_envelope", {"sender": "attacker@example.com"}),
+            (
+                "unaligned_dkim",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=attacker.example; s=mail"],
+                        ]
+                    )
+                },
+            ),
+            (
+                "conflicting_authentication_results",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Spf", "Pass"],
+                            ["X-Mailgun-Dkim-Check-Result", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                        ]
+                    )
+                },
+            ),
+        ]
+    )
+    def test_outbound_capture_rejects_an_unauthenticated_sender(self, _name: str, overrides: dict[str, str]) -> None:
+        response = self._post_outbound_email(
+            message_id=f"<spoofed-{_name}@customer-success.example>",
+            **overrides,
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("secondary_absent", 404, 200, True),
+            ("sender_in_both_regions", 204, 200, False),
+            ("secondary_unavailable", None, 502, False),
+            ("secondary_error", 500, 502, False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.request_secondary_region_status")
+    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    def test_primary_region_checks_secondary_before_ingesting(
+        self,
+        _name: str,
+        secondary_status: int | None,
+        expected_status: int,
+        expected_ingestion: bool,
+        _mock_primary: MagicMock,
+        mock_secondary_status: MagicMock,
+    ) -> None:
+        mock_secondary_status.return_value = secondary_status
+
+        response = self._post_outbound_email(message_id=f"<region-{_name}@example.com>")
+
+        assert response.status_code == expected_status
+        assert EmailThread.objects.for_team(self.team.id).exists() is expected_ingestion
+
+    @parameterized.expand(
+        [
+            ("active", EmailChannelConnectionStatus.ACTIVE, 204),
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION, 404),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED, 404),
+        ]
+    )
+    def test_outbound_sender_lookup_returns_only_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus, expected_status: int
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(
+            message_id=f"<lookup-{_name}@customer-success.example>",
+            lookup_only="1",
+        )
+
+        assert response.status_code == expected_status
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED),
+        ]
+    )
+    def test_outbound_capture_skips_non_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(message_id=f"<outbound-{_name}@customer-success.example>")
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_outbound_capture_drops_internal_only_messages(self) -> None:
+        colleague = User.objects.create(email="colleague@example.com", current_team=self.team)
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=colleague,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self._post_outbound_email(
+            message_id="<internal@example.com>",
+            To="Colleague <colleague@example.com>",
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
 
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"

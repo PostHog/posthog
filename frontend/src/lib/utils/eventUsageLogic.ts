@@ -159,6 +159,8 @@ export interface ExperimentWatchShelfContext {
     friction_cards: number
     variant_only_cards: number
     metric_cards: number
+    /** Cards removed for restating another card's recordings; what the dedupe threshold is tuned from. */
+    dropped_duplicate_cards: number
 }
 
 /**
@@ -657,6 +659,13 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardAddMenuOpened: (
+        source: 'header' | 'inline',
+        dashboardId: number
+    ) => {
+        dashboardId: number
+        source: 'header' | 'inline'
+    }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         manualCount: number,
@@ -885,13 +894,17 @@ export interface eventUsageLogicActions {
     }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
+        dashboardId: number,
+        tileId: number,
         column: number,
         row: number,
         fullWidth: boolean
     ) => {
         column: number
+        dashboardId: number
         fullWidth: boolean
         row: number
+        tileId: number
         tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
@@ -1503,6 +1516,15 @@ export interface eventUsageLogicActions {
         queryKind: string | undefined
     }
     reportInsightCompareChanged: (queryKind: string | undefined) => {
+        queryKind: string | undefined
+    }
+    reportInsightDateExclusionsChanged: (
+        queryKind: string | undefined,
+        excludeIncompletePeriods: boolean,
+        excludedDaysOfWeekCount: number
+    ) => {
+        excludedDaysOfWeekCount: number
+        excludeIncompletePeriods: boolean
         queryKind: string | undefined
     }
     reportInsightDatePickerOpened: (queryKind: string | undefined) => {
@@ -2251,6 +2273,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDateExclusionsChanged: (
+            queryKind: string | undefined,
+            excludeIncompletePeriods: boolean,
+            excludedDaysOfWeekCount: number
+        ) => ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }),
         reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
@@ -2458,12 +2485,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
         reportDashboardTileInsertedInline: (
             tileType: DashboardAddTileType,
+            dashboardId: number,
+            tileId: number,
             column: number,
             row: number,
             fullWidth: boolean
-        ) => ({ tileType, column, row, fullWidth }),
+        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3579,9 +3609,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
+            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
             posthog.capture('dashboard tile inserted inline', {
                 tile_type: tileType,
+                dashboard_id: dashboardId,
+                tile_id: tileId,
                 column,
                 row,
                 full_width: fullWidth,
@@ -3944,6 +3979,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
         },
+        reportInsightDateExclusionsChanged: ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }) => {
+            posthog.capture('insight date exclusions changed', {
+                query_kind: queryKind,
+                exclude_incomplete_periods: excludeIncompletePeriods,
+                excluded_days_of_week_count: excludedDaysOfWeekCount,
+            })
+        },
         reportInsightDatePickerOpened: ({ queryKind }) => {
             posthog.capture('insight date picker opened', { query_kind: queryKind })
         },
@@ -4157,6 +4199,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
 
             posthog.capture('survey created', {
+                // The web app is the only place this event is emitted from — there is no backend
+                // equivalent — so stamping the surface here is what puts surveys in a `source`
+                // breakdown at all, rather than showing up as unattributed.
+                source: 'web',
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
