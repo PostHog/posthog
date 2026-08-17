@@ -157,7 +157,7 @@ Two parts make stamphog correct on these:
   How the head tree is materialized differs per runtime:
   - **Action:** the workflow checks out master (hardcoded, so a PR can't swap the review script), so the reviewer explores a detached **worktree at the PR head** created just for stacked PRs.
     If the worktree cannot be created, stamphog returns `ERROR` and retains the label rather than reviewing against the wrong source tree.
-    Heads with tracked symbolic links fail closed, so a PR path cannot resolve outside the worktree.
+    Symbolic links the PR adds or repoints (relative to the default branch's tree, which already carries trusted ones like `CLAUDE.md`) fail closed, so a PR path cannot resolve outside the worktree.
   - **Hosted:** the sandbox clones and checks out the PR head for every review, so nothing extra is needed — `review_local.py` runs the pipeline with `head_checkout=True` and no worktree is created.
   - **Security (both runtimes):** the explored tree is PR-authored content.
     The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.

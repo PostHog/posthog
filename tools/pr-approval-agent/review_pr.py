@@ -711,6 +711,29 @@ class Pipeline:
             return True, f"T0 auto-approve: {summary}"
         return True, summary
 
+    @staticmethod
+    def _tracked_symlinks(rev: str) -> set[tuple[str, str]]:
+        """(path, blob) pairs of the symlinks tracked at ``rev``; same blob means same target."""
+        try:
+            listing = subprocess.run(
+                ["git", "ls-tree", "-r", "--full-tree", rev],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=REPO_ROOT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeUnavailableError(f"symlink check timed out for {rev}") from exc
+        if listing.returncode != 0:
+            raise WorktreeUnavailableError(f"symlink check failed for {rev}: {listing.stderr.strip()}")
+        links: set[tuple[str, str]] = set()
+        for line in listing.stdout.splitlines():
+            if not line.startswith("120000 "):
+                continue
+            meta, path = line.split("\t", 1)
+            links.add((path, meta.split()[2]))
+        return links
+
     @contextmanager
     def _pr_head_worktree(self):
         """Yield a detached worktree at the PR head, or None when none is needed.
@@ -735,20 +758,16 @@ class Pipeline:
             return
 
         worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
-        try:
-            symlink_check = subprocess.run(
-                ["git", "ls-tree", "-r", "--full-tree", self.pr.head_sha],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=REPO_ROOT,
+        # A symlink in the head tree can point outside the worktree, and the agent's Read follows
+        # it — so only symlinks the trunk already carries (same path, same target) are trusted; a
+        # stacked PR's base is PR-authored too, so the baseline is the default branch, not the base.
+        added_links = self._tracked_symlinks(self.pr.head_sha) - self._tracked_symlinks(
+            f"origin/{self.pr.default_branch}"
+        )
+        if added_links:
+            raise WorktreeUnavailableError(
+                f"PR head adds symbolic links: {', '.join(sorted(p for p, _ in added_links))}"
             )
-        except subprocess.TimeoutExpired as exc:
-            raise WorktreeUnavailableError("symlink check timed out") from exc
-        if symlink_check.returncode != 0:
-            raise WorktreeUnavailableError(f"symlink check failed: {symlink_check.stderr.strip()}")
-        if any(line.startswith("120000 ") for line in symlink_check.stdout.splitlines()):
-            raise WorktreeUnavailableError("PR head contains symbolic links")
 
         try:
             result = subprocess.run(

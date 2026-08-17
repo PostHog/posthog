@@ -506,25 +506,47 @@ def test_pr_head_worktree_fails_closed_on_creation_failure(monkeypatch: pytest.M
     assert not any("remove" in c for c in calls)
 
 
-def test_pr_head_worktree_rejects_symlinks(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "head_links, trunk_links, expect_reject",
+    [
+        pytest.param("120000 blob abcdef\tlink\n", "", True, id="pr-adds-symlink"),
+        pytest.param(
+            "120000 blob abcdef\tCLAUDE.md\n", "120000 blob abcdef\tCLAUDE.md\n", False, id="trunk-symlink-kept"
+        ),
+        pytest.param(
+            "120000 blob 000000\tCLAUDE.md\n", "120000 blob abcdef\tCLAUDE.md\n", True, id="pr-retargets-symlink"
+        ),
+    ],
+)
+def test_pr_head_worktree_rejects_only_symlinks_the_pr_adds(
+    monkeypatch: pytest.MonkeyPatch, head_links: str, trunk_links: str, expect_reject: bool
+) -> None:
+    # The trunk carries tracked symlinks (CLAUDE.md -> AGENTS.md and friends); rejecting any symlink
+    # in the head would fail every stacked review closed. Only links the PR adds or repoints,
+    # relative to the default branch, are untrusted.
     calls: list[list[str]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
         calls.append(cmd)
         if "ls-tree" in cmd:
-            return _FakeCompleted(0, stdout="120000 blob abcdef\tlink\n")
-        raise AssertionError(f"symlinked PR must not create a worktree: {cmd}")
+            return _FakeCompleted(0, stdout=trunk_links if cmd[-1] == "origin/master" else head_links)
+        if expect_reject:
+            raise AssertionError(f"symlinked PR must not create a worktree: {cmd}")
+        return _FakeCompleted(0)
 
     monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
 
     pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
 
-    with pytest.raises(review_pr.WorktreeUnavailableError, match="symbolic links"):
-        with pipeline._pr_head_worktree():
-            pass
-
-    assert len(calls) == 1
+    if expect_reject:
+        with pytest.raises(review_pr.WorktreeUnavailableError, match="adds symbolic links"):
+            with pipeline._pr_head_worktree():
+                pass
+        assert len(calls) == 2
+    else:
+        with pipeline._pr_head_worktree() as explore_root:
+            assert explore_root is not None
 
 
 def test_pr_head_worktree_ignores_cleanup_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
