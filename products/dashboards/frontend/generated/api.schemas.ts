@@ -337,7 +337,7 @@ export const TileSpacingEnumApi = {
 } as const
 
 export interface DashboardCustomizationApi {
-    /** Named tile spacing preset.
+    /** Named tile density preset.
      *
      * * `tight` - tight
      * * `condensed` - condensed
@@ -417,7 +417,7 @@ export interface DashboardApi {
     quick_filter_ids?: string[] | null
     /** Dashboard display settings. */
     readonly customization: DashboardCustomizationApi
-    /** Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
      *
      * * `tight` - tight
      * * `condensed` - condensed
@@ -998,7 +998,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
-    /** Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
      *
      * * `tight` - tight
      * * `condensed` - condensed

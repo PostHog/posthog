@@ -306,7 +306,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     grid_spacing = serializers.ChoiceField(
         choices=DASHBOARD_GRID_SPACING_GAPS,
         required=False,
-        help_text="Named tile spacing preset. Use tight, condensed, standard, relaxed, or wide.",
+        help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,

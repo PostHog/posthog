@@ -168,7 +168,7 @@ const dashboardActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed tile spacing to <strong>{DASHBOARD_TILE_SPACING_LABELS[customization.tile_spacing]}</strong>
+                    changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[customization.tile_spacing]}</strong>
                 </>,
             ],
         }
