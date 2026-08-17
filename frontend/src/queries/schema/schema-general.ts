@@ -1000,6 +1000,8 @@ export interface EventsQueryPersonColumn {
         email?: string
     }
     distinct_id: string
+    /** Server-resolved display name, populated when a display property is restricted for the current user. */
+    name?: string
 }
 
 /** An action step definition for matching events without a saved action */

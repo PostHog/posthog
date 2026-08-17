@@ -112,6 +112,7 @@ def get_serialized_people(
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
     distinct_id_limit: int | None = 1000,
+    restricted_person_properties: Optional[set[str]] = None,
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
         people_ids, sort_by_created_at_descending=True, limit_per_person=distinct_id_limit
@@ -128,7 +129,11 @@ def get_serialized_people(
             properties=person_dict["properties"],
             is_identified=person_dict["is_identified"],
             name=get_person_name_helper(
-                person_dict["id"], person_dict["properties"], person_dict["distinct_ids"], team
+                person_dict["id"],
+                person_dict["properties"],
+                person_dict["distinct_ids"],
+                team,
+                restricted_person_properties,
             ),
             distinct_ids=person_dict["distinct_ids"]
             if distinct_id_limit is None

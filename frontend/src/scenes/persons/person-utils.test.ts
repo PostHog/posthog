@@ -212,6 +212,18 @@ describe('the person header', () => {
         expect(asDisplay(person)).toEqual(testCase.personDisplay)
     })
 
+    describe('with a restricted display property', () => {
+        it('prefers the server-resolved name over a distinct_id that equals the restricted value', () => {
+            // email is restricted, so properties arrive stripped, but the distinct_id still equals it.
+            // The server-resolved `name` must win over the identifier fallback so the email stays hidden.
+            expect(asDisplay({ name: '4711', properties: {}, distinct_id: 'secret@example.com' })).toEqual('4711')
+        })
+
+        it('still falls back to the distinct_id when no server name is present', () => {
+            expect(asDisplay({ properties: {}, distinct_id: 'visible-id' })).toEqual('visible-id')
+        })
+    })
+
     describe('color index', () => {
         it('returns undefined for null/undefined identifier', () => {
             expect(getPersonColorIndex(null)).toBeUndefined()

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from typing import Optional, cast
 from uuid import UUID, uuid4
 
@@ -16,7 +17,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
 )
-from unittest import mock
+from unittest import TestCase, mock
 
 from django.utils import timezone
 
@@ -24,6 +25,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 import posthog.models.person.deletion
+from posthog.api.person import get_person_name_helper
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
@@ -43,6 +45,29 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+
+
+class TestGetPersonNameHelper(TestCase):
+    @parameterized.expand(
+        [
+            ("unrestricted email is shown", {"email": "a@b.com"}, ["a@b.com"], set(), "a@b.com"),
+            ("no display property falls back to distinct id", {}, ["custom-id"], set(), "custom-id"),
+            # The distinct_id equals the restricted email (identify(email)); the fallback must not re-expose it.
+            ("restricted email is not exposed via distinct id", {"email": "a@b.com"}, ["a@b.com"], {"email"}, "42"),
+            (
+                "restricted email still resolves an unrestricted display property",
+                {"email": "a@b.com", "name": "Jo"},
+                ["a@b.com"],
+                {"email"},
+                "Jo",
+            ),
+        ]
+    )
+    def test_get_person_name_helper(
+        self, _label: str, properties: dict, distinct_ids: list[str], restricted: set[str], expected: str
+    ) -> None:
+        team = cast(Team, SimpleNamespace(person_display_name_properties=None))
+        assert get_person_name_helper(42, properties, distinct_ids, team, restricted) == expected
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -2232,3 +2257,26 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         properties = response.json()["results"][result_key]["properties"]
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
+
+    def test_name_does_not_leak_restricted_display_property(self) -> None:
+        # `email` is a default display property; restrict it and set a distinct_id equal to it. The
+        # serialized `name` must not fall back to that distinct_id, which would re-expose the restricted value.
+        email_def = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["secret@example.com"],
+            properties={"email": "secret@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/persons/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()["results"][0]
+        self.assertNotIn("email", result["properties"])
+        self.assertNotEqual(result["name"], "secret@example.com")

@@ -28,9 +28,9 @@ export function getPersonColorIndex(identifier: string | null | undefined): numb
 }
 
 export type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
+    | { name?: string; properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
+    | { name?: string; properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
+    | { name?: string; properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -107,8 +107,12 @@ export function asDisplay(
     const customIdentifier: string =
         typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
+    // `person.name` is the server-resolved display name. It already honors property-level access control,
+    // so prefer it over the identifier fallbacks below, which can re-expose a restricted property when a
+    // distinct_id equals its value (e.g. identify(email)).
     const display: string | undefined = (
         customIdentifier ||
+        person.name ||
         person.distinct_id ||
         pickBestPersonDistinctId(person.distinct_ids)
     )?.trim()

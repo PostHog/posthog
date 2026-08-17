@@ -1322,6 +1322,12 @@ class EventsQueryPersonColumn(BaseModel):
     )
     created_at: str
     distinct_id: str
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Server-resolved display name, populated when a display property is restricted for the current user."
+        ),
+    )
     properties: Properties
     uuid: str
 

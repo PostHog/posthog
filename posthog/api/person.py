@@ -134,21 +134,30 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
         }
 
 
-def get_person_name(team: Team, person: Person) -> str:
-    return get_person_name_helper(person.pk, person.properties, person.distinct_ids, team)
+def get_person_name(team: Team, person: Person, restricted_properties: set[str] | None = None) -> str:
+    return get_person_name_helper(person.pk, person.properties, person.distinct_ids, team, restricted_properties)
 
 
 def get_person_name_helper(
-    person_pk: int, person_properties: dict[str, str], distinct_ids: list[str], team: Team
+    person_pk: int,
+    person_properties: dict[str, str],
+    distinct_ids: list[str],
+    team: Team,
+    restricted_properties: set[str] | None = None,
 ) -> str:
-    display_name = None
-    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+    restricted_properties = restricted_properties or set()
+    display_properties = team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+    display_property_restricted = False
+    for property in display_properties:
+        if property in restricted_properties:
+            display_property_restricted = True
+            continue
         if person_properties and person_properties.get(property):
-            display_name = person_properties.get(property)
-            break
-    if display_name:
-        return display_name
-    if len(distinct_ids) > 0:
+            return person_properties[property]
+    # A distinct_id often equals a restricted display property (e.g. identify(email)), so falling back
+    # to it would re-expose the value that property-level access control just hid. Skip that fallback
+    # when a display property is restricted and use the person id instead.
+    if not display_property_restricted and len(distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(distinct_ids, key=is_anonymous_id)[0]
     return str(person_pk)
@@ -354,7 +363,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
-        return get_person_name(team, person)
+        restricted = self.context.get("restricted_person_properties") or set()
+        return get_person_name(team, person, restricted_properties=restricted)
 
     def to_representation(self, instance: Union[Person, MissingPerson]) -> dict[str, Any]:
         if isinstance(instance, Person):
@@ -600,10 +610,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # we still hydrate the person objects ourselves via get_serialized_people.
         actors_runner = ActorsQueryRunner(team=team, query=actors_query)
         actor_ids = [row[0] for row in actors_runner.calculate().results]
-        with personhog_caller_tag("persons/list"):
-            serialized_actors = get_serialized_people(team, actor_ids)
-
         restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+        with personhog_caller_tag("persons/list"):
+            serialized_actors = get_serialized_people(
+                team, actor_ids, restricted_person_properties=restricted_person_properties
+            )
+
         if restricted_person_properties:
             for person_dict in serialized_actors:
                 properties = person_dict.get("properties")

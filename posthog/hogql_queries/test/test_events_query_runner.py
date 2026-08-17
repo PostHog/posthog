@@ -1248,6 +1248,42 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "name" in person_data["properties"]
 
     @freeze_time("2020-01-11T12:00:05Z")
+    def test_person_column_name_not_exposed_via_restricted_display_property(self):
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self._enable_property_access_control()
+
+        # The distinct_id equals the restricted email — the identify(email) pattern.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["secret@example.com"],
+            properties={"email": "secret@example.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="secret@example.com",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"$browser": "Chrome"},
+        )
+        flush_persons_and_events()
+
+        prop_def = PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=prop_def, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        # The person column ships a restriction-safe display name so the frontend does not fall back to
+        # the distinct_id (== restricted email).
+        query = EventsQuery(select=["person"], after="2020-01-10")
+        response = EventsQueryRunner(query=query, team=self.team, user=self.user).run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        person = response.results[0][0]
+        assert "email" not in person["properties"]
+        assert person.get("name") and person["name"] != "secret@example.com"
+
+    @freeze_time("2020-01-11T12:00:05Z")
     def test_restricted_event_property_in_select_raises_error(self):
         from posthog.hogql.errors import ResolutionError
 

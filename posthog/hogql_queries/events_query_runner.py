@@ -23,7 +23,7 @@ from posthog.hogql.property import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
-from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, get_person_name_helper
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -559,6 +559,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     property_type=PropertyDefinition.Type.PERSON,
                 )
 
+                display_property_keys = (
+                    self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                )
+                any_display_property_restricted = any(k in restricted_person_props for k in display_property_keys)
+
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
                     for index, result in enumerate(self.paginator.results):
@@ -567,12 +572,23 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if distinct_to_person.get(distinct_id):
                             person = distinct_to_person[distinct_id]
                             properties = strip_restricted_properties(person.properties or {}, restricted_person_props)
-                            self.paginator.results[index][column_index] = {
+                            payload: dict = {
                                 "uuid": person.uuid,
                                 "created_at": person.created_at,
                                 "properties": properties,
                                 "distinct_id": distinct_id,
                             }
+                            if any_display_property_restricted:
+                                # Resolve the display name server-side so the frontend does not fall back to
+                                # distinct_id, which often equals the restricted display property.
+                                payload["name"] = get_person_name_helper(
+                                    person.pk,
+                                    person.properties or {},
+                                    [distinct_id],
+                                    self.team,
+                                    restricted_person_props,
+                                )
+                            self.paginator.results[index][column_index] = payload
                         else:
                             self.paginator.results[index][column_index] = {
                                 "distinct_id": distinct_id,

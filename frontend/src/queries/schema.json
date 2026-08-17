@@ -22278,6 +22278,10 @@
                 "distinct_id": {
                     "type": "string"
                 },
+                "name": {
+                    "description": "Server-resolved display name, populated when a display property is restricted for the current user.",
+                    "type": "string"
+                },
                 "properties": {
                     "additionalProperties": false,
                     "properties": {
