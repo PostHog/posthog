@@ -25,6 +25,7 @@ import {
     HogQLDefinitionFields,
     TrendsDefinitionFields,
 } from './AlertDefinitionFields'
+import { alertModeOptions } from './alertModeOptions'
 import { AlertSimulationSection } from './AlertSimulationSection'
 import { ForecastSimulationSection } from './ForecastSimulationSection'
 import { InvestigationAgentSettings } from './InvestigationAgentSettings'
@@ -206,37 +207,11 @@ export function AlertDefinitionSection({
                                     onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
                                 }
                             }}
-                            options={[
-                                {
-                                    value: 'threshold',
-                                    label: 'Threshold',
-                                    description: 'Alert when a value goes above or below a fixed value you set.',
-                                    'data-attr': 'alertForm-mode-threshold',
-                                },
-                                ...(supportsAnomalyDetection
-                                    ? [
-                                          {
-                                              value: 'detector' as const,
-                                              label: 'Anomaly detection',
-                                              description: showAnomalyGuidance
-                                                  ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
-                                                  : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
-                                              'data-attr': 'alertForm-mode-detector',
-                                          },
-                                      ]
-                                    : []),
-                                ...(supportsForecast
-                                    ? [
-                                          {
-                                              value: 'forecast' as const,
-                                              label: 'Forecast',
-                                              description:
-                                                  'Alert on where this metric is heading, before it crosses your threshold.',
-                                              'data-attr': 'alertForm-mode-forecast',
-                                          },
-                                      ]
-                                    : []),
-                            ]}
+                            options={alertModeOptions({
+                                supportsAnomalyDetection,
+                                supportsForecast,
+                                showAnomalyGuidance,
+                            })}
                         />
                     )}
                 </div>
