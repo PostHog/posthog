@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
-import { getRuntimeFromLib, stringify } from 'lib/components/Errors/utils'
+import { ErrorEventType } from 'lib/components/Errors/types'
+import { getExceptionTypeAndValue, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import {
     Button,
@@ -162,7 +162,7 @@ function EventRow({
 function EventTitle({ record }: { record: ErrorEventType }): JSX.Element {
     const library = record.properties.$lib
     const runtime = getRuntimeFromLib(typeof library === 'string' ? library : null)
-    const { type, value } = getEventTitle(record.properties)
+    const { type, value } = getExceptionTypeAndValue(record.properties)
 
     return (
         <div className="grid w-full min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 py-0.5">
@@ -175,17 +175,6 @@ function EventTitle({ record }: { record: ErrorEventType }): JSX.Element {
             </div>
         </div>
     )
-}
-
-function getEventTitle(properties: ErrorEventProperties): { type?: string; value?: string } {
-    const [exception] = Array.isArray(properties.$exception_list) ? properties.$exception_list : []
-    const type = properties.$exception_types?.[0] || exception?.type
-    const value = properties.$exception_values?.[0] || exception?.value
-
-    return {
-        type: type ? stringify(type) : undefined,
-        value: value ? stringify(value) : undefined,
-    }
 }
 
 function EventMetadata({ record }: { record: ErrorEventType }): JSX.Element {

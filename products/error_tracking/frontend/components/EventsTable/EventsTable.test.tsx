@@ -80,6 +80,12 @@ describe('EventsTable', () => {
             'Error',
             'Boom',
         ],
+        [
+            'falls back to the legacy singular properties when there is no exception list',
+            { $exception_type: 'SyntaxError', $exception_message: 'Unexpected token' },
+            'SyntaxError',
+            'Unexpected token',
+        ],
         ['labels the row when nothing is available', {}, 'Unknown', 'No message'],
         [
             'stringifies a non-string exception value',
