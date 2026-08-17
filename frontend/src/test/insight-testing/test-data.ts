@@ -4,8 +4,6 @@ const friday = '2024-06-14T16:00:00.000Z'
 const setupWeek = '2024-06-03T10:00:00.000Z'
 
 const days = ['2024-06-10', '2024-06-11', '2024-06-12', '2024-06-13', '2024-06-14']
-/** The week before `days` — what a compare-to-previous-period series covers. */
-const previousDays = ['2024-06-03', '2024-06-04', '2024-06-05', '2024-06-06', '2024-06-07']
 const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 
 export const eventDefinitions: EventDefinition[] = [
@@ -152,49 +150,8 @@ export const trendsSeries = {
         {
             label: '$pageview',
             data: [30, 60, 100, 180, 70],
-            days: previousDays,
+            days: ['2024-06-03', '2024-06-04', '2024-06-05', '2024-06-06', '2024-06-07'],
             labels,
-            compare: true,
-            compare_label: 'previous',
-        },
-    ] satisfies CannedSeries[],
-    // Breakdown × compare. At index 2 the values are Spike 90/20 and Bramble 80/10, so sorting all
-    // four rows by value interleaves the breakdown values (90, 80, 20, 10) instead of pairing each
-    // one with its own previous period.
-    pageviewsByHedgehogCompare: [
-        {
-            label: 'Spike',
-            data: [30, 50, 90, 140, 60],
-            days,
-            labels,
-            breakdown_value: 'Spike',
-            compare: true,
-            compare_label: 'current',
-        },
-        {
-            label: 'Bramble',
-            data: [15, 32, 80, 70, 35],
-            days,
-            labels,
-            breakdown_value: 'Bramble',
-            compare: true,
-            compare_label: 'current',
-        },
-        {
-            label: 'Spike',
-            data: [8, 12, 20, 30, 14],
-            days: previousDays,
-            labels,
-            breakdown_value: 'Spike',
-            compare: true,
-            compare_label: 'previous',
-        },
-        {
-            label: 'Bramble',
-            data: [4, 6, 10, 16, 7],
-            days: previousDays,
-            labels,
-            breakdown_value: 'Bramble',
             compare: true,
             compare_label: 'previous',
         },
@@ -231,14 +188,11 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
 }
 
 /** Resolver for compare queries — returns current + previous period series. */
-export function lookupCompareSeries(eventName: string, breakdownProperty?: string): SeriesData[] | null {
-    if (eventName !== '$pageview') {
-        return null
+export function lookupCompareSeries(eventName: string): SeriesData[] | null {
+    if (eventName === '$pageview') {
+        return trendsSeries.pageviewsCompare
     }
-    if (breakdownProperty === 'hedgehog') {
-        return trendsSeries.pageviewsByHedgehogCompare
-    }
-    return trendsSeries.pageviewsCompare
+    return null
 }
 
 const fallbackSeries: SeriesData = {

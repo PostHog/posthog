@@ -207,29 +207,6 @@ describe('TrendsLineChart', () => {
             expect(tooltip.element.textContent).not.toContain('Previous')
         })
 
-        it('keeps each breakdown value next to its own previous period in compare mode', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                    compareFilter: { compare: true },
-                }),
-            })
-
-            await chart.clickAtIndex(2)
-
-            // At index 2 the values are Spike 90/20 and Bramble 80/10. Sorting all four rows by
-            // value would read 90, 80, 20, 10 and split each breakdown value from the period it is
-            // meant to be compared against.
-            // Row labels separate their parts with non-breaking spaces, so normalize whitespace.
-            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
-            expect(tooltip.rows().map((label) => label.replace(/\s+/g, ' '))).toEqual([
-                'Spike · Current',
-                'Spike · 5 Jun',
-                'Bramble · Current',
-                'Bramble · 5 Jun',
-            ])
-        })
-
         it('uses context.formatCompareLabel to override Current/Previous in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({

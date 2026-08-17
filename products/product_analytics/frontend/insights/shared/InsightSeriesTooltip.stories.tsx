@@ -180,9 +180,8 @@ export const CompareToPreviousPeriod: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.5),
 }
 
-// Compare doubles the row count once a breakdown is on. Each breakdown value sits directly above
-// its own previous period, which is the pair a reader is trying to compare. Sorting all four rows
-// by value would read 134, 46, 22, 12 and split both pairs.
+// Compare doubles the row count once a breakdown is on, and the date has to stay readable next to
+// a breakdown value competing for the same width.
 export const CompareToPreviousPeriodWithBreakdown: Story = {
     render: () => (
         <TooltipChart

@@ -340,48 +340,6 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         [formatCompareLabel, interval, altTitle, showHeader, timezone, weekStartDay, comparePeriodsShareAYear]
     )
 
-    // Comparing periods puts two rows on the same thing, and they're only comparable if they sit
-    // together. Sorting every row by value interleaves them, so order by what each series and
-    // breakdown value did in the current period, then keep its two periods adjacent.
-    const compareRowComparator = useMemo(() => {
-        if (!compareDates[CompareLabelType.Previous]) {
-            return undefined
-        }
-        const pairKeyOf = (datum: TooltipSeriesDatum): string => `${datum.order}|${String(datum.breakdown_value)}`
-        const pairs = new Map<string, { current?: number; best: number }>()
-        for (const datum of datumByKey.values()) {
-            const pair = pairs.get(pairKeyOf(datum)) ?? { best: -Infinity }
-            if (datum.compare_label === CompareLabelType.Current) {
-                pair.current = datum.count
-            }
-            pair.best = Math.max(pair.best, datum.count)
-            pairs.set(pairKeyOf(datum), pair)
-        }
-        // A pair whose current row is hidden or absent still needs a place, so fall back to its
-        // largest row.
-        const rankByPair = new Map(
-            [...pairs.entries()]
-                .sort(([, a], [, b]) => (b.current ?? b.best) - (a.current ?? a.best))
-                .map(([key], index) => [key, index])
-        )
-        return (a: InsightSeriesTooltipEntry<Meta>, b: InsightSeriesTooltipEntry<Meta>): number => {
-            const datumA = datumByKey.get(a.series.key)
-            const datumB = datumByKey.get(b.series.key)
-            if (!datumA || !datumB) {
-                return 0
-            }
-            const rankA = rankByPair.get(pairKeyOf(datumA)) ?? 0
-            const rankB = rankByPair.get(pairKeyOf(datumB)) ?? 0
-            if (rankA !== rankB) {
-                return rankA - rankB
-            }
-            // Current above previous, matching the order the header names the two dates in.
-            const isPrevious = (datum: TooltipSeriesDatum): number =>
-                datum.compare_label === CompareLabelType.Previous ? 1 : 0
-            return isPrevious(datumA) - isPrevious(datumB)
-        }
-    }, [datumByKey, compareDates])
-
     const valueFormatter = useCallback(
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
@@ -460,7 +418,6 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         <DefaultTooltip<Meta>
             {...context}
             sortedByValue={sortedByValue}
-            rowComparator={compareRowComparator}
             hideZeroRows={hideZeroRows}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}

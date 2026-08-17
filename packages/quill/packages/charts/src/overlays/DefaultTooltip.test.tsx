@@ -256,31 +256,6 @@ describe('DefaultTooltip', () => {
             expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['High', 'Low'])
         })
 
-        it('orders rows with rowComparator in preference to sortedByValue', () => {
-            // Two metrics over two periods. A value sort would lead with the 90 and split each
-            // metric's pair apart; the comparator keeps "now" beside its own "then".
-            const pairs: TooltipContext['seriesData'] = [
-                { series: { key: 'a-now', label: 'A now', data: [] }, value: 10, color: '#000' },
-                { series: { key: 'b-now', label: 'B now', data: [] }, value: 50, color: '#111' },
-                { series: { key: 'a-then', label: 'A then', data: [] }, value: 90, color: '#222' },
-                { series: { key: 'b-then', label: 'B then', data: [] }, value: 40, color: '#333' },
-            ]
-            const rank = ['b-now', 'b-then', 'a-now', 'a-then']
-            renderTooltip(
-                {
-                    sortedByValue: true,
-                    rowComparator: (a, b) => rank.indexOf(a.series.key) - rank.indexOf(b.series.key),
-                },
-                pairs
-            )
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
-                'B now',
-                'B then',
-                'A now',
-                'A then',
-            ])
-        })
-
         it('marks the row whose yPixel is closest to the cursor with data-closest', () => {
             const withYPixel: TooltipContext['seriesData'] = [
                 { series: { key: 'a', label: 'Alpha', data: [] }, value: 5, color: '#000', yPixel: 40 },

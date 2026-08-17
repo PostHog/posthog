@@ -38,11 +38,6 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     totalFormatter?: (value: number) => React.ReactNode
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
-    /** Order the rows with this comparator instead of the default value / visual-position sort. Use
-     *  when related rows must stay adjacent to be read against each other — e.g. a trend comparing
-     *  two periods keeps each breakdown value's current and previous rows together, which a plain
-     *  value sort interleaves. Takes precedence over `sortedByValue`. */
-    rowComparator?: (a: SeriesDatum<Meta>, b: SeriesDatum<Meta>) => number
     /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
     hideZeroRows?: boolean
     /** Make each series row clickable, firing with the row's `seriesData` entry. The tooltip must
@@ -66,20 +61,17 @@ export function DefaultTooltip<Meta = unknown>({
     totalLabel = 'Total',
     totalFormatter,
     sortedByValue,
-    rowComparator,
     hideZeroRows,
     onRowClick,
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
     const visible = hideZeroRows ? seriesData.filter((s) => s.value !== 0) : seriesData
-    const rows = rowComparator
-        ? [...visible].sort(rowComparator)
-        : sortedByValue
-          ? [...visible].sort((a, b) => b.value - a.value)
-          : visible[0]?.yPixel != null
-            ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
-            : visible
+    const rows = sortedByValue
+        ? [...visible].sort((a, b) => b.value - a.value)
+        : visible[0]?.yPixel != null
+          ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
+          : visible
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const closestKey =
         hoveredSeriesKey ??
