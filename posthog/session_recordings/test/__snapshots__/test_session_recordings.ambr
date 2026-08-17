@@ -474,39 +474,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.5
@@ -1270,39 +1287,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.5
@@ -2062,39 +2096,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.5
@@ -2854,39 +2905,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.5
@@ -3650,39 +3718,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.5
@@ -4446,39 +4531,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.5
@@ -5242,39 +5344,56 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.5
@@ -6221,39 +6340,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.112
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.113
@@ -7070,39 +7206,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.128
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.129
@@ -8061,39 +8214,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.144
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
@@ -8925,76 +9095,110 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.16
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.160
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.161
@@ -10429,39 +10633,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.32
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.33
@@ -10863,39 +11084,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.4
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.40
@@ -11249,39 +11487,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.48
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.49
@@ -12189,39 +12444,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.64
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.65
@@ -13112,39 +13384,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.80
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.81
@@ -13980,39 +14269,56 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.96
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id",
-         "posthog_team"."project_id" AS "_team_project_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
+  
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "ee_accesscontrol"."team_id" = 99999)))
+  UNION
+    (SELECT "ee_accesscontrol"."id" AS "col1",
+            "ee_accesscontrol"."team_id" AS "col2",
+            "ee_accesscontrol"."access_level" AS "col3",
+            "ee_accesscontrol"."resource" AS "col4",
+            "ee_accesscontrol"."resource_id" AS "col5",
+            "ee_accesscontrol"."organization_member_id" AS "col6",
+            "ee_accesscontrol"."role_id" AS "col7",
+            "ee_accesscontrol"."created_by_id" AS "col8",
+            "ee_accesscontrol"."created_at" AS "col9",
+            "ee_accesscontrol"."updated_at" AS "col10",
+            "posthog_team"."organization_id" AS "_team_organization_id",
+            "posthog_team"."project_id" AS "_team_project_id"
+     FROM "ee_accesscontrol"
+     INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+     LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+     WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
              AND "ee_accesscontrol"."resource" IN ('dashboard',
                                                    'insight')
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "posthog_team"."project_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" IN ('dashboard',
-                                                   'insight')
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "posthog_team"."project_id" = 99999))
+            OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+                AND "posthog_organizationmembership"."user_id" = 99999
+                AND "ee_accesscontrol"."resource" IN ('dashboard',
+                                                      'insight')
+                AND "ee_accesscontrol"."role_id" IS NULL
+                AND "posthog_team"."project_id" = 99999)))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.97
