@@ -1267,13 +1267,9 @@ def _route_untagged_followup_by_mode(
     """Apply the thread creator's untagged follow-up mode to this reply.
 
     Returns a terminal route when the reply must not start a run right now, or
-    ``None`` to let the caller dispatch as usual. The creator's own replies
-    always dispatch: typing in a thread you handed to PostHog is the intent the
-    setting exists to disambiguate for everybody else.
+    ``None`` to let the caller dispatch as usual. Nobody has this on until they
+    turn it on, so an unset creator drops here.
     """
-    if author_slack_user_id == mapping.mentioning_slack_user_id:
-        return None
-
     mode = resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id)
     if mode == UntaggedFollowupMode.AUTO:
         return None
@@ -1295,6 +1291,11 @@ def _route_untagged_followup_by_mode(
             posthog_user=posthog_user,
         )
         return ROUTE_HANDLED_LOCALLY
+
+    # ``ask`` only judges other people's replies — the creator typing in the
+    # thread they handed to PostHog has already said what they want.
+    if author_slack_user_id == mapping.mentioning_slack_user_id:
+        return None
 
     replied = _post_untagged_followup_prompt(
         slack,

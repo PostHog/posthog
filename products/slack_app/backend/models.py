@@ -91,7 +91,8 @@ class UntaggedFollowupMode(models.TextChoices):
     """What PostHog does with an untagged reply in a thread it already owns.
 
     Read from the thread creator's settings row, so it governs everyone
-    replying in a thread that user started.
+    replying in a thread that user started. ``NEVER`` is what an unset row
+    resolves to, making untagged follow-ups opt-in per person.
     """
 
     AUTO = "auto", "Always pick it up"
@@ -138,8 +139,8 @@ class SlackSettings(UUIDModel):
     )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
-    # NULL means the user has never picked, which resolves to ``AUTO`` — the
-    # behaviour every row had before the column existed.
+    # NULL means the user has never picked, which resolves to ``NEVER``: nothing
+    # is picked up in their threads until they turn it on from the Home tab.
     untagged_followup_mode = models.CharField(
         max_length=16,
         null=True,

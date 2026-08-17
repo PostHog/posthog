@@ -843,10 +843,10 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 
 
 def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
-    """Picker for how replies from other people land in the threads you started.
+    """Picker for how untagged replies land in the threads you started.
 
-    Your own replies are always picked up, so the choice only ever governs what
-    happens when somebody else joins in.
+    Off until picked, so the card doubles as the only way to turn the behaviour
+    on for your own threads.
     """
     options = [
         {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
@@ -861,12 +861,14 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
     return [
         _section_title(
             "💬 Thread follow-ups",
-            "When someone else replies in a thread you started, without tagging @PostHog.",
+            "What I do with replies in a thread you started, when nobody tags @PostHog.",
         ),
         {"type": "actions", "elements": [select]},
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Your own replies always reach me, whichever option you pick."}],
+            "elements": [
+                {"type": "mrkdwn", "text": "With *Ask them first*, your own replies go through without asking."}
+            ],
         },
     ]
 

@@ -292,12 +292,12 @@ class TestResolveUntaggedFollowupMode:
             (UntaggedFollowupMode.NEVER, UntaggedFollowupMode.NEVER),
             (UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO),
             # A row that predates the column, and a value retired since it was written,
-            # both have to land on the behaviour every thread had before the setting.
-            (None, UntaggedFollowupMode.AUTO),
-            ("retired-value", UntaggedFollowupMode.AUTO),
+            # both leave the feature off rather than opting someone in by accident.
+            (None, UntaggedFollowupMode.NEVER),
+            ("retired-value", UntaggedFollowupMode.NEVER),
         ],
     )
-    def test_stored_value_governs_with_auto_as_the_floor(self, slack_setup, stored, expected):
+    def test_stored_value_governs_with_never_as_the_floor(self, slack_setup, stored, expected):
         integration = slack_setup
         SlackSettings.objects.create(
             slack_workspace_id="T_WS",
@@ -306,19 +306,19 @@ class TestResolveUntaggedFollowupMode:
         )
         assert resolve_untagged_followup_mode(integration, "U001") == expected
 
-    def test_no_row_at_all_resolves_auto(self, slack_setup):
-        assert resolve_untagged_followup_mode(slack_setup, "U001") == UntaggedFollowupMode.AUTO
+    def test_no_row_at_all_resolves_never(self, slack_setup):
+        assert resolve_untagged_followup_mode(slack_setup, "U001") == UntaggedFollowupMode.NEVER
 
     def test_another_users_choice_does_not_leak(self, slack_setup):
-        # The mode is read per thread creator, so one person opting out must not
-        # silence follow-ups in everybody else's threads.
+        # The mode is read per thread creator, so one person opting in must not
+        # turn follow-ups on in everybody else's threads.
         integration = slack_setup
         SlackSettings.objects.create(
             slack_workspace_id="T_WS",
             slack_user_id="U002",
-            untagged_followup_mode=UntaggedFollowupMode.NEVER,
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
-        assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.AUTO
+        assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.NEVER
 
 
 class TestValidateAIPreferences:

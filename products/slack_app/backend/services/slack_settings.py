@@ -101,12 +101,12 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
 
     Read from the thread creator's row, so one person's choice governs every
     reply in the threads they started. An absent row, an empty column, or a
-    value we no longer recognise all resolve to `AUTO` — the behaviour that
-    predates the setting.
+    value we no longer recognise all resolve to `NEVER`: the feature is opt-in,
+    so nothing is picked up until someone asks for it.
     """
 
     if not slack_user_id:
-        return UntaggedFollowupMode.AUTO
+        return UntaggedFollowupMode.NEVER
 
     from products.slack_app.backend.models import SlackSettings
 
@@ -121,7 +121,7 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
     stored = row["untagged_followup_mode"] if row else None
     if stored in UntaggedFollowupMode.values:
         return UntaggedFollowupMode(stored)
-    return UntaggedFollowupMode.AUTO
+    return UntaggedFollowupMode.NEVER
 
 
 def build_ai_preferences_payload(

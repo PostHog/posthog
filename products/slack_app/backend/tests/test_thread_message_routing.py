@@ -96,6 +96,15 @@ class TestRouteThreadMessage(TestCase):
             mentioning_slack_user_id="U_ALICE",
         )
 
+        # Follow-ups are off until the thread creator turns them on, so every
+        # routing test that expects a dispatch needs Alice opted in. The
+        # mode-specific tests below overwrite this row.
+        self.creator_settings = SlackSettings.objects.create(
+            slack_workspace_id="T_SLACK",
+            slack_user_id="U_ALICE",
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
+        )
+
         # All routing tests assume the per-org feature flag is on. The
         # dedicated ``test_feature_flag_off_dropped`` test stops the patcher
         # to exercise the off path.
@@ -359,18 +368,17 @@ class TestRouteThreadMessage(TestCase):
 
     # --- Thread creator's follow-up mode ----------------------------------
 
-    def _set_creator_mode(self, mode: str) -> None:
-        SlackSettings.objects.create(
-            slack_workspace_id="T_SLACK",
-            slack_user_id=self.mapping.mentioning_slack_user_id,
-            untagged_followup_mode=mode,
-        )
+    def _set_creator_mode(self, mode: str | None) -> None:
+        self.creator_settings.untagged_followup_mode = mode
+        self.creator_settings.save(update_fields=["untagged_followup_mode"])
 
     @parameterized.expand(
         [
             (UntaggedFollowupMode.AUTO, True, False),
             (UntaggedFollowupMode.ASK, False, True),
             (UntaggedFollowupMode.NEVER, False, False),
+            # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
+            (None, False, False),
         ]
     )
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -389,11 +397,17 @@ class TestRouteThreadMessage(TestCase):
         assert mock_start.called is expect_workflow
         assert mock_prompt.called is expect_prompt
 
-    @parameterized.expand([(UntaggedFollowupMode.ASK,), (UntaggedFollowupMode.NEVER,)])
+    @parameterized.expand(
+        [
+            # `ask` judges other people's replies, so the creator is never asked
+            # about their own — but `never` means nobody, including them.
+            (UntaggedFollowupMode.ASK, True),
+            (UntaggedFollowupMode.NEVER, False),
+            (None, False),
+        ]
+    )
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_creators_own_reply_runs_whatever_the_mode(self, mode):
-        """The setting exists to judge other people's replies. Typing in a thread
-        you handed to PostHog yourself is unambiguous."""
+    def test_creators_own_reply_is_never_prompted_but_still_obeys_off(self, mode, expect_workflow):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         self._set_creator_mode(mode)
@@ -404,7 +418,7 @@ class TestRouteThreadMessage(TestCase):
             patch("products.slack_app.backend.api._post_untagged_followup_prompt") as mock_prompt,
         ):
             self._route(self._make_event(user="U_ALICE"))
-        mock_start.assert_called_once()
+        assert mock_start.called is expect_workflow
         mock_prompt.assert_not_called()
 
     # --- Symmetry with the app_mention path -------------------------------
