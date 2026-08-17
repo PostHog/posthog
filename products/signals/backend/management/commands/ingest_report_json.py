@@ -31,6 +31,7 @@ from products.signals.backend.models import SignalReport, SignalUserAutonomyConf
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
+from products.signals.backend.temporal.report_canvas import start_report_canvas_workflow
 
 
 class Command(BaseCommand):
@@ -114,6 +115,7 @@ class Command(BaseCommand):
         asyncio.run(_persist_agentic_report_artefacts(team.id, str(report.id), result, repo_selection))
 
         self._finalize_report(report, result)
+        asyncio.run(start_report_canvas_workflow(team_id=team.id, report_id=str(report.id)))
 
         self.stdout.write(self.style.SUCCESS(f"Ingested report {report.id} and persisted artefacts."))
 

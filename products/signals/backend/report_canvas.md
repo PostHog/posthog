@@ -15,3 +15,27 @@ The report fingerprint includes its narrative, charts, research run, and impleme
 Human participation changes ownership. A message in the discussion or a canvas version from another task marks the link collaborative. Later pipeline generations create drafts and do not replace the human-owned live version.
 
 Once generation produces a live version or draft, the suggested reviewers receive an Activity item targeting the canvas. Reports without resolved suggested reviewers still appear in the shared space but do not create personal Activity items.
+
+## Test locally
+
+Configure the dev environment with the Desktop, Tasks, and Product analytics services:
+
+```bash
+hogli dev:apply desktop tasks product_analytics
+hogli up -d -y
+hogli wait -y
+```
+
+Add a working LLM provider key to `.env.local`. Report canvases are enabled automatically when Django runs with `DEBUG=True`.
+
+Create a researched report from the included synthetic fixture:
+
+```bash
+python manage.py ingest_report_json \
+    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
+    --team-id 1
+```
+
+Open Desktop and select `general`. The report appears immediately as a canvas session. Its canvas source appears after the generation task finishes.
+
+The Activity item appears only when the fixture resolves to a suggested reviewer in the local organization.

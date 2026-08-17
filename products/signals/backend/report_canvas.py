@@ -3,6 +3,7 @@ import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -48,6 +49,8 @@ def _fetch_report_signals(report: SignalReport) -> list[dict]:
 
 
 def report_canvases_enabled(team: Team) -> bool:
+    if settings.DEBUG:
+        return True
     try:
         return bool(
             posthoganalytics.feature_enabled(
