@@ -55,8 +55,8 @@ def _get_django_settings():
 @frozen
 class AwsCredentials:
     access_key: str
-    secret_key: str
-    session_token: str | None = None
+    secret_key: str = dataclasses.field(repr=False)
+    session_token: str | None = dataclasses.field(default=None, repr=False)
 
 
 def _get_boto3_credentials() -> AwsCredentials:
