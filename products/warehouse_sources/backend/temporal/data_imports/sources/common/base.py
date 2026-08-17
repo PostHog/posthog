@@ -222,6 +222,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Nothing requires these to
+        be enabled: `import_data_activity_sync` checks them per run and falls back to the
+        parent API when they aren't usable. Sources built on the shared REST fan-out wire
+        this to `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

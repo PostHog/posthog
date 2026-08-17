@@ -515,6 +515,10 @@ export const QueryWrapperToolConfigSchema = z
         /**
          * Override the URL enrichment prefix. When set, `_posthogUrl` uses
          * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
+         * Required for any query kind the insight editor can't render as an
+         * `InsightVizNode` source (TraceQuery, TracesQuery, ...), which would
+         * otherwise link to an empty insight. May contain `{param}` placeholders
+         * filled from the query body, e.g. `/ai-observability/traces/{traceId}`.
          */
         url_prefix: z.string().optional(),
         /**

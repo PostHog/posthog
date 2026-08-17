@@ -258,6 +258,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             parent_params={"query": "", "sort": "date"},
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
+            parent_source="warehouse",
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -276,6 +277,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
             # it as "no hashes for this issue" instead of failing the whole schema.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
+            parent_source="warehouse",
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(

@@ -47,10 +47,13 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
+    'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
     'loadToolDataEvents',
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
+    'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
 ]
 
 /*

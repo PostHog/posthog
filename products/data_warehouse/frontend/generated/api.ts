@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckIncrementalApi,
     CheckSchemaNameResponseApi,
     CreateTableFromUploadApi,
     DataModelingJobApi,
@@ -17,6 +18,7 @@ import type {
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
     DataWarehouseExpressionApi,
+    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
@@ -27,9 +29,12 @@ import type {
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
     FixHogqlListParams,
+    IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseMonitoringSeriesResponseApi,
+    ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
@@ -63,6 +68,7 @@ import type {
     SavedQueryColumnAnnotationsListParams,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -366,6 +372,64 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
 ): Promise<ManagedWarehouseDataStatusResponseApi> => {
     return apiMutator<ManagedWarehouseDataStatusResponseApi>(
         getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring/`
+}
+
+/**
+ * Get tenant-safe live worker, session, queue, and capacity data for the current organization.
+ * @summary Get managed warehouse monitoring snapshot
+ */
+export const dataWarehouseManagedWarehouseMonitoringRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSnapshotResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSnapshotResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-monitoring-timeseries/`
+}
+
+/**
+ * Get one allow-listed monitoring metric for the current organization and trailing time window.
+ * @summary Get managed warehouse monitoring time series
+ */
+export const dataWarehouseManagedWarehouseMonitoringTimeseriesRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseMonitoringSeriesResponseApi> => {
+    return apiMutator<ManagedWarehouseMonitoringSeriesResponseApi>(
+        getDataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',
@@ -1787,14 +1851,14 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryRunApi),
     })
 }
 
@@ -1813,6 +1877,29 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueriesCheckIncrementalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/check_incremental/`
+}
+
+/**
+ * Report whether a query can be materialized incrementally, without running it.
+ *
+ * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+ * the editor explain why the incremental option is unavailable before anything is saved.
+ */
+export const warehouseSavedQueriesCheckIncrementalCreate = async (
+    projectId: string,
+    checkIncrementalApi: CheckIncrementalApi,
+    options?: RequestInit
+): Promise<IncrementalEligibilityApi> => {
+    return apiMutator<IncrementalEligibilityApi>(getWarehouseSavedQueriesCheckIncrementalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(checkIncrementalApi),
     })
 }
 

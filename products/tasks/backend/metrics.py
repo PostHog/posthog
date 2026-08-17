@@ -90,6 +90,12 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
+    "posthog_tasks_log_append_unserialized_total",
+    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
+    "past the blocking timeout), where a concurrent append can still drop entries.",
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
@@ -221,12 +227,13 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
     "Loops auto-paused after exceeding the consecutive-failure threshold",
 )
 
-CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop).
+# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",
     "Cloud usage-gate check outcomes for PostHog Code runs",

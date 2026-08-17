@@ -12,7 +12,9 @@ description: >
 
 The global `ph` object (injected by the host — never imported, never initialized) is the only way
 a canvas talks to PostHog. Credentials stay in the host; `fetch()`, posthog-js, and hand-rolled
-clients fail in the sandbox.
+clients cannot reach PostHog from the sandbox. The one sanctioned use of `fetch()` is a non-PostHog
+origin declared in `capabilities.network.origins`, and only in the published canvas — the
+edit-mode preview blocks all direct network access.
 
 ## Data hierarchy — back every metric with a saved insight
 
@@ -35,6 +37,14 @@ Whatever tier you use, **declare it in the project's `capabilities`** before pub
 `ph.loadInsight` short id in `capabilities.posthog.insights`, every `ph.capture` event name in
 `captureEvents`, and `inlineQueries: true` for any `ph.query` use. The host rejects undeclared
 calls at runtime, and validation fails on undeclared literals.
+
+For a status board, set `refresh` to the cache lifetime in seconds. Use a whole number from 30 to
+86400 (one day); values outside that range, or fractional ones, fail at runtime:
+
+```js
+await ph.loadInsight(shortId, { refresh: 30 })
+await ph.query(queryNode, {}, { refresh: 30 })
+```
 
 ## Result shapes — read them correctly or every value renders 0
 
@@ -90,12 +100,55 @@ product — rather than every tile resolving the insight's saved default.
 - Values are typed by the variable's definition in PostHog (String / Number / Boolean / Date / List);
   pass the same shape the insight expects, and an array for a multi-select List variable.
 
+## Runtime memory — ph.state
+
+Durable key-value storage per canvas. Declare every scope you use in `capabilities.posthog.state`
+(`["user"]`, `["shared"]`, or both) — undeclared scopes fail validation and the host refuses them
+at runtime. Scope `"user"` (the default when no scope is passed) is private to each viewer;
+`"shared"` is one value per canvas, visible to the whole team.
+
+```tsx
+const draft = await ph.state.get('draft') // user scope by default; null when unset
+await ph.state.set('draft', { text }) // JSON value, capped at 64 KB serialized
+await ph.state.set('draft', null) // null deletes the key
+await ph.state.set('board', { columns }, { scope: 'shared' }) // team-visible
+const entries = await ph.state.list({ scope: 'shared' }) // [{ scope, key, value, updatedAt }]
+```
+
+- Load state in an effect on mount and render a skeleton until it resolves; writes are
+  last-write-wins, so re-read (or trust your own write) rather than merging.
+- 256 keys per scope. Store big data in PostHog (insights, the warehouse) and reference it.
+- State is team-visible application data — never secrets, never viewer PII.
+
+## PostHog writes — ph.actions
+
+`ph.actions.invoke(verb, payload)` writes into PostHog as the viewer. Declare every verb in
+`capabilities.posthog.actions`; undeclared or unregistered verbs fail validation and the host
+refuses them at runtime. Invocations must be wired to an explicit user gesture (a button the
+viewer clicks) — the host rejects calls made on load or render.
+
+Render the result or the thrown error visibly, and disable the button while the call is in
+flight — every invocation is a real PostHog write.
+
+The registry is the source of truth for verbs. Before wiring one, list it with the
+`canvases-actions-retrieve` tool: each entry carries `verb`, `summary`, `destructive`, and
+`usage` — the payload and result shape, what invoking it actually does, and the confirmation
+copy it warrants. Follow a verb's `usage` exactly, including what the success message may claim.
+Do not infer a verb's payload from the matching product's own MCP tools or skills — an MCP tool
+call (you, now, with your credentials) and a canvas verb (the viewer, later, in the published
+canvas) differ in payload shape, auth, and behavior. Invoking looks like:
+
+```tsx
+const { result } = await ph.actions.invoke('tasks.create', { title, description })
+```
+
 ## Side effects
 
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
   (fire-and-forget). Session replay, `$session_id`, and person attribution are handled by the
-  host automatically; never roll your own capture.
+  host automatically; never initialize recording, set session ids, or roll your own capture.
 - `ph.openExternal(url)` — opens `https://posthog.com` / `*.posthog.com` URLs only, and only from
-  a user interaction (opens outside focus are ignored). Don't link elsewhere.
+  a user interaction (opens outside focus are ignored). Sandboxed `target="_blank"` navigation is
+  blocked, so do not use it as a fallback or link elsewhere.
 - `ph.navigate.toTask(id)` / `.toNewTask()` / `.toCanvas(id)` / `.toNewCanvas()` — in-app
   navigation within the canvas's own channel.

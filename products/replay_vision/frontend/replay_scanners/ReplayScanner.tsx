@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { percentage } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,6 +29,8 @@ import { ScannerRunTab } from './components/ScannerRunTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { scanDrought } from './scanDrought'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -56,6 +59,13 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={scanner.name || 'Untitled scanner'}
+                nameSuffix={
+                    scanner.limit_reached ? (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    ) : undefined
+                }
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
@@ -89,6 +99,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <IngestionLimitBanner />
             <QuotaBanner />
+            <ScanDroughtBanner scannerId={scannerId} />
 
             <LemonTabs
                 activeKey={activeTab}
@@ -162,6 +173,35 @@ function QuotaBanner(): JSX.Element | null {
                 : onFreePlan
                   ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
                   : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+        </LemonBanner>
+    )
+}
+
+// Silence after a config change reads as "the product is broken", so name the real cause: filters that
+// match nothing, or sampling skipping the few sessions that do match.
+function ScanDroughtBanner({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner, observationStatsApi } = useValues(replayScannerLogic({ id: scannerId }))
+    const { quota } = useValues(visionQuotaLogic)
+    // An exhausted quota already explains the silence in its own banner above.
+    if (!scanner || quotaBannerState(quota).kind === 'exhausted') {
+        return null
+    }
+    const drought = scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date())
+    if (!drought) {
+        return null
+    }
+    const samplingNote =
+        drought.samplingRate < 1
+            ? `, and sampling only scans ${percentage(drought.samplingRate)} of the sessions that do`
+            : ''
+    return (
+        <LemonBanner
+            type="warning"
+            action={{ children: 'Review filters', to: urls.replayVisionScannerTriggers(scannerId) }}
+        >
+            {drought.everScanned
+                ? `No sessions have been scanned since this scanner's configuration last changed, even though sweeps have run since. The filters may match no recordings${samplingNote}.`
+                : `This scanner hasn't scanned any sessions yet, even though sweeps have run. The filters may match no recordings${samplingNote}.`}
         </LemonBanner>
     )
 }
