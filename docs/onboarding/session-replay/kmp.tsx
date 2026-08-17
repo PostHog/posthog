@@ -22,7 +22,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     kotlin {
                                         sourceSets {
                                             commonMain.dependencies {
-                                                implementation("com.posthog:posthog-kmp:0.1.0")
+                                                implementation("com.posthog:posthog-kmp:0.3.0")
                                             }
                                         }
                                     }
@@ -30,6 +30,11 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
+                    <Markdown>
+                        The SDK is a `0.x` pre-release, so pin an exact version – the API can change between minor
+                        versions. You can find the latest on [Maven
+                        Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp).
+                    </Markdown>
                     <CalloutBox type="fyi" title="Supported targets">
                         <Markdown>
                             Session replay is captured on Android, iOS and the web. It is ignored on the JVM (desktop)
