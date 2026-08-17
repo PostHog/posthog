@@ -206,7 +206,7 @@ describe("ChannelsList", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
-  it("pins the personal space above the channels, with its ⌘1 shortcut", () => {
+  it("pins personal above the channels, with its ⌘1 shortcut", () => {
     renderList();
     const me = screen.getByText("personal");
     const eng = screen.getByText("engineering");

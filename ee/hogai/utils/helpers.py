@@ -204,12 +204,14 @@ def _process_events_data(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        analytics_props={"source": EventSource.POSTHOG_AI},
+        user=user,
+        analytics_props={"source": event_source},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -352,8 +354,11 @@ def format_events_yaml(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(
+        events_in_context, team, user, limit=limit, offset=offset, event_source=event_source
+    )
 
     formatted_events = ["events:"]
     any_not_seen_recently = False

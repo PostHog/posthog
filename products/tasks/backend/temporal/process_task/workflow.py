@@ -153,6 +153,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    ci_resume_snapshot_created: bool = False
     accepted_message_ids: list[str] = field(default_factory=list)
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
@@ -314,6 +315,8 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 # Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
+_PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -387,6 +390,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
         # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
         self._pr_progress_emitted: bool = False
+        self._ci_resume_snapshot_created: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
         # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
@@ -906,9 +910,22 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
                         follow_up_result = await self._should_run_ci_follow_up()
+                        if (
+                            not self._ci_resume_snapshot_created
+                            and follow_up_result != CIFollowUpDecision.NO_PR
+                            and self.context.mode == "interactive"
+                            and self.context.use_modal_resume_snapshots
+                            and workflow.patched(_PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP)
+                        ):
+                            self._ci_resume_snapshot_created = await self._create_resume_snapshot(
+                                sandbox_id,
+                                reason="ci_follow_up",
+                                allow_pruning=False,
+                            )
                         match follow_up_result:
                             case CIFollowUpDecision.FIRE:
                                 workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
+                                self._ci_resume_snapshot_created = False
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR:
                                 # No PR will ever appear — stop the CI loop entirely.
@@ -1173,7 +1190,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         and self._context.mode == "interactive"
                         and self._context.use_modal_resume_snapshots
                     ):
-                        await self._create_resume_snapshot(cleanup_sandbox_id)
+                        await self._create_resume_snapshot(
+                            cleanup_sandbox_id,
+                            reason="teardown",
+                            allow_pruning=True,
+                        )
 
                     await self._read_sandbox_logs(cleanup_sandbox_id)
                     await self._cleanup_sandbox(
@@ -1313,6 +1334,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_fingerprint=self._pr_fingerprint,
                 pr_unresolved_threads=self._pr_unresolved_threads,
                 pr_progress_emitted=self._pr_progress_emitted,
+                ci_resume_snapshot_created=self._ci_resume_snapshot_created,
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
@@ -1337,6 +1359,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._pr_progress_emitted = resumed.pr_progress_emitted
+        self._ci_resume_snapshot_created = resumed.ci_resume_snapshot_created
         self._first_user_message_received = resumed.first_user_message_received
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
@@ -2187,7 +2210,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except (asyncio.CancelledError, Exception):
             pass
 
-    async def _create_resume_snapshot(self, sandbox_id: str) -> None:
+    async def _create_resume_snapshot(self, sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:
         """Create a snapshot for interactive sandbox resume."""
         try:
             result = await workflow.execute_activity(
@@ -2195,17 +2218,49 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CreateResumeSnapshotInput(
                     sandbox_id=sandbox_id,
                     run_id=self.context.run_id,
-                    use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+                    reason=reason,
+                    allow_pruning=allow_pruning,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
-                workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
+                workflow.logger.info(
+                    "resume_snapshot_created",
+                    extra={
+                        "run_id": self.context.run_id,
+                        "sandbox_id": sandbox_id,
+                        "reason": reason,
+                        "snapshot_external_id": result.external_id,
+                        "snapshot_kind": result.snapshot_kind,
+                        "duration_ms": result.duration_ms,
+                    },
+                )
+                return True
             elif result.error:
-                workflow.logger.warning(f"Resume snapshot skipped: {result.error}")
+                workflow.logger.warning(
+                    "resume_snapshot_skipped",
+                    extra={
+                        "run_id": self.context.run_id,
+                        "sandbox_id": sandbox_id,
+                        "reason": reason,
+                        "snapshot_kind": result.snapshot_kind,
+                        "duration_ms": result.duration_ms,
+                        "error": result.error,
+                    },
+                )
+                return False
         except Exception as e:
-            workflow.logger.warning(f"Resume snapshot failed (non-fatal): {e}")
+            workflow.logger.warning(
+                "resume_snapshot_failed_non_fatal",
+                extra={
+                    "run_id": self.context.run_id,
+                    "sandbox_id": sandbox_id,
+                    "reason": reason,
+                    "error": str(e),
+                },
+            )
+        return False
 
     async def _trigger_snapshot_workflow(self) -> None:
         github_integration_id = self.context.github_integration_id

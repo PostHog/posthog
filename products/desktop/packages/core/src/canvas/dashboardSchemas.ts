@@ -138,3 +138,83 @@ export const setPinnedInput = z.object({
   id: z.string().min(1),
   pinned: z.boolean(),
 });
+
+// File a rendering error against the build that threw it. Only the error's
+// class name crosses the boundary — the full message can carry viewer data.
+export const reportCanvasErrorInput = z.object({
+  id: z.string().min(1),
+  buildId: z.string().min(1),
+  errorType: z.string().min(1).max(64),
+});
+export const canvasStateScopeSchema = z.enum(["user", "shared"]);
+export type CanvasStateScope = z.infer<typeof canvasStateScopeSchema>;
+
+// One key of a canvas's runtime key-value state (the ph.state store).
+export const canvasStateEntrySchema = z.object({
+  scope: canvasStateScopeSchema,
+  key: z.string(),
+  value: z.unknown(),
+  updatedAt: z.string(),
+});
+export type CanvasStateEntry = z.infer<typeof canvasStateEntrySchema>;
+
+export const canvasStateListInput = z.object({
+  id: z.string().min(1),
+  scope: canvasStateScopeSchema.optional(),
+});
+
+// State values cross to the backend as JSON, where a null value means "delete
+// this key". JSON.stringify turns non-finite numbers (NaN, Infinity) into
+// null, so without this guard a canvas storing one (e.g. total / count with a
+// zero count) would silently delete the key and still get a success response.
+// An explicit null stays the delete sentinel.
+function isStorableStateValue(value: unknown): boolean {
+  try {
+    JSON.stringify(value, (_key, entry) => {
+      if (typeof entry === "number" && !Number.isFinite(entry)) {
+        throw new Error("non-finite number");
+      }
+      return entry;
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A null value deletes the key.
+export const canvasStateSetInput = z.object({
+  id: z.string().min(1),
+  scope: canvasStateScopeSchema,
+  key: z.string().min(1).max(200),
+  value: z.unknown().refine(isStorableStateValue, {
+    message: "value must not contain non-finite numbers (NaN or Infinity)",
+  }),
+});
+
+// One registered action verb, as the host renders it before invoking.
+export const canvasActionDefinitionSchema = z.object({
+  verb: z.string(),
+  summary: z.string(),
+  destructive: z.boolean(),
+});
+export type CanvasActionDefinition = z.infer<
+  typeof canvasActionDefinitionSchema
+>;
+
+export const canvasActionInvokeInput = z.object({
+  id: z.string().min(1),
+  verb: z.string().min(1).max(64),
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const canvasActionResultSchema = z.object({
+  verb: z.string(),
+  result: z.record(z.string(), z.unknown()),
+});
+export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
+
+export const requestCanvasAgentInput = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1).max(10_000),
+});
