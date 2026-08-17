@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 — CLI tool; stdout is the intended output
 """Prove a split moved code without changing it.
 
     git show HEAD:products/foo/backend/logic.py > /tmp/before.py
@@ -46,6 +47,9 @@ def canonical(node: ast.stmt, modules: list[str]) -> str:
     reports differences that are not there. Text canonicalization is symmetric.
     """
     text = ast.unparse(node)
+    # The split adds a dot to every relative import, since the modules sit a level deeper.
+    # That is mechanical, so collapse the depth on both sides rather than reporting it.
+    text = re.sub(r"\bfrom \.+", "from .", text)
     if modules:
         alternation = "|".join(sorted(modules, key=len, reverse=True))
         text = re.sub(rf"\b({alternation})\.", "", text)

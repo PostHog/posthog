@@ -383,9 +383,6 @@ select = [
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
-# Skill scripts are standalone CLIs invoked by hand, so stdout *is* the interface (T201),
-# and the Django-dependent ones must set DJANGO_SETTINGS_MODULE before importing django (PLC0415).
-".agents/skills/**/scripts/*.py" = ["T201", "PLC0415"]
 
 # PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
 # Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
