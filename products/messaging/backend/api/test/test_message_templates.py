@@ -4,6 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.validation import build_html_wrap_design
 from posthog.models import Organization, Team
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -133,6 +134,31 @@ class TestMessageTemplatesAPI(APIBaseTest):
         contents = email["design"]["body"]["rows"][0]["columns"][0]["contents"]
         assert contents[0]["type"] == "html"
         assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
+    def test_update_with_stale_wrap_rebuilds_the_design_from_the_submitted_html(self):
+        # A caller that patches html and sends the design back untouched (an agent edit, an
+        # older client) would otherwise keep the visual editor on the previous content forever.
+        self.message_template.content = {"email": {"subject": "Hi", "html": "<p>old</p>"}}
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={
+                "content": {
+                    "email": {
+                        "subject": "Hi",
+                        "html": "<p>new</p>",
+                        "design": build_html_wrap_design("<p>old</p>"),
+                    }
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        email = response.json()["content"]["email"]
+        assert email["html"] == "<p>new</p>"
+        assert email["design"] == build_html_wrap_design("<p>new</p>")
 
     def test_create_email_template_without_email_content_succeeds(self):
         response = self.client.post(
