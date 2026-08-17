@@ -186,6 +186,9 @@ jobs:
                   PGUSER: posthog
                   PGPASSWORD: posthog
               run: |
+                  # The default shell is `bash -e`, so without this psql's exit code hides a failed
+                  # gunzip and a truncated dump commits as a half-primed schema.
+                  set -o pipefail
                   prime() {
                       gunzip -c schema.sql.gz \
                           | psql -q -v ON_ERROR_STOP=1 --single-transaction test_posthog || return 1
