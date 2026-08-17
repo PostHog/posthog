@@ -524,8 +524,9 @@ function FeaturePlanningView({ report }: { report: SignalReport }): JSX.Element 
  */
 export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = featureDetailLogic({ reportId: report.id, report })
-    const { activeSubTab, isPlanning, hasImplementationRun, startingImplementation } = useValues(logic)
-    const { setActiveSubTab, startImplementation } = useActions(logic)
+    const { activeSubTab, isPlanning, isStaged, hasImplementationRun, startingImplementation, promotingFeature } =
+        useValues(logic)
+    const { setActiveSubTab, startImplementation, promoteFeature } = useActions(logic)
 
     if (isPlanning) {
         return <FeaturePlanningView report={report} />
@@ -555,7 +556,11 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                     <div className="flex flex-col gap-2 min-w-0 flex-1">
                         <EditableTitle report={report} />
                         <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary leading-none select-none">
-                            <SignalReportStatusBadge status={report.status} />
+                            {isStaged ? (
+                                <LemonTag type="highlight">Staged</LemonTag>
+                            ) : (
+                                <SignalReportStatusBadge status={report.status} />
+                            )}
                             <span className="flex items-center gap-1">
                                 <span>Started</span>
                                 <TZLabel time={report.created_at} />
@@ -568,7 +573,16 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
-                        {hasImplementationRun === false && (
+                        {isStaged ? (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={promoteFeature}
+                                loading={promotingFeature}
+                            >
+                                Promote feature
+                            </LemonButton>
+                        ) : hasImplementationRun === false ? (
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -578,7 +592,7 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                             >
                                 Start implementing
                             </LemonButton>
-                        )}
+                        ) : null}
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -596,6 +610,13 @@ export function FeatureDetail({ report }: { report: SignalReport }): JSX.Element
                     </div>
                 </div>
             </div>
+
+            {isStaged && (
+                <LemonBanner type="info" className="mb-4">
+                    Review this discovered feature before promoting it. Promotion activates its owner scout and starts
+                    the first implementation pass when the report has a resolvable owner.
+                </LemonBanner>
+            )}
 
             <LemonTabs<FeatureDetailSubTab>
                 activeKey={activeSubTab}

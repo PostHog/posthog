@@ -853,11 +853,20 @@ tools:
     signals-features-create:
         operation: signals_features_create
         enabled: false
+    signals-features-discover-create:
+        operation: signals_features_discover_create
+        enabled: false
+    signals-features-discovery-runs-list:
+        operation: signals_features_discovery_runs_list
+        enabled: false
     signals-features-finish-planning-create:
         operation: signals_features_finish_planning_create
         enabled: false
     signals-features-list:
         operation: signals_features_list
+        enabled: false
+    signals-features-promote-create:
+        operation: signals_features_promote_create
         enabled: false
     signals-features-start-implementation-create:
         operation: signals_features_start_implementation_create

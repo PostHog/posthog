@@ -41710,6 +41710,52 @@ export namespace Schemas {
       run_id: string | null;
     }
 
+    export interface InboxFeatureDiscoveryCreate {
+      /**
+         * GitHub repository to explore in owner/repo format.
+         * @maxLength 512
+         */
+      repository: string;
+      /**
+         * Optional direction that limits which features the agent discovers.
+         * @maxLength 4000
+         */
+      focus?: string;
+    }
+
+    export interface InboxFeatureDiscoveryCreated {
+      /** Id of the queued feature discovery run. */
+      run_id: string;
+    }
+
+    export interface InboxFeatureDiscoveryRun {
+      readonly id: string;
+      /** GitHub repository explored by the agent. */
+      readonly repository: string;
+      /** Direction used to limit discovery, or an empty string for all features. */
+      readonly focus: string;
+      /** Current discovery state: queued, running, completed, or failed. */
+      readonly discovery_status: string;
+      /** Number of staged features produced after completion. */
+      readonly discovered_count: number;
+      /** Failure message with the next action, or an empty string. */
+      readonly error: string;
+      /**
+         * Agent task used for the discovery session, when started.
+         * @nullable
+         */
+      readonly task_id: string | null;
+      /** When discovery was requested. */
+      readonly created_at: string;
+      /** When discovery last changed state. */
+      readonly updated_at: string;
+    }
+
+    export interface InboxFeatureError {
+      /** What happened and what to do next. */
+      detail: string;
+    }
+
     /**
      * Response for a manually started implementation pass.
      */
@@ -41770,6 +41816,8 @@ export namespace Schemas {
       readonly status: string;
       /** Whether the feature is still in its initial planning phase. */
       readonly is_planning: boolean;
+      /** Feature ownership stage: staged, planning, or managed. */
+      readonly feature_stage: string;
       /** When the feature report was created. */
       readonly created_at: string;
       /** When the feature report was last updated. */
@@ -51359,6 +51407,7 @@ export namespace Schemas {
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
+     * * `feature_lifecycle` - Feature Lifecycle
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -51382,6 +51431,7 @@ export namespace Schemas {
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
+      FeatureLifecycle: 'feature_lifecycle',
     } as const;
 
     export interface _User {

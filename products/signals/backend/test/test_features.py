@@ -8,12 +8,16 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 
 from products.signals.backend.artefact_schemas import (
+    FeatureLifecycle,
+    FeatureSource,
+    FeatureStage,
     Priority,
     PriorityAssessment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
 from products.signals.backend.features.service import (
+    CreatedFeatureDiscovery,
     FeaturePlanningNotReadyError,
     create_feature,
     feature_planning_readiness,
@@ -88,10 +92,10 @@ class TestFeatureService(APIBaseTest):
         assert report.status == SignalReport.Status.READY
 
         artefacts = list(SignalReportArtefact.objects.filter(report_id=report.id).order_by("created_at"))
-        assert [a.type for a in artefacts] == ["note", "task_run"]
+        assert [a.type for a in artefacts] == ["feature_lifecycle", "note", "task_run"]
         # The groundskeeping note is the full operating contract: it must carry the report id, the
         # MCP write tool, and the owner scout's exact skill name.
-        note = artefacts[0].content
+        note = artefacts[1].content
         assert "About this feature report" in note
         assert created.report_id in note
         assert "inbox-report-artefacts-create" in note
@@ -186,6 +190,25 @@ class TestFeatureAPI(APIBaseTest):
         rows = response.json()["results"]
         assert [r["id"] for r in rows] == [created.report_id]
         assert rows[0]["is_planning"] is True
+        assert rows[0]["feature_stage"] == "planning"
+
+    @patch("products.signals.backend.features.views.start_feature_discovery")
+    def test_discover_endpoint_passes_repository_and_focus_to_workflow_launcher(self, mock_start: MagicMock) -> None:
+        mock_start.return_value = CreatedFeatureDiscovery(run_id=str(uuid4()))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/features/discover/",
+            {"repository": "PostHog/posthog", "focus": "Only session replay features"},
+        )
+
+        assert response.status_code == 201, response.content
+        assert response.json()["run_id"]
+        assert mock_start.call_args.kwargs == {
+            "team": self.team,
+            "user": self.user,
+            "repository": "PostHog/posthog",
+            "focus": "Only session replay features",
+        }
 
     def test_finish_planning_endpoint_returns_missing_on_unready_feature(self):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
@@ -237,3 +260,29 @@ class TestFeatureAPI(APIBaseTest):
         report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY)
         response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/finish_planning/")
         assert response.status_code == 404
+
+    @patch("products.tasks.backend.facade.api.create_and_run_task")
+    def test_promote_endpoint_moves_staged_feature_to_managed(self, mock_create_task: MagicMock) -> None:
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-me4", extra_data={"login": "me"})
+        mock_create_task.return_value = _mock_created_task(self.team, self.user)
+        report = _make_ready_feature(self.team, self.user)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FeatureLifecycle(
+                feature_stage=FeatureStage.STAGED,
+                source=FeatureSource.DISCOVERY,
+                discovery_run_id=str(uuid4()),
+            ),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reevaluate_autostart=False,
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/features/{report.id}/promote/")
+
+        assert response.status_code == 200, response.content
+        lifecycle = SignalReportArtefact.objects.filter(
+            report_id=report.id,
+            type=SignalReportArtefact.ArtefactType.FEATURE_LIFECYCLE,
+        ).latest("created_at")
+        assert FeatureLifecycle.model_validate_json(lifecycle.content).feature_stage == FeatureStage.MANAGED

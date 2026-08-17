@@ -64,6 +64,7 @@ STEP_RESEARCH = "research"
 STEP_REPO_SELECTION = "repo_selection"
 STEP_IMPLEMENTATION = "implementation"
 STEP_CUSTOM_AGENT = "custom_agent"
+STEP_FEATURE_DISCOVERY = "feature_discovery"
 
 
 @dataclass(frozen=True)

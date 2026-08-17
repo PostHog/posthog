@@ -21,6 +21,9 @@ import type {
     ForgetResponseApi,
     InboxFeatureCreateApi,
     InboxFeatureCreatedApi,
+    InboxFeatureDiscoveryCreateApi,
+    InboxFeatureDiscoveryCreatedApi,
+    InboxFeatureDiscoveryRunApi,
     InboxFeatureImplementationStartedApi,
     InboxFeaturePlanningFinishedApi,
     PaginatedInboxFeatureReportListApi,
@@ -185,6 +188,25 @@ export const signalsFeaturesFinishPlanningCreate = async (
     })
 }
 
+export const getSignalsFeaturesPromoteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/features/${id}/promote/`
+}
+
+/**
+ * Promote an auto-discovered feature into managed ownership, activate its owner scout, and start its first implementation pass when possible.
+ * @summary Promote a staged feature
+ */
+export const signalsFeaturesPromoteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InboxFeaturePlanningFinishedApi> => {
+    return apiMutator<InboxFeaturePlanningFinishedApi>(getSignalsFeaturesPromoteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsFeaturesStartImplementationCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/features/${id}/start_implementation/`
 }
@@ -205,6 +227,45 @@ export const signalsFeaturesStartImplementationCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getSignalsFeaturesDiscoverCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/features/discover/`
+}
+
+/**
+ * Start a background agent that explores a repository and stages structured feature reports. An optional focus limits discovery to a specific product area.
+ * @summary Discover features from a repository
+ */
+export const signalsFeaturesDiscoverCreate = async (
+    projectId: string,
+    inboxFeatureDiscoveryCreateApi: InboxFeatureDiscoveryCreateApi,
+    options?: RequestInit
+): Promise<InboxFeatureDiscoveryCreatedApi> => {
+    return apiMutator<InboxFeatureDiscoveryCreatedApi>(getSignalsFeaturesDiscoverCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboxFeatureDiscoveryCreateApi),
+    })
+}
+
+export const getSignalsFeaturesDiscoveryRunsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/features/discovery_runs/`
+}
+
+/**
+ * Return the 20 most recent discovery runs for this project.
+ * @summary List feature discovery runs
+ */
+export const signalsFeaturesDiscoveryRunsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxFeatureDiscoveryRunApi[]> => {
+    return apiMutator<InboxFeatureDiscoveryRunApi[]>(getSignalsFeaturesDiscoveryRunsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {

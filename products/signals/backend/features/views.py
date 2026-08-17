@@ -16,21 +16,29 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models import User
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.features.queries import fetch_feature_report_ids
+from products.signals.backend.features.queries import fetch_feature_report_ids, fetch_feature_stages
 from products.signals.backend.features.serializers import (
     InboxFeatureCreatedSerializer,
     InboxFeatureCreateSerializer,
+    InboxFeatureDiscoveryCreatedSerializer,
+    InboxFeatureDiscoveryCreateSerializer,
+    InboxFeatureDiscoveryRunSerializer,
+    InboxFeatureErrorSerializer,
     InboxFeatureImplementationStartedSerializer,
     InboxFeaturePlanningFinishedSerializer,
     InboxFeaturePlanningNotReadySerializer,
     InboxFeatureReportSerializer,
 )
 from products.signals.backend.features.service import (
+    FeatureDiscoveryStartError,
+    FeatureNotStagedError,
     FeaturePlanningNotReadyError,
     create_feature,
     finish_feature_planning,
+    promote_staged_feature,
+    start_feature_discovery,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import FeatureDiscoveryRun, SignalReport
 
 
 class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -44,31 +52,21 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = InboxFeatureReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    # Membership is resolved from planning task markers, so this avoids exposing an unscoped queryset
-    # while still satisfying the mixin's model introspection.
+    # Membership comes from lifecycle artefacts, with task markers retained for legacy reports.
+    # An empty queryset satisfies the mixin without exposing unscoped reports.
     queryset = SignalReport.objects.none()
 
     @extend_schema(responses=InboxFeatureReportSerializer(many=True))
     def list(self, request: Request, *args, **kwargs) -> Response:
-        # The planning task marker is created with the feature, so features remain discoverable
-        # throughout planning without entering the signal grouping pipeline.
         marker_ids = fetch_feature_report_ids(self.team.id)
 
         reports: list[SignalReport] = []
-        planning_report_ids: set[str] = set()
+        feature_stages = fetch_feature_stages(self.team.id, marker_ids)
         if marker_ids:
-            planning_finished_ids = {
-                str(report_id)
-                for report_id in SignalReportArtefact.objects.filter(
-                    team_id=self.team.id,
-                    report_id__in=marker_ids,
-                    type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-                ).values_list("report_id", flat=True)
-            }
-            planning_report_ids = {report_id for report_id in marker_ids if report_id not in planning_finished_ids}
             ordered_ids = [
-                *(report_id for report_id in marker_ids if report_id in planning_report_ids),
-                *(report_id for report_id in marker_ids if report_id not in planning_report_ids),
+                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "staged"),
+                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "planning"),
+                *(report_id for report_id in marker_ids if feature_stages[report_id].value == "managed"),
             ]
             reports_by_id = {
                 str(report.id): report
@@ -79,7 +77,7 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reports = [reports_by_id[report_id] for report_id in ordered_ids if report_id in reports_by_id]
 
         page = self.paginate_queryset(reports)
-        serializer_context = {**self.get_serializer_context(), "planning_report_ids": planning_report_ids}
+        serializer_context = {**self.get_serializer_context(), "feature_stages": feature_stages}
         if page is not None:
             serializer = InboxFeatureReportSerializer(page, many=True, context=serializer_context)
             return self.get_paginated_response(serializer.data)
@@ -111,6 +109,55 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             {"report_id": created.report_id, "task_id": created.task_id, "run_id": created.run_id}
         )
         return Response(response.data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=InboxFeatureDiscoveryCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=InboxFeatureDiscoveryCreatedSerializer,
+                description="Feature discovery queued.",
+            ),
+            503: OpenApiResponse(
+                response=InboxFeatureErrorSerializer,
+                description="Feature discovery could not be started.",
+            ),
+        },
+        summary="Discover features from a repository",
+        description=(
+            "Start a background agent that explores a repository and stages structured feature reports. "
+            "An optional focus limits discovery to a specific product area."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="discover")
+    def discover(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        try:
+            created = start_feature_discovery(
+                team=self.team,
+                user=cast(User, request.user),
+                repository=request.validated_data["repository"],
+                focus=request.validated_data["focus"],
+            )
+        except FeatureDiscoveryStartError:
+            return Response(
+                InboxFeatureErrorSerializer(
+                    {"detail": "Feature discovery could not start. Check the repository connection and try again."}
+                ).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(
+            InboxFeatureDiscoveryCreatedSerializer({"run_id": created.run_id}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        responses={200: InboxFeatureDiscoveryRunSerializer(many=True)},
+        summary="List feature discovery runs",
+        description="Return the 20 most recent discovery runs for this project.",
+    )
+    @action(detail=False, methods=["get"], url_path="discovery_runs", pagination_class=None)
+    def discovery_runs(self, request: Request, *args, **kwargs) -> Response:
+        runs = FeatureDiscoveryRun.objects.for_team(self.team.id).order_by("-created_at")[:20]
+        return Response(InboxFeatureDiscoveryRunSerializer(runs, many=True).data)
 
     @extend_schema(
         request=None,
@@ -192,6 +239,57 @@ class InboxFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except FeaturePlanningNotReadyError as e:
             return Response({"missing": e.missing}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            InboxFeaturePlanningFinishedSerializer(
+                {
+                    "planning_finished": True,
+                    "scout_skill_name": completion.scout_skill_name,
+                    "implementation_task_id": completion.implementation_task_id,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=InboxFeaturePlanningFinishedSerializer,
+                description="Feature promoted to managed ownership.",
+            ),
+            400: OpenApiResponse(
+                response=InboxFeatureErrorSerializer,
+                description="The report is not a staged feature or is missing required details.",
+            ),
+            404: OpenApiResponse(description="Feature report not found for this project."),
+        },
+        summary="Promote a staged feature",
+        description=(
+            "Promote an auto-discovered feature into managed ownership, activate its owner scout, "
+            "and start its first implementation pass when possible."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="promote")
+    def promote(self, request: Request, *args, **kwargs) -> Response:
+        report = get_object_or_404(
+            SignalReport.objects.filter(team=self.team).exclude(status=SignalReport.Status.DELETED),
+            id=kwargs["pk"],
+        )
+        try:
+            completion = promote_staged_feature(
+                team=self.team,
+                user=cast(User, request.user),
+                report=report,
+            )
+        except FeatureNotStagedError:
+            return Response(
+                InboxFeatureErrorSerializer({"detail": "This report is not a staged feature."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except FeaturePlanningNotReadyError as error:
+            return Response(
+                InboxFeatureErrorSerializer({"detail": f"This feature is missing: {', '.join(error.missing)}."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(
             InboxFeaturePlanningFinishedSerializer(
                 {

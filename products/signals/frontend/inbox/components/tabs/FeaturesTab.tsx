@@ -1,64 +1,43 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { IconPlus, IconRocket } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSkeleton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { IconPlus, IconRocket, IconSearch } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { featureCreateLogic } from '../../logics/featureCreateLogic'
+import { featureDiscoveryLogic } from '../../logics/featureDiscoveryLogic'
 import { featureListLogic } from '../../logics/featureListLogic'
-
-function NewFeatureModal(): JSX.Element {
-    const { newFeatureModalOpen, descriptionDraft, creating } = useValues(featureCreateLogic)
-    const { closeNewFeatureModal, setDescriptionDraft, createFeature } = useActions(featureCreateLogic)
-
-    return (
-        <LemonModal
-            isOpen={newFeatureModalOpen}
-            onClose={closeNewFeatureModal}
-            title="New feature"
-            description="Describe the feature you want to build. An agent will help you plan how to build and measure it."
-            footer={
-                <>
-                    <LemonButton
-                        type="secondary"
-                        onClick={closeNewFeatureModal}
-                        disabledReason={creating ? 'Creating…' : undefined}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={createFeature}
-                        loading={creating}
-                        disabledReason={!descriptionDraft.trim() ? 'Describe the idea first' : undefined}
-                    >
-                        Start planning
-                    </LemonButton>
-                </>
-            }
-        >
-            <LemonTextArea
-                value={descriptionDraft}
-                onChange={setDescriptionDraft}
-                minRows={3}
-                placeholder="e.g. A burndown chart widget for dashboards, driven by error tracking issues"
-                autoFocus
-            />
-        </LemonModal>
-    )
-}
+import { FeatureDiscoveryModal } from './FeatureDiscoveryModal'
+import { NewFeatureModal } from './NewFeatureModal'
 
 export function FeaturesTab(): JSX.Element {
     const { features, featuresLoading } = useValues(featureListLogic)
     const { openNewFeatureModal } = useActions(featureCreateLogic)
+    const { discoveryRuns } = useValues(featureDiscoveryLogic)
+    const { openDiscoveryModal } = useActions(featureDiscoveryLogic)
 
-    const newFeatureButton = (
-        <LemonButton type="primary" size="small" icon={<IconPlus />} onClick={openNewFeatureModal}>
-            New feature
-        </LemonButton>
+    const stagedFeatures = features.filter((feature) => feature.feature_stage === 'staged')
+    const ownedFeatures = features.filter((feature) => feature.feature_stage !== 'staged')
+    const activeDiscoveryRuns = discoveryRuns.filter(
+        (run) => run.discovery_status === 'queued' || run.discovery_status === 'running'
+    )
+    const latestFailedRun = discoveryRuns[0]?.discovery_status === 'failed' ? discoveryRuns[0] : undefined
+    const latestEmptyRun =
+        discoveryRuns[0]?.discovery_status === 'completed' && discoveryRuns[0].discovered_count === 0
+            ? discoveryRuns[0]
+            : undefined
+
+    const actionButtons = (
+        <div className="flex items-center gap-2">
+            <LemonButton type="secondary" size="small" icon={<IconSearch />} onClick={openDiscoveryModal}>
+                Discover features
+            </LemonButton>
+            <LemonButton type="primary" size="small" icon={<IconPlus />} onClick={openNewFeatureModal}>
+                New feature
+            </LemonButton>
+        </div>
     )
 
     if (featuresLoading && features.length === 0) {
@@ -69,44 +48,113 @@ export function FeaturesTab(): JSX.Element {
         )
     }
 
-    if (features.length === 0) {
+    if (features.length === 0 && activeDiscoveryRuns.length === 0 && !latestFailedRun && !latestEmptyRun) {
         return (
             <>
                 <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted">
                     <IconRocket className="text-2xl" />
                     <h3 className="mb-0">No features yet</h3>
-                    <p className="max-w-md text-sm">
-                        Create a feature to plan it with an agent, build it, and keep improving it with PostHog data.
+                    <p className="max-w-lg text-sm">
+                        Create a feature with an agent, or discover the features that already exist in a repository.
+                        PostHog can own, monitor, and improve them over time.
                     </p>
-                    {newFeatureButton}
+                    {actionButtons}
                 </div>
                 <NewFeatureModal />
+                <FeatureDiscoveryModal />
             </>
         )
     }
 
     return (
-        <div className="flex flex-col gap-2 p-6">
-            <div className="flex items-center justify-end">{newFeatureButton}</div>
-            {features.map((feature) => (
-                <LemonCard
-                    key={feature.id}
-                    onClick={() => router.actions.push(urls.inboxReport('features', feature.id))}
-                    className="flex flex-col gap-1"
-                >
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold">{feature.title || 'Untitled feature'}</span>
-                        {feature.is_planning ? (
-                            <LemonTag type="warning">Planning</LemonTag>
-                        ) : (
-                            <LemonTag>{feature.status}</LemonTag>
-                        )}
-                    </div>
-                    {feature.summary && <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>}
-                    <TZLabel time={feature.updated_at} className="text-xs text-muted" />
-                </LemonCard>
+        <div className="flex flex-col gap-4 p-6">
+            <div className="flex items-center justify-end">{actionButtons}</div>
+
+            {activeDiscoveryRuns.map((run) => (
+                <LemonBanner key={run.id} type="info">
+                    Discovering features in <strong>{run.repository}</strong>
+                    {run.focus ? ` with the focus “${run.focus}”` : ''}. The reports will appear in Staged features when
+                    the agent finishes.
+                </LemonBanner>
             ))}
+            {latestFailedRun && activeDiscoveryRuns.length === 0 && (
+                <LemonBanner type="error">
+                    Feature discovery for <strong>{latestFailedRun.repository}</strong> failed.{' '}
+                    {latestFailedRun.error || 'Check the GitHub connection and try again.'}
+                    <LemonButton type="secondary" size="small" onClick={openDiscoveryModal} className="ml-2">
+                        Try again
+                    </LemonButton>
+                </LemonBanner>
+            )}
+            {latestEmptyRun && activeDiscoveryRuns.length === 0 && (
+                <LemonBanner type="info">
+                    Discovery found no features in <strong>{latestEmptyRun.repository}</strong>
+                    {latestEmptyRun.focus ? ` for “${latestEmptyRun.focus}”` : ''}. Try a broader focus or another
+                    repository.
+                    <LemonButton type="secondary" size="small" onClick={openDiscoveryModal} className="ml-2">
+                        Discover again
+                    </LemonButton>
+                </LemonBanner>
+            )}
+
+            {stagedFeatures.length > 0 && (
+                <section className="flex flex-col gap-2">
+                    <div>
+                        <h3 className="mb-0">Staged features</h3>
+                        <p className="mb-0 text-sm text-muted">Review discovered reports before promoting them.</p>
+                    </div>
+                    {stagedFeatures.map((feature) => (
+                        <LemonCard key={feature.id} className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between gap-2">
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    className="-ml-2 font-semibold"
+                                    to={urls.inboxReport('features', feature.id)}
+                                >
+                                    {feature.title || 'Untitled feature'}
+                                </LemonButton>
+                                <LemonTag type="highlight">Staged</LemonTag>
+                            </div>
+                            {feature.summary && (
+                                <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>
+                            )}
+                            <TZLabel time={feature.updated_at} className="text-xs text-muted" />
+                        </LemonCard>
+                    ))}
+                </section>
+            )}
+
+            {ownedFeatures.length > 0 && (
+                <section className="flex flex-col gap-2">
+                    {stagedFeatures.length > 0 && <h3 className="mb-0">Owned features</h3>}
+                    {ownedFeatures.map((feature) => (
+                        <LemonCard key={feature.id} className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between gap-2">
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    className="-ml-2 font-semibold"
+                                    to={urls.inboxReport('features', feature.id)}
+                                >
+                                    {feature.title || 'Untitled feature'}
+                                </LemonButton>
+                                {feature.is_planning ? (
+                                    <LemonTag type="warning">Planning</LemonTag>
+                                ) : (
+                                    <LemonTag>{feature.status}</LemonTag>
+                                )}
+                            </div>
+                            {feature.summary && (
+                                <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>
+                            )}
+                            <TZLabel time={feature.updated_at} className="text-xs text-muted" />
+                        </LemonCard>
+                    ))}
+                </section>
+            )}
             <NewFeatureModal />
+            <FeatureDiscoveryModal />
         </div>
     )
 }

@@ -193,6 +193,41 @@ class InvalidStatusTransition(Exception):
         super().__init__(f"Cannot transition from {from_status} to {to_status}")
 
 
+class FeatureDiscoveryRun(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="feature_discovery_runs",
+        db_constraint=False,
+    )
+    created_by_id = models.BigIntegerField()
+    task = models.OneToOneField(
+        "tasks.Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feature_discovery_run",
+    )
+    repository = models.CharField(max_length=512)
+    focus = models.TextField(blank=True, default="", db_default="")
+    status = models.CharField(max_length=20, choices=Status, default=Status.QUEUED, db_default=Status.QUEUED)
+    discovered_count = models.PositiveIntegerField(default=0, db_default=0)
+    error = models.TextField(blank=True, default="", db_default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "status", "-created_at"], name="signals_fdr_team_status_idx"),
+        ]
+
+
 class SignalReport(UUIDModel):
     class Status(models.TextChoices):
         POTENTIAL = "potential"
@@ -761,6 +796,7 @@ class SignalReportArtefact(UUIDModel):
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
+        FEATURE_LIFECYCLE = "feature_lifecycle"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -780,6 +816,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
+            ArtefactType.FEATURE_LIFECYCLE,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(

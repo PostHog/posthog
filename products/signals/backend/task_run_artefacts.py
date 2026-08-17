@@ -20,6 +20,7 @@ from django.db import transaction
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_FEATURE_DISCOVERY,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
@@ -35,6 +36,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 __all__ = [
     "SIGNALS_PRODUCT",
     "TASK_RUN_TYPE_DISCUSSION",
+    "TASK_RUN_TYPE_FEATURE_DISCOVERY",
     "TASK_RUN_TYPE_IMPLEMENTATION",
     "TASK_RUN_TYPE_REPO_SELECTION",
     "TASK_RUN_TYPE_RESEARCH",

@@ -26,6 +26,11 @@ from products.signals.backend.temporal.deletion import SignalReportDeletionWorkf
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_activity
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
+from products.signals.backend.temporal.feature_discovery import (
+    FeatureDiscoveryWorkflow,
+    mark_feature_discovery_failed_activity,
+    run_feature_discovery_activity,
+)
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
@@ -89,6 +94,7 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
+    FeatureDiscoveryWorkflow,
 ]
 
 ACTIVITIES = [
@@ -138,4 +144,6 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+    run_feature_discovery_activity,
+    mark_feature_discovery_failed_activity,
 ]

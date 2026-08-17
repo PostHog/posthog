@@ -25,6 +25,27 @@ export const SignalsFeaturesCreateBody = /* @__PURE__ */ zod
     .describe("Body for creating a feature from the user's initial idea.")
 
 /**
+ * Start a background agent that explores a repository and stages structured feature reports. An optional focus limits discovery to a specific product area.
+ * @summary Discover features from a repository
+ */
+export const signalsFeaturesDiscoverCreateBodyRepositoryMax = 512
+
+export const signalsFeaturesDiscoverCreateBodyFocusDefault = ``
+export const signalsFeaturesDiscoverCreateBodyFocusMax = 4000
+
+export const SignalsFeaturesDiscoverCreateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .max(signalsFeaturesDiscoverCreateBodyRepositoryMax)
+        .describe('GitHub repository to explore in owner\/repo format.'),
+    focus: zod
+        .string()
+        .max(signalsFeaturesDiscoverCreateBodyFocusMax)
+        .default(signalsFeaturesDiscoverCreateBodyFocusDefault)
+        .describe('Optional direction that limits which features the agent discovers.'),
+})
+
+/**
  * View and control signal processing pipeline state for a team.
  */
 export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({

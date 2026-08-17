@@ -1,6 +1,11 @@
+import re
+
 from rest_framework import serializers
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_schemas import FeatureStage
+from products.signals.backend.models import FeatureDiscoveryRun, SignalReport
+
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class InboxFeatureReportSerializer(serializers.ModelSerializer):
@@ -20,12 +25,17 @@ class InboxFeatureReportSerializer(serializers.ModelSerializer):
     is_planning = serializers.SerializerMethodField(
         help_text="Whether the feature is still in its initial planning phase."
     )
+    feature_stage = serializers.SerializerMethodField(
+        help_text="Feature ownership stage: staged, planning, or managed."
+    )
 
     def get_is_planning(self, obj: SignalReport) -> bool:
-        # The list view precomputes this from the completion marker so serialization does not issue
-        # one artefact query per feature.
-        planning_report_ids: set[str] = self.context.get("planning_report_ids", set())
-        return str(obj.id) in planning_report_ids
+        # The list view precomputes lifecycle state so serialization does not issue one query per feature.
+        return self.get_feature_stage(obj) == FeatureStage.PLANNING
+
+    def get_feature_stage(self, obj: SignalReport) -> str:
+        feature_stages: dict[str, FeatureStage] = self.context.get("feature_stages", {})
+        return feature_stages.get(str(obj.id), FeatureStage.PLANNING).value
 
     class Meta:
         model = SignalReport
@@ -35,6 +45,7 @@ class InboxFeatureReportSerializer(serializers.ModelSerializer):
             "summary",
             "status",
             "is_planning",
+            "feature_stage",
             "created_at",
             "updated_at",
         ]
@@ -94,3 +105,67 @@ class InboxFeaturePlanningNotReadySerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Labels for feature details that planning still needs, such as title or repository selection.",
     )
+
+
+class InboxFeatureDiscoveryCreateSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        max_length=512,
+        help_text="GitHub repository to explore in owner/repo format.",
+    )
+    focus = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=4000,
+        help_text="Optional direction that limits which features the agent discovers.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip()
+        if not _REPOSITORY_RE.fullmatch(normalized):
+            raise serializers.ValidationError("Select a repository in owner/repo format.")
+        return normalized
+
+
+class InboxFeatureDiscoveryCreatedSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(help_text="Id of the queued feature discovery run.")
+
+
+class InboxFeatureDiscoveryRunSerializer(serializers.ModelSerializer):
+    discovery_status = serializers.CharField(
+        source="status",
+        read_only=True,
+        help_text="Current discovery state: queued, running, completed, or failed.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Agent task used for the discovery session, when started.",
+    )
+
+    class Meta:
+        model = FeatureDiscoveryRun
+        fields = [
+            "id",
+            "repository",
+            "focus",
+            "discovery_status",
+            "discovered_count",
+            "error",
+            "task_id",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "repository": {"help_text": "GitHub repository explored by the agent."},
+            "focus": {"help_text": "Direction used to limit discovery, or an empty string for all features."},
+            "discovered_count": {"help_text": "Number of staged features produced after completion."},
+            "error": {"help_text": "Failure message with the next action, or an empty string."},
+            "created_at": {"help_text": "When discovery was requested."},
+            "updated_at": {"help_text": "When discovery last changed state."},
+        }
+
+
+class InboxFeatureErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What happened and what to do next.")

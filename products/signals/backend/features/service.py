@@ -6,8 +6,13 @@ continues through implementation, release, monitoring, and optimization after th
 
 from dataclasses import dataclass
 
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.signals.backend.artefact_schemas import (
@@ -15,6 +20,9 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_PLANNING,
     ActionabilityAssessment,
     ActionabilityChoice,
+    FeatureLifecycle,
+    FeatureSource,
+    FeatureStage,
     NoteArtefact,
     SafetyJudgment,
 )
@@ -25,7 +33,15 @@ from products.signals.backend.features.prompts import (
     build_owner_scout_display_name,
     build_planning_bootstrap_message,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutConfig
+from products.signals.backend.features.queries import latest_feature_lifecycle
+from products.signals.backend.features.types import FeatureDiscoveryWorkflowInput
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    FeatureDiscoveryRun,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutConfig,
+)
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
@@ -49,6 +65,14 @@ class FeaturePlanningNotReadyError(Exception):
         super().__init__(f"Feature planning is missing: {', '.join(missing)}")
 
 
+class FeatureDiscoveryStartError(Exception):
+    pass
+
+
+class FeatureNotStagedError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class CreatedFeature:
     report_id: str
@@ -70,6 +94,11 @@ class FeaturePlanningReadiness:
     planning_finished: bool
 
 
+@frozen
+class CreatedFeatureDiscovery:
+    run_id: str
+
+
 def create_feature(*, team: Team, user: User, initial_description: str) -> CreatedFeature:
     """Create a feature report and start its interactive planning phase.
 
@@ -87,6 +116,14 @@ def create_feature(*, team: Team, user: User, initial_description: str) -> Creat
         total_weight=0.0,
     )
     report_id = str(report.id)
+
+    SignalReportArtefact.append_status(
+        team_id=team.id,
+        report_id=report_id,
+        content=FeatureLifecycle(feature_stage=FeatureStage.PLANNING, source=FeatureSource.MANUAL),
+        attribution=ArtefactAttribution.from_user(user.id),
+        reevaluate_autostart=False,
+    )
 
     SignalReportArtefact.add_log(
         team_id=team.id,
@@ -132,6 +169,51 @@ def create_feature(*, team: Team, user: User, initial_description: str) -> Creat
     return CreatedFeature(report_id=report_id, task_id=str(created.task_id), run_id=run_id)
 
 
+def start_feature_discovery(*, team: Team, user: User, repository: str, focus: str) -> CreatedFeatureDiscovery:
+    from asgiref.sync import async_to_sync  # noqa: PLC0415 — keeps Temporal client setup off the request import path
+    from temporalio.common import RetryPolicy  # noqa: PLC0415 — keeps Temporal SDK off django.setup
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — opens a client only for dispatch
+
+    run = FeatureDiscoveryRun.objects.create(
+        team_id=team.id,
+        created_by_id=user.id,
+        repository=repository,
+        focus=focus.strip(),
+    )
+    workflow_input = FeatureDiscoveryWorkflowInput(
+        run_id=str(run.id),
+        team_id=team.id,
+        user_id=user.id,
+        repository=repository,
+        focus=focus.strip(),
+    )
+    try:
+        client = sync_connect()
+        async_to_sync(client.start_workflow)(  # type: ignore
+            "feature-discovery",  # type: ignore
+            workflow_input,  # type: ignore
+            id=f"signals-feature-discovery:{team.id}:{run.id}",
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    except Exception as error:
+        FeatureDiscoveryRun.objects.for_team(team.id).filter(id=run.id).update(
+            status=FeatureDiscoveryRun.Status.FAILED,
+            error="Feature discovery could not start. Try again.",
+            updated_at=timezone.now(),
+        )
+        logger.exception(
+            "feature_management.start_feature_discovery_failed",
+            team_id=team.id,
+            run_id=str(run.id),
+            repository=repository,
+            error=str(error),
+        )
+        raise FeatureDiscoveryStartError from error
+    return CreatedFeatureDiscovery(run_id=str(run.id))
+
+
 def feature_planning_readiness(*, team_id: int, report: SignalReport) -> FeaturePlanningReadiness:
     """Return what still blocks completion of the feature's planning phase."""
     missing: list[str] = []
@@ -151,11 +233,16 @@ def feature_planning_readiness(*, team_id: int, report: SignalReport) -> Feature
     )
     missing.extend(label for t, label in _REQUIRED_ARTEFACT_TYPES.items() if t not in present_types)
 
-    planning_finished = SignalReportArtefact.objects.filter(
-        team_id=team_id,
-        report_id=report.id,
-        type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-    ).exists()
+    lifecycle = latest_feature_lifecycle(team_id=team_id, report_id=str(report.id))
+    planning_finished = (
+        lifecycle.feature_stage == FeatureStage.MANAGED
+        if lifecycle
+        else SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report.id,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+        ).exists()
+    )
     return FeaturePlanningReadiness(ready=not missing, missing=missing, planning_finished=planning_finished)
 
 
@@ -173,27 +260,6 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
     report_id = str(report.id)
     attribution = ArtefactAttribution.from_user(user.id)
 
-    if not readiness.planning_finished:
-        # User-created features are safe and immediately actionable once their owner completes
-        # planning. Implementation kickoff remains an explicit workflow step below.
-        SignalReportArtefact.append_status(
-            team_id=team.id,
-            report_id=report_id,
-            content=SafetyJudgment(choice=True, explanation=None),
-            attribution=attribution,
-            reevaluate_autostart=False,
-        )
-        SignalReportArtefact.append_status(
-            team_id=team.id,
-            report_id=report_id,
-            content=ActionabilityAssessment(
-                explanation="User-created feature: planning completed by its owner.",
-                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-                already_addressed=False,
-            ),
-            attribution=attribution,
-            reevaluate_autostart=False,
-        )
     skill_name = _ensure_owner_scout(
         team=team,
         user=user,
@@ -201,10 +267,47 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
         title=report.title or "Untitled feature",
     )
 
+    newly_managed = False
+    if not readiness.planning_finished:
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
+            lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=report_id)
+            if lifecycle is None or lifecycle.feature_stage != FeatureStage.MANAGED:
+                SignalReportArtefact.append_status(
+                    team_id=team.id,
+                    report_id=report_id,
+                    content=SafetyJudgment(choice=True, explanation=None),
+                    attribution=attribution,
+                    reevaluate_autostart=False,
+                )
+                SignalReportArtefact.append_status(
+                    team_id=team.id,
+                    report_id=report_id,
+                    content=ActionabilityAssessment(
+                        explanation="Feature promoted by its owner.",
+                        actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                        already_addressed=False,
+                    ),
+                    attribution=attribution,
+                    reevaluate_autostart=False,
+                )
+                SignalReportArtefact.append_status(
+                    team_id=team.id,
+                    report_id=report_id,
+                    content=FeatureLifecycle(
+                        feature_stage=FeatureStage.MANAGED,
+                        source=lifecycle.source if lifecycle else FeatureSource.MANUAL,
+                        discovery_run_id=lifecycle.discovery_run_id if lifecycle else None,
+                    ),
+                    attribution=attribution,
+                    reevaluate_autostart=False,
+                )
+                newly_managed = True
+
     # Start the first pass without waiting for the daily owner scout activation. Kickoff is best
     # effort because the scout can retry it on its next activation.
     implementation_task_id: str | None = None
-    if not readiness.planning_finished:
+    if newly_managed:
         from products.signals.backend.scout_harness.tools.report import (  # noqa: PLC0415 — avoid circular import via scout harness
             start_implementation_for_report,
         )
@@ -235,6 +338,13 @@ def finish_feature_planning(*, team: Team, user: User, report: SignalReport) -> 
         },
     )
     return FeaturePlanningCompletion(scout_skill_name=skill_name, implementation_task_id=implementation_task_id)
+
+
+def promote_staged_feature(*, team: Team, user: User, report: SignalReport) -> FeaturePlanningCompletion:
+    lifecycle = latest_feature_lifecycle(team_id=team.id, report_id=str(report.id))
+    if lifecycle is None or lifecycle.feature_stage not in {FeatureStage.STAGED, FeatureStage.MANAGED}:
+        raise FeatureNotStagedError
+    return finish_feature_planning(team=team, user=user, report=report)
 
 
 def owner_scout_skill_name(report_id: str) -> str:

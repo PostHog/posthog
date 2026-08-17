@@ -169,6 +169,41 @@ class SafetyJudgment(BaseModel):
     )
 
 
+class FeatureStage(str, Enum):
+    STAGED = "staged"
+    PLANNING = "planning"
+    MANAGED = "managed"
+
+
+class FeatureSource(str, Enum):
+    MANUAL = "manual"
+    DISCOVERY = "discovery"
+
+
+class FeatureLifecycle(BaseModel):
+    """Current lifecycle state for a durable feature report."""
+
+    feature_stage: FeatureStage = Field(description="Whether the feature is staged, being planned, or managed.")
+    source: FeatureSource = Field(description="How the feature report was created.")
+    discovery_run_id: str | None = Field(
+        default=None,
+        description="Feature discovery run that produced the report, when source is discovery.",
+    )
+
+    @field_validator("discovery_run_id")
+    @classmethod
+    def normalize_discovery_run_id(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def discovery_run_matches_source(self) -> FeatureLifecycle:
+        if self.source == FeatureSource.DISCOVERY and not self.discovery_run_id:
+            raise ValueError("discovery_run_id is required for discovered features")
+        if self.source == FeatureSource.MANUAL and self.discovery_run_id is not None:
+            raise ValueError("discovery_run_id is only valid for discovered features")
+        return self
+
+
 class RelevantCommit(BaseModel):
     """A commit attributed to a suggested reviewer. Shape mirrors the generated
     `posthog.schema.RelevantCommit` exactly so the two stay interchangeable on the wire — defined
@@ -380,6 +415,7 @@ TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
 TASK_RUN_TYPE_PLANNING = "planning"
+TASK_RUN_TYPE_FEATURE_DISCOVERY = "feature_discovery"
 # A discuss-the-report task started by a user from the Inbox (not the automated research run).
 TASK_RUN_TYPE_DISCUSSION = "discussion"
 # The scout run that authored the report via `emit_report` (or first touched it via `edit_report`) —
@@ -397,6 +433,7 @@ _SIGNALS_TASK_RUN_TYPES = frozenset(
         TASK_RUN_TYPE_RESEARCH,
         TASK_RUN_TYPE_IMPLEMENTATION,
         TASK_RUN_TYPE_DISCUSSION,
+        TASK_RUN_TYPE_FEATURE_DISCOVERY,
     }
 )
 
@@ -574,7 +611,12 @@ class CodeReview(BaseModel):
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
+    SafetyJudgment
+    | ActionabilityAssessment
+    | PriorityAssessment
+    | RepoSelectionResult
+    | SuggestedReviewers
+    | FeatureLifecycle
 )
 LogArtefactContent = (
     CodeReference
@@ -600,6 +642,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "feature_lifecycle": FeatureLifecycle,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
@@ -626,7 +669,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {"video_segment", "title_change", "summary_change", "code_review", "feature_lifecycle"}
 )
 
 

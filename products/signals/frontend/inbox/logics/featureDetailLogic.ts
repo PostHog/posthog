@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import {
     signalsFeaturesFinishPlanningCreate,
+    signalsFeaturesPromoteCreate,
     signalsFeaturesStartImplementationCreate,
     signalsReportArtefactsCreate,
     signalsReportArtefactsPartialUpdate,
@@ -69,6 +70,7 @@ export interface featureDetailLogicValues {
     answeredQuestions: SignalReportArtefact[]
     answeringQuestionId: string | null
     editingField: FeatureEditableField | null
+    featureStage: 'managed' | 'planning' | 'staged' | null
     feedbackDraft: string
     feedbackSaving: boolean
     fieldDraft: string
@@ -76,11 +78,13 @@ export interface featureDetailLogicValues {
     finishingPlanning: boolean
     hasImplementationRun: boolean | null
     isPlanning: boolean | null
+    isStaged: boolean
     missingForPlanningCompletion: string[]
     openQuestions: SignalReportArtefact[]
     outstandingFeedback: SignalReportArtefact[]
     ownerScoutConfig: SignalScoutConfigApi | null
     ownerScoutConfigLoading: boolean
+    promotingFeature: boolean
     questionArtefacts: SignalReportArtefact[]
     startingImplementation: boolean
 }
@@ -125,6 +129,9 @@ export interface featureDetailLogicActions {
         ownerScoutConfig: SignalScoutConfigApi | null
         payload?: any
     }
+    promoteFeature: () => {
+        value: true
+    }
     saveAnswer: () => {
         value: true
     }
@@ -161,6 +168,9 @@ export interface featureDetailLogicActions {
     setFinishingPlanning: (finishingPlanning: boolean) => {
         finishingPlanning: boolean
     }
+    setPromotingFeature: (promoting: boolean) => {
+        promoting: boolean
+    }
     setStartingImplementation: (starting: boolean) => {
         starting: boolean
     }
@@ -187,7 +197,9 @@ export interface featureDetailLogicMeta {
         openQuestions: (questionArtefacts: SignalReportArtefact[]) => SignalReportArtefact[]
         outstandingFeedback: (questionArtefacts: SignalReportArtefact[]) => SignalReportArtefact[]
         answeredQuestions: (questionArtefacts: SignalReportArtefact[]) => SignalReportArtefact[]
-        isPlanning: (reportArtefacts: SignalReportArtefact[] | null) => boolean | null
+        featureStage: (reportArtefacts: SignalReportArtefact[] | null) => 'managed' | 'planning' | 'staged' | null
+        isPlanning: (featureStage: 'managed' | 'planning' | 'staged' | null) => boolean | null
+        isStaged: (featureStage: 'managed' | 'planning' | 'staged' | null) => boolean
         hasImplementationRun: (reportArtefacts: SignalReportArtefact[] | null) => boolean | null
         missingForPlanningCompletion: (reportArtefacts: SignalReportArtefact[] | null, arg: SignalReport) => string[]
     }
@@ -257,6 +269,8 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
         // Complete planning and activate the owner scout.
         finishPlanning: true,
         setFinishingPlanning: (finishingPlanning: boolean) => ({ finishingPlanning }),
+        promoteFeature: true,
+        setPromotingFeature: (promoting: boolean) => ({ promoting }),
         // Manually start an implementation pass (shown when the feature has none yet).
         startImplementation: true,
         setStartingImplementation: (starting: boolean) => ({ starting }),
@@ -330,6 +344,12 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
                 setFinishingPlanning: (_, { finishingPlanning }) => finishingPlanning,
             },
         ],
+        promotingFeature: [
+            false,
+            {
+                setPromotingFeature: (_, { promoting }) => promoting,
+            },
+        ],
         startingImplementation: [
             false,
             {
@@ -363,14 +383,33 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
             (questionArtefacts: SignalReportArtefact[]): SignalReportArtefact[] =>
                 questionArtefacts.filter((a) => !!a.content?.answered),
         ],
-        /**
-         * A safety judgment marks completion of initial planning. The feature remains active after
-         * this marker exists. Null means the artefact log has not loaded yet.
-         */
-        isPlanning: [
+        featureStage: [
             (s) => [s.reportArtefacts],
-            (reportArtefacts: SignalReportArtefact[] | null): boolean | null =>
-                reportArtefacts === null ? null : !reportArtefacts.some((a) => a.type === 'safety_judgment'),
+            (reportArtefacts: SignalReportArtefact[] | null): 'staged' | 'planning' | 'managed' | null => {
+                if (reportArtefacts === null) {
+                    return null
+                }
+                const lifecycle = reportArtefacts
+                    .filter((artefact) => artefact.type === 'feature_lifecycle')
+                    .reduce<SignalReportArtefact | null>(
+                        (latest, artefact) => (!latest || artefact.created_at > latest.created_at ? artefact : latest),
+                        null
+                    )
+                const stage = lifecycle?.content?.feature_stage
+                if (stage === 'staged' || stage === 'planning' || stage === 'managed') {
+                    return stage
+                }
+                return reportArtefacts.some((artefact) => artefact.type === 'safety_judgment') ? 'managed' : 'planning'
+            },
+        ],
+        isPlanning: [
+            (s) => [s.featureStage],
+            (featureStage: 'staged' | 'planning' | 'managed' | null): boolean | null =>
+                featureStage === null ? null : featureStage === 'planning',
+        ],
+        isStaged: [
+            (s) => [s.featureStage],
+            (featureStage: 'staged' | 'planning' | 'managed' | null): boolean => featureStage === 'staged',
         ],
         /** Whether any implementation pass has been recorded on the feature (a signals/implementation task_run artefact). */
         hasImplementationRun: [
@@ -449,6 +488,23 @@ export const featureDetailLogic = kea<featureDetailLogicType>([
                 )
             } finally {
                 actions.setFinishingPlanning(false)
+            }
+        },
+        promoteFeature: async () => {
+            if (values.promotingFeature) {
+                return
+            }
+            actions.setPromotingFeature(true)
+            try {
+                await signalsFeaturesPromoteCreate(String(values.currentProjectId), props.reportId)
+                lemonToast.success('Feature promoted')
+                actions.loadReportArtefacts()
+                actions.loadSelectedReport({ id: props.reportId })
+                actions.loadOwnerScoutConfig()
+            } catch (error: unknown) {
+                lemonToast.error(featureDetailErrorMessage(error, 'Feature could not be promoted. Try again.'))
+            } finally {
+                actions.setPromotingFeature(false)
             }
         },
         startImplementation: async () => {
