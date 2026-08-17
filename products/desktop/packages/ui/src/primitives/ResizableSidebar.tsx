@@ -267,7 +267,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         }}
         className={
           isOverlay
-            ? `absolute inset-y-0 z-50 h-full min-w-0 border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
+            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
                 isLeft ? "left-0 border-r" : "right-0 border-l"
               } ${
                 // Shadow only while shown — at translateX(-100%) the panel's
@@ -275,7 +275,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
                 // a sliver over the content.
                 overlayVisible ? "shadow-lg" : ""
               }`
-            : "relative h-full min-w-0 transition-transform duration-200 ease-out motion-reduce:transition-none"
+            : "relative flex h-full min-w-0 flex-col transition-transform duration-200 ease-out motion-reduce:transition-none"
         }
       >
         {children}
