@@ -63,9 +63,7 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = UserProductListSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # Disabled rows are returned too: the sidebar needs them to keep a companion product
-        # (one shown alongside a pinned product) hidden after the user removed it.
-        return queryset.filter(team=self.team, user=self.request.user).order_by(Lower("product_path"))
+        return queryset.filter(team=self.team, user=self.request.user, enabled=True).order_by(Lower("product_path"))
 
     @action(methods=["PATCH"], detail=False, url_path="bulk_update")
     def bulk_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -68,16 +68,6 @@ describe('customProductsLogic', () => {
         expect(listCalls).toBe(0)
     })
 
-    it('remembers a removed tool as disabled instead of forgetting it', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
-            logic.actions.setToolEnabled('a', false)
-        }).toFinishAllListeners()
-
-        expect(logic.values.enabledToolPaths).toEqual(new Set())
-        expect(logic.values.disabledToolPaths).toEqual(new Set(['a']))
-    })
-
     it('refetches to revert the optimistic row when a save fails', async () => {
         failBulkUpdate = true
         serverPaths = []

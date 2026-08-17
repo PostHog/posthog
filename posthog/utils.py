@@ -661,7 +661,9 @@ def _build_template_context(
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(
-                        UserProductList.objects.filter(team=user.team, user=user).order_by(Lower("product_path")),
+                        UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
+                            Lower("product_path")
+                        ),
                         many=True,
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
