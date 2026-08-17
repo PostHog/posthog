@@ -43,12 +43,9 @@ import { usePasteUndoStore } from "../pasteUndoStore";
 import { usePromptHistoryStore } from "../promptHistoryStore";
 import { findChipRangeById } from "../tiptap/chipRange";
 import { getEditorExtensions } from "../tiptap/extensions";
+import { editorContentToTiptapJson } from "../tiptap/markdownDoc";
 import { getPromptEditorAttributes } from "../tiptap/promptEditorAttributes";
-import {
-  type DraftContext,
-  editorContentToTiptapJson,
-  useDraftSync,
-} from "../tiptap/useDraftSync";
+import { type DraftContext, useDraftSync } from "../tiptap/useDraftSync";
 import { htmlToMarkdown } from "../utils/htmlToMarkdown";
 import {
   persistImageFile,
@@ -202,8 +199,14 @@ async function resolveGithubRefChip(
 }
 
 function replaceComposerText(view: EditorView, text = "") {
-  const tr = view.state.tr.delete(1, view.state.doc.content.size - 1);
-  return text ? tr.insertText(text, 1) : tr;
+  const { schema, doc, tr } = view.state;
+  // Replaces whole blocks, not just their text, so a doc that starts with a
+  // list or code block comes back as a plain paragraph.
+  const paragraph = schema.nodes.paragraph.create(
+    null,
+    text ? schema.text(text) : null,
+  );
+  return tr.replaceWith(0, doc.content.size, paragraph);
 }
 
 function hasVisibleSuggestionPopup(sessionId: string): boolean {
