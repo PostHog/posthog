@@ -9,7 +9,7 @@ import { useEffect } from "react";
 /**
  * Hook that subscribes to inbox report deep link events (`<scheme>://inbox/{reportId}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
- * and opens the report canvas in the #general space.
+ * and opens the report canvas in the report space.
  *
  * The actual open – fetch by id, seed the detail cache, reset filters, and
  * navigate through the legacy compatibility route – lives in

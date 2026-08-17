@@ -98,7 +98,7 @@ An **https** bridge also exists for links sent outside the app (e.g. comment Sla
 
 ### `posthog-code://inbox/<reportId>`
 
-Open a report canvas in the `#general` space.
+Open a report canvas in the space that contains reports.
 
 | Segment | Required | Description |
 |---|---|---|

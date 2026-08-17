@@ -2,7 +2,7 @@
 
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useGeneralSpace } from "./useGeneralSpace";
+import { useReportSpace } from "./useReportSpace";
 
 const createChannel = vi.fn(async () => ({ id: "general-id" }));
 const channelsState: {
@@ -21,14 +21,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannelMutations: () => ({ createChannel }),
 }));
 
-describe("useGeneralSpace", () => {
+describe("useReportSpace", () => {
   beforeEach(() => {
     channelsState.channels = [];
     createChannel.mockClear();
   });
 
-  it("provisions general once and resolves it from the channel list", async () => {
-    const { rerender, result } = renderHook(() => useGeneralSpace());
+  it("provisions the default report space once and resolves its id", async () => {
+    const { rerender, result } = renderHook(() => useReportSpace());
     await waitFor(() => expect(createChannel).toHaveBeenCalledTimes(1));
 
     rerender();
@@ -43,6 +43,6 @@ describe("useGeneralSpace", () => {
       },
     ];
     rerender();
-    expect(result.current.generalSpaceId).toBe("general-id");
+    expect(result.current.reportSpaceId).toBe("general-id");
   });
 });

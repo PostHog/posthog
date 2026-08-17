@@ -12,7 +12,7 @@ import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
-import { useGeneralSpace } from "@posthog/ui/features/canvas/hooks/useGeneralSpace";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   consumeKeepListForNextRoute,
@@ -109,7 +109,7 @@ function ChannelPanes({
   );
 }
 export function ChannelsSidebar() {
-  useGeneralSpace();
+  useReportSpace();
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
