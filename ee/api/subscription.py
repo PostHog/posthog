@@ -98,15 +98,13 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
 
 
 def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
-    # Subscriptions are not an access-control resource, and a saved subscription emails the rendered
-    # target. Without this check, saving one would be a way to read a restricted object.
     if not user_access_control.check_access_level_for_object(obj, "viewer"):
-        raise ValidationError({field: [f"Viewer access to this {field} is required."]})
+        raise ValidationError(
+            {field: [f"Viewer access to this {field} is required. Ask an admin to grant you access."]}
+        )
 
 
 def _viewable_queryset(user_access_control: UserAccessControl, queryset: QuerySet) -> QuerySet:
-    # include_all_if_admin matches the admin bypass in check_access_level_for_object. Without it,
-    # an admin could save a subscription that the read side then hides.
     return user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
 
 
@@ -705,8 +703,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             viewable_ids = set(_viewable_queryset(user_access_control, team_insights).values_list("id", flat=True))
             unusable_ids = selected_ids - viewable_ids
             if unusable_ids:
-                # The count runs only on failure, to pick between the two errors. An id outside
-                # the team is never viewable, so the membership error stays reachable.
                 if team_insights.count() != len(selected_ids):
                     raise ValidationError(
                         {
@@ -716,7 +712,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         }
                     )
                 raise ValidationError(
-                    {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
+                    {
+                        "dashboard_export_insights": [
+                            "Viewer access to every selected insight is required. "
+                            "Ask an admin for access, or remove the restricted insights."
+                        ]
+                    }
                 )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)

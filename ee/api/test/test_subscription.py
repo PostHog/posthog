@@ -3210,6 +3210,42 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert body["attr"] == "dashboard_export_insights", body
         assert "Viewer access" in body["detail"], body
 
+    def test_patch_cannot_add_a_restricted_insight_to_the_selection(self, mock_sync):
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        subscription.dashboard_export_insights.set([self.open_insight])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard_export_insights": [self.open_insight.id, self.restricted_insight.id]},
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard_export_insights", body
+        assert "Viewer access" in body["detail"], body
+
+    def test_membership_error_wins_for_a_mixed_selection(self, mock_sync):
+        # An out-of-team id and a restricted id in one selection resolve to the membership error.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_insight = Insight.objects.create(team=other_team, filters={"events": [{"id": "$pageview"}]})
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[foreign_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert "do not belong to your team" in body["detail"], body
+
     @parameterized.expand(
         [
             # A PATCH that omits insight/dashboard must not skip the check either.
