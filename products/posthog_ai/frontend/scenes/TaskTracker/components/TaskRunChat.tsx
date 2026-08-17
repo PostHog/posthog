@@ -9,7 +9,9 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
@@ -54,6 +56,7 @@ export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunC
         currentModel: selectedRun?.state?.model,
         currentEffort: selectedRun?.state?.reasoning_effort,
         currentMode: selectedRun?.state?.initial_permission_mode,
+        currentRuntimeAdapter: selectedRun?.runtime_adapter,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
@@ -119,6 +122,9 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         consentBlocked,
         selectedMode,
     } = useValues(runInteractionLogic(logicProps))
+    const { catalogue } = useValues(modelCatalogueLogic)
+    // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
+    const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
     const {
         setComposerFormValues,
         submitComposerForm,
@@ -136,7 +142,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
     return (
         <>
             {/* Inside the slot children: detaches while a pending approval replaces the composer. */}
-            <ComposerModeShortcut onCycle={() => setMode(cycleMode(selectedMode))} />
+            <ComposerModeShortcut onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))} />
             <Composer.Root
                 value={draft.value}
                 onChange={draft.onChange}
@@ -168,12 +174,20 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
                         applied when the message is sent — synced to the running agent on a follow-up,
                         or used to seed the next run once terminal. */}
-                        <ComposerModePicker selectedMode={selectedMode} onModeChange={setMode} />
+                        <ComposerModePicker
+                            selectedMode={selectedMode}
+                            onModeChange={setMode}
+                            modes={getModesForRuntimeAdapter(composerAdapter)}
+                        />
                         <ComposerModelEffortPickers
+                            models={catalogue}
                             selectedModel={selectedModel}
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}
+                            // While the run is live its harness is fixed to whatever the sandbox booted; once
+                            // terminal the next send starts a fresh run, which may pick any harness.
+                            lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
                         />
                     </Composer.Footer>
                 </Composer.Frame>

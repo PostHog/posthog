@@ -50,6 +50,12 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         build = MagicMock(
             artifact_object_prefix="canvas_artifact/team_1/canvas/build",
             manifest={
+                "capabilities": {
+                    # The second origin smuggles a CSP delimiter but no wildcard, so it
+                    # slips past every gate except the hostname charset check. Rendering
+                    # it verbatim would inject an attacker-chosen img-src directive.
+                    "network": {"origins": ["https://api.example.com", "https://example.com; img-src evil.example.net"]}
+                },
                 "assets": [
                     {
                         "path": "index.html",
@@ -57,7 +63,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
                         "contentHash": hashlib.sha256(content).hexdigest(),
                         "sizeBytes": len(content),
                     }
-                ]
+                ],
             },
         )
         canvas_build.objects.for_team.return_value.filter.return_value.first.return_value = build
@@ -73,6 +79,8 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(response["Content-Disposition"], "inline")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts")
+        self.assertIn("connect-src https://api.example.com", response["Content-Security-Policy"])
+        self.assertNotIn("evil.example.net", response["Content-Security-Policy"])
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/"), token or "", "source.ts")
         read_bytes.assert_called_once()

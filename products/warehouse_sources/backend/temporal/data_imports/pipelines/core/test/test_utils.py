@@ -1214,9 +1214,8 @@ def test_append_partition_key_numerical_handles_null_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["1", "2", "null", "4"]
 
 
 def test_append_partition_key_numerical_handles_non_int_key():
@@ -1237,9 +1236,8 @@ def test_append_partition_key_numerical_handles_non_int_key():
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "numerical"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
+    assert result.partition_mode == "numerical"
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2", "0", "null"]
 
 
 def _mock_schema(**overrides: Any) -> MagicMock:
@@ -1583,9 +1581,8 @@ def test_append_partition_key_datetime_string_column(value, expected):
     )
 
     assert result is not None
-    partitioned_table, mode, _, _ = result
-    assert mode == "datetime"
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected]
+    assert result.partition_mode == "datetime"
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected]
 
 
 @pytest.mark.parametrize(
@@ -1671,9 +1668,8 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     )
 
     assert result is not None
-    partitioned_table, resolved_mode, _, _ = result
-    assert resolved_mode == mode
-    assert partitioned_table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+    assert result.partition_mode == mode
+    assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
 
 
 def test_billing_limit_exception_is_non_reportable_error():
