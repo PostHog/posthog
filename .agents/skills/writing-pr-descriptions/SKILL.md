@@ -200,9 +200,8 @@ Copy the second one. It is shorter, not just flatter.
 - Sentence case for titles, headings, and bolded text. Only the first word and proper nouns.
 - Spare use of inline code. Limited use of the colon and semicolon.
 - Do not hard-wrap at a column width and do not space-align tables. GitHub renders markdown and flows the text.
-- The subject of a sentence is the change, not its author.
-  Title in the imperative, body in the present tense: "Delete the FizzBuzz RPC", "The exporter now retries once".
-  Never "I", "me", or "my". Keep "we" for PostHog, never for whoever wrote the PR.
+- The subject of a sentence is the change, not its author. Never "I", "me" or "my", and keep "we" for PostHog.
+  "The exporter now retries once", never "I made the exporter retry once".
   An agent writing as "I" hands the assignee an account of work they did not do, and a parenthetical does not undo it.
   Authorship is one stated fact in `## 🤖 Agent context`, not a voice the body speaks in.
 
