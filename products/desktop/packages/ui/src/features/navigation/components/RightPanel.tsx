@@ -155,9 +155,14 @@ const PANEL_FADE_OUT_MS = 120;
 function useFadingSide(
   active: RightPanelSide | null,
   held: boolean,
-): { contentReady: boolean; drawn: RightPanelSide | null } {
+): {
+  contentReady: boolean;
+  contentVisible: boolean;
+  drawn: RightPanelSide | null;
+} {
   const [drawn, setDrawn] = useState(active);
   const [contentReady, setContentReady] = useState(active != null);
+  const [contentVisible, setContentVisible] = useState(active != null);
   const open = active != null;
   const wasOpen = useRef(open);
 
@@ -170,6 +175,7 @@ function useFadingSide(
     const timer = setTimeout(() => {
       setDrawn(null);
       setContentReady(false);
+      setContentVisible(false);
     }, PANEL_FADE_OUT_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
@@ -179,11 +185,19 @@ function useFadingSide(
     wasOpen.current = open;
     if (!opening) return;
     setContentReady(false);
-    const timer = setTimeout(() => setContentReady(true), SLIDE_MS);
-    return () => clearTimeout(timer);
+    setContentVisible(false);
+    let frame: number | undefined;
+    const timer = setTimeout(() => {
+      setContentReady(true);
+      frame = requestAnimationFrame(() => setContentVisible(true));
+    }, SLIDE_MS);
+    return () => {
+      clearTimeout(timer);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, [open]);
 
-  return { contentReady, drawn };
+  return { contentReady, contentVisible, drawn };
 }
 
 /**
@@ -215,7 +229,10 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
 
   const open = active != null;
-  const { contentReady, drawn } = useFadingSide(active, isResizing);
+  const { contentReady, contentVisible, drawn } = useFadingSide(
+    active,
+    isResizing,
+  );
 
   useEffect(() => preloadReviewPages(), []);
 
@@ -263,17 +280,32 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
                   {SIDES[drawn].label}
                 </span>
               </div>
-              {/* Nothing under the title until the session resolves, because
-                  the route says there is a session and an empty state would
-                  contradict it. */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {contentReady &&
-                  task &&
-                  (drawn === "changes" ? (
-                    <ChangesPanelContent task={task} />
-                  ) : (
-                    <ActivityPanelBody task={task} tab={drawn} canOpenInPlace />
-                  ))}
+                {contentReady && task ? (
+                  <div
+                    className="flex min-h-0 flex-1 flex-col overflow-hidden transition-opacity duration-100 ease-out motion-reduce:transition-none"
+                    style={{ opacity: contentVisible ? 1 : 0 }}
+                  >
+                    {drawn === "changes" ? (
+                      <ChangesPanelContent task={task} />
+                    ) : (
+                      <ActivityPanelBody
+                        task={task}
+                        tab={drawn}
+                        canOpenInPlace
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    aria-hidden
+                    className="flex flex-col gap-3 p-3 opacity-60"
+                  >
+                    <div className="h-3 w-2/5 rounded-sm bg-fill-secondary" />
+                    <div className="h-3 w-4/5 rounded-sm bg-fill-secondary" />
+                    <div className="h-3 w-3/5 rounded-sm bg-fill-secondary" />
+                  </div>
+                )}
               </div>
             </>
           )}
