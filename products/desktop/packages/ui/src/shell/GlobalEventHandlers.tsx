@@ -15,6 +15,7 @@ import { useReviewNavigationStore } from "@posthog/ui/features/code-review/revie
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -204,7 +205,18 @@ export function GlobalEventHandlers({
   );
   useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
   useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
-  useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, toggleActivityPanel, {
+  // Under the spaces chrome a session's activity is the right panel, and the
+  // dock this shortcut used to collapse is not rendered, so it goes to the
+  // panel instead. Off that chrome, only the dock exists.
+  const handleToggleActivityPanel = useCallback(() => {
+    if (channelsLayout && currentTaskId) {
+      toggleRightPanel(currentTaskId);
+      return;
+    }
+    toggleActivityPanel();
+  }, [channelsLayout, currentTaskId]);
+
+  useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, handleToggleActivityPanel, {
     ...globalOptions,
     enabled: channelsLayout,
   });

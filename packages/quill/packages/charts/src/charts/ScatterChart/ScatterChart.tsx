@@ -23,7 +23,8 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
-import { drawScatterHoverMarker, drawScatterMarkers } from './draw-scatter'
+import { computeBestFitSegments } from './best-fit'
+import { drawBestFitLines, drawScatterHoverMarker, drawScatterMarkers } from './draw-scatter'
 import { findNearestPointIndex } from './nearest-point'
 import { flattenScatterPoints, toAdapterSeries, toPointDatum } from './scatter-data'
 import type { FlatScatterPoint } from './scatter-data'
@@ -92,6 +93,7 @@ function ScatterChartInner<Meta = unknown>({
         showAxisLines = false,
         showTickMarks = false,
         showCrosshair = false,
+        showBestFit = false,
         margins,
     } = config ?? {}
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
@@ -162,11 +164,17 @@ function ScatterChartInner<Meta = unknown>({
 
             drawScatterMarkers(ctx, layout.positions, fillOpacity)
 
+            // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
+            // it underneath would bury it.
+            if (showBestFit) {
+                drawBestFitLines(ctx, computeBestFitSegments(layout.positions, layout.seriesColors), dimensions)
+            }
+
             if (axisLineColor) {
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, showTickMarks, fillOpacity]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit]
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {

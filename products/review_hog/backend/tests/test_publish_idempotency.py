@@ -139,6 +139,9 @@ class TestPublishIdempotency(BaseTest):
         # outcome classification reconstructs the published set from it, so a later settings change
         # can't rewrite what was posted.
         assert report.published_urgency_thresholds == {"1": "should_fix"}
+        # Publishing runs arrive here still ACTIVE (finalize defers the idle write); the posted
+        # save must restore rest or the row reads as in-progress until the staleness cutoff.
+        assert report.status == ReviewReport.Status.IDLE
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
@@ -147,6 +150,9 @@ class TestPublishIdempotency(BaseTest):
         report_id = self._report(published_head_sha="sha1")
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         mock_publish.assert_not_called()
+        # The skip exit must also restore rest: an activity retry can land here with the report
+        # still deferred-ACTIVE from finalize.
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
@@ -169,4 +175,7 @@ class TestPublishIdempotency(BaseTest):
         report_id = self._report()
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha is None
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_head_sha is None
+        # No watermark, but the turn is over: the no-post exit still restores rest.
+        assert report.status == ReviewReport.Status.IDLE

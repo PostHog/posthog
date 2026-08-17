@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -249,7 +250,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       openChannelContextInSplit: (taskId, context) => {
         const tabId = `context-${context.channelName ?? "channel"}`;
-        const label = `${context.channelName ? `#${context.channelName} ` : ""}CONTEXT.md`;
+        const label = `${context.channelName ? `${channelDisplayLabel(context.channelName)} ` : ""}CONTEXT.md`;
         set((state) =>
           updateTaskLayout(
             state,

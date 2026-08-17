@@ -32,6 +32,7 @@ import {
 import { inject, injectable } from "inversify";
 import type {
   ClaudePermissions,
+  HostInfo,
   ImageAttachment,
   MessageBoxOptions,
   SavedAttachment,
@@ -468,6 +469,10 @@ export class OsService {
 
   getAppVersion(): string {
     return this.appMeta.version;
+  }
+
+  getHostInfo(): HostInfo {
+    return { platform: this.appMeta.platform, arch: this.appMeta.arch };
   }
 
   getWorktreeLocation(): string {

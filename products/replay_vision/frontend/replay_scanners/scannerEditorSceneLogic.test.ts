@@ -5,7 +5,18 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+
+describe('firstErroredScannerStep', () => {
+    it.each([
+        ['config error lands on configure', { scanner_config: { prompt: 'Required' } }, 'configure'],
+        ['sampling error lands on budget', { sampling_rate: 'Out of range' }, 'budget'],
+        ['credit limit error lands on budget', { credit_limit: 'Enter a credit amount' }, 'budget'],
+        ['no errors maps nowhere', {}, null],
+    ])('%s', (_label, errors, expected) => {
+        expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
 
 describe('scannerEditorSceneLogic', () => {
     let logic: ReturnType<typeof scannerEditorSceneLogic.build>
@@ -48,30 +59,14 @@ describe('scannerEditorSceneLogic', () => {
             })
         })
 
-        it('redirects /:id/template → /:id/configure for existing scanners', async () => {
+        it('redirects /:id/template → /:id/details for existing scanners', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('abc-123'))
             await expectLogic(logic).toMatchValues({
                 scannerId: 'abc-123',
-                step: 'configure',
+                step: 'details',
                 isNew: false,
             })
-            expect(router.values.location.pathname.endsWith(urls.replayVisionScannerConfigure('abc-123'))).toBe(true)
-        })
-    })
-
-    describe('visibleSteps', () => {
-        it('shows all four steps for a new scanner', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('new'))
-            await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers', 'self_driving'],
-            })
-        })
-
-        it('hides only the template step for an existing scanner', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
-            await expectLogic(logic).toMatchValues({
-                visibleSteps: ['configure', 'triggers', 'self_driving'],
-            })
+            expect(router.values.location.pathname.endsWith(urls.replayVisionScannerDetails('abc-123'))).toBe(true)
         })
     })
 
