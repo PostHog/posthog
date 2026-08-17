@@ -200,7 +200,11 @@ Copy the second one. It is shorter, not just flatter.
 - Sentence case for titles, headings, and bolded text. Only the first word and proper nouns.
 - Spare use of inline code. Limited use of the colon and semicolon.
 - Do not hard-wrap at a column width and do not space-align tables. GitHub renders markdown and flows the text.
-- Write in first person as the author. When an agent did the work, say so: "I (actually Claude) moved the derivation into one place."
+- The subject of a sentence is the change, not its author.
+  Title in the imperative, body in the present tense: "Delete the FizzBuzz RPC", "The exporter now retries once".
+  Never "I", "me", or "my". Keep "we" for PostHog, never for whoever wrote the PR.
+  An agent writing as "I" hands the assignee an account of work they did not do, and a parenthetical does not undo it.
+  Authorship is one stated fact in `## 🤖 Agent context`, not a voice the body speaks in.
 
 ## Pass 5: check your own draft
 
@@ -226,12 +230,13 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 6. Read each bullet alone. Does it state one fact? If it states two, split it.
 7. Count the words in the longest sentence. Over 25, split it.
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-9. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
-10. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-11. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-12. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-13. Does the body claim manual testing that did not happen? Delete it.
-14. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
+10. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
+11. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+12. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+13. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+14. Does the body claim manual testing that did not happen? Delete it.
+15. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 
