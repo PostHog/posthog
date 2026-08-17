@@ -9,10 +9,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SourceSteeringModalLogicProps, sourceSteeringModalLogic } from '../../logics/sourceSteeringModalLogic'
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig } from '../../types'
 
-const EXAMPLES = [
-    'Skip anything labeled chore, internal, or dependencies.',
-    'Only report issues about billing, checkout, or payments.',
-    'Anything a paying customer opened is worth reporting.',
+// Chips carry a short label so they stay on one line in a narrow modal: LemonButton neither
+// shrinks nor wraps, so a full-sentence label overflows instead of wrapping inside the modal.
+const EXAMPLES: { label: string; line: string }[] = [
+    { label: 'Skip chores', line: 'Skip anything labeled chore, internal, or dependencies.' },
+    { label: 'Billing only', line: 'Only report issues about billing, checkout, or payments.' },
+    { label: 'Paying customers', line: 'Anything a paying customer opened is worth reporting.' },
 ]
 
 export interface SourceSteeringModalProps {
@@ -42,10 +44,13 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
             ? sourceSteeringValidationErrors.steering
             : undefined
 
-    const appendExample = (example: string): void => {
+    // The textarea's maxLength only bounds typing, so an example appended programmatically could
+    // push the value over the cap and leave the form unsavable with no edit of the user's own.
+    const exampleResult = (line: string): string => {
         const current = sourceSteering.steering.trimEnd()
-        setSourceSteeringValue('steering', current ? `${current}\n${example}` : example)
+        return current ? `${current}\n${line}` : line
     }
+    const appendExample = (line: string): void => setSourceSteeringValue('steering', exampleResult(line))
 
     return (
         <LemonModal
@@ -93,6 +98,8 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                             minRows={4}
                             maxRows={10}
                             maxLength={SOURCE_STEERING_MAX_LENGTH}
+                            // The field has no visible label by design, so name it for screen readers.
+                            aria-label={`Guidance for ${sourceLabel}`}
                             placeholder="Write it like a note to a teammate."
                             disabled={isSourceSteeringSubmitting}
                             data-attr="signal-source-steering-rules"
@@ -103,13 +110,20 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                         <div className="flex flex-wrap gap-1">
                             {EXAMPLES.map((example) => (
                                 <LemonButton
-                                    key={example}
+                                    key={example.label}
                                     type="secondary"
                                     size="xsmall"
-                                    onClick={() => appendExample(example)}
-                                    disabledReason={isSourceSteeringSubmitting ? 'Saving' : undefined}
+                                    tooltip={example.line}
+                                    onClick={() => appendExample(example.line)}
+                                    disabledReason={
+                                        isSourceSteeringSubmitting
+                                            ? 'Saving'
+                                            : exampleResult(example.line).length > SOURCE_STEERING_MAX_LENGTH
+                                              ? "This example won't fit in what you've written"
+                                              : undefined
+                                    }
                                 >
-                                    {example}
+                                    {example.label}
                                 </LemonButton>
                             ))}
                         </div>
