@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from django.db.models import Q
+
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -14,6 +16,7 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
+    PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessSource,
@@ -31,6 +34,19 @@ if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+def _rule_scope_for_resource(team: Team, resource: str) -> Q:
+    """The AccessControl rows that govern `resource` objects addressed through `team`.
+
+    Project-level resources are resolved project-wide (see PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES),
+    so the surface that lists and edits their rules must see the same rows the resolver consults -
+    a rule stored against a sibling environment would otherwise be enforced here yet invisible,
+    and a write from a sibling environment would duplicate it instead of updating it.
+    """
+    if resource in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES:
+        return Q(team__project_id=team.project_id)
+    return Q(team=team)
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -160,11 +176,13 @@ class AccessControlSerializer(serializers.ModelSerializer):
             # Only run the count when adding a rule for a previously-unrestricted object.
             if (
                 data.get("access_level") is not None
-                and not AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).exists()
+                and not AccessControl.objects.filter(
+                    _rule_scope_for_resource(team, resource), resource=resource, resource_id=resource_id
+                ).exists()
             ):
                 distinct_objects = (
                     AccessControl.objects.filter(
-                        team=team,
+                        _rule_scope_for_resource(team, resource),
                         resource=resource,
                         resource_id__isnull=False,
                     )
@@ -199,22 +217,27 @@ def upsert_access_control(
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
 
-    instance = AccessControl.objects.filter(
-        team=team,
+    matching = AccessControl.objects.filter(
+        _rule_scope_for_resource(team, params["resource"]),
         resource=params["resource"],
         resource_id=params.get("resource_id"),
         organization_member=params.get("organization_member"),
         role=params.get("role"),
-    ).first()
+    )
+    instance = matching.first()
 
     if params["access_level"] is None:
         if instance:
-            instance.delete()
+            matching.delete()
             # Drop the preloaded access-control snapshot so later reads this request are fresh.
             user_access_control._clear_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     if instance:
+        # The per-environment unique constraint allows one row per environment for the same
+        # subject of a project-level resource; the resolver takes the loosest across them, so
+        # any row left behind here would outrank the level being written.
+        matching.exclude(pk=instance.pk).delete()
         serializer = build_serializer(instance)
         serializer.is_valid(raise_exception=True)
     serializer.validated_data["team"] = team
@@ -316,11 +339,19 @@ class AccessControlViewSetMixin(_GenericViewSet):
         resource_id = obj.id
 
         if is_resource_level:
-            # If resource level then we are getting all controls for the project that aren't specific to a resource
-            access_controls = AccessControl.objects.filter(team=team, resource_id=None).all()
+            # If resource level then we are getting all controls for the project that aren't specific
+            # to a resource. Rows for the project-level resources are matched project-wide, so pick
+            # them up from every environment - the same scope the resolver's preload uses.
+            access_controls = AccessControl.objects.filter(
+                Q(team=team)
+                | Q(team__project_id=team.project_id, resource__in=PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES),
+                resource_id=None,
+            ).all()
         else:
             # Otherwise we are getting all controls for the specific resource
-            access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
+            access_controls = AccessControl.objects.filter(
+                _rule_scope_for_resource(team, resource), resource=resource, resource_id=resource_id
+            ).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
         user_access_level = user_access_control.get_user_access_level(obj)
@@ -356,15 +387,22 @@ class AccessControlViewSetMixin(_GenericViewSet):
             payload["inherited_resource"] = inherited_resource
             payload["inherited_access_level"] = None
             if inherited_resource:
-                everyone_rule = AccessControl.objects.filter(
-                    team=team,
-                    resource=inherited_resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role=None,
-                ).first()
+                everyone_levels = [
+                    rule.access_level
+                    for rule in AccessControl.objects.filter(
+                        _rule_scope_for_resource(team, inherited_resource),
+                        resource=inherited_resource,
+                        resource_id=None,
+                        organization_member=None,
+                        role=None,
+                    )
+                ]
+                # Mirrors _highest_access_level_from_rows: with one row per environment possible
+                # for a project-level resource, the loosest is the one in force.
                 payload["inherited_access_level"] = (
-                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
+                    max(everyone_levels, key=ordered_access_levels(inherited_resource).index)
+                    if everyone_levels
+                    else default_access_level(inherited_resource)
                 )
 
         return Response(payload)

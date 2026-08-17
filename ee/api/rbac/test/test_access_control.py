@@ -2580,3 +2580,43 @@ class TestAccessControlAcrossEnvironments(BaseAccessControlTest):
 
         res = self.client.patch(f"/api/projects/{self.sibling_team.id}/{resource}/{object_id}/", {"name": "renamed"})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    # The rules that govern an object have to be visible and editable from every environment the
+    # object is reachable through - the mixin's access_controls actions share one code path for
+    # both resources, so dashboards stand in for both.
+
+    def test_access_control_rules_are_listed_through_a_sibling_environment(self):
+        object_id = self._restrict("dashboards")
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get(f"/api/projects/{self.sibling_team.id}/dashboards/{object_id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [ac["access_level"] for ac in res.json()["access_controls"]] == ["none"]
+
+    def test_access_control_rule_is_updated_not_duplicated_through_a_sibling_environment(self):
+        object_id = self._restrict("dashboards")
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.sibling_team.id}/dashboards/{object_id}/access_controls",
+            {"access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        rows = AccessControl.objects.filter(resource="dashboard", resource_id=object_id)
+        assert rows.count() == 1
+        assert rows.get().access_level == "editor"
+
+    def test_access_control_rule_is_removed_through_a_sibling_environment(self):
+        object_id = self._restrict("dashboards")
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.sibling_team.id}/dashboards/{object_id}/access_controls",
+            {"access_level": None},
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert not AccessControl.objects.filter(resource="dashboard", resource_id=object_id).exists()
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get(f"/api/projects/{self.team.id}/dashboards/{object_id}/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
