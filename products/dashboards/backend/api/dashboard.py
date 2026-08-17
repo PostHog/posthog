@@ -116,7 +116,11 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_SPACING_GAPS, Dashboard
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    Dashboard,
+)
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
@@ -243,6 +247,7 @@ DASHBOARD_SHARED_FIELDS = [
     "quick_filter_ids",
     "customization",
     "grid_spacing",
+    "grid_compaction",
 ]
 
 
@@ -1180,6 +1185,11 @@ class DashboardCustomizationSerializer(serializers.Serializer):
         required=False,
         help_text="Named tile density preset.",
     )
+    layout_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        help_text="Grid compaction mode. Use vertical, horizontal, or none.",
+    )
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1207,6 +1217,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         write_only=True,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
+    grid_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        write_only=True,
+        help_text="Grid compaction mode. Use vertical, horizontal, or none.",
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -1222,10 +1238,15 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardCustomizationSerializer)
     def get_customization(self, dashboard: Dashboard) -> dict[str, str]:
-        tile_spacing = _normalize_dashboard_customization(dashboard.customization).get("tile_spacing")
+        customization = _normalize_dashboard_customization(dashboard.customization)
+        tile_spacing = customization.get("tile_spacing")
+        layout_compaction = customization.get("layout_compaction")
+        result = {}
         if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
-            return {"tile_spacing": tile_spacing}
-        return {}
+            result["tile_spacing"] = tile_spacing
+        if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
+            result["layout_compaction"] = layout_compaction
+        return result
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
@@ -1495,8 +1516,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
+        grid_compaction = validated_data.pop("grid_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
+        if grid_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
+            raise serializers.ValidationError({"grid_compaction": "Layout compaction isn't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1553,6 +1577,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             validated_data["customization"] = {
                 **validated_data.get("customization", {}),
                 "tile_spacing": grid_spacing,
+            }
+        if grid_compaction is not None:
+            validated_data["customization"] = {
+                **validated_data.get("customization", {}),
+                "layout_compaction": grid_compaction,
             }
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -1750,14 +1779,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
+        grid_compaction = validated_data.pop("grid_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if grid_spacing is not None:
+        if grid_compaction is not None and not dashboard_customization_enabled(
+            team=instance.team, user=cast(User, self.context["request"].user)
+        ):
+            raise serializers.ValidationError({"grid_compaction": "Layout compaction isn't available."})
+        if grid_spacing is not None or grid_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
-                "tile_spacing": grid_spacing,
+                **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
+                **({"layout_compaction": grid_compaction} if grid_compaction is not None else {}),
             }
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]

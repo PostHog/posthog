@@ -19287,6 +19287,20 @@ export namespace Schemas {
       Wide: 'wide',
     } as const;
 
+    /**
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `none` - none
+     */
+    export type LayoutCompactionEnum = typeof LayoutCompactionEnum[keyof typeof LayoutCompactionEnum];
+
+
+    export const LayoutCompactionEnum = {
+      Vertical: 'vertical',
+      Horizontal: 'horizontal',
+      None: 'none',
+    } as const;
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -19296,6 +19310,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       tile_spacing?: TileSpacingEnum;
+      /** Grid compaction mode. Use vertical, horizontal, or none.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `none` - none */
+      layout_compaction?: LayoutCompactionEnum;
     }
 
     /**
@@ -19376,6 +19396,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** Grid compaction mode. Use vertical, horizontal, or none.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `none` - none */
+      grid_compaction?: LayoutCompactionEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -59739,6 +59765,12 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
+      /** Grid compaction mode. Use vertical, horizontal, or none.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `none` - none */
+      grid_compaction?: LayoutCompactionEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */

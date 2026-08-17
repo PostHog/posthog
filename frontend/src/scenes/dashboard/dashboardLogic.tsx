@@ -98,6 +98,7 @@ import {
     DashboardPlacement,
     DashboardTemplateEditorType,
     DashboardTile,
+    DashboardGridCompaction,
     DashboardTileBasicType,
     DashboardTileSpacing,
     DashboardType,
@@ -669,6 +670,9 @@ export interface dashboardLogicActions {
             variables?: unknown
         } | null
     }
+    saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
+        layoutCompaction: DashboardGridCompaction
+    }
     saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
@@ -711,6 +715,9 @@ export interface dashboardLogicActions {
     }
     setButtonTileId: (buttonTileId: number | 'new' | null) => {
         buttonTileId: number | 'new' | null
+    }
+    setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
+        layoutCompaction: DashboardGridCompaction
     }
     setDashboardMode: (
         mode: DashboardMode | null,
@@ -1311,6 +1318,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
+        saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
@@ -1383,6 +1391,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
+        setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         setDashboardTileSpacingSaving: (saving: boolean) => ({ saving }),
         restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
             colors,
@@ -1927,6 +1936,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? {
                               ...state,
                               customization: { ...state.customization, tile_spacing: tileSpacing },
+                          }
+                        : state,
+                setDashboardGridCompaction: (state, { layoutCompaction }) =>
+                    state
+                        ? {
+                              ...state,
+                              customization: { ...state.customization, layout_compaction: layoutCompaction },
                           }
                         : state,
                 removeTile: (state, { tile }) => {
@@ -3742,6 +3758,47 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.saveDashboardTileSpacing(pendingTileSpacing)
                 } else {
                     actions.setDashboardTileSpacingSaving(false)
+                }
+            }
+        },
+        saveDashboardGridCompaction: async ({ layoutCompaction }, breakpoint) => {
+            await breakpoint(750)
+
+            if (cache.dashboardGridCompactionSaveInFlight) {
+                cache.pendingDashboardGridCompaction = layoutCompaction
+                return
+            }
+
+            const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
+            const persistedLayoutCompaction =
+                persistedDashboard && 'customization' in persistedDashboard
+                    ? (persistedDashboard.customization?.layout_compaction ?? 'vertical')
+                    : 'vertical'
+            cache.dashboardGridCompactionSaveInFlight = true
+            try {
+                const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(
+                    `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                    { grid_compaction: layoutCompaction }
+                )
+                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
+                if (layoutCompaction !== 'vertical') {
+                    eventUsageLogic.actions.reportDashboardGridCompactionConfigured(layoutCompaction)
+                }
+            } catch {
+                if (!cache.pendingDashboardGridCompaction) {
+                    actions.setDashboardGridCompaction(persistedLayoutCompaction)
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    lemonToast.error("Couldn't update layout compaction. Try again.")
+                }
+            } finally {
+                cache.dashboardGridCompactionSaveInFlight = false
+                const pendingLayoutCompaction = cache.pendingDashboardGridCompaction as
+                    | DashboardGridCompaction
+                    | undefined
+                cache.pendingDashboardGridCompaction = undefined
+                if (pendingLayoutCompaction) {
+                    actions.setDashboardGridCompaction(pendingLayoutCompaction)
+                    actions.saveDashboardGridCompaction(pendingLayoutCompaction)
                 }
             }
         },

@@ -52,6 +52,7 @@ import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
+    DashboardGridCompaction,
     DashboardTileSpacing,
     DashboardMode,
     DashboardTemplateScope,
@@ -734,6 +735,9 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         newLength: number
         originalLength: number
+    }
+    reportDashboardGridCompactionConfigured: (layoutCompaction: DashboardGridCompaction) => {
+        layoutCompaction: DashboardGridCompaction
     }
     reportDashboardInsightAnnotationsToggled: (
         dashboardId: number | undefined,
@@ -2332,6 +2336,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
         reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
+        reportDashboardGridCompactionConfigured: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         reportDashboardEditModeDiscardPrompt: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             action: 'shown' | 'discarded' | 'kept_editing'
@@ -3375,6 +3380,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
             posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
+        },
+        reportDashboardGridCompactionConfigured: async ({ layoutCompaction }) => {
+            posthog.capture('dashboard grid compaction configured', { layout_compaction: layoutCompaction })
         },
         reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
             posthog.capture('dashboard edit mode discard prompt', {

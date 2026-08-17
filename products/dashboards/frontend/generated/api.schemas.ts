@@ -336,6 +336,19 @@ export const TileSpacingEnumApi = {
     Wide: 'wide',
 } as const
 
+/**
+ * * `vertical` - vertical
+ * * `horizontal` - horizontal
+ * * `none` - none
+ */
+export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
+
+export const LayoutCompactionEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    None: 'none',
+} as const
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -345,6 +358,12 @@ export interface DashboardCustomizationApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     tile_spacing?: TileSpacingEnumApi
+    /** Grid compaction mode. Use vertical, horizontal, or none.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `none` - none */
+    layout_compaction?: LayoutCompactionEnumApi
 }
 
 /**
@@ -425,6 +444,12 @@ export interface DashboardApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
+    /** Grid compaction mode. Use vertical, horizontal, or none.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `none` - none */
+    grid_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -1006,6 +1031,12 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
+    /** Grid compaction mode. Use vertical, horizontal, or none.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `none` - none */
+    grid_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */

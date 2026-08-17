@@ -36,7 +36,10 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
-import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import {
+    getDashboardGridCompactor,
+    getDashboardTileSpacingGap,
+} from 'products/dashboards/frontend/dashboardCustomization'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -245,6 +248,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
+    const gridCompactor = getDashboardGridCompactor(dashboard?.customization?.layout_compaction)
     const margin = useMemo(
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
@@ -505,6 +509,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        compactor={gridCompactor}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}

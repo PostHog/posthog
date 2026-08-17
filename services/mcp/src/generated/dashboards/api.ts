@@ -129,6 +129,13 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
+        grid_compaction: zod
+            .enum(['vertical', 'horizontal', 'none'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `none` - none')
+            .optional()
+            .describe(
+                'Grid compaction mode. Use vertical, horizontal, or none.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `none` - none'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -298,6 +305,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
+        grid_compaction: zod
+            .enum(['vertical', 'horizontal', 'none'])
+            .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `none` - none')
+            .optional()
+            .describe(
+                'Grid compaction mode. Use vertical, horizontal, or none.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `none` - none'
             ),
         tiles: zod
             .array(

@@ -117,6 +117,8 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        horizontalCompactor: { type: 'horizontal' },
+        noCompactor: { type: 'none' },
         useContainerWidth: () => ({
             width: 1200,
             containerRef: { current: null },
@@ -126,6 +128,7 @@ jest.mock('react-grid-layout', () => {
             className,
             rowHeight,
             margin,
+            compactor,
             resizeConfig,
             dragConfig,
             children,
@@ -133,6 +136,7 @@ jest.mock('react-grid-layout', () => {
             className: string
             rowHeight: number
             margin: [number, number]
+            compactor: { type: string }
             resizeConfig: { enabled: boolean }
             dragConfig: { enabled: boolean }
             children: any
@@ -142,12 +146,14 @@ jest.mock('react-grid-layout', () => {
                 data-class-name={className}
                 data-row-height={String(rowHeight)}
                 data-margin={margin.join(',')}
+                data-compactor={compactor.type ?? 'none'}
                 data-resize-enabled={String(resizeConfig.enabled)}
                 data-drag-enabled={String(dragConfig.enabled)}
             >
                 {children}
             </div>
         ),
+        verticalCompactor: { type: 'vertical' },
     }
 })
 
@@ -336,6 +342,44 @@ describe('DashboardItems', () => {
 
         const { container } = render(<DashboardItems />)
         expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', '16,16')
+    })
+
+    it.each([
+        ['horizontal', 'horizontal'],
+        ['none', 'none'],
+        ['unknown', 'vertical'],
+    ] as const)('uses %s layout compaction', (layoutCompaction, compactor) => {
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5, customization: { layout_compaction: layoutCompaction } },
+                    tiles: [],
+                    layouts: { sm: [] },
+                    dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-compactor', compactor)
     })
 
     it('shows widget tiles on public dashboards', () => {

@@ -415,6 +415,37 @@ describe('dashboardLogic', () => {
             }
         })
 
+        it('previews layout compaction immediately and persists only the final choice', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            ;(api.update as jest.Mock).mockClear()
+            const reportGridCompactionConfigured = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardGridCompactionConfigured'
+            )
+            jest.useFakeTimers()
+
+            try {
+                logic.actions.setDashboardGridCompaction('horizontal')
+                logic.actions.saveDashboardGridCompaction('horizontal')
+                logic.actions.setDashboardGridCompaction('none')
+                logic.actions.saveDashboardGridCompaction('none')
+
+                expect(logic.values.dashboard?.customization?.layout_compaction).toBe('none')
+                expect(api.update).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(750)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledTimes(1)
+                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    grid_compaction: 'none',
+                })
+                expect(reportGridCompactionConfigured).toHaveBeenCalledWith('none')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('saving without changes does not call api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
