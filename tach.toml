@@ -41,6 +41,7 @@ path = "ee"
 depends_on = [
     "products.cohorts",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.alerts",
     "products.cdp",
@@ -236,6 +237,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.notifications",
     "products.product_analytics",
+    "products.conversations",
     "products.surveys",
 ]
 layer = "modules"
@@ -424,10 +426,12 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.alerts",
     "products.approvals",
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
+    "products.exports",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys",
@@ -654,6 +658,7 @@ depends_on = [
     "products.cohorts",
     "products.experiments",
     "products.exports",
+    "products.notifications",
     "products.signals",
     "products.tasks",
 ]
@@ -702,6 +707,9 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
+    # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
+    "products.replay_vision",
     "products.skills",
     "products.surveys",
     "products.tasks",
@@ -810,6 +818,8 @@ depends_on = [
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
+    # The annotations.create action verb (via the annotations facade).
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -837,6 +847,16 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.comment_access.*",
+]
+from = [
+    "products.canvas",
+]
+
+# The shared activity log delegates personal-canvas visibility to this narrow,
+# product-owned boundary, mirroring how loops do it for tasks.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
 ]
 from = [
     "products.canvas",

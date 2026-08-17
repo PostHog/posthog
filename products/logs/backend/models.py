@@ -184,6 +184,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # Cooldown & snooze
     cooldown_minutes = models.PositiveIntegerField(default=0)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
     # Scheduling & tracking
     next_check_at = models.DateTimeField(null=True, blank=True)

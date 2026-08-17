@@ -36,6 +36,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -193,16 +194,22 @@ def anchor_url_pattern(value: str) -> str:
     return validated_value
 
 
-def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> tuple[str | None, str | None]:
+@frozen
+class ResolvedUrlFilter:
+    url_exact: str | None
+    url_pattern: str | None
+
+
+def resolve_url_filter(url_exact: str | None, url_pattern: str | None) -> ResolvedUrlFilter:
     """Resolve which of url_exact/url_pattern the query actually filters on when both are supplied,
     so every caller (the request serializer and the permission check) authorizes and queries the
     same value: equal values keep url_exact, differing values keep url_pattern (matching
     HeatmapsRequestSerializer.validate())."""
     if isinstance(url_exact, str) and isinstance(url_pattern, str):
         if url_exact == url_pattern:
-            return url_exact, None
-        return None, url_pattern
-    return url_exact, url_pattern
+            return ResolvedUrlFilter(url_exact=url_exact, url_pattern=None)
+        return ResolvedUrlFilter(url_exact=None, url_pattern=url_pattern)
+    return ResolvedUrlFilter(url_exact=url_exact, url_pattern=url_pattern)
 
 
 class HeatmapsRequestSerializer(serializers.Serializer):
@@ -334,10 +341,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
-        resolved_exact, resolved_pattern = resolve_url_filter(url_exact, url_pattern)
-        if resolved_exact is None and url_exact is not None:
+        resolved = resolve_url_filter(url_exact, url_pattern)
+        if resolved.url_exact is None and url_exact is not None:
             values.pop("url_exact")
-        if resolved_pattern is None and url_pattern is not None:
+        if resolved.url_pattern is None and url_pattern is not None:
             values.pop("url_pattern")
 
         if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
@@ -488,8 +495,8 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         # authorized as an exact match while the anchored pattern actually executes.
         raw_url_pattern = request.query_params.get("url_pattern")
         anchored_url_pattern = anchor_url_pattern(raw_url_pattern) if raw_url_pattern else raw_url_pattern
-        url_exact, _ = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
-        if not url_exact:
+        resolved = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
+        if not resolved.url_exact:
             # A url_pattern query matches every row whose current_url satisfies the pattern, not
             # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns
             # (and requests with no URL filter at all) require resource-level "heatmap" access.
@@ -503,7 +510,7 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
             candidate_url = candidate.data_url or candidate.url
             # Match the same way the aggregate query does: url_exact ignores a trailing slash
             # (`trimRight(current_url, '/')`).
-            if candidate_url.rstrip("/") == url_exact.rstrip("/") and uac.check_access_level_for_object(
+            if candidate_url.rstrip("/") == resolved.url_exact.rstrip("/") and uac.check_access_level_for_object(
                 candidate, required_level=required_level
             ):
                 return True

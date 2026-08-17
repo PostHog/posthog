@@ -57,7 +57,6 @@ export interface experimentWizardLogicValues {
     featureFlagKeyValidation: FeatureFlagKeyValidation | null // createExperimentLogic
     featureFlagKeyValidationLoading: boolean // createExperimentLogic
     isExperimentSubmitting: boolean // createExperimentLogic
-    replayVisionEnabled: boolean // createExperimentLogic
     sharedMetrics: {
         primary: ExperimentMetric[]
         secondary: ExperimentMetric[]
@@ -223,7 +222,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'featureFlagKeyValidation',
                 'featureFlagKeyValidationLoading',
                 'createReplayVisionScanner',
-                'replayVisionEnabled',
             ],
         ],
         actions: [

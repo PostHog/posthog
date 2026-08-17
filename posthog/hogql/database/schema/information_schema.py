@@ -52,6 +52,8 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -449,6 +451,13 @@ def _rows_select(
     )
 
 
+@frozen
+class _CollectedCatalog:
+    table_rows: list[list[Any]]
+    column_rows: list[list[Any]]
+    relationships: list[_CollectedRelationship]
+
+
 class _Introspection:
     """Walks the live database once and produces the rows for every information_schema table."""
 
@@ -466,7 +475,7 @@ class _Introspection:
         self.materialized_view_ids = warehouse_metadata.materialized_view_ids
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
-        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
+        self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
         # Per-table certification lookup key `(table_type, resource_id)`, parallel to the table rows.
@@ -542,7 +551,7 @@ class _Introspection:
                 return self.column_stats.get((str(table_id), column_name), (None, None, None))
         return (None, None, None)
 
-    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]:
+    def collect(self) -> _CollectedCatalog:
         if self._collected is not None:
             return self._collected
 
@@ -578,12 +587,13 @@ class _Introspection:
             )
 
         self._table_certification_keys = certification_keys
-        self._collected = (table_rows, column_rows, relationship_rows)
+        self._collected = _CollectedCatalog(
+            table_rows=table_rows, column_rows=column_rows, relationships=relationship_rows
+        )
         return self._collected
 
     def table_rows(self) -> list[list[Any]]:
-        table_rows, _, _ = self.collect()
-        return table_rows
+        return self.collect().table_rows
 
     def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_table_rows is not None:
@@ -601,21 +611,18 @@ class _Introspection:
         return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
-        _, column_rows, _ = self.collect()
-        return column_rows
+        return self.collect().column_rows
 
     def relationship_rows(self) -> list[list[Any]]:
-        _, _, relationship_rows = self.collect()
-        return [relationship.values for relationship in relationship_rows]
+        return [relationship.values for relationship in self.collect().relationships]
 
     def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_relationship_rows is not None:
             return self._data_catalog_enriched_relationship_rows
 
-        _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
-        for relationship in relationships:
+        for relationship in self.collect().relationships:
             confidence, reasoning = (
                 accepted_relationships.get(relationship.provenance_key, (None, None))
                 if relationship.provenance_key is not None
@@ -1489,7 +1496,9 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
         "name": _string_field(
-            "name", description="Identifier-safe handle uniquely naming this metric within the project."
+            "name",
+            description="Identifier-safe handle uniquely naming this metric among the project's live metrics. "
+            "Not permanent: a metric can be renamed, and deleting one frees its name for reuse.",
         ),
         "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
         "description": _string_field("description", description="What the metric means and how to interpret it."),

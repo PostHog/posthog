@@ -2,7 +2,7 @@ import type { AccountCustomPropertyFilter } from '~/types'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DEFAULT_SELECT, AccountColumnDisplayState } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
 import { DEFAULT_TILES } from './constants'
@@ -44,9 +44,8 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
     return typeof value === 'number' ? [value] : []
 }
 
-// Sort persists as a single `["<column> <ASC|DESC>"]` entry using the LOGICAL
-// column name (e.g. `csm`) — HogQL resolves it against the SELECT alias at
-// query-build time.
+// Sort persists under the logical column name so saved views do not depend on
+// the typed query's relationship or custom-property references.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []
@@ -108,7 +107,7 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
     ) as AccountsViewProperties
 
     return {
-        columns: view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+        columns: view.columns && view.columns.length > 0 ? view.columns : [...ACCOUNTS_DEFAULT_COLUMNS],
         sortOrder: orderByToSortOrder(view.order_by),
         filters: {
             search: rawFilters.search ?? '',

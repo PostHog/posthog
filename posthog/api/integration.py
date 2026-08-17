@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
@@ -134,15 +135,6 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
     raise error
-
-
-def _github_account_type(owner_type: str | None) -> str | None:
-    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
-    if owner_type == "Organization":
-        return "organization"
-    if owner_type == "User":
-        return "personal"
-    return None
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -487,19 +479,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
-        report_properties: dict[str, Any] = {"integration_kind": kind, "is_overwrite": is_overwrite}
-        if kind == "github":
-            # Surface whether the connected GitHub account is an org or a personal one, mirroring the
-            # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
-            owner_type = ((instance.config or {}).get("account") or {}).get("type")
-            report_properties["repo_owner_type"] = owner_type
-            report_properties["account_type"] = _github_account_type(owner_type)
-        report_user_action(
-            self.context["request"].user,
-            "integration created",
-            report_properties,
-            team=self.context["get_team"](),
-        )
+        # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
+        # is also created outside this serializer (the App installation callback, agentic
+        # provisioning). This branch reaches that same helper, so reporting here too would count a
+        # new connection twice.
+        if kind != "github":
+            report_user_action(
+                self.context["request"].user,
+                "integration created",
+                {"integration_kind": kind, "is_overwrite": is_overwrite},
+                team=self.context["get_team"](),
+            )
         return instance
 
     def _build_integration(self, validated_data: Any) -> Any:
@@ -953,14 +943,23 @@ class GitHubAvailableInstallationSerializer(serializers.Serializer):
         help_text="GitHub account type, e.g. 'Organization' or 'User'.",
     )
     source_team_id = serializers.IntegerField(
-        help_text="A project in the organization that already has this installation linked.",
+        allow_null=True,
+        help_text="A project in the organization that already has this installation linked. "
+        "Null when the installation isn't linked to any project yet — it was found via the user's "
+        "personal GitHub link and can be adopted by linking it here.",
     )
 
 
 class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
     installations = GitHubAvailableInstallationSerializer(
         many=True,
-        help_text="Distinct GitHub installations in the organization available to link to this project.",
+        help_text="GitHub installations available to link to this project: the organization's "
+        "existing installations plus any the user's personal GitHub link can see but that aren't "
+        "linked to any project yet.",
+    )
+    personal_github_connected = serializers.BooleanField(
+        help_text="Whether the requesting user has a personal GitHub account linked (via Linked "
+        "Accounts). Used to prompt for that link when it would surface more installations to adopt.",
     )
 
 
@@ -1186,6 +1185,15 @@ class IntegrationViewSet(
             try:
                 auth_url = OauthIntegration.authorize_url(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                )
+                # Capture the hand-off to the provider's authorize page. A rejection there (e.g.
+                # TikTok's "app has been blocked") never returns to us, so this is the only leg we
+                # can record — an authorize start with no matching completion is now countable.
+                report_user_action(
+                    request.user,
+                    "integration authorize started",
+                    {"integration_kind": kind},
+                    team=self.team,
                 )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
@@ -1648,18 +1656,27 @@ class IntegrationViewSet(
     @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="github/available_installations")
     def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the org's existing GitHub installations this project can reuse.
+        """List GitHub installations this project can link.
 
         A GitHub App installs once per organization, so a second project links an existing
-        installation rather than reinstalling. This backs the picker: when the org has more than
-        one installation, the client passes the chosen installation_id to github/link_existing.
+        installation rather than reinstalling. This backs the picker: when more than one option
+        exists, the client passes the chosen installation_id to github/link_existing. The list also
+        includes installations the user's personal GitHub link can see but that aren't linked to any
+        project yet (``source_team_id: null``) — orphan installations approved on GitHub outside
+        PostHog's callback, which ``github/link_existing`` can adopt.
         """
+        user = cast(User, request.user)
         installations = list_org_github_installations(
-            user=cast(User, request.user),
+            user=user,
             organization=self.organization,
             exclude_team_id=self.team_id,
         )
-        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
+        return Response(
+            {
+                "installations": GitHubAvailableInstallationSerializer(installations, many=True).data,
+                "personal_github_connected": user_has_personal_github_integration(user),
+            }
+        )
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,
@@ -1725,6 +1742,7 @@ class IntegrationViewSet(
                 "reason_length": len(serializer.validated_data["reason"]),
             },
             team=self.team,
+            request=request,
         )
         return Response({"success": True})
 
