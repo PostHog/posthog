@@ -38,6 +38,9 @@ let annotateWindow: BrowserWindow | null = null;
 let shotDataUrl: string | null = null;
 let pending: QuickAskAttachment | null = null;
 let handlersRegistered = false;
+/** Windows the app is tearing down itself, so `closed` skips the OS-close
+ * cleanup (done handler, reopen, teardown all go through closeAnnotator). */
+const appInitiatedClose = new WeakSet<BrowserWindow>();
 
 interface CaptureHost {
   getPanel(): BrowserWindow | null;
@@ -92,7 +95,7 @@ async function grabScreen(display: Display): Promise<string | null> {
   return source.thumbnail.toDataURL();
 }
 
-function openAnnotator(display: Display): void {
+function openAnnotator(display: Display, host: CaptureHost): void {
   closeAnnotator();
   const window = new BrowserWindow({
     ...display.bounds,
@@ -115,6 +118,12 @@ function openAnnotator(display: Display): void {
   window.setAlwaysOnTop(true, "screen-saver");
   window.on("closed", () => {
     if (annotateWindow === window) annotateWindow = null;
+    // A close the app did not initiate (Alt+F4, the window menu's Close) never
+    // ran the done handler, so drop the held capture and re-show the panel the
+    // capture flow hid — otherwise the panel looks gone until the next summon.
+    if (appInitiatedClose.delete(window)) return;
+    shotDataUrl = null;
+    host.showPanel();
   });
   if (VITE_DEV_SERVER_URL) {
     void window.loadURL(`${VITE_DEV_SERVER_URL}/quick-ask-annotate.html`);
@@ -132,6 +141,7 @@ function openAnnotator(display: Display): void {
 
 function closeAnnotator(): void {
   if (annotateWindow && !annotateWindow.isDestroyed()) {
+    appInitiatedClose.add(annotateWindow);
     annotateWindow.destroy();
   }
   annotateWindow = null;
@@ -183,7 +193,7 @@ export async function beginCapture(host: CaptureHost): Promise<void> {
     return;
   }
   shotDataUrl = dataUrl;
-  openAnnotator(display);
+  openAnnotator(display, host);
 }
 
 export function setupQuickAskCapture(host: CaptureHost): void {
