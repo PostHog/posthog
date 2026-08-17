@@ -58,7 +58,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.logic.services.task_usage import TaskUsage
+from products.tasks.backend.logic.services.task_usage import TaskTokenUsageUnavailable, TaskUsage
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
@@ -1116,6 +1116,16 @@ class TestTaskAPI(BaseTaskAPITest):
             "compute_cost_usd": 0.56,
             "total_cost_usd": 12.9,
         }
+
+    @patch("products.tasks.backend.presentation.views.api.get_task_usage")
+    def test_usage_returns_bad_gateway_when_token_usage_is_unavailable(self, mock_get_task_usage: MagicMock) -> None:
+        task = self.create_task()
+        mock_get_task_usage.side_effect = TaskTokenUsageUnavailable()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/usage/")
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert response.json() == {"detail": "Task usage is temporarily unavailable."}
 
     def test_desktop_oauth_task_creation_records_trusted_provenance(self):
         client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)

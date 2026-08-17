@@ -1966,9 +1966,6 @@ class InternalTaskUsageRequestSerializer(serializers.Serializer):
 
 class InternalTaskUsageResponseSerializer(serializers.Serializer):
     token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
-    total_cost_usd = serializers.FloatField(
-        help_text="Estimated combined model and cloud compute cost for this task in US dollars."
-    )
 
 
 class TaskCommentsQuerySerializer(serializers.Serializer):

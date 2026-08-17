@@ -288,6 +288,12 @@ def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
     return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
 
 
+class TaskUsageUpstreamUnavailable(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Task usage is temporarily unavailable."
+    default_code = "task_usage_upstream_unavailable"
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -417,7 +423,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             usage = get_task_usage(team_id=self.team_id, task_id=task.id, task_created_at=task.created_at)
         except TaskTokenUsageUnavailable as error:
-            raise APIException("Task usage is temporarily unavailable.") from error
+            raise TaskUsageUpstreamUnavailable() from error
         return Response(
             TaskUsageResponseSerializer(
                 {

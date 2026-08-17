@@ -6,6 +6,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
@@ -41,6 +42,7 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
 class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self.task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -140,3 +142,11 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             self.assertRaises(task_usage.TaskTokenUsageUnavailable),
         ):
             task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
+
+    def test_token_cost_is_cached(self) -> None:
+        with patch.object(task_usage, "get_local_task_token_cost", return_value=Decimal("1.25")) as get_cost:
+            first = task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
+            second = task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
+
+        assert first == second == Decimal("1.25")
+        get_cost.assert_called_once()

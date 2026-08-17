@@ -8,10 +8,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
 import requests
+import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -31,6 +33,9 @@ TASK_USAGE_SIGNATURE_HEADER = "X-PostHog-Task-Usage-Signature"
 TASK_USAGE_TIMESTAMP_HEADER = "X-PostHog-Task-Usage-Timestamp"
 TASK_USAGE_CROSS_REGION_TIMEOUT_SECONDS = (3, 15)
 TASK_USAGE_INTERNAL_PATH = "/api/code/internal/task_usage/"
+TASK_TOKEN_COST_CACHE_TIMEOUT_SECONDS = 60
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -62,14 +67,27 @@ def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None =
 
 
 def _get_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
+    cache_key = _task_token_cost_cache_key(task_id=task_id, task_created_at=task_created_at)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Decimal(str(cached))
+
     if settings.CLOUD_DEPLOYMENT == "EU":
-        return _get_cross_region_task_token_cost(task_id=task_id, task_created_at=task_created_at)
-    return get_local_task_token_cost(task_id=task_id, task_created_at=task_created_at)
+        token_cost = _get_cross_region_task_token_cost(task_id=task_id, task_created_at=task_created_at)
+    else:
+        token_cost = get_local_task_token_cost(task_id=task_id, task_created_at=task_created_at)
+    cache.set(cache_key, str(token_cost), timeout=TASK_TOKEN_COST_CACHE_TIMEOUT_SECONDS)
+    return token_cost
+
+
+def _task_token_cost_cache_key(*, task_id: UUID, task_created_at: datetime) -> str:
+    return f"task_token_cost:v1:{task_id}:{task_created_at.isoformat()}"
 
 
 def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetime) -> Decimal:
     secret = settings.PERSONAL_SPEND_CROSS_REGION_SECRET
     if not secret:
+        logger.error("task_usage.cross_region_not_configured")
         raise TaskTokenUsageUnavailable("Cross-region task usage is not configured")
 
     body = json.dumps({"task_id": str(task_id), "task_created_at": task_created_at.isoformat()}).encode()
@@ -89,6 +107,7 @@ def _get_cross_region_task_token_cost(*, task_id: UUID, task_created_at: datetim
         response.raise_for_status()
         return Decimal(str(response.json()["token_cost_usd"]))
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+        logger.exception("task_usage.cross_region_request_failed", error_type=type(error).__name__)
         raise TaskTokenUsageUnavailable("Cross-region task usage is unavailable") from error
 
 
