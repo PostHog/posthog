@@ -14,6 +14,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
 
 POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
@@ -37,7 +39,8 @@ def post_posthog_code_no_repos_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=(
@@ -132,7 +135,8 @@ def _post_connect_personal_github_prompt(
             "the pull request as you. Connect it, then mention me again."
         )
         button_text = "Connect GitHub"
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=text,
@@ -254,7 +258,8 @@ def post_posthog_code_picker_timeout_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text="Repository selection expired. Please mention PostHog again to retry.",
@@ -284,7 +289,8 @@ def post_posthog_code_internal_error_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text="Sorry, I hit an internal error while processing that request. Please try again.",

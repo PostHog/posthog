@@ -61,6 +61,7 @@ post_delete:posthog.models.organization.sync_billing_on_membership_removal
 post_delete:posthog.models.organization_domain.delete_orphaned_identity_provider_config
 post_delete:posthog.models.product_intent.product_intent._invalidate_product_intents_on_delete
 post_delete:posthog.models.remote_config.product_tour_deleted
+post_delete:posthog.models.remote_config.push_integration_changed
 post_delete:posthog.models.remote_config.site_function_changed
 post_delete:posthog.models.team.team.delete_team_in_cache_on_delete
 post_delete:posthog.session.signals.delete_sessions_on_user_deletion
@@ -124,6 +125,7 @@ post_save:posthog.models.remote_config.error_tracking_suppression_rule_saved
 post_save:posthog.models.remote_config.feature_flag_saved
 post_save:posthog.models.remote_config.js_snippet_config_saved
 post_save:posthog.models.remote_config.product_tour_saved
+post_save:posthog.models.remote_config.push_integration_changed
 post_save:posthog.models.remote_config.site_app_saved
 post_save:posthog.models.remote_config.site_function_changed
 post_save:posthog.models.remote_config.survey_saved
