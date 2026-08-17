@@ -94,9 +94,11 @@ export function PlanApprovalCard({
     selectedOption?.name ||
     response?.displayText ||
     null;
-  const resolvedAsReject = selectedOption
-    ? isPermissionRejection(selectedOption)
-    : false;
+  const resolvedAsReject = permission
+    ? selectedOption
+      ? isPermissionRejection(selectedOption)
+      : false
+    : toolData.status === "error";
 
   return (
     <View className="mx-4 my-1 rounded-lg border border-accent-6 bg-gray-2">
@@ -129,7 +131,7 @@ export function PlanApprovalCard({
         </View>
       )}
 
-      {isResolved || !permission ? (
+      {isResolved ? (
         <View className="px-3 pb-3">
           <View className="flex-row items-start gap-2 rounded-lg border border-gray-6 bg-gray-3 px-3 py-2.5">
             {resolvedAsReject ? (
@@ -157,7 +159,7 @@ export function PlanApprovalCard({
             </View>
           </View>
         </View>
-      ) : (
+      ) : permission ? (
         <View className="px-3 pb-3">
           {permission.options.map((option) => {
             const meta = getPermissionOptionMeta(option);
@@ -230,7 +232,7 @@ export function PlanApprovalCard({
             );
           })}
         </View>
-      )}
+      ) : null}
     </View>
   );
 }

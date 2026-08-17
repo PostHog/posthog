@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { TextInput } from "react-native";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import type { ToolStatus } from "@/features/chat";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 
 vi.mock("phosphor-react-native", () => ({
@@ -105,6 +106,41 @@ describe("PlanApprovalCard", () => {
 
     expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
   });
+
+  it.each<[ToolStatus, string, string]>([
+    ["error", "Sent back with guidance", "Plan approved"],
+    ["completed", "Plan approved", "Sent back with guidance"],
+  ])(
+    "shows the outcome for a %s plan when the permission is gone",
+    (status, expectedLabel, unexpectedLabel) => {
+      const plan = "# Plan\n\n1. Inspect renderer";
+      let renderer: ReturnType<typeof create> | null = null;
+
+      act(() => {
+        renderer = create(
+          createElement(PlanApprovalCard, {
+            toolData: {
+              toolCallId: "tool-plan",
+              status,
+              args: { plan },
+            },
+          }),
+        );
+      });
+
+      if (!renderer) {
+        throw new Error("Renderer not created");
+      }
+
+      const hasLabel = (label: string) =>
+        (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
+          (node) => node.props.children === label,
+        ).length > 0;
+
+      expect(hasLabel(expectedLabel)).toBe(true);
+      expect(hasLabel(unexpectedLabel)).toBe(false);
+    },
+  );
 
   it("sends the selected approval option immediately", () => {
     const onSendPermissionResponse = vi.fn();
