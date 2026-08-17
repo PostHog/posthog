@@ -347,6 +347,44 @@ def test_the_client_id_is_the_document_the_host_publishes() -> None:
     assert not poster.reached("register")
 
 
+@pytest.mark.parametrize(
+    "cached_client_id, revokes",
+    [
+        # The upgrade case: a credential minted by the self-registered client this replaced. Its
+        # refresh token stays live for 30 days, and no later logout can name it once overwritten.
+        ("client-abc", True),
+        # The same client, so the server's sweep would take the token this login just minted.
+        (_CLIENT_ID, False),
+    ],
+)
+def test_a_login_revokes_a_replaced_credential_only_when_it_came_from_another_client(
+    cached_client_id: str, revokes: bool
+) -> None:
+    posthog_auth.save(_credential(client_id=cached_client_id))
+    poster = _Poster(token=(200, {"access_token": "pha_new", "refresh_token": "phr_new", "expires_in": 3600}))
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
+        credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert credential.access_token == "pha_new"
+    assert poster.reached("revoke") is revokes
+    if revokes:
+        revoked = poster.body_for("revoke")
+        assert revoked["token"] == "phr_cached" and revoked["client_id"] == "client-abc"
+
+
+def test_a_login_keeps_its_new_credential_when_revoking_the_replaced_one_fails() -> None:
+    # The user is signed in either way, so failing here would report a working login as an error.
+    posthog_auth.save(_credential(client_id="client-abc"))
+    poster = _Poster(
+        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
+        revoke=(503, {"error": "service_unavailable"}),
+    )
+    with patch.object(posthog_auth.requests, "post", poster), _metadata(), _fake_browser():
+        credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert credential.access_token == "pha_new"
+    cached = posthog_auth.load(_HOST)
+    assert cached is not None and cached.access_token == "pha_new"
+
+
 def test_a_host_that_serves_no_client_document_names_the_way_out() -> None:
     # An older self-hosted PostHog would otherwise fail at /authorize, which cannot say what to do.
     with patch.object(posthog_auth.requests, "get", lambda url, timeout: _Response(404, {})):

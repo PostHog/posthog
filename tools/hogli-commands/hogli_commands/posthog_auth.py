@@ -238,6 +238,17 @@ def logout(host: str = DEFAULT_HOST) -> Logout:
     return Logout(forgotten=existed, revoked=credential is not None and failure is None, error=failure)
 
 
+def _revoke_superseded(credential: Credential) -> None:
+    """Revoke a credential a fresh login replaced, warning rather than raising: the login worked."""
+    try:
+        revoke(credential)
+    except AuthError as exc:
+        click.secho(
+            f"Could not revoke the previous credential for {credential.host}: {exc.message}", fg="yellow", err=True
+        )
+        click.secho("It is still live. Revoke it under Settings → Connected applications.", fg="yellow", err=True)
+
+
 def revoke(credential: Credential) -> None:
     """Tell the server to drop the grant, so a copy of the token stops working.
 
@@ -335,6 +346,7 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
             f"  Run `hogli posthog:login` yourself, or set {KEY_ENV_VARS[0]} for this caller."
         )
 
+    superseded = load(host)
     client = _client(host)
     refused = [scope for scope in wanted if scope not in client.scopes]
     if refused:
@@ -374,6 +386,11 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         asked=wanted,
     )
     save(credential)
+    if superseded is not None and superseded.client_id != credential.client_id:
+        # A credential from another client, which the save above just made unreachable. Revoking
+        # only when the client differs is the whole condition: the server sweeps every token for a
+        # client, so revoking a same-client credential would take the token just minted with it.
+        _revoke_superseded(superseded)
     if not credential.covers(wanted):
         # The ceiling check above cannot see a narrowing that happens at consent time, so this is
         # the backstop. Returning here would hand back a token quietly missing what was asked for,
