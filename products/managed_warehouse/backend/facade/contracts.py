@@ -30,6 +30,7 @@ __all__ = [
     "DuckLakeQueryResult",
     "DuckLakeS3Secret",
     "DuckLakeTableResult",
+    "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceJobRecord",
@@ -145,6 +146,14 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
+
+
+@frozen
+class DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to."""
+
+    events_table: str
+    persons_table: str
 
 
 @dataclass(frozen=True, kw_only=True)
