@@ -159,28 +159,18 @@ Default to shallow; go deep only for real merge-base or version math, and even t
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
-## Network fetches — retry them
+## Network fetches
 
-Every fetch to a host outside the runner is a bet on someone else's network.
-Unretried, one transient reset becomes a red check with no findings and a rerun that passes unchanged, which teaches everyone to rerun instead of read ([actionlint died on `curl: (35)` before it linted anything](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
+Downloads from outside the runner need retries, or a transient reset becomes a red check with no findings ([actionlint died on `curl: (35)`](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
 
 ```bash
-curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-    -o "$out" "$url"
+curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$out" "$url"
 ```
 
-- **`--retry-all-errors` is the flag that matters when downloading a file.** Plain `--retry` covers only timeouts and HTTP 408, 429 and 5xx. A connection reset (exit 35) is not in that set, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
-- **Leave it off for GitHub API calls.** Combined with `-f` it retries 403 and 404, so an exhausted `GITHUB_TOKEN` bucket spends five more requests it cannot succeed with. Plain `--retry` already covers 429 and 5xx, and curl honors `Retry-After`.
-- **Omit `--retry-delay`.** It replaces curl's exponential backoff with a fixed wait.
-- **Bound the total with `--retry-max-time`** so retries can't outlive the job's `timeout-minutes`.
-- **Keep `--fail`/`-f`**, or an error page lands in your output file and curl still exits 0.
-- **Shorten the budget when a `||` mirror follows** (`--retry 3 --retry-max-time 30`), so a dead primary fails over instead of exhausting backoff first.
-- A standalone tool install is usually better as a composite that already does this: `./.github/actions/setup-protoc`, `setup-emsdk`, `setup-sccache`.
-
-Don't add retries where a repeat has a side effect: webhook posts, telemetry events, anything non-idempotent.
-A duplicate release announcement is worse than a missed one.
-Skip them too where a shell loop already retries (the OIDC mint steps) or the target is localhost inside a readiness wait.
-Never move these into `~/.curlrc`. Curl's own manual warns against `--retry-all-errors` as a default, because it can duplicate sent data.
+- `--retry-all-errors` is the part that catches a reset; plain `--retry` covers only timeouts and 408/429/5xx, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- Drop it on GitHub API calls: with `-f` it also retries 403 and 404, spending five more requests on an already-empty token bucket.
+- No `--retry-delay` (it replaces exponential backoff with a fixed wait). Keep `-f`, or an error page lands in your output file at exit 0.
+- Don't retry anything non-idempotent (webhook posts, telemetry), or where a shell loop or readiness wait already retries.
 
 ## Tokens — dedicated App tokens for high-volume calls
 
