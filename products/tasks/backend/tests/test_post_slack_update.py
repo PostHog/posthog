@@ -34,8 +34,8 @@ class TestPostSlackUpdate(TestCase):
         )
         self._footer_patcher.start()
         self.addCleanup(self._footer_patcher.stop)
-        # These tests mock the handler's __init__, so the reader gate is patched on the
-        # class rather than resolved from a Slack identity.
+        # The gate is patched on the class so it answers without a Slack identity lookup;
+        # the deny-path test flips it to prove the url really hangs off this answer.
         self._access_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=True)
         self._access_patcher.start()
         self.addCleanup(self._access_patcher.stop)
@@ -65,10 +65,9 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_run_with_pr_routes_through_post_pr_opened(
-        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_pr_opened
+        self, mock_task_run_class, mock_update_reaction, mock_post_pr_opened
     ):
         # Completed runs with a PR funnel through the single ``post_pr_opened``
         # template via the dedupe helper. ``post_completion`` is reserved for
@@ -87,10 +86,9 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_run_without_pr_posts_task_completed(
-        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_completion
+        self, mock_task_run_class, mock_update_reaction, mock_post_completion
     ):
         # ``post_completion`` is the no-PR terminal-state card.
         mock_run = self._make_mock_run(mock_task_run_class.Status.COMPLETED, output={})
@@ -103,11 +101,8 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_error")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_failed_run_updates_reaction_to_x(
-        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_error
-    ):
+    def test_failed_run_updates_reaction_to_x(self, mock_task_run_class, mock_update_reaction, mock_post_error):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.FAILED,
             error_message="Something went wrong",
@@ -121,10 +116,9 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_cancelled")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_cancelled_run_posts_cancelled_message(
-        self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_cancelled
+        self, mock_task_run_class, mock_update_reaction, mock_post_cancelled
     ):
         mock_run = self._make_mock_run(mock_task_run_class.Status.CANCELLED)
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
@@ -135,9 +129,8 @@ class TestPostSlackUpdate(TestCase):
         mock_post_cancelled.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_or_update_progress")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_in_progress_run_posts_stage(self, mock_task_run_class, mock_handler_init, mock_post_progress):
+    def test_in_progress_run_posts_stage(self, mock_task_run_class, mock_post_progress):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.IN_PROGRESS,
             stage="Cloning repository",
@@ -155,12 +148,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_in_progress_with_pr_keeps_eyes_reaction(
         self,
         mock_task_run_class,
-        mock_handler_init,
         _mock_post_pr_opened,
         mock_post_progress,
         mock_update_reaction,
@@ -191,7 +182,6 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "post_or_update_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_in_progress_with_pr_tags_actor_then_mentioner(
         self,
@@ -199,7 +189,6 @@ class TestPostSlackUpdate(TestCase):
         run_state,
         expected_target,
         mock_task_run_class,
-        mock_handler_init,
         mock_post_pr_opened,
         mock_post_progress,
         mock_update_reaction,
@@ -246,13 +235,11 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_timed_out_run_silently_deletes_progress(
         self,
         run_kwargs,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_delete_progress,
         mock_post_completion,
@@ -279,13 +266,11 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_error")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_failed_timeout_run_stays_quiet_instead_of_posting_an_error_card(
         self,
         run_kwargs,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_delete_progress,
         mock_post_error,
@@ -315,13 +300,11 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_error")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_failed_run_whose_message_mentions_a_timeout_still_posts_an_error_card(
         self,
         error_message,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_delete_progress,
         mock_post_error,
@@ -346,12 +329,10 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_pr_run_after_cleanup_posts_pr_opened_card(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
     ):
@@ -382,12 +363,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_run_does_not_repost_pr_when_already_announced(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
         mock_delete_progress,
@@ -418,12 +397,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_run_does_not_repost_pr_a_sibling_run_already_announced(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
         mock_delete_progress,
@@ -446,12 +423,10 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_run_with_new_pr_url_posts_card_even_if_old_url_notified(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
     ):
@@ -479,12 +454,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_completed_pr_run_after_cleanup_does_not_repost_if_already_notified(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
         mock_delete_progress,
@@ -511,12 +484,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_same_pr_url_with_notified_url_in_state_does_not_repost(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
         mock_delete_progress,
@@ -545,12 +516,10 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_different_pr_url_from_notified_url_posts_once(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
     ):
@@ -585,12 +554,10 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_cancelled")
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_user_without_posthog_code_access_omits_task_url(
         self,
         mock_task_run_class,
-        _mock_handler_init,
         _mock_update_reaction,
         mock_post_pr_opened,
         mock_post_cancelled,
@@ -668,12 +635,10 @@ class TestPostSlackUpdate(TestCase):
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
     def test_cancelled_pr_run_after_cleanup_posts_pr_opened_card(
         self,
         mock_task_run_class,
-        mock_handler_init,
         mock_update_reaction,
         mock_post_pr_opened,
     ):

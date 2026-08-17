@@ -30,6 +30,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession
 from products.replay_vision.backend.quota import QuotaState, compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
@@ -74,7 +76,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -126,7 +128,7 @@ class TestBackfillQuotaCommitment:
             name="c",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
@@ -190,7 +192,7 @@ class TestCreateObservationForBackfill:
     def test_capped_retake_counts_as_in_flight_spend_for_the_next_admission(self) -> None:
         # The retake reserves fresh budget under the admission lock, so the next admission's budget
         # read must see it and refuse; missing it would overshoot the cap by the retaken row.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         backfill = _make_backfill(scanner)
         failed = ReplayObservation.objects.create(
@@ -494,6 +496,45 @@ class TestBackfillTickActivities:
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
 
+    def test_excluded_sessions_are_walked_over_not_dispatched(self) -> None:
+        # The cursor must pass an excluded session exactly as it passes an already-succeeded one.
+        # Filtering before the walk would leave the cursor short and refetch the same rows forever.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        fetched = [
+            CandidateSession(session_id="keep", session_end=timezone.now() - dt.timedelta(hours=2)),
+            CandidateSession(session_id="blocked", session_end=timezone.now() - dt.timedelta(hours=1)),
+        ]
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
+        ):
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+
+        assert query_cls.call_args.kwargs["skip_negative_blocklists"] is True
+        assert [c.session_id for c in result.candidates] == ["keep"]
+        # walked past the excluded row, not stopped at the survivor
+        assert result.next_cursor_session_id == "blocked"
+
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+        # In-query blocklists are off by this point, so swallowing would dispatch unfiltered.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+        ):
+            query_cls.return_value.run.return_value = [
+                CandidateSession(session_id="s1", session_end=timezone.now() - dt.timedelta(hours=1))
+            ]
+            with pytest.raises(RuntimeError):
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
+
     def test_advance_loses_to_concurrent_cancel(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner, status=BackfillStatus.CANCELLED, finished_at=timezone.now())
@@ -513,7 +554,7 @@ class TestBackfillsApi(APIBaseTest):
             name="backfill-api-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 

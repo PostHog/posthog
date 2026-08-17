@@ -1,13 +1,18 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
-from time import perf_counter
+from time import monotonic, perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from zoneinfo import ZoneInfo
+
+from django.conf import settings as django_settings
+from django.db import OperationalError
 
 import orjson
+import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -102,6 +107,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
+from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -116,6 +122,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -155,6 +162,8 @@ from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
+logger = structlog.get_logger(__name__)
+
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
@@ -179,6 +188,14 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     "Query execution duration in seconds",
     labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
+
+API_QUERIES_QUOTA_ENFORCEMENT_FLAG = "api-queries-quota-enforcement"
+
+API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
+    "posthog_api_queries_quota_limited_total",
+    "Query executions for teams whose organization is over its api_queries_read_bytes quota.",
+    labelnames=["surface", "outcome"],  # surface: api; outcome: observed | enforced
 )
 
 
@@ -335,6 +352,89 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
         )
     return SharedExecutionSettings(
         _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+    )
+
+
+def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
+    """When a free org is over its monthly chargeable-bytes allowance, returns the moment
+    the counter resets; otherwise None.
+
+    Recomputed live from the synced subscription column and the Redis counter on every
+    call, so there is no verdict to go stale after an upgrade. Fails open on error.
+    """
+    if not django_settings.API_QUERIES_ENABLED or not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+        return None
+    try:
+        if team.organization.has_active_subscription is not False:
+            return None
+        if get_api_queries_bytes(str(team.organization_id)) <= django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+            return None
+        return next_counter_reset(datetime.now(UTC))
+    except Exception as e:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check").inc()
+        capture_exception(e)
+        return None
+
+
+# Flag evaluation is a network call to the flags service, and it runs once per chargeable
+# query from an over-quota org, so a runaway API consumer would hammer that service at its
+# own query rate. The short per-process cache bounds that load; the TTL also bounds how long
+# a flag flip takes to apply on any one worker.
+_ENFORCEMENT_FLAG_TTL_SECONDS = 30
+_enforcement_flag_cache: dict[str, tuple[bool, float]] = {}
+
+
+def _api_queries_enforcement_enabled(team: Team) -> bool:
+    org_id = str(team.organization_id)
+    cached = _enforcement_flag_cache.get(org_id)
+    now = monotonic()
+    if cached is not None and cached[1] > now:
+        return cached[0]
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                API_QUERIES_QUOTA_ENFORCEMENT_FLAG,
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        # Not cached, so enforcement resumes as soon as the flags service recovers.
+        return False
+    if len(_enforcement_flag_cache) > 1024:
+        _enforcement_flag_cache.clear()
+    _enforcement_flag_cache[org_id] = (enabled, now + _ENFORCEMENT_FLAG_TTL_SECONDS)
+    return enabled
+
+
+def _format_data_size(bytes_count: int) -> str:
+    # Decimal units, to match how the allowance is defined (50 TB = 50e12 bytes).
+    for unit, size in (("TB", 1_000_000_000_000), ("GB", 1_000_000_000), ("MB", 1_000_000)):
+        if bytes_count >= size:
+            value = f"{bytes_count / size:.1f}".removesuffix(".0")
+            return f"{value} {unit}"
+    return f"{bytes_count:,} bytes"
+
+
+def _api_queries_quota_detail(*, used: int, limit: int, limited_until: datetime, project_timezone: str) -> str:
+    try:
+        local = limited_until.astimezone(ZoneInfo(project_timezone))
+    except Exception:
+        local = limited_until
+    reset = f"{local:%B} {local.day}, {local.year}"
+    # The reset is midnight UTC, so in most project timezones it lands mid-day; show the
+    # time whenever it isn't local midnight.
+    if local.hour or local.minute:
+        reset += f" at {local:%H:%M}"
+    reset += f" ({local.tzinfo})"
+    return (
+        f"Your organization used {_format_data_size(used)} of its {_format_data_size(limit)} "
+        "monthly free allowance for API queries. "
+        f"The allowance resets on {reset}. "
+        "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
     )
 
 
@@ -1803,6 +1903,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
+            self._enforce_api_queries_quota()
 
         with (
             get_materialized_endpoints_rate_limiter().run(
@@ -2247,7 +2348,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_api_queries_concurrency_limit(self):
         """
-        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        :return: None - no feature, 1,3,<other> for actual concurrency limit
         """
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
@@ -2259,15 +2360,38 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         from posthog.constants import AvailableFeature
 
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-        if self.team.api_token in list_limited_team_attributes(
-            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        ):
-            return 0
-
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
+
+    def _enforce_api_queries_quota(self) -> None:
+        """402 chargeable API queries for orgs over quota, when enforcement is flagged on.
+
+        Observe-only (counter, no block) when the flag is off. Never blocks unless the
+        live counter confirms over-quota.
+        """
+        limited_until = get_api_queries_quota_limited_until(self.team)
+        if limited_until is None:
+            return
+        used = get_api_queries_bytes(str(self.team.organization_id))
+        limit = django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
+        outcome = "enforced" if _api_queries_enforcement_enabled(self.team) else "observed"
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome=outcome).inc()
+        logger.info(
+            "api_queries_quota_limited",
+            organization_id=str(self.team.organization_id),
+            team_id=self.team.pk,
+            usage_bytes=used,
+            limit_bytes=limit,
+            limited_until=limited_until.isoformat(),
+            outcome=outcome,
+        )
+        if outcome == "observed":
+            return
+        raise APIQueriesQuotaExceeded(
+            detail=_api_queries_quota_detail(
+                used=used, limit=limit, limited_until=limited_until, project_timezone=self.team.timezone
+            )
+        )
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -2302,11 +2426,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
-            "products_modifiers": {
-                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
-                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
-                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
-            },
+            "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
@@ -2327,6 +2447,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["events_retention_floor_months"] = retention_months
 
         return payload
+
+    def _products_modifiers_for_cache(self) -> dict:
+        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+        # separate from the successfully-loaded key.
+        def read(name: str, fn: Callable[[], Any]) -> dict | str:
+            try:
+                return fn().to_cache_key_dict()
+            except OperationalError:
+                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+                return "unavailable"
+
+        return {
+            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
+            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
+            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
+        }
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
         """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.

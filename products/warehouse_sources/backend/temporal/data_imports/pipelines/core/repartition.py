@@ -807,13 +807,13 @@ async def _rewrite_into_temp(
         if result is None:
             raise RepartitionUnpartitionableError(f"No supported partition mode for keys={target.partition_keys}")
 
-        partitioned_table, used_mode, used_format, used_keys = result
+        partitioned_table = result.table
         if resolved is None:
             resolved = dataclasses.replace(
                 target,
-                partition_mode=used_mode,
-                partition_format=used_format,
-                partition_keys=used_keys,
+                partition_mode=result.partition_mode,
+                partition_format=result.partition_format,
+                partition_keys=result.partition_keys,
             )
 
         # Align each batch against the live table's own declared schema before writing. Without

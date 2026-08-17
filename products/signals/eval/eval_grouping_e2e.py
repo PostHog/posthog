@@ -296,7 +296,11 @@ class EvalGroupingPipeline:
 
         if config.actionability_prompt:
             is_actionable = await _check_actionability(
-                self.gateway_client, EVAL_TEAM_ID, output, config.actionability_prompt
+                self.gateway_client,
+                EVAL_TEAM_ID,
+                output,
+                config.actionability_prompt,
+                context_fields=config.actionability_context_fields,
             )
             await self._capture_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:

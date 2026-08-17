@@ -73,8 +73,24 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.11.0
-ARG POSTHOG_CLI_INSTALLER_SHA256=74b0e2d967b688f57432be5bbb78f96cb5dde69f9283c0d8930a01efc132fbc2
+ARG POSTHOG_CLI_VERSION=0.11.2
+ARG POSTHOG_CLI_INSTALLER_SHA256=69ace33b5e153bd7678bea4e1e565f6baa67ca76660e2aca653ed80ea7f6c725
+# The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
+# GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
+# directory to fall back on: without these the release is created with no link back to the code it
+# was built from, and the CLI skips the metadata silently because --release-name/--release-version
+# already let it create the release. The CLI treats empty values as absent, so local builds that
+# pass none of these behave as before.
+ARG GITHUB_ACTIONS
+ARG GITHUB_SHA
+ARG GITHUB_REF_NAME
+ARG GITHUB_REPOSITORY
+ARG GITHUB_SERVER_URL
+ENV GITHUB_ACTIONS=$GITHUB_ACTIONS \
+    GITHUB_SHA=$GITHUB_SHA \
+    GITHUB_REF_NAME=$GITHUB_REF_NAME \
+    GITHUB_REPOSITORY=$GITHUB_REPOSITORY \
+    GITHUB_SERVER_URL=$GITHUB_SERVER_URL
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     if ( \
         [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
