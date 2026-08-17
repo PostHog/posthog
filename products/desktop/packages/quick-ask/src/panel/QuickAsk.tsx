@@ -255,6 +255,10 @@ export function QuickAsk(): React.JSX.Element {
   }, []);
 
   const submit = useCallback((): void => {
+    // A turn is already streaming: ignore type-ahead so a second question can't
+    // relay onto the live run and corrupt turn attribution. The input is also
+    // disabled, but this closes the click-race before React applies that.
+    if (loading) return;
     const question = inputRef.current?.value.trim();
     if (!question) return;
     // Shell-style history for the up/down arrows.
@@ -275,7 +279,7 @@ export function QuickAsk(): React.JSX.Element {
     // The main process folds the pending screenshot into this ask.
     setAttachment(null);
     quickAskHost()?.ask(question, conversationIdRef.current);
-  }, [syncPillWidth]);
+  }, [syncPillWidth, loading]);
 
   // Up/down arrows recall previously sent questions, shell-style: up walks
   // back through history, down walks forward and lands on the unsent draft.
@@ -381,12 +385,14 @@ export function QuickAsk(): React.JSX.Element {
     };
   }, [mini, hogzilla, phase]);
 
-  // Leaving mini mode: put the caret back in the pill.
+  // Put the caret back in the pill when leaving mini mode, and when a turn
+  // settles and re-enables the input (a disabled input drops focus and the
+  // browser does not restore it).
   useEffect(() => {
-    if (!mini) {
+    if (!mini && !loading) {
       inputRef.current?.focus();
     }
-  }, [mini]);
+  }, [mini, loading]);
 
   const status = loading
     ? "busy"
@@ -446,6 +452,7 @@ export function QuickAsk(): React.JSX.Element {
             }
             autoComplete="off"
             spellCheck={false}
+            disabled={loading}
             onKeyDown={onKeyDown}
             onInput={syncPillWidth}
           />
