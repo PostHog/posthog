@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
@@ -57,6 +58,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
+from products.tasks.backend.logic.services.task_usage import TaskUsage
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
@@ -1097,6 +1099,23 @@ class TestTaskAPI(BaseTaskAPITest):
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
+
+    @patch("products.tasks.backend.presentation.views.api.get_task_usage")
+    def test_usage_returns_task_cost_breakdown(self, mock_get_task_usage: MagicMock) -> None:
+        task = self.create_task()
+        mock_get_task_usage.return_value = TaskUsage(
+            token_cost_usd=Decimal("12.34"),
+            compute_cost_usd=Decimal("0.56"),
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "token_cost_usd": 12.34,
+            "compute_cost_usd": 0.56,
+            "total_cost_usd": 12.9,
+        }
 
     def test_desktop_oauth_task_creation_records_trusted_provenance(self):
         client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
@@ -9026,6 +9045,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         [
             ("task:read", "GET", "/api/projects/@current/tasks/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/usage/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),

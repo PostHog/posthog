@@ -84,6 +84,7 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
+from products.tasks.backend.logic.services.task_usage import get_task_usage
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -157,6 +158,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskStagedArtifactsPrepareUploadResponseSerializer,
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
+    TaskUsageResponseSerializer,
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
@@ -393,6 +395,28 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
+
+    @extend_schema(
+        operation_id="tasks_usage_retrieve",
+        responses={200: TaskUsageResponseSerializer},
+        summary="Get task usage",
+        description="Return estimated model and cloud compute costs attributed to a task.",
+    )
+    @action(detail=True, methods=["get"], url_path="usage", required_scopes=["task:read"])
+    def usage(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None or task.created_at is None:
+            raise NotFound()
+        usage = get_task_usage(team_id=self.team_id, task_id=task.id, task_created_at=task.created_at)
+        return Response(
+            TaskUsageResponseSerializer(
+                {
+                    "token_cost_usd": usage.token_cost_usd,
+                    "compute_cost_usd": usage.compute_cost_usd,
+                    "total_cost_usd": usage.total_cost_usd,
+                }
+            ).data
+        )
 
     @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
     @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
