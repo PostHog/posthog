@@ -58,6 +58,7 @@ def prefixed_or_unprefixed_semver_tags(*prefixes: str) -> list[str | re.Pattern]
     return [*prefixes, UNPREFIXED_SEMVER_TAG]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- opaque sort key, only ever compared whole
 def _semver_order_key(version: SemanticVersion) -> tuple[int, int, int, bool]:
     # Stable releases sort above prereleases with the same core version
     return (version.major, version.minor or 0, version.patch or 0, version.extra is None)
