@@ -116,6 +116,7 @@ CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMD
 class ComPostHogNamespace(TypedDict, total=False):
     verification_token: str
     scopes: list[str]
+    provisioning: bool
 
 
 # Functional form required: "com.posthog" is not a valid Python identifier.
@@ -593,6 +594,26 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
+def _cimd_declares_provisioning(metadata: CIMDMetadataDocument) -> bool:
+    """Whether the document opts its client into being an agentic provisioning partner.
+
+    This is the proof of control that registration turns on. A CIMD client_id is a public
+    HTTPS URL that appears in /authorize query strings and in the client's own documentation,
+    so a request naming one says nothing about who sent it; the document served from that URL
+    is the one thing only its owner can change. Requiring the declaration here is what keeps a
+    stranger from conscripting a third party's OAuth client into a provisioning partner, which
+    would hand the caller that client's identity and account-request quota, and would flip the
+    client's own token exchanges onto an auth method it never agreed to send.
+
+    Strictly ``True``: a truthy string or a non-empty dict is a malformed declaration, and
+    treating one as consent would grant capabilities off a typo.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return False
+    return com_posthog.get("provisioning") is True
+
+
 def _resolve_client_authentication(
     metadata: CIMDMetadataDocument, *, allow_confidential: bool
 ) -> tuple[str, str | None]:
@@ -818,11 +839,34 @@ def _update_cimd_application(
     return app
 
 
+def _register_partner_if_declared(
+    app: OAuthApplication, metadata: CIMDMetadataDocument, *, register_provisioning: bool
+) -> None:
+    """Opt a CIMD client into provisioning when its own document asks for it.
+
+    Both conditions are required. ``register_provisioning`` says the caller is the registration
+    endpoint, and the declaration says the client wants this, which is the part a stranger
+    cannot supply. Kept next to the fetch because this is the only point where the document and
+    the row it was written to are both in hand: nothing on the app records what the document
+    declared, so a caller further out would have to take the request's word for it.
+
+    Already-registered partners are left alone, so re-registering can neither reinstate a
+    partner an admin deactivated nor re-apply the defaults over its current config.
+    """
+    if not register_provisioning or app.is_provisioning_partner:
+        return
+    if not _cimd_declares_provisioning(metadata):
+        return
+    apply_provisioning_defaults(app)
+    app.refresh_from_db()
+
+
 def fetch_and_upsert_cimd_application(
     url: str,
     capture_ph_event: CapturePhEvent = posthoganalytics.capture,
     *,
     allow_confidential: bool = False,
+    register_provisioning: bool = False,
 ) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
@@ -839,6 +883,13 @@ def fetch_and_upsert_cimd_application(
     for the next hourly refresh to notice ``is_provisioning_partner`` has since flipped. Every
     other caller leaves this False; an already-registered partner still promotes on refresh via
     its persisted ``is_provisioning_partner``, independent of this flag.
+
+    ``register_provisioning=True`` marks the call the client-registration endpoint makes, which
+    is the only place a CIMD client becomes a provisioning partner. The flag alone does not
+    grant anything: the freshly fetched document also has to declare the opt-in, so the
+    capabilities follow the client's published intent rather than whoever sent the request. The
+    ordinary /authorize and background-refresh paths leave it False, so registration stays an
+    explicit act at one endpoint instead of a side effect of any fetch.
     """
     if is_cimd_url_blocked(url):
         logger.warning("cimd_blocked_url_fetch_attempt", url=url)
@@ -858,6 +909,7 @@ def fetch_and_upsert_cimd_application(
                 app, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
             )
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
+            _register_partner_if_declared(updated, metadata, register_provisioning=register_provisioning)
             capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_metadata_refreshed",
@@ -877,6 +929,7 @@ def fetch_and_upsert_cimd_application(
                 url, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
             )
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
+            _register_partner_if_declared(new_app, metadata, register_provisioning=register_provisioning)
             capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_created",
@@ -900,6 +953,9 @@ def fetch_and_upsert_cimd_application(
             app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
+                # The row a concurrent caller won the race with was written from this same
+                # document, so the declaration in it still speaks for this client.
+                _register_partner_if_declared(app, metadata, register_provisioning=register_provisioning)
                 return app
             raise
     finally:

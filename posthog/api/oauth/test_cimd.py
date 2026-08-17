@@ -79,7 +79,9 @@ def _captured_events(mock_capture) -> list:
 
 
 def _register_provisioning_partner(url: str = VALID_CIMD_URL) -> OAuthApplication:
-    """Register a CIMD app and opt it into provisioning, the way client_registration does."""
+    """Register a CIMD app and opt it into provisioning, skipping the document declaration the
+    registration endpoint requires, so a test that is about a partner's config does not also
+    have to publish one."""
     app = fetch_and_upsert_cimd_application(url)
     assert app is not None
     return apply_provisioning_defaults(app)
@@ -643,6 +645,28 @@ class TestApplyProvisioningDefaults(APIBaseTest):
             app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
+
+    @parameterized.expand(
+        [
+            ("registration_call", True, True),
+            # The /authorize and background-refresh paths read the same document. Promoting
+            # there would grant the capabilities outside the registration endpoint, so past its
+            # per-client_id, per-IP and per-domain throttles, and on a request the client did
+            # not make.
+            ("ordinary_fetch", False, False),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_only_the_registration_call_promotes_a_declaring_document(
+        self, _name, register_provisioning, expected_partner, mock_get, _url_mock
+    ):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"provisioning": True}), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL, register_provisioning=register_provisioning)
+
+        assert app is not None
+        self.assertEqual(app.is_provisioning_partner, expected_partner)
+        self.assertEqual(app.provisioning.can_create_accounts, expected_partner)
 
     @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
     @patch("posthog.api.oauth.cimd.requests.Session.get")
