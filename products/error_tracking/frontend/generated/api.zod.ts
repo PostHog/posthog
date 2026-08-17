@@ -232,6 +232,10 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
+    severity: zod
+        .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+        .optional()
+        .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
 })
@@ -244,6 +248,10 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
+    severity: zod
+        .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+        .optional()
+        .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
 })
@@ -252,6 +260,10 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid().optional(),
         status: zod.string().optional(),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .optional()
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullish(),
         description: zod.string().nullish(),
         first_seen: zod.iso.datetime({ offset: true }).nullish(),
@@ -308,6 +320,9 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
@@ -381,6 +396,9 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
     .object({
         id: zod.uuid(),
         status: zod.string(),
+        severity: zod
+            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+            .describe('Issue severity, or null when no severity is assigned.'),
         name: zod.string().nullable(),
         description: zod.string().nullable(),
         first_seen: zod.iso.datetime({ offset: true }).nullable(),
@@ -530,6 +548,10 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -545,7 +567,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'not_in',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -743,6 +765,10 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -758,7 +784,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'not_in',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),

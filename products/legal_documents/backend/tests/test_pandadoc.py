@@ -120,6 +120,26 @@ class TestPandaDocClient(TestCase):
                 with client.stream_document(document_id="doc_123"):
                     pass
 
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_stream_document_treats_202_as_not_ready(self) -> None:
+        # PandaDoc answers 202 with an empty body while the signed asset is still
+        # being produced. It has to raise: a 202 that streamed through would store a
+        # zero-byte PDF and mark the document archived, which nothing ever revisits.
+        fake_response = MagicMock()
+        fake_response.status_code = 202
+        fake_response.headers = {"Retry-After": "30"}
+        fake_response.__enter__ = MagicMock(return_value=fake_response)
+        fake_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response):
+            client = pandadoc.PandaDocClient()
+            with self.assertRaises(pandadoc.PandaDocError) as ctx:
+                with client.stream_document(document_id="doc_123"):
+                    pass
+
+        self.assertIn("not ready yet", str(ctx.exception))
+        self.assertIn("30", str(ctx.exception))
+
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_send_document_includes_sender_when_provided(self) -> None:
         # PandaDoc only honors the configured sender identity if `sender` is on

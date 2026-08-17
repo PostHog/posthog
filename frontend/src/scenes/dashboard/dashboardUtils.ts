@@ -10,7 +10,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -176,6 +176,13 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+
+// A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
+// insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
+// the tile's existing data and render as an empty insight instead of an error.
+export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+    return !!insight.query_status?.error && insight.result == null
+}
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
@@ -372,6 +379,10 @@ export async function getInsightWithRetry(
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
                 throw e // Re-throw cancellation errors
+            }
+
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             attempt++

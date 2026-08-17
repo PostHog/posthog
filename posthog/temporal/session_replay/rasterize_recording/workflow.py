@@ -18,6 +18,12 @@ with wf.unsafe.imports_passed_through():
         ["product", "task_queue"],
     )
 
+    RASTERIZATION_FAILED_COUNTER = Counter(
+        "posthog_rasterization_failed",
+        "Rasterization workflow failures by product and task queue",
+        ["product", "task_queue"],
+    )
+
 from .activities import (
     BumpStuckCounterInput,
     build_rasterization_input,
@@ -26,11 +32,19 @@ from .activities import (
     finalize_rasterization,
 )
 from .types import (
+    RASTERIZE_RENDER_MAX_ATTEMPTS,
+    RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
 )
+
+
+def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
+    if wf.unsafe.is_replaying():
+        return
+    counter.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
 
 
 @wf.defn(name="rasterize-recording")
@@ -50,11 +64,21 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         try:
             result = await self._run(inputs)
         except Exception:
+            # Count runs, not attempts: only the final scheduled attempt is a failed run.
+            if self._is_final_attempt():
+                _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()
-        RASTERIZATION_COMPLETED_COUNTER.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
+        _record_outcome(RASTERIZATION_COMPLETED_COUNTER, inputs)
         return result
+
+    @staticmethod
+    def _is_final_attempt() -> bool:
+        info = wf.info()
+        retry_policy = info.retry_policy
+        max_attempts = retry_policy.maximum_attempts if retry_policy else 1
+        return max_attempts is not None and 0 < max_attempts <= info.attempt
 
     async def _maybe_bump_stuck_counter(self) -> None:
         info = wf.info()
@@ -122,9 +146,9 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             "rasterize-recording",
             prep.activity_input.model_dump(exclude_none=True),
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=2),
+            retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
         )
 
         result = RasterizationActivityOutput.model_validate(raw_result)

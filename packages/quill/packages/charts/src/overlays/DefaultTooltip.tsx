@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TooltipContext } from '../core/types'
-import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
+import { TooltipFooter, TooltipSurface, TooltipSwatch } from './TooltipSurface'
 import { findClosestSeriesKey } from './tooltipUtils'
 
 type SeriesDatum<Meta> = TooltipContext<Meta>['seriesData'][number]
@@ -52,6 +52,7 @@ export function DefaultTooltip<Meta = unknown>({
     label,
     seriesData,
     hoverPosition,
+    hoveredSeriesKey,
     valueFormatter,
     labelFormatter,
     labelRenderer,
@@ -72,7 +73,9 @@ export function DefaultTooltip<Meta = unknown>({
           ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
           : visible
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
-    const closestKey = hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
+    const closestKey =
+        hoveredSeriesKey ??
+        (hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))
@@ -200,9 +203,7 @@ export function DefaultTooltip<Meta = unknown>({
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
-            {footer && (
-                <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">{footer}</div>
-            )}
+            {footer && <TooltipFooter>{footer}</TooltipFooter>}
         </TooltipSurface>
     )
 }

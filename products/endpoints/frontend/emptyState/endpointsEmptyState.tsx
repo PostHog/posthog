@@ -3,7 +3,6 @@ import { IconEndpoints } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -15,7 +14,6 @@ const HedgehogCodeBubble = pngHoggie(codeBubblePng)
 
 export const endpointsEmptyState: SceneProductEmptyState = {
     statusLogic: endpointsSetupLogic,
-    featureFlag: FEATURE_FLAGS.ENDPOINTS,
     config: {
         productKey: ProductKey.ENDPOINTS,
         productName: 'Endpoints',

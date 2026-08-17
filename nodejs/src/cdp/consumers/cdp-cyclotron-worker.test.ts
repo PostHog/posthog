@@ -139,7 +139,7 @@ describe('CdpCyclotronWorker', () => {
             const nativeExecutorSpy = jest.spyOn(processor['nativeDestinationExecutorService'], 'execute')
             const pluginExecutorSpy = jest.spyOn(processor['pluginDestinationExecutorService'], 'execute')
             const segmentExecutorSpy = jest.spyOn(processor['segmentDestinationExecutorService'], 'execute')
-            const hogExecutorSpy = jest.spyOn(processor['hogExecutor'], 'executeWithAsyncFunctions')
+            const hogExecutorSpy = jest.spyOn(processor['hogExecutorAsync'], 'executeWithAsyncFunctions')
 
             const invocations = [
                 createExampleInvocation(nativeFn, globals),
@@ -221,7 +221,7 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.queueMetadata).toBeUndefined()
             // No logs from initial invoke
             expect(result.logs.map((x) => x.message)).toEqual([
-                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying in'),
+                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.'),
             ])
 
             // Now invoke the result again
@@ -474,7 +474,7 @@ describe('CdpCyclotronWorker', () => {
                     })
                 )
 
-                processor.hogExecutor['config'].hogCostTimingUpperMs = blockTime
+                processor.hogExecutorAsync.hogExecutor['config'].executionTimeoutMs = blockTime
 
                 const numberToTest = 5
                 const invocations = Array.from({ length: numberToTest }, () =>

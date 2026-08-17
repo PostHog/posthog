@@ -60,7 +60,7 @@ class Ecosystem:
 
 DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
     "node": Ecosystem(
-        manifests=frozenset({"package.json"}),
+        manifests=frozenset({"package.json", "pnpm-workspace.yaml"}),
         lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
         trusted_at_dismiss=True,
     ),
@@ -647,6 +647,7 @@ SIZE_EXEMPT_EXTENSIONS = {
 _SIZE_EXEMPT_PATH_RE = re.compile(
     r"(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|^services/mcp/src/api/generated\.ts$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
     r"|^frontend/src/queries/schema/",

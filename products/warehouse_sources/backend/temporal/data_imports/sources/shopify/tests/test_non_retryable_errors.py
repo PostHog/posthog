@@ -83,3 +83,22 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
     assert not any(pattern in error_message for pattern in patterns), (
         f"transient error '{error_message}' should remain retryable"
     )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Shopify: rate limit exceeded...",
+        "Shopify: internal error from request 500 Internal Server Error",
+        'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
+        "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+    ],
+)
+def test_exhausted_internal_retries_are_classified_as_retryable(error_message):
+    # These messages only reach `_handle_import_error` after `_make_paginated_shopify_request`'s
+    # own tenacity retries (5 attempts) are exhausted, so they should be logged as a warning
+    # and left for Temporal's activity retry rather than reported to error tracking as noise.
+    patterns = ShopifySource().get_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"exhausted-retry error '{error_message}' should be classified as retryable"
+    )

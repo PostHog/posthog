@@ -181,6 +181,30 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
+# Parser modes whose *primary* backend is the C++ parser. `parserMode` is a public
+# `HogQLQueryModifier`, so a client can supply it — but the C++ backend's recursion guard is
+# best-effort (a token pre-scan that can't bound recursive statement productions like nested
+# `if`), so untrusted callers must not be able to force it as primary. cpp-as-*shadow* modes
+# are safe: the shadow only runs after the rust primary parses successfully, and rust rejects
+# pathologically deep input via `MAX_RECURSION_DEPTH` first, so the shadow never sees it.
+_CPP_PRIMARY_PARSER_MODES = frozenset(
+    {ParserMode.CPP_ONLY, ParserMode.CPP_WITH_RUST_SHADOW, ParserMode.CPP_WITH_RUST_PY_SHADOW}
+)
+
+
+def sanitize_client_parser_mode(parser_mode: ParserMode | None) -> ParserMode | None:
+    """Neutralize a client-supplied `parserMode` that would force the C++ backend as primary.
+
+    Returns None (→ safe default resolution: rust-py primary, cpp sampled shadow) for
+    cpp-primary modes, else the value unchanged. `parserMode` is an internal rollout knob
+    never set by server-side code, so dropping these values costs nothing legitimate while
+    closing the "authenticated caller selects the unguarded cpp parser" vector.
+    """
+    if parser_mode in _CPP_PRIMARY_PARSER_MODES:
+        return None
+    return parser_mode
+
+
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
 # the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
 # surfaces and tighter coverage is needed.

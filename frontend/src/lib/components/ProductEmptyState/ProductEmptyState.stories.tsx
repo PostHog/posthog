@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 
 import type { Mocks } from '~/mocks/utils'
 
+import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { llmPromptsEmptyState } from 'products/ai_observability/frontend/emptyState/llmPromptsEmptyState'
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
@@ -134,4 +135,10 @@ export const WebScriptsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     {
         mocks: { get: { '/api/projects/:team_id/hog_functions/': [200, emptyEntityList] } },
     }
+)
+
+// AI observability detection is binary (no waiting-for-data middle state).
+export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    aiObservabilityEmptyState,
+    'needs-setup'
 )

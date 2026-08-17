@@ -471,6 +471,36 @@ pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
 pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
 /// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
 pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
+
+/// Person seeds that wrote a record, labelled by `verdict`
+/// (`fresh`|`seed_newer`|`catalog_uncovered`) (counter).
+pub const PERSON_SEEDS_APPLIED_TOTAL: &str = "cohort_person_seeds_applied_total";
+/// Person seeds whose merge left the record unchanged (counter). The steady state of a re-run
+/// chunk.
+pub const PERSON_SEEDS_UNCHANGED_TOTAL: &str = "cohort_person_seeds_unchanged_total";
+/// Person seeds skipped and committed, labelled by `reason`
+/// (`apply_disabled`|`stale_vs_live`) (counter).
+pub const PERSON_SEEDS_SKIPPED_TOTAL: &str = "cohort_person_seeds_skipped_total";
+/// Person seeds dropped without a write, labelled by `reason`
+/// (`team_absent`|`no_effective_hashes`) (counter).
+pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total";
+/// Person seeds whose stored record existed but did not decode (counter). The apply then rebuilds
+/// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
+/// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
+/// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
+/// Hashes dropped from a person seed's effective set, labelled by `reason`
+/// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
+/// conditions have drifted from the live catalog.**
+pub const PERSON_SEED_HASHES_DROPPED_TOTAL: &str = "cohort_person_seed_hashes_dropped_total";
+/// Person seeds re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const PERSON_SEED_REKEYED_TOTAL: &str = "cohort_person_seeds_rekeyed_total";
+/// Hop-capped person-seed redirects applied inline (counter). Non-zero means a corrupt tombstone
+/// cycle.
+pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_hop_capped_total";
+/// Failed person-seed re-key produces; the seed offset is held (counter).
+pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
+    "cohort_person_seeds_rekey_produce_failure_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
@@ -504,13 +534,17 @@ pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_durat
 /// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
 pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
     "cohort_seed_idle_probe_last_pass_timestamp_seconds";
-/// Reconcile jobs admitted to partition-local queues (counter).
+/// Reconcile jobs admitted to partition-local queues, labelled by `kind` — the tile's shape-hash
+/// kind, `behavioral` or `person_property` (counter).
 pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
-/// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
+/// Reconcile jobs that emitted their completion marker and released their seed floor, labelled by
+/// `kind` (counter). Balances against the enqueued/discarded/superseded series per kind, which is
+/// how a run left short a marker becomes visible.
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
-/// Queued jobs replaced by a higher Kafka offset for the same team and cohort (counter).
+/// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
@@ -520,8 +554,12 @@ pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_to
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka (counter).
+/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
+/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
+/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
+/// advances.
+pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
 
@@ -774,6 +812,42 @@ mod tests {
             SEED_REKEY_HOP_CAPPED_TOTAL,
             "cohort_seed_rekey_hop_capped_total"
         );
+        assert_eq!(
+            PERSON_SEEDS_APPLIED_TOTAL,
+            "cohort_person_seeds_applied_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_UNCHANGED_TOTAL,
+            "cohort_person_seeds_unchanged_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_SKIPPED_TOTAL,
+            "cohort_person_seeds_skipped_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_DROPPED_TOTAL,
+            "cohort_person_seeds_dropped_total"
+        );
+        assert_eq!(
+            PERSON_SEED_PRIOR_CORRUPT_TOTAL,
+            "cohort_person_seed_prior_corrupt_total",
+        );
+        assert_eq!(
+            PERSON_SEED_HASHES_DROPPED_TOTAL,
+            "cohort_person_seed_hashes_dropped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEYED_TOTAL,
+            "cohort_person_seeds_rekeyed_total"
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_person_seeds_rekey_hop_capped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_person_seeds_rekey_produce_failure_total",
+        );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
         assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
@@ -837,6 +911,10 @@ mod tests {
         assert_eq!(
             RECONCILE_MARKERS_EMITTED_TOTAL,
             "cohort_reconcile_markers_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKER_PRODUCE_ERRORS,
+            "cohort_reconcile_marker_produce_errors_total",
         );
         assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
     }

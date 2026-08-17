@@ -4,7 +4,13 @@ import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
+
+import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.json'
+
+type AddCellParams = Parameters<typeof addCellHandler>[1]
 
 interface MockState {
     markdown: string
@@ -90,6 +96,23 @@ describe('notebook cell tools', () => {
         vi.useRealTimers()
     })
 
+    it('keeps every object widget view in the shared vocabulary', () => {
+        const standardViewNames = new Set(Object.keys(notebookWidgetCatalog.viewConventions))
+
+        for (const widget of Object.values(notebookWidgetCatalog.widgets)) {
+            expect(standardViewNames.has(widget.defaultView.name)).toBe(true)
+            expect(Object.keys(widget.views).every((viewName) => standardViewNames.has(viewName))).toBe(true)
+        }
+    })
+
+    it('describes compound widget identity to notebook-building agents', () => {
+        const catalogPrompt = formatNotebookWidgetCatalogForAgents()
+
+        expect(catalogPrompt).toContain('<Group id="group-key" groupTypeIndex={0} view="summary" />')
+        expect(catalogPrompt).toContain('"attrs":{"id":"group-key","groupTypeIndex":0,"view":"summary"}')
+        expect(catalogPrompt).toContain('groupTypeIndex: Numeric group type index.')
+    })
+
     it('add sql cell inserts the tag, runs with sibling refs, and writes the result back', async () => {
         const state = makeState('# Doc\n\n<SQLV2 nodeId="up" code="select 1" returnVariable="events_df" />\n')
         state.runStatusResponses.push(DONE_STATUS)
@@ -169,11 +192,19 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'markdown',
+            markdown: 'More notes.',
+        })
 
         expect(result).toEqual({})
-        expect(state.saveBodies).toHaveLength(1)
-        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('Some **notes**.')
         expect(state.runBodies).toHaveLength(0)
+        // Each cell is a node of its own: one blank line would fold consecutive prose cells
+        // into a single card in the editor, two keeps them separate.
+        expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
+            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+        )
     })
 
     it('add component cell inserts the tag with a minted nodeId and no run', async () => {
@@ -193,6 +224,72 @@ describe('notebook cell tools', () => {
         expect(state.runBodies).toHaveLength(0)
     })
 
+    // The header title is what a reader skims instead of the code, so every tag-backed cell type
+    // has to carry it through to the markdown.
+    it.each([
+        ['sql', { cell_type: 'sql', code: 'select 1' }, 'SQLV2'],
+        ['python', { cell_type: 'python', code: 'x = 1' }, 'PythonV2'],
+        ['saved_insight', { cell_type: 'saved_insight', insight_short_id: 'iNs12345' }, 'Query'],
+        ['component', { cell_type: 'component', tag_name: 'Image', props: { src: 'https://ph.com/a.png' } }, 'Image'],
+    ] satisfies [string, Omit<AddCellParams, 'notebook_id' | 'title'>, string][])(
+        'add %s cell writes the title onto the tag',
+        async (_label, params, tagName) => {
+            const state = makeState('# Doc\n')
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            await addCellHandler(context, { ...params, notebook_id: 'aBcD1234', title: 'Weekly signups by source' })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted).toContain(`<${tagName} `)
+            expect(inserted).toContain('title="Weekly signups by source"')
+        }
+    )
+
+    it('markdown cell rejects a title, pointing at a markdown heading instead', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Some notes.',
+                title: 'Notes',
+            })
+        ).rejects.toThrow(/heading in the markdown/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
+    it('component cell keeps a title carried in its own props', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'component',
+            tag_name: 'Image',
+            props: { src: 'https://ph.com/a.png', title: 'From props' },
+        })
+
+        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('title="From props"')
+    })
+
+    it('saved insight cells use the default panel visibility', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'saved_insight',
+            insight_short_id: 'iNs12345',
+        })
+
+        const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+        expect(inserted).toContain('query={{"kind":"SavedInsightNode","shortId":"iNs12345"}}')
+        expect(inserted).not.toContain('hideFilters')
+    })
+
     it('component cell rejects executable tags', async () => {
         const state = makeState('# Doc\n')
         const context = createMockContext(state)
@@ -207,6 +304,35 @@ describe('notebook cell tools', () => {
         ).rejects.toThrow(/cell_type 'sql' or 'python'/)
         expect(state.saveBodies).toHaveLength(0)
     })
+
+    it('component cell rejects an unsupported object widget view', async () => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'component',
+                tag_name: 'FeatureFlag',
+                props: { id: 123, view: 'compact-editor' },
+            })
+        ).rejects.toThrow(/detail, summary, editor, conditions, implementation/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
+    it.each(['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'])(
+        '%s advertises object widget views from the shared catalog',
+        (toolName) => {
+            const description = getToolDefinition(toolName).description
+
+            expect(description).toContain('FeatureFlag')
+            expect(description).toContain('summary: Show the flag status')
+            expect(description).toContain('editor: Edit the flag status')
+            expect(description).toContain('Cohort')
+            expect(description).toContain('Filters are hidden by default')
+            expect(description).toContain('Add showFilters only when the reader should configure the widget')
+        }
+    )
 
     // The legacy SQL cell: a Query node rendering HogQL results without a run, a dataframe name, or
     // run history. Reachable only through the component escape hatch, so it is blocked there too.

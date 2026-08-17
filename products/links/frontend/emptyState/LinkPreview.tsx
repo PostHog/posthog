@@ -3,7 +3,8 @@ import './LinkPreview.scss'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { playMeep } from 'scenes/inbox/components/onboarding/meep'
+
+import { playMeep } from 'products/signals/frontend/inbox/components/onboarding/meep'
 
 // Hand-authored 7-day click series: one tiny sparkline per link row, plus a pair of
 // larger series for the stat card (one per selectable link).

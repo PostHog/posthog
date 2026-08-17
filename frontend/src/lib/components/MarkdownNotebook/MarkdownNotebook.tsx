@@ -37,6 +37,7 @@ import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
@@ -65,6 +66,7 @@ import {
     isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
+    isTextGroupNode,
     makeEmptyNotebookTitle,
     removeNotebookNodesWithRefCleanup,
     stripNotebookRefMarksFromNodes,
@@ -77,6 +79,7 @@ import {
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
     withoutLeadingEmptyTitleGroup,
+    withPreservedGroupStart,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -269,6 +272,12 @@ export type MarkdownNotebookProps = {
     ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
     focusAIPromptRequest?: number
     aiWritingNodeIndexes?: number[]
+    /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
+     * read-only canvases where the filters panel is the only way to configure a node. */
+    allowViewModeFilters?: boolean
+    /** Public/shared read-only renders: hide per-block resource links whose relative URLs would
+     * resolve against the viewer's project rather than the author's. */
+    hideResourceLinks?: boolean
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -577,6 +586,8 @@ function MarkdownNotebookEditor({
     convertExternalDataTransferToNodes,
     focusAIPromptRequest,
     aiWritingNodeIndexes,
+    allowViewModeFilters = false,
+    hideResourceLinks = false,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -1663,7 +1674,9 @@ function MarkdownNotebookEditor({
 
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            nodes: nodes.flatMap((currentNode) =>
+                currentNode.id === node.id ? withPreservedGroupStart(node, replacementNodes) : [currentNode]
+            ),
         })
         return true
     }, [commitDocument, insertMenu?.nodeId])
@@ -2622,7 +2635,7 @@ function MarkdownNotebookEditor({
 
     const replaceNode = useCallback(
         (nodeId: string, nextNode: NotebookBlockNode): void => {
-            updateNode(nodeId, () => nextNode)
+            updateNode(nodeId, (previousNode) => withPreservedGroupStart(previousNode, [nextNode])[0])
         },
         [updateNode]
     )
@@ -2673,7 +2686,7 @@ function MarkdownNotebookEditor({
                         return [node]
                     }
                     didReplace = true
-                    return replacementNodes
+                    return withPreservedGroupStart(node, replacementNodes)
                 }),
             })
         },
@@ -4119,7 +4132,11 @@ function MarkdownNotebookEditor({
             commitDocument(
                 {
                     ...currentDocument,
-                    nodes: currentDocument.nodes.filter((_, index) => index !== nodeIndex),
+                    nodes: currentDocument.nodes
+                        .filter((_, index) => index !== nodeIndex)
+                        .map((node) =>
+                            node.id === menu.rejoinNodeIdOnClose ? { ...node, startsGroup: undefined } : node
+                        ),
                 },
                 { addToHistory: false }
             )
@@ -4200,12 +4217,26 @@ function MarkdownNotebookEditor({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes
-        const insertedNode = makeEmptyParagraph(`boundary-${String(boundaryIndex)}`)
+        const insertedNode: NotebookBlockNode = {
+            ...makeEmptyParagraph(`boundary-${String(boundaryIndex)}`),
+            startsGroup: true,
+        }
         const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
+        // The block that followed the boundary starts its own card too, or it would join the
+        // inserted one instead of staying with the text it was grouped with.
+        const followingNode = nodes[clampedBoundaryIndex]
+        const rejoinNodeIdOnClose =
+            followingNode && isTextGroupNode(followingNode) && !followingNode.startsGroup ? followingNode.id : undefined
 
         commitDocument({
             ...currentDocument,
-            nodes: [...nodes.slice(0, clampedBoundaryIndex), insertedNode, ...nodes.slice(clampedBoundaryIndex)],
+            nodes: [
+                ...nodes.slice(0, clampedBoundaryIndex),
+                insertedNode,
+                ...nodes
+                    .slice(clampedBoundaryIndex)
+                    .map((node) => (node.id === rejoinNodeIdOnClose ? { ...node, startsGroup: true } : node)),
+            ],
         })
         restoreSelectionRef.current = { nodeId: insertedNode.id, start: 0, end: 0 }
         onInteractionStateChange?.(true)
@@ -4216,6 +4247,7 @@ function MarkdownNotebookEditor({
             mode: 'tools',
             detached: true,
             removeNodeOnClose: true,
+            rejoinNodeIdOnClose,
         })
     }
 
@@ -5713,14 +5745,21 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
+        // View-mode toggles stay local so interacting with a read-only canvas does not edit the document.
         const persistComponentPanelVisibility =
-            node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+            mode === 'edit' && node.type === 'component'
+                ? shouldPersistComponentPanelProps(node, componentDefinition)
+                : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =
@@ -5808,6 +5847,8 @@ function MarkdownNotebookEditor({
                     componentPanels: nodeComponentPanels,
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
+                    allowViewModeFilters,
+                    hideResourceLinks,
                     isSelected: selectedComponentNodeIds.has(node.id),
                     toggleComponentPanel: (panel) => {
                         const nextPanels = {

@@ -30,6 +30,7 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
     AlertConfig,
@@ -154,7 +155,6 @@ export interface AlertFormLogicProps {
     /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
      * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
     insightIsTrendsFunnel?: boolean
-    uiVersion?: 'legacy' | 'redesigned'
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -244,7 +244,7 @@ function defaultAlertName(props: AlertFormLogicProps, goalLines?: GoalLine[] | n
     if (props.defaultToAnomalyDetection) {
         return props.insightName ? `Anomaly in ${props.insightName}` : 'Anomaly alert'
     }
-    if (props.uiVersion === 'redesigned' && props.insightName) {
+    if (props.insightName) {
         return `${props.insightName} alert`
     }
     return goalLines && goalLines.length > 0 ? `Crossed ${goalLines[0].label}` : ''
@@ -404,12 +404,12 @@ export interface alertFormLogicMeta {
         hogqlAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined
+            arg2: InsightsThresholdBounds | null | undefined
         ) => HogQLAlertPreview | null
         funnelAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined,
+            arg2: InsightsThresholdBounds | null | undefined,
             arg3: AlertConditionType,
             arg4: InsightThresholdType
         ) => FunnelAlertPreview | null
@@ -653,7 +653,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
-                        ui_version: props.uiVersion ?? 'legacy',
+                        ui_version: 'redesigned',
                     })
                 }
 
@@ -864,7 +864,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: snoozeUntil,
+                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
                 })
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
@@ -890,6 +890,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
+                const validationErrors = Object.values(values.alertFormValidationErrors).filter(
+                    (error): error is string => typeof error === 'string'
+                )
+                if (validationErrors.length > 0) {
+                    const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
+                    lemonToast.error(`Couldn't save alert: ${message}`)
+                }
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes
