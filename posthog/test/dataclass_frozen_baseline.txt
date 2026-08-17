@@ -1447,7 +1447,6 @@
 2 products/experiments/stats/shared/cuped.py
 2 products/growth/backend/product_push/service.py
 2 products/growth/dags/user_product_list.py
-2 products/logs/backend/log_patterns.py
 2 products/managed_warehouse/backend/facade/contracts.py
 2 products/managed_warehouse/backend/temporal/types.py
 2 products/marketing_analytics/backend/demo/events.py
