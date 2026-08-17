@@ -2,14 +2,18 @@ from typing import Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
+import structlog
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
+
+logger = structlog.get_logger(__name__)
 
 
 def reload_migration_definitions():
@@ -50,7 +54,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
             (not ignore_posthog_version)
             and (migration_name in unapplied_migrations)
             and (FROZEN_POSTHOG_VERSION > Version(migration.posthog_max_version))
-            and migration.is_required()
+            and _is_migration_required(migration_name, migration)
         ):
             raise ImproperlyConfigured(
                 f"Migration {migration_name} is required for PostHog versions above {FROZEN_POSTHOG_VERSION}."
@@ -60,6 +64,21 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
     if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration is not None:
         kickstart_migration_if_possible(first_migration, applied_migrations)
+
+
+def _is_migration_required(migration_name: str, migration: AsyncMigrationDefinition) -> bool:
+    # `is_required()` reads from ClickHouse and Redis. A connectivity or credential failure there
+    # must not stop the whole process from booting for a migration capped at a superseded version.
+    try:
+        return migration.is_required()
+    except Exception as err:
+        logger.exception(
+            "Failed to check if async migration is required. Check that the Redis and ClickHouse "
+            "credentials are correct. Skipping the check so startup can continue.",
+            migration=migration_name,
+        )
+        capture_exception(err)
+        return False
 
 
 def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> AsyncMigration:
