@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Literal, Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -951,7 +951,9 @@ def _blocked_target_ids(user_access_control: UserAccessControl, queryset: QueryS
     return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset).values("id")).values("id")
 
 
-def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
+def _viewable_target_filter(
+    user_access_control: UserAccessControl, team_id: int, prefix: Literal["", "subscription__"] = ""
+) -> Q:
     """Match only subscriptions whose rendered targets the caller can view."""
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
@@ -965,10 +967,16 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
         dashboard__team_id=team_id, insight_id__in=blocked_insights
     ).values("dashboard_id")
 
+    # The lookup keys below interpolate `prefix`, which the signature limits to two literals,
+    # so no caller input reaches a field path. That is what each nosemgrep line asserts.
+    # nosemgrep: orm-field-injection
     targets_a_blocked_insight = Q(**{f"{prefix}insight_id__in": blocked_insights})
+    # nosemgrep: orm-field-injection
     targets_a_blocked_dashboard = Q(**{f"{prefix}dashboard_id__in": blocked_dashboards})
+    # nosemgrep: orm-field-injection
     exports_a_blocked_insight = Q(**{f"{prefix}dashboard_export_insights__id__in": blocked_insights})
     # An empty selection means the delivery renders every live tile of the dashboard.
+    # nosemgrep: orm-field-injection
     renders_a_blocked_tile = Q(**{f"{prefix}dashboard_export_insights__isnull": True}) & Q(
         **{f"{prefix}dashboard_id__in": dashboards_with_blocked_tiles}
     )
