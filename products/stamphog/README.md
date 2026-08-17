@@ -15,7 +15,7 @@ There is one non-webhook entry: **self-driving inbox PRs**. When a self-driving 
 
 ## The digest
 
-Independently of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/tasks/digest.py`): merges are stamped with an audience (author's GitHub team, or a channel the repo declares under `digest:` in `.stamphog/policy.yml`), summarized with a small model, and posted per channel. Review-enabled repos digest only stamphog-approved merges; digest-only repos (review off) digest every merge.
+On top of reviews, a repo can enable a daily Slack digest of its merged PRs (`backend/tasks/digest.py`): merges are stamped with an audience (author's GitHub team, or a channel the repo declares under `digest:` in `.stamphog/policy.yml`), summarized with a small model, and posted per channel. Only stamphog-approved merges are digested, so the digest needs reviews enabled for the repo.
 
 ## Configuration
 

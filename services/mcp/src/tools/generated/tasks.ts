@@ -551,6 +551,11 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                     'origin_product',
                     'repository',
                     'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
                     'created_at',
                     'updated_at',
                 ])
