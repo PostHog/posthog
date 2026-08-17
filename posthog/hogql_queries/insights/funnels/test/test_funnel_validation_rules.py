@@ -14,9 +14,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
+    MAX_FUNNEL_STEPS,
     RequireAtLeastTwoFunnelSteps,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
+    ValidateMaxFunnelSteps,
     ValidateOptionalFunnelSteps,
 )
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -35,6 +37,20 @@ class TestFunnelValidationRules(BaseTest):
 
         self.assertIn("Funnels require at least two steps.", str(context.exception))
         self.assertEqual(context.exception.get_codes(), ["funnels_require_at_least_two_steps"])
+
+    def test_rejects_more_than_max_funnel_steps(self):
+        query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS + 1)])
+
+        with self.assertRaises(ValidationError) as context:
+            ValidateMaxFunnelSteps().validate(self._context(query))
+
+        self.assertIn("Funnels support up to 32 steps.", str(context.exception))
+        self.assertEqual(context.exception.get_codes(), ["funnel_max_steps_exceeded"])
+
+    def test_allows_max_funnel_steps(self):
+        query = FunnelsQuery(series=[EventsNode(event=f"step {i}") for i in range(MAX_FUNNEL_STEPS)])
+
+        ValidateMaxFunnelSteps().validate(self._context(query))
 
     @parameterized.expand(
         [
