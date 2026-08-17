@@ -1,4 +1,5 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import { GENERAL_CHANNEL_NAME } from "@posthog/core/canvas/channelName";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 type StartupLocationClient = Pick<PostHogAPIClient, "getTaskChannels">;
@@ -11,7 +12,16 @@ export async function resolveStartupLocation(
 ): Promise<string> {
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return saved;
-  const personal = (await client.getTaskChannels()).find(
+  const channels = await client.getTaskChannels();
+  // #general is the new default landing space; fall back to the personal channel
+  // for a server that hasn't been upgraded to provision #general yet.
+  const general = channels.find(
+    (channel) =>
+      channel.channel_type === "public" &&
+      channel.name === GENERAL_CHANNEL_NAME,
+  );
+  if (general) return `/website/${general.id}/new`;
+  const personal = channels.find(
     (channel) => channel.channel_type === "personal",
   );
   if (!personal) throw new Error("Personal channel was not provisioned");

@@ -17,7 +17,32 @@ describe("startup location", () => {
     expect(client.getTaskChannels).not.toHaveBeenCalled();
   });
 
-  it("opens a new task in me when there is no saved location", async () => {
+  it("opens a new task in general when there is no saved location", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    const client = {
+      getTaskChannels: vi.fn().mockResolvedValue([
+        {
+          id: "me-id",
+          name: "me",
+          channel_type: "personal",
+          starred: false,
+        },
+        {
+          id: "general-id",
+          name: "general",
+          channel_type: "public",
+          starred: true,
+        },
+      ]),
+    };
+
+    await expect(resolveStartupLocation("project", client)).resolves.toBe(
+      "/website/general-id/new",
+    );
+    expect(client.getTaskChannels).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the personal channel when the server has no #general yet", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
       getTaskChannels: vi.fn().mockResolvedValue([
