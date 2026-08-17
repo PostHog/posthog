@@ -1827,7 +1827,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     @patch("ee.api.billing.feature_enabled_or_false")
-    def test_member_scoping_does_not_depend_on_user_teams_first_org_quirk(
+    def test_member_scoping_does_not_depend_on_user_teams_first_org(
         self, mock_flag_eval: MagicMock, mock_get_usage_data: MagicMock
     ):
         private_team = self._setup_member_with_private_team()
