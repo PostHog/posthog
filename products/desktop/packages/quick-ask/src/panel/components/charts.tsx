@@ -207,9 +207,17 @@ function tickLabels(labels: string[]): string[] {
 }
 
 /** Latest value plus its change from the previous point, for the header. */
-function LatestStat({ chart }: { chart: QuickAskChart }): React.JSX.Element {
+function LatestStat({
+  chart,
+}: {
+  chart: QuickAskChart;
+}): React.JSX.Element | null {
   const points = chart.series[0].points;
   const last = points[points.length - 1];
+  // Empty query results are valid (e.g. a total-value insight has labels but no
+  // points); with no last value there is no headline stat to show. Mirrors the
+  // shared `chartHeadlineStat` guard so the header does not read `undefined`.
+  if (typeof last !== "number" || !Number.isFinite(last)) return null;
   const previous = points.length > 1 ? points[points.length - 2] : null;
   const deltaPct =
     previous != null && previous !== 0
