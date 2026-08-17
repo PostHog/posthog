@@ -59,7 +59,16 @@ _MEASURE_COLUMNS: frozenset[str] = frozenset(
 _REPORT_DATE_COLUMN = "date"
 
 # Mirrors `pipelines.helpers.build_table_name` for a source created without a table prefix.
+# The prefix a user sets is on the source, which is not in scope here, so the queries name the
+# unprefixed table and say so. Getting this wrong is silent rather than loud: a second App Store
+# Connect source is forced to take a prefix, and the unprefixed name then resolves to the first
+# source's table instead of failing.
 _TABLE_NAME_PREFIX = f"{ExternalDataSourceType.APPSTORECONNECT.value}_".lower()
+
+_TABLE_PREFIX_NOTE = (
+    "This query names the table as connected without a table name prefix; if you set one, add it "
+    "wherever the table name appears."
+)
 
 _MEASURE_GUIDANCE = (
     "Kept for every restatement of a report date; aggregate only the latest restatement (see the table description)."
@@ -106,12 +115,14 @@ def _identity_keys(config: AppStoreConnectEndpointConfig, vintage_column: str) -
     return [key for key in config.primary_keys if key != vintage_column and not key.startswith("_")]
 
 
-def _latest_vintage_sql(table_name: str, identity_keys: list[str], vintage_column: str) -> str:
+def _latest_vintage_join(table_name: str, identity_keys: list[str], vintage_column: str) -> str:
+    # Restricts the table to the newest restatement of each report date. A restatement
+    # republishes its report date in full, so a dimension tuple the newest one omits is gone
+    # rather than unchanged: reading a value for it from an older vintage would resurrect it.
     keys = [*identity_keys, _REPORT_DATE_COLUMN]
     key_list = ", ".join(keys)
     conditions = " AND ".join(f"raw.{key} = latest.{key}" for key in [*keys, vintage_column])
     return (
-        "SELECT raw.*\n"
         f"FROM {table_name} AS raw\n"
         "INNER JOIN (\n"
         f"    SELECT {key_list}, max({vintage_column}) AS {vintage_column}\n"
@@ -120,6 +131,10 @@ def _latest_vintage_sql(table_name: str, identity_keys: list[str], vintage_colum
         ") AS latest\n"
         f"    ON {conditions}"
     )
+
+
+def _latest_vintage_sql(table_name: str, identity_keys: list[str], vintage_column: str) -> str:
+    return f"SELECT raw.*\n{_latest_vintage_join(table_name, identity_keys, vintage_column)}"
 
 
 def restatement_recipe(config: AppStoreConnectEndpointConfig, columns: Mapping[str, str]) -> RestatementRecipe | None:
@@ -154,10 +169,14 @@ def restatement_recipe(config: AppStoreConnectEndpointConfig, columns: Mapping[s
             sql=_latest_vintage_sql(table_name, _identity_keys(config, vintage_column), vintage_column),
         )
 
-    select_lines = [*dimensions, *(f"argMax({measure}, {vintage_column}) AS {measure}" for measure in measures)]
+    select_lines = [
+        *(f"raw.{dimension}" for dimension in dimensions),
+        *(f"argMax(raw.{measure}, raw.{vintage_column}) AS {measure}" for measure in measures),
+    ]
     select_body = ",\n    ".join(select_lines)
-    group_body = ",\n    ".join(dimensions)
-    sql = f"SELECT\n    {select_body}\nFROM {table_name}\nGROUP BY\n    {group_body}"
+    group_body = ",\n    ".join(f"raw.{dimension}" for dimension in dimensions)
+    join_body = _latest_vintage_join(table_name, _identity_keys(config, vintage_column), vintage_column)
+    sql = f"SELECT\n    {select_body}\n{join_body}\nGROUP BY\n    {group_body}"
     return RestatementRecipe(
         stream=config.name,
         table_name=table_name,
@@ -177,7 +196,7 @@ def _table_guidance(recipe: RestatementRecipe) -> str:
         resolution = "Get one row per report date and dimension combination with"
     else:
         resolution = "Keep only the latest restatement of each report date with"
-    return f"{warning} {resolution}: {recipe.sql_single_line}"
+    return f"{warning} {resolution}: {recipe.sql_single_line} {_TABLE_PREFIX_NOTE}"
 
 
 def _vintage_column_guidance(vintage_column: str) -> str:
@@ -253,5 +272,5 @@ def restatement_caption(
         "\n"
         f"```\n{example.sql}\n```\n"
         "\n"
-        "Each analytics table's description carries the exact query for that table."
+        f"{_TABLE_PREFIX_NOTE} Each analytics table's description carries the exact query for that table."
     )

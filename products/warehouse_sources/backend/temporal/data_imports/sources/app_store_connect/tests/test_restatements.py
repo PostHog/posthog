@@ -104,9 +104,11 @@ class TestAppStoreConnectRestatements:
 
         rows = _run_recipe_on_vintages(recipe.sql, recipe.table_name, "sessions")
 
+        # The 07-04 restatement of 2026-07-01 carries no DE row, and a restatement republishes
+        # its report date in full, so DE is gone rather than unchanged. Reading its 07-03 value
+        # forward would resurrect a tuple Apple dropped and inflate every total taken from it.
         assert sorted(rows) == [
             (date(2026, 6, 15), "app1", "US", 7),
-            (date(2026, 7, 1), "app1", "DE", 3),
             (date(2026, 7, 1), "app1", "US", 6),
         ]
 
