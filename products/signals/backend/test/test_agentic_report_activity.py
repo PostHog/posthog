@@ -367,7 +367,10 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         fake_run_multi_turn_research,
     )
 
-    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture") as mock_capture,
+    ):
         result = await run_agentic_report_activity(
             RunAgenticReportInput(
                 team_id=ateam.id,
@@ -380,6 +383,15 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         )
 
         assert result.title == "Onboarding funnel completion tracking may be regressing"
+
+        # The findings cite no commits, so no reviewers artefact is written; the run must say why.
+        assert [call.kwargs["event"] for call in mock_capture.call_args_list] == [
+            "signals_suggested_reviewers_unresolved"
+        ]
+        unresolved_props = mock_capture.call_args.kwargs["properties"]
+        assert unresolved_props["report_id"] == str(report.id)
+        assert unresolved_props["outcome"] == "no_commit_hashes"
+        assert unresolved_props["finding_count"] == 2
         assert result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         assert result.priority == Priority.P1
         assert result.already_addressed is False
