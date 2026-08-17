@@ -141,6 +141,18 @@ export function getEffortLabel(effort: string | null | undefined): string {
     return effort ? (EFFORT_LABELS[effort] ?? effort) : 'Effort'
 }
 
+// Keep an effort only if the model supports it, else nothing. The stored-preference counterpart of
+// `resolveEffortForModel`: a settings row wants "no pick" when the effort no longer applies, where a
+// composer wants a concrete value to send. Mirrors the backend's `filter_unsupported_effort`.
+export function filterEffortForModel(
+    catalogue: ModelChoiceApi[],
+    effort: string | null | undefined,
+    model: string | null | undefined
+): ReasoningEffortEnumApi | null {
+    const allowed = getEffortsForModel(catalogue, model).map((option) => option.value)
+    return effort && allowed.includes(effort as ReasoningEffortEnumApi) ? (effort as ReasoningEffortEnumApi) : null
+}
+
 // Clamp an effort to one the selected model actually supports — the new-run path can inherit an effort from a
 // previous run on a different model (e.g. `max` carried over to a model that only offers low/medium/high), and the
 // backend rejects an out-of-range effort. Falls back to the default when valid, else the highest available.
