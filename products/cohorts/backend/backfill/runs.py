@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -739,3 +740,102 @@ def supersede_active_runs(team_id: int, cohort_ids: Iterable[int], *, kind: Coho
             .filter(id__in=[participation_id for participation_id, _, _ in targets], superseded_at__isnull=True)
             .update(superseded_at=Now(), error=error)
         )
+
+
+@frozen
+class CancelOutcome:
+    cancelled_run_ids: tuple[UUID, ...] = ()
+    superseded_participations: int = 0
+    # (run_id, "stamped" | "finalizable" | "not_active")
+    refused: tuple[tuple[UUID, str], ...] = ()
+
+
+def cancel_runs(run_ids: Iterable[UUID], *, reason: str, allow_finalizable: bool = False) -> CancelOutcome:
+    """Terminalize runs to ``cancelled`` on an operator's behalf.
+
+    This is the manual counterpart to ``supersede_active_runs``: an automatic writer reacting to a
+    cohort edit wants that one, which records *why* the backfill stopped mattering. ``cancelled``
+    means a person decided the run would never finish, so it stays out of signals, tasks, and request
+    paths. Its purpose is releasing the partial uniqueness slot an active run holds, which is what
+    lets the cohort or team be backfilled again.
+
+    Writes nothing beyond the run and its unresolved participations. No chunk write, because a chunk
+    under a live lease is fenced on ``claim_epoch`` and an unfenced update from here would race the
+    worker's own; the seeder's claim, plan, and CAS queries all require an active run status, so
+    cancelling is already enough to stop it. No cache invalidation either, because no readiness stamp
+    is written and there is nothing stale to drop.
+    """
+    by_team: dict[int, list[UUID]] = {}
+    for run_id, team_id in (
+        CohortBackfillRun.objects.unscoped().filter(id__in=set(run_ids)).values_list("id", "team_id")
+    ):
+        by_team.setdefault(team_id, []).append(run_id)
+
+    cancelled: list[UUID] = []
+    refused: list[tuple[UUID, str]] = []
+    participations = 0
+    for team_id, team_run_ids in by_team.items():
+        # One transaction per team, not one for the whole sweep: an operator cancelling fifty runs
+        # must not hold locks across every team at once, and `for_team` is per-team regardless.
+        with transaction.atomic():
+            for run_id in team_run_ids:
+                # Same lock target as the finalizer's `_finalize_one_run`, so cancel and finalize
+                # serialize on the run row instead of racing. Deliberately not `skip_locked`: an
+                # operator needs a definite outcome per run, and the wait is bounded by one
+                # finalizer transaction.
+                run = (
+                    CohortBackfillRun.objects.for_team(team_id)
+                    .select_for_update(of=("self",))
+                    .filter(id=run_id, status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+                    .first()
+                )
+                if run is None:
+                    refused.append((run_id, "not_active"))
+                    continue
+
+                # Re-read under the lock rather than trusting the inventory the operator looked at:
+                # the seeder may have observed the run since, and cancelling a run the finalizer
+                # would legitimately complete throws away a finished backfill.
+                if (
+                    not allow_finalizable
+                    and run.status == CohortBackfillRunStatus.RECONCILING
+                    and run.reconcile_observed_at is not None
+                ):
+                    refused.append((run_id, "finalizable"))
+                    continue
+
+                if (
+                    CohortBackfillRunCohort.objects.for_team(team_id)
+                    .filter(run_id=run_id, stamped_at__isnull=False)
+                    .exists()
+                ):
+                    # A stamp is one way and the flags service already reads it as proof that
+                    # `cohort_membership` is populated. Cancelling behind one would leave the cohort
+                    # marked ready with a run row claiming the backfill was abandoned.
+                    refused.append((run_id, "stamped"))
+                    continue
+
+                # Run row before participation rows, matching the ordering documented in
+                # `supersede_active_runs`; the reverse deadlocks against the finalizer.
+                CohortBackfillRun.objects.for_team(team_id).filter(id=run_id).update(
+                    status=CohortBackfillRunStatus.CANCELLED, finished_at=Now(), error=reason
+                )
+                participations += (
+                    CohortBackfillRunCohort.objects.for_team(team_id)
+                    .filter(run_id=run_id, superseded_at__isnull=True, stamped_at__isnull=True)
+                    .update(superseded_at=Now(), error=reason)
+                )
+                cancelled.append(run_id)
+                logger.info(
+                    "cohort_backfill_run_cancelled",
+                    run_id=str(run_id),
+                    team_id=team_id,
+                    previous_status=run.status,
+                    reason=reason,
+                )
+
+    return CancelOutcome(
+        cancelled_run_ids=tuple(cancelled),
+        superseded_participations=participations,
+        refused=tuple(refused),
+    )
