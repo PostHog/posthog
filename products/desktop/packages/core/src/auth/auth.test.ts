@@ -1076,6 +1076,7 @@ describe("AuthService", () => {
         status: "anonymous",
         cloudRegion: "us",
         currentProjectId: 42,
+        sessionEndReason: "session_expired",
       });
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
       expect(sessionPort.getCurrent()).toBeNull();

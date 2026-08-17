@@ -681,6 +681,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         this.setAnonymousState({
           cloudRegion: input.cloudRegion,
           currentProjectId: input.selectedProjectId,
+          sessionEndReason: "session_expired",
         });
         throw new Error(lastError);
       }

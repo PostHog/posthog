@@ -30,6 +30,13 @@ export function AuthScreen() {
                     </Callout.Text>
                   </Callout.Root>
                 )}
+                {sessionEndReason === "session_expired" && (
+                  <Callout.Root color="amber">
+                    <Callout.Text>
+                      Your session ended. Sign in again to continue.
+                    </Callout.Text>
+                  </Callout.Root>
+                )}
                 <SignInCard
                   hogSrc={happyHog}
                   hogMessage="Welcome back. Let's get shipping."
