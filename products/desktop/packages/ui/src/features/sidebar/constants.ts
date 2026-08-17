@@ -11,6 +11,7 @@ export const SIDEBAR_MIN_WIDTH = 240;
 export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
 
 export const CUSTOMIZABLE_NAV_ITEMS = [
+  { id: "inbox", label: "Inbox", analyticsId: "inbox", defaultVisible: true },
   {
     id: "activity",
     label: "Activity",
@@ -85,6 +86,12 @@ export function orderedNavItems(
       }
     }
     result.splice(insertAt, 0, item.id);
+  }
+  const activityIndex = result.indexOf("activity");
+  const inboxIndex = result.indexOf("inbox");
+  if (activityIndex !== inboxIndex + 1) {
+    result.splice(activityIndex, 1);
+    result.splice(result.indexOf("inbox") + 1, 0, "activity");
   }
   return result.flatMap((id) => {
     const item = byId.get(id);
