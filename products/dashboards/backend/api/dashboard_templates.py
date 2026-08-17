@@ -488,6 +488,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 },
                 team=self.team,
                 organization=self.organization,
+                request=self.request,
             )
 
     def perform_update(self, serializer):
@@ -508,6 +509,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 },
                 team=self.team,
                 organization=self.organization,
+                request=self.request,
             )
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
@@ -607,6 +609,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             },
             team=self.team,
             organization=self.organization,
+            request=request,
         )
 
         serializer = DashboardTemplateSerializer(new_instance, context=self.get_serializer_context())
