@@ -221,6 +221,7 @@ class TestGitHubPRWebhook(TestCase):
             _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), before + 1
         )
         self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
