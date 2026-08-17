@@ -776,6 +776,31 @@ def revoke_oauth_session(
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
 
+def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
+    """Revoke every live member of a refresh token's family in a constant number of
+    queries, and delete the access tokens still linked to them.
+
+    Use this when refresh-token reuse protection fires: the whole family is suspect, but
+    DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per
+    historical member, and rotating sessions grow a family by one row per refresh — so a
+    long-lived session retried on a timer turns each `/oauth/token` request into hundreds
+    of row-locking no-op SELECTs."""
+    # Rows without a family (pre-rotation-refresh tokens, non-rotating clients) are their
+    # own lineage: sweeping them by token_family=None would revoke unrelated tokens.
+    if refresh_token.token_family is None:
+        return
+    now = timezone.now()
+    with transaction.atomic():
+        # Revoke refresh tokens before deleting access tokens, in one transaction, so a
+        # mid-way failure can't leave one of them live after its access token is gone
+        # (same ordering as revoke_oauth_session above).
+        live_members = OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family, revoked__isnull=True)
+        access_token_ids = list(live_members.exclude(access_token_id=None).values_list("access_token_id", flat=True))
+        live_members.update(revoked=now)
+        if access_token_ids:
+            OAuthAccessToken.objects.filter(pk__in=access_token_ids).delete()
+
+
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
     """True for a non-rotating refresh token (DCR/CIMD clients - see
     OAuthTokenView._save_bearer_token in posthog/api/oauth/views.py), which inserts a new,
