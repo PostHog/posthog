@@ -211,6 +211,27 @@ pub struct Config {
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
 
+    /// Cap on the number of events in one sub-batch. A Kafka batch's key-groups
+    /// are packed into chunks of at most this many events, each sent as its own
+    /// request, so one batch can be worked by several workers in parallel
+    /// instead of landing on one worker as a single request. A key-group is
+    /// never split, so a single group larger than this stays whole (the
+    /// transport's byte cap still bounds the wire size).
+    ///
+    /// `0` (the default) disables chunking: each worker receives exactly one
+    /// sub-batch per Kafka batch. Enabling is a charts-side, per-lane opt-in.
+    #[envconfig(from = "INGESTION_SUB_BATCH_MAX_EVENTS", default = "0")]
+    pub sub_batch_max_events: usize,
+
+    /// Floor on splitting: an open chunk still under this many events is not
+    /// closed just because the next key-group doesn't fit — that group gets a
+    /// chunk of its own and the under-filled one keeps taking later groups.
+    /// Best-effort, not a guarantee: whatever is left at the end of a batch
+    /// ships as one chunk however small. `0` (the default) means no floor;
+    /// values above `INGESTION_SUB_BATCH_MAX_EVENTS` are clamped to it.
+    #[envconfig(from = "INGESTION_SUB_BATCH_MIN_EVENTS", default = "0")]
+    pub sub_batch_min_events: usize,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
