@@ -187,7 +187,6 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
-    # Defaulted so an in-flight run whose history predates the gate takes the old path.
     quality_audit: QualityAuditMode = QUALITY_AUDIT_SKIP
     # Whether this run upserted a window rather than rebuilding. Defaulted so old workflow
     # histories decode without it.
