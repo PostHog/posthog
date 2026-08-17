@@ -8,7 +8,8 @@ import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-mat
  * Bound on the total node count (groups + leaves) of a filter_group tree. Depth
  * alone does not bound per-record work: a single AND with thousands of sibling
  * leaves passes MAX_FILTER_GROUP_DEPTH but costs O(leaves) per log line. Kept
- * in sync with `MAX_FILTER_GROUP_NODES` in `products/logs/backend/sampling_api.py`.
+ * in sync with `MAX_FILTER_GROUP_NODES` in
+ * `products/logs/backend/presentation/filter_group_validation.py`.
  */
 export const MAX_FILTER_GROUP_NODES = 256
 

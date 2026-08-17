@@ -209,7 +209,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         # record over this tree, so an adversarially deep group is a
         # stack-overflow + CPU footgun on every log line. Matches
         # `MAX_FILTER_GROUP_DEPTH` in
-        # `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`.
+        # `nodejs/src/logs/sampling/filter-group-match.ts`.
         if filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
             raise ValidationError(
                 {"config": {"filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."}}
