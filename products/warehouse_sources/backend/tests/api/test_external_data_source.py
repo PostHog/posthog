@@ -2303,6 +2303,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
                 {
@@ -2312,6 +2313,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": "Prod Postgres replica",
                 },
                 {
@@ -2321,6 +2323,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
             ],

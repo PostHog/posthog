@@ -4,7 +4,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     DEFAULT_SANDBOX_WORKING_DIR,
@@ -342,14 +342,14 @@ class TestFetchUserMcpServerConfigs(TestCase):
     MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
-    def _make_installation(self, **kwargs) -> ActiveInstallationInfo:
+    def _make_installation(self, **kwargs) -> ActiveInstallation:
         defaults = {
             "id": "abc-123",
             "name": "Linear",
             "proxy_path": f"/api/environments/{self.TEAM_ID}/mcp_server_installations/abc-123/proxy/",
         }
         defaults.update(kwargs)
-        return ActiveInstallationInfo(**defaults)
+        return ActiveInstallation(**defaults)
 
     def _expected_user_headers(self, *, consumer: str = "posthog-code") -> list[dict[str, str]]:
         return [
