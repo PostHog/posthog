@@ -906,6 +906,34 @@ export interface HogFlowInvocationApi {
     use_draft?: boolean
 }
 
+/**
+ * Cancel in-flight invocations of a workflow. Provide exactly one selector.
+ */
+export interface HogInvocationCancelRequestApi {
+    /**
+     * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.
+     * @minItems 1
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+    /** Cancel every in-flight invocation of this workflow, including parked delays and waits. */
+    all?: boolean
+}
+
+/**
+ * Response from the cancel endpoint. Cancellation is asynchronous: this call flags runs, and
+ * the workflow workers terminate them shortly after (immediately for parked runs, at the next
+ * step boundary for runs mid-execution). A run stays 'running' in listings until that happens.
+ */
+export interface HogInvocationCancelResponseApi {
+    /** In-flight runs newly flagged for cancellation by this request. */
+    marked: number
+    /** Matching in-flight runs not yet flagged. Non-zero on very large workflows; call again. */
+    remaining: number
+    /** True when no matching in-flight runs remain unflagged. */
+    done: boolean
+}
+
 export interface AppMetricSeriesApi {
     name: string
     values: number[]
@@ -1013,6 +1041,7 @@ export interface HogFlowPublishResponseApi {
  * * `running` - running
  * * `succeeded` - succeeded
  * * `failed` - failed
+ * * `canceled` - canceled
  */
 export type HogInvocationRerunFilterStatusEnumApi =
     (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
@@ -1021,6 +1050,7 @@ export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Canceled: 'canceled',
 } as const
 
 /**
