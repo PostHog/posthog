@@ -140,14 +140,15 @@ function closeAnnotator(): void {
 /** Hides the panel, freezes the screen it is on, opens the annotator. */
 export async function beginCapture(host: CaptureHost): Promise<void> {
   const panel = host.getPanel();
-  const anchor =
+  // Match the whole panel rect, not just its top-left point: a panel dragged
+  // across a display edge can straddle two, and the corner may sit on the
+  // display holding the smaller part. getDisplayMatching picks the display
+  // with the largest overlap. No panel means summon-at-cursor never ran, so
+  // fall back to the cursor's display.
+  const display =
     panel && !panel.isDestroyed()
-      ? panel.getBounds()
-      : { ...screen.getCursorScreenPoint(), width: 0, height: 0 };
-  const display = screen.getDisplayNearestPoint({
-    x: anchor.x,
-    y: anchor.y,
-  });
+      ? screen.getDisplayMatching(panel.getBounds())
+      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   host.hidePanel();
   await new Promise((resolve) => setTimeout(resolve, HIDE_SETTLE_MS));
   let dataUrl: string | null = null;
