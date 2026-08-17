@@ -66,7 +66,7 @@ import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
-import { PostHogAPIClient } from "../posthog-api";
+import { PostHogAPIClient, RESUME_STATE_MAX_BYTES } from "../posthog-api";
 import {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
@@ -83,6 +83,7 @@ import {
   formatConversationForResume,
   type ResumeState,
   resumeFromLog,
+  trimConversationForSnapshot,
 } from "../resume";
 import { SessionLogWriter } from "../session-log-writer";
 import type {
@@ -896,16 +897,30 @@ export class AgentServer {
         skipSnapshot: true,
       });
 
-      if (state.conversation.length === 0) return;
+      const snapshot = {
+        ...state,
+        conversation: trimConversationForSnapshot(state.conversation),
+      };
+      if (snapshot.conversation.length === 0) return;
 
-      await this.posthogAPI.putTaskRunResumeState(
-        taskId,
-        runId,
-        JSON.stringify(state),
-      );
+      // The endpoint rejects an oversized body and the catch below swallows the
+      // rejection, so measure here to leave a trace when a snapshot is skipped.
+      const serialized = JSON.stringify(snapshot);
+      const bytes = Buffer.byteLength(serialized, "utf8");
+      if (bytes > RESUME_STATE_MAX_BYTES) {
+        this.logger.warn("Skipping resume snapshot: over the size limit", {
+          bytes,
+          limit: RESUME_STATE_MAX_BYTES,
+          turns: snapshot.conversation.length,
+        });
+        return;
+      }
+
+      await this.posthogAPI.putTaskRunResumeState(taskId, runId, serialized);
       this.logger.debug("Persisted resume snapshot", {
-        turns: state.conversation.length,
-        logEntries: state.logEntryCount,
+        turns: snapshot.conversation.length,
+        logEntries: snapshot.logEntryCount,
+        bytes,
       });
     } catch (error) {
       this.logger.warn("Failed to persist resume snapshot", {

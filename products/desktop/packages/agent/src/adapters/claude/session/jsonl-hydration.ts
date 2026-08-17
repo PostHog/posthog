@@ -61,7 +61,7 @@ interface SessionUpdate {
 // output). Cap each one so a single call can't dominate the resume budget.
 const MAX_TOOL_PAYLOAD_CHARS = 10_000;
 
-function capToolPayload(value: unknown): unknown {
+export function capToolPayload(value: unknown): unknown {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   if (typeof text !== "string" || text.length <= MAX_TOOL_PAYLOAD_CHARS) {
     return value;

@@ -17,7 +17,10 @@
 
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { NativeGoalState } from "./acp-extensions";
-import { selectRecentTurns } from "./adapters/claude/session/jsonl-hydration";
+import {
+  capToolPayload,
+  selectRecentTurns,
+} from "./adapters/claude/session/jsonl-hydration";
 import type { PostHogAPIClient } from "./posthog-api";
 import { ResumeSaga } from "./sagas/resume-saga";
 import type { DeviceInfo, GitCheckpointEvent } from "./types";
@@ -135,6 +138,32 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
     .map((b) => (b as { type: "text"; text: string }).text)
     .join("");
   return RESUME_CONTEXT_MARKERS.some((marker) => text.includes(marker));
+}
+
+/**
+ * Reduce a rebuilt conversation to what a resume actually reads back.
+ * The fold keeps tool payloads whole, which runs a long task's snapshot past the
+ * stored size limit, while the prompt below only renders a recent window. Capping
+ * payloads first keeps one oversized turn from starving the window selection.
+ */
+export function trimConversationForSnapshot(
+  conversation: ConversationTurn[],
+): ConversationTurn[] {
+  const capped = conversation.map((turn) =>
+    turn.toolCalls?.length
+      ? {
+          ...turn,
+          toolCalls: turn.toolCalls.map((toolCall) => ({
+            ...toolCall,
+            input: capToolPayload(toolCall.input),
+            ...(toolCall.result === undefined
+              ? {}
+              : { result: capToolPayload(toolCall.result) }),
+          })),
+        }
+      : turn,
+  );
+  return selectRecentTurns(capped, RESUME_HISTORY_TOKEN_BUDGET);
 }
 
 export function formatConversationForResume(

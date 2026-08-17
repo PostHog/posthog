@@ -23,6 +23,9 @@ const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.versio
 // Read sits inside the backend's bounded wait for the agent to open a session.
 const RESUME_STATE_TIMEOUT_MS = 15_000;
 
+// Mirrors RESUME_STATE_MAX_SIZE_BYTES on the endpoint, which rejects anything larger.
+export const RESUME_STATE_MAX_BYTES = 2 * 1024 * 1024;
+
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
