@@ -65,7 +65,9 @@ from products.data_quality.backend.facade.contracts import (
 )
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
-GATE_PATCH = "data-quality-staged-gate-2026-08"
+# Covers every command the data quality feature adds here: the stage/audit/publish trio and the
+# warn-mode suite child.
+QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
@@ -247,7 +249,15 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # materialize_view_activity guarantees file_uris is non-empty even for
                 # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
                 # so prepare_s3_files_for_querying has something to list.
-                quality_audit = self._audit_mode(materialize_result, inputs)
+                # Reading the mode as skip when the marker is absent keeps every command this
+                # feature adds out of a history that predates it. A rolling deploy can hand an old
+                # workflow worker a result from new activity code, and the SDK drops the fields the
+                # old dataclass lacks, so the mode alone cannot say who wrote the history.
+                quality_audit = (
+                    self._audit_mode(materialize_result, inputs)
+                    if temporalio.workflow.patched(QUALITY_AUDIT_PATCH)
+                    else QUALITY_AUDIT_SKIP
+                )
                 staged_verdict: int | None = None
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
@@ -258,10 +268,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     row_count=materialize_result.row_count,
                     incremental=materialize_result.incremental,
                 )
-                # A rolling deploy can pair an old workflow worker with a new activity worker, so a
-                # history can carry "gate" and still have recorded the ungated command. The marker
-                # is what says this code wrote the history, which the result field alone cannot.
-                if quality_audit == QUALITY_AUDIT_GATE and temporalio.workflow.patched(GATE_PATCH):
+                if quality_audit == QUALITY_AUDIT_GATE:
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(
                         stage_queryable_files_activity,
                         prepare_inputs,

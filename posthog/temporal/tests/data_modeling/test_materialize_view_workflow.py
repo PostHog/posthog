@@ -52,6 +52,7 @@ class TestQualityGateBranching:
         *,
         patched: bool = True,
         shadow_handle: AsyncMock | None = None,
+        start_child: AsyncMock | None = None,
     ) -> tuple:
         execute_activity = AsyncMock(side_effect=activity_results)
         child = (
@@ -64,7 +65,9 @@ class TestQualityGateBranching:
         with ExitStack() as stack:
             stack.enter_context(patch.object(temporalio.workflow, "execute_activity", new=execute_activity))
             stack.enter_context(patch.object(temporalio.workflow, "execute_child_workflow", new=child))
-            stack.enter_context(patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()))
+            stack.enter_context(
+                patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
+            )
             stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
@@ -125,24 +128,29 @@ class TestQualityGateBranching:
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
 
-    async def test_a_history_without_the_patch_marker_keeps_the_ungated_path(self):
-        # A rolling deploy pairs an old workflow worker with a new activity worker, so "gate" can
-        # reach a history that recorded the single prepare command. Replaying it here has to emit
-        # that same command, not the stage/publish pair.
+    @pytest.mark.parametrize("mode", ["gate", "warn"])
+    async def test_a_history_without_the_patch_marker_adds_no_command(self, mode):
+        # A rolling deploy pairs an old workflow worker with a new activity worker, and the SDK
+        # drops the fields the old dataclass lacks. So a mode can reach a history that recorded
+        # only the prepare command, and replaying it here has to emit exactly that.
         activity_results = [
             False,
             "job-1",
-            _materialize_result("gate"),
+            _materialize_result(mode),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
             None,  # succeed
         ]
+        start_child = AsyncMock()
 
-        result, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 2}, patched=False)
+        result, execute_activity = await self._run(
+            activity_results, {"checks_failed_blocking": 2}, patched=False, start_child=start_child
+        )
 
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "prepare_queryable_table_activity" in started
         assert "stage_queryable_files_activity" not in started
         assert "quality_block_materialization_activity" not in started
+        start_child.assert_not_awaited()
         assert result.quality_blocking_failures is None
         assert result.quality_audited is False
 
@@ -165,6 +173,30 @@ class TestQualityGateBranching:
         assert result.quality_blocking_failures is None
         assert result.quality_audited is False
 
+    @pytest.mark.parametrize(
+        "start_child,expected_audited",
+        [
+            (AsyncMock(), True),
+            (AsyncMock(side_effect=WorkflowAlreadyStartedError("id", "type")), True),
+            (AsyncMock(side_effect=RuntimeError("task queue is gone")), False),
+        ],
+    )
+    async def test_a_warn_suite_that_never_started_sends_the_node_back_to_the_sweep(
+        self, start_child, expected_audited
+    ) -> None:
+        activity_results = [
+            False,
+            "job-1",
+            _materialize_result("warn"),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
+            None,  # succeed
+        ]
+
+        result, _ = await self._run(activity_results, {}, start_child=start_child)
+
+        assert result.quality_audited is expected_audited
+        assert result.quality_blocking_failures is None
+
     async def test_a_blocked_publish_still_settles_the_duckgres_shadow(self):
         # The blocked branch returns early. Leaving the shadow activity unawaited holds the parent
         # DAG's concurrency slot and orphans the shadow job.
@@ -184,49 +216,6 @@ class TestQualityGateBranching:
 
         assert result.quality_blocking_failures == 1
         collect.assert_awaited_once()
-
-
-class TestWarnSuite:
-    @pytest.mark.parametrize(
-        "start_child,expected_audited",
-        [
-            (AsyncMock(), True),
-            (AsyncMock(side_effect=WorkflowAlreadyStartedError("id", "type")), True),
-            (AsyncMock(side_effect=RuntimeError("task queue is gone")), False),
-        ],
-    )
-    async def test_a_suite_that_never_started_sends_the_node_back_to_the_sweep(
-        self, start_child, expected_audited
-    ) -> None:
-        activity_results = [
-            False,  # duckgres shadow check
-            "job-1",  # create job
-            _materialize_result("warn"),
-            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
-            None,  # succeed
-        ]
-        execute_activity = AsyncMock(side_effect=activity_results)
-        info = MagicMock()
-        info.parent = None
-        with ExitStack() as stack:
-            stack.enter_context(patch.object(temporalio.workflow, "execute_activity", new=execute_activity))
-            stack.enter_context(patch.object(temporalio.workflow, "start_child_workflow", new=start_child))
-            stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
-            stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
-            stack.enter_context(patch.object(temporalio.workflow, "logger"))
-            stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
-            for metric in (
-                "get_node_finished_metric",
-                "get_node_duration_metric",
-                "get_node_rows_materialized_metric",
-                "get_node_storage_delta_mib_metric",
-                "get_node_total_storage_mib_metric",
-            ):
-                stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
-            result = await MaterializeViewWorkflow().run(_inputs())
-
-        assert result.quality_audited is expected_audited
-        assert result.quality_blocking_failures is None
 
 
 def _cancelled_child_error() -> ChildWorkflowError:
