@@ -60,6 +60,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
     create_github_source,
     create_warehouse_table_row,
+    seeding_object_storage,
 )
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import ReportPriority
@@ -619,7 +620,7 @@ class TestSyncStatus(BaseTest):
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
     """Detectors run over a real seeded github_workflow_runs warehouse table. Each test seeds both a
     should-fire and a should-not-fire workflow and asserts the detected set, so it catches both
-    missed conditions and false positives. Skips when object storage is unreachable (no dev stack)."""
+    missed conditions and false positives."""
 
     def _seed_table(
         self,
@@ -635,7 +636,7 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, out_source, out_credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=table_name,
@@ -646,8 +647,6 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 credential=credential,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table, out_source, out_credential
 

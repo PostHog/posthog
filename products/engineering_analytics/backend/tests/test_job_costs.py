@@ -1,4 +1,3 @@
-import os
 import json
 import tempfile
 from pathlib import Path
@@ -23,6 +22,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
+from products.engineering_analytics.backend.tests._github_fixtures import seeding_object_storage
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
@@ -95,7 +95,7 @@ def _job_row(job_id: int, labels: list[str], started: str, completed: str | None
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     # The drift guard for the single-source-of-truth contract: the view is rendered from the same
     # constants as logic.cost, so any change to one side that isn't matched on the other shows up
-    # here. Skips when object storage is unreachable so the suite still runs without the dev stack.
+    # here.
 
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         df = pd.DataFrame(rows, columns=list(columns.keys()))
@@ -103,7 +103,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -112,11 +112,6 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
-        except PermissionError as err:
-            # In CI a skip here silently drops the parity guard while the job stays green.
-            if os.environ.get("CI"):
-                raise
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table.name
 

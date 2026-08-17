@@ -613,7 +613,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
-    $ai_generation events. Skips when object storage is unreachable."""
+    $ai_generation events."""
 
     def _generation(
         self,
@@ -846,8 +846,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
 class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
     """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
-    `since` in the scoped repo surface, each with its branch-tip head SHA. Skips when object storage
-    is unreachable."""
+    `since` in the scoped repo surface, each with its branch-tip head SHA."""
 
     def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
         self._create_table(
