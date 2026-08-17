@@ -117,6 +117,17 @@ describe('sourceSteeringModalLogic', () => {
         expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules' })
     })
 
+    it('appends an example on its own line, and marks it unfittable rather than crossing the cap', () => {
+        const [example] = logic.values.steeringExamples
+        expect(example.fits).toBe(true)
+        expect(example.result).toEqual(`old rules\n${example.line}`)
+
+        // A near-full field: appending would cross the cap, which would leave the form unsavable.
+        logic.actions.setSourceSteeringValue('steering', 'x'.repeat(SOURCE_STEERING_MAX_LENGTH - 5))
+
+        expect(logic.values.steeringExamples.every((e) => e.fits)).toBe(false)
+    })
+
     it('rejects rules over the server cap without issuing a request', async () => {
         logic.actions.setSourceSteeringValue('steering', 'x'.repeat(SOURCE_STEERING_MAX_LENGTH + 1))
         await expectLogic(logic, () => {
