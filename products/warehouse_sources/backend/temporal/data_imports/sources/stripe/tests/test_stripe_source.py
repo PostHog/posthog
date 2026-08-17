@@ -1421,6 +1421,27 @@ class TestCreateWebhookPermissionErrorCopy:
         assert expected_phrase in (result.error or "")
 
 
+class TestCreateWebhookLimitErrorCopy:
+    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
+    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
+    def test_webhook_limit_error_gives_actionable_message(self):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
+                "You have reached the maximum of 100 test webhook endpoints.", param=None
+            )
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+            )
+
+        assert result.success is False
+        assert "webhook endpoint limit" in (result.error or "")
+        assert "manually" in (result.error or "")
+
+
 class TestStripeAppManifestCoversSourcePermissions:
     # Regression test: PERMISSIONS drives the pre-filled restricted-key form, while the Stripe app
     # manifest drives what an OAuth connection is granted. The two drifted twice (rak_webhook_write
