@@ -265,22 +265,41 @@ def slack_message_exists(
     return exists
 
 
-def post_slack_thread_reply(client: WebClient, *, channel: str, thread_ts: str | None, **kwargs: Any) -> Any:
-    """Post a reply in a Slack thread, once confirmed the message it answers still exists.
+def post_slack_thread_reply(
+    client: WebClient,
+    *,
+    channel: str,
+    thread_ts: str | None,
+    trigger_ts: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Post a reply once confirmed the message it answers still exists.
 
-    The single funnel for every `@PostHog` reply anchored on a user's message. A deleted
-    prompt has nobody left to answer, and replies to one were seen landing at channel
-    level rather than in the thread. Returns ``None`` when nothing was posted.
+    The single funnel for every `@PostHog` reply. A deleted prompt has nobody left to
+    answer, and replies to one were seen landing at channel level rather than in the
+    thread. Returns ``None`` when nothing was posted.
 
-    A falsy ``thread_ts`` posts at channel root, unchecked: that is a deliberate root post,
-    with no message to answer.
+    Where the reply goes and what it answers are separate questions. ``thread_ts`` places
+    it — falsy posts at channel root, which some replies do deliberately because a
+    thread-anchored one is invisible to anyone not already reading that thread.
+    ``trigger_ts`` is the message being answered, and defaults to the anchor. Pass it
+    whenever the two differ, or a root-placed reply would go out unchecked.
+
+    With neither set there is nothing to check — a slash command creates no message — so
+    the reply posts unconditionally.
     """
-    if not thread_ts:
-        return client.chat_postMessage(channel=channel, **kwargs)
-    if not slack_message_exists(client, channel, thread_ts):
-        logger.warning("slack_app_thread_reply_skipped_message_deleted", channel=channel, thread_ts=thread_ts)
+    check_ts = trigger_ts or thread_ts
+    if check_ts and not slack_message_exists(client, channel, check_ts):
+        logger.warning(
+            "slack_app_thread_reply_skipped_message_deleted",
+            channel=channel,
+            thread_ts=thread_ts,
+            trigger_ts=trigger_ts,
+        )
         return None
-    return client.chat_postMessage(channel=channel, thread_ts=thread_ts, **kwargs)
+    if thread_ts:
+        return client.chat_postMessage(channel=channel, thread_ts=thread_ts, **kwargs)
+    return client.chat_postMessage(channel=channel, **kwargs)
 
 
 # `conversations.replies` answers `thread_not_found` for a ts that no longer resolves to a

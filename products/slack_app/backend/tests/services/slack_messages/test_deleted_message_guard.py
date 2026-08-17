@@ -94,3 +94,38 @@ class TestPostSlackThreadReply:
 
         client.conversations_history.assert_not_called()
         client.chat_postMessage.assert_called_once_with(channel="C001", text="hello")
+
+    def test_root_placed_reply_is_still_checked_against_its_trigger(self):
+        # Top-level @PostHog commands answer at channel root on purpose, so the anchor is
+        # empty. The command message they answer must still be checked, or deleting it
+        # leaves the reply posting to the whole channel.
+        client = MagicMock()
+        client.conversations_history.return_value = DELETED
+
+        result = post_slack_thread_reply(client, channel="C001", thread_ts="", trigger_ts=THREAD_TS, text="help text")
+
+        assert result is None
+        client.chat_postMessage.assert_not_called()
+
+    def test_root_placed_reply_posts_without_an_anchor_when_its_trigger_lives(self):
+        client = MagicMock()
+        client.conversations_history.return_value = PRESENT
+
+        post_slack_thread_reply(client, channel="C001", thread_ts="", trigger_ts=THREAD_TS, text="help text")
+
+        client.chat_postMessage.assert_called_once_with(channel="C001", text="help text")
+
+    def test_trigger_takes_precedence_over_the_anchor(self):
+        # A command posted inside a live thread: the reply threads under the root, but what
+        # it answers is the command message, so that is what decides.
+        client = MagicMock()
+        client.conversations_history.return_value = DELETED
+
+        result = post_slack_thread_reply(
+            client, channel="C001", thread_ts="1700000000.000001", trigger_ts=THREAD_TS, text="hi"
+        )
+
+        assert result is None
+        client.conversations_history.assert_called_once_with(
+            channel="C001", latest=THREAD_TS, oldest=THREAD_TS, inclusive=True, limit=1
+        )
