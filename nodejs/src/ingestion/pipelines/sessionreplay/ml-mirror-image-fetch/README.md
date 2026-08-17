@@ -23,7 +23,7 @@ code is written against. Where the code and this file disagree, one of them is a
 | Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                                                                                                                  |
 | Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                                                                                                          |
 | Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work.                                                                                       |
-| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                                                                                                                     |
+| Crawl history      | The DynamoDB record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                                                                                                                  |
 | Host budget        | The token bucket, connection limit, and circuit breaker for one registrable domain. The rate moves by AIMD: a failure halves it, and success raises it slowly.                                                                    |
 | Hop                | One trip a URL makes back through Kafka. The lane spends a hop when it puts a URL back: a retry, a redirect that left the domain, or a URL that arrived before its wait ended. A redirect the lane follows in place costs no hop. |
 | Hop budget         | The number of hops one URL may make before the lane gives up.                                                                                                                                                                     |
@@ -162,8 +162,8 @@ lane took a URL out of the frontier and put nothing back, so no copy of that URL
 It is also usually brief, so the pod that comes back is likely to get the record through.
 
 A crawl history read the store could not answer loses URLs the same way, and the lane commits it
-regardless. A store that cannot answer this batch cannot answer the next one either, so throwing
-would restart the pod on every batch and fetch nothing at all. The lane leaves those URLs
+regardless. A store that throttles this batch, or cannot be reached for it, is rarely in better shape
+for the next one, so throwing would restart the pod on every batch and fetch nothing at all. The lane leaves those URLs
 unrecorded, so the mirror offers them again the next time a session refers to the same image. A
 counter records each one, which keeps the loss visible.
 
@@ -573,6 +573,26 @@ read. A format the scrub lane gains is added in both places or in neither.
 **15.4** The first bytes of the body must agree with the declared type. The lane refuses a response
 that declares one format and carries another. This catches an origin that answers every path with
 one page, which a `Content-Type` check alone would accept whenever that page is served as an image.
+
+### 16. The crawl history store
+
+**16.1** One item holds one URL. The store bills a write for the size of the whole item, so an item
+shared by many URLs would pay for all of them on every change, and a busy domain changes on nearly
+every pass. One URL per item costs one write unit, and it still costs one with the `ETag` and the
+`Last-Modified` of requirement 12.1 beside the timestamp.
+
+**16.2** A read is eventually consistent. It can report a URL as absent just after the lane recorded
+it, which costs one duplicate fetch. Requirement 5.3 already accepts a duplicate.
+
+**16.3** An entry does not disappear the moment it expires. The store deletes an expired entry
+within days of its expiry, and a read can return one until the delete happens. A URL therefore stays
+seen a little past 30 days, which delays a refetch rather than causing one.
+
+**16.4** One read carries at most 100 URLs and one write at most 25. A pass therefore makes about
+four times as many write round trips as read round trips for the same URLs.
+
+**16.5** A throttled request is a transient failure rather than a dead store. The lane retries it
+inside the batch budget, and reports whatever the budget does not cover as unanswered.
 
 ## How a message waits
 
