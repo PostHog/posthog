@@ -44,6 +44,22 @@ type MockRow = {
 
 const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
 
+const personPropertyBytecode = (key: string, value: string): any[] => [
+    '_H',
+    1,
+    32,
+    value,
+    32,
+    key,
+    32,
+    'properties',
+    32,
+    'person',
+    1,
+    3,
+    11,
+]
+
 const makeHogFlow = (overrides: Partial<HogFlow> & { id: string; waitUntil?: boolean }): HogFlow => {
     const { id, team_id, waitUntil = true, ...rest } = overrides
     const waitAction = {
@@ -111,6 +127,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     // Conversion watchers are a separate table with its own lookup; default empty so the wake-path
     // fixtures below aren't also served to it.
     public watcherRows: MockRow[] = []
+    // null = every requested row is claimed; an array narrows it to those ids.
+    public claimedWatcherIds: string[] | null = null
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
     public updateRowCount = 0
@@ -125,15 +143,17 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: [], rowCount: 0 })
             }
             this.calls.push({ sql, params })
+            if (sql.startsWith('DELETE FROM conversion_watchers')) {
+                // Deleting the row IS the claim, so only rows this DELETE removed may be counted.
+                // `claimedWatcherIds` models another instance having won some of them first.
+                const claimed = this.watcherRows
+                    .map((r: any) => ({ id: r.id }))
+                    .filter((r) => this.claimedWatcherIds === null || this.claimedWatcherIds.includes(r.id))
+                return Promise.resolve({ rows: claimed, rowCount: claimed.length })
+            }
             // Checked before the parked-job lookup: both select `id, team_id, function_id`.
             if (sql.includes('FROM conversion_watchers')) {
                 return Promise.resolve({ rows: this.watcherRows, rowCount: this.watcherRows.length })
-            }
-            if (sql.startsWith('DELETE FROM conversion_watchers')) {
-                return Promise.resolve({
-                    rows: this.watcherRows.map((r: any) => ({ id: r.id })),
-                    rowCount: this.watcherRows.length,
-                })
             }
             if (sql.includes('SELECT id, team_id, function_id')) {
                 return Promise.resolve({ rows: this.findRows, rowCount: this.findRows.length })
@@ -219,9 +239,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             ])
             // The watcher lookup still runs: a watcher's run may have finished long ago, so gating it
             // on the team having a live actionable flow would restore the blind spot watchers remove.
-            expect(
-                matcher.calls.filter((c) => c.sql.includes('FROM cyclotron_jobs')).map((c) => c.sql)
-            ).toHaveLength(0)
+            expect(matcher.calls.filter((c) => c.sql.includes('FROM cyclotron_jobs')).map((c) => c.sql)).toHaveLength(0)
         })
 
         it('passes both distinct_ids and person_ids to the lookup query', async () => {
@@ -234,7 +252,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person: { id: 'person-uuid-2', properties: {}, name: '', url: '' },
                 }),
             ])
-            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             // Params are correlated (team, id) pairs: distinctTeamIds/distinctIds zip row-wise,
             // and personTeamIds/personIds zip row-wise. Both events are team 1.
@@ -251,7 +271,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // already scopes the results to hogflow jobs.
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             expect(lookup.sql).not.toContain('queue_name')
         })
@@ -296,7 +318,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             // The correlated lookup params zip (team, distinct_id) row-wise: {(1,alice),(2,bob)}.
             // (1,bob) must not appear — that's the cross-team combination that doesn't exist.
-            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             const pairs = lookup.params[0].map((teamId: number, i: number) => `${teamId}:${lookup.params[1][i]}`)
             expect(pairs).toEqual(['1:alice', '2:bob'])
@@ -315,7 +339,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 'flow-2': makeHogFlow({ id: 'flow-2', waitUntil: false }),
             })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find(
+                (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+            )!
             expect(lookup).not.toBeUndefined()
             expect(lookup.params[4]).toEqual(['flow-1'])
         })
@@ -324,7 +350,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Default: no hogflows configured → team has nothing the matcher could wake.
             // The cyclotron lookup must NOT fire.
             await matcher.runWake([makeGlobals({})])
-            expect(matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
+            expect(
+                matcher.calls.find(
+                    (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+                )
+            ).toBeUndefined()
         })
 
         it('wakes when the matching event is not the first event in the batch for a distinct_id', async () => {
@@ -508,7 +538,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update).not.toBeUndefined()
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
-            expect(newState.state.conversionCounted).toBe(true)
             // currentAction is missing in input state, so eventMatched must not have been set
             expect(newState.state.currentAction).toBeUndefined()
         })
@@ -588,97 +617,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(wake).not.toBeUndefined()
             const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
-            expect(newState.state.conversionCounted).toBe(true)
-            // The conversion is also counted as a metric exactly once.
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    app_source_id: 'flow-1',
-                    metric_name: 'conversion',
-                    count: 1,
-                    app_source_version: { id: expect.any(String), version: 1 },
-                }),
-                'hog_flow'
-            )
-            // ...and emitted once as a billable $workflows_conversion event for the converting person.
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    team_id: 1,
-                    event: '$workflows_conversion',
-                    distinct_id: 'user-1',
-                    properties: expect.objectContaining({
-                        $workflow_id: 'flow-1',
-                        $workflow_version: 1,
-                        $workflow_conversion_type: 'event',
-                        $workflow_conversion_event: 'wuc_cancelled',
-                    }),
-                })
-            )
-        })
-
-        // The whole point of the versioned series: "did conversion rate drop after we changed the
-        // email?" is only answerable if a conversion is credited to the version that sent to that
-        // person. Reading it off the freshly loaded flow credits whatever is live when they convert,
-        // so a broadcast under v1 followed by a republish silently moves all of v1's conversions to v2.
-        it.each([
-            {
-                name: 'the version the run started under, not the one live at conversion time',
-                parkedState: { currentAction: { id: 'wait_node' }, flowVersion: 1 },
-                expectedVersion: { id: 'flow-1', version: 1 },
-                expectedEventVersion: 1,
-            },
-            {
-                name: 'no version at all when the run predates the stamp',
-                parkedState: { currentAction: { id: 'wait_node' } },
-                expectedVersion: undefined,
-                expectedEventVersion: undefined,
-            },
-        ])('attributes a conversion to $name', async ({ parkedState, expectedVersion, expectedEventVersion }) => {
-            // The published flow has moved on to v2 since this run started.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                version: 2,
-                exit_condition: 'exit_on_conversion',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    action_id: 'wait_node',
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer(parkedState) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    metric_name: 'conversion',
-                    app_source_version: expectedVersion,
-                }),
-                'hog_flow'
-            )
-            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    properties: expect.objectContaining({ $workflow_version: expectedEventVersion }),
-                })
-            )
         })
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
@@ -723,77 +661,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
             )
             expect(wake).toBeUndefined()
-            // But a state-only `SET state = u.state` UPDATE persists conversionCounted.
-            const stateOnly = matcher.calls.find(
-                (c) =>
-                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
-                    c.sql.includes('SET state = u.state') &&
-                    !c.sql.includes('scheduled')
-            )
-            expect(stateOnly).not.toBeUndefined()
-            const newState = parseJSON(stateOnly!.params[1][0].toString('utf-8')) as any
-            expect(newState.state.conversionCounted).toBe(true)
-            expect(newState.state.conversionMatched).toBeUndefined()
-            // ...and the conversion is counted once (measurement-only).
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
-                'hog_flow'
-            )
-        })
-
-        it('counts a conversion (without waking) for a conversion-only flow that has no wait step', async () => {
-            // Broadened gating: a flow whose only actionable feature is an event-based conversion goal
-            // (no wait_until_condition) is now evaluated regardless of exit condition, so the metric is
-            // tracked. exit_only_at_end means it must not be woken.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                waitUntil: false,
-                exit_condition: 'exit_only_at_end',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    action_id: null,
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            // No wake, but a state-only UPDATE persists conversionCounted.
-            const wake = matcher.calls.find(
-                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
-            )
-            expect(wake).toBeUndefined()
-            const stateOnly = matcher.calls.find(
-                (c) =>
-                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
-                    c.sql.includes('SET state = u.state') &&
-                    !c.sql.includes('scheduled')
-            )
-            expect(stateOnly).not.toBeUndefined()
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
-                'hog_flow'
-            )
+            // No state write either: with counting on the watcher there is no flag left to
+            // persist, so a measurement-only match must leave the parked job completely untouched.
+            const stateOnly = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(stateOnly).toBeUndefined()
+            expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
         })
 
         it('does not re-count or update a conversion already counted this run (per-run dedup)', async () => {
@@ -839,57 +711,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).toBeUndefined()
             expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
-        })
-
-        it('attributes a conversion to the batch parent_run_id when set', async () => {
-            // Batch-workflow jobs carry a parent_run_id (the batch job). The emitted conversion metric
-            // must key app_source_id by that run id, not the function id, so it lands under the batch.
-            const flow = makeHogFlow({
-                id: 'flow-1',
-                waitUntil: false,
-                exit_condition: 'exit_only_at_end',
-                conversion: {
-                    events: [
-                        {
-                            filters: {
-                                bytecode: eventBytecode('wuc_cancelled'),
-                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
-                            },
-                        },
-                    ],
-                } as any,
-            } as any)
-            matcher.findRows = [
-                {
-                    id: 'job-c',
-                    team_id: 1,
-                    function_id: 'flow-1',
-                    parent_run_id: 'batch-run-1',
-                    action_id: null,
-                    distinct_id: 'user-1',
-                    person_id: null,
-                },
-            ]
-            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ flowVersion: 2 }) }]
-            matcher.updateRowCount = 1
-            matcher.setHogFlows({ 'flow-1': flow })
-
-            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
-
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    app_source_id: 'batch-run-1',
-                    instance_id: 'flow-1',
-                    metric_name: 'conversion',
-                    count: 1,
-                    // The run id keys app_source_id, but the versioned mirror keys on the flow —
-                    // otherwise every batch run mints its own key and a broadcast's versions never
-                    // aggregate.
-                    app_source_version: { id: 'flow-1', version: 2 },
-                }),
-                'hog_flow'
-            )
         })
 
         it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
@@ -1100,7 +921,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([makeGlobals({})])
 
-            expect(matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))).not.toBeUndefined()
+            expect(
+                matcher.calls.find(
+                    (c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id')
+                )
+            ).not.toBeUndefined()
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
 
@@ -1668,6 +1493,116 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
     // it exercises the same wake decision the matcher makes for every events/property/action shape.
+    describe('conversion watchers', () => {
+        const watcher = (overrides: Record<string, any> = {}): any => ({
+            id: 'watcher-1',
+            team_id: 1,
+            function_id: 'flow-1',
+            run_id: 'run-1',
+            parent_run_id: null,
+            distinct_id: 'user-1',
+            person_id: null,
+            flow_version: 1,
+            goal: { events: [eventBytecode('wuc_cancelled')] },
+            ...overrides,
+        })
+
+        const cancelledEvent = (): HogFunctionInvocationGlobals =>
+            makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })
+
+        it('counts a claimed watcher and emits the conversion event with its run id', async () => {
+            matcher.watcherRows = [watcher()]
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team_id: 1,
+                    app_source_id: 'flow-1',
+                    metric_name: 'conversion',
+                    count: 1,
+                    app_source_version: { id: 'flow-1', version: 1 },
+                }),
+                'hog_flow'
+            )
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: '$workflows_conversion',
+                    distinct_id: 'user-1',
+                    properties: expect.objectContaining({
+                        $workflow_id: 'flow-1',
+                        // Joins the conversion to the enrollment that earned it.
+                        $workflow_run_id: 'run-1',
+                        $workflow_version: 1,
+                        $workflow_conversion_type: 'event',
+                    }),
+                })
+            )
+        })
+
+        it('counts only the watchers the delete actually claimed', async () => {
+            // Two instances can evaluate the same watcher in the same moment; the one whose DELETE
+            // removed the row owns the count. Counting an unclaimed row would double-count the run.
+            matcher.watcherRows = [watcher(), watcher({ id: 'watcher-2', run_id: 'run-2' })]
+            matcher.claimedWatcherIds = ['watcher-2']
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({ properties: expect.objectContaining({ $workflow_run_id: 'run-2' }) })
+            )
+        })
+
+        it('attributes a batch child conversion to its parent run', async () => {
+            // Batch runs report every other metric under the parent job, so a conversion filed under
+            // the flow id instead would be missing from the batch's own numbers.
+            matcher.watcherRows = [watcher({ parent_run_id: 'batch-1' })]
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion' }),
+                'hog_flow'
+            )
+        })
+
+        it('counts a property goal from a person-property change', async () => {
+            // Property goals are the half a ClickHouse query cannot reach, and they arrive on the
+            // person stream with no distinct_id — so they can only ever match by person_id.
+            matcher.watcherRows = [
+                watcher({
+                    distinct_id: null,
+                    person_id: 'person-uuid-1',
+                    goal: { properties: personPropertyBytecode('plan', 'enterprise') },
+                }),
+            ]
+
+            await matcher.runWake([
+                makeGlobals({
+                    event: { ...makeGlobals({}).event, event: '$person_updated', distinct_id: '' },
+                    person: { id: 'person-uuid-1', properties: { plan: 'enterprise' }, name: '', url: '' },
+                }),
+            ])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            // No billable event: a person-triggered run has no distinct_id, and a person-property
+            // change carries none, so there is nothing to attribute a capture event to. The metric
+            // counts, but anything reading conversions off the event stream misses these.
+            expect(matcher.queueConversionEventMock).not.toHaveBeenCalled()
+        })
+
+        it('does not count a watcher whose goal does not match', async () => {
+            matcher.watcherRows = [watcher()]
+
+            await matcher.runWake([makeGlobals({})])
+
+            expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+            expect(matcher.calls.find((c) => c.sql.startsWith('DELETE FROM conversion_watchers'))).toBeUndefined()
+        })
+    })
+
     describe('wake matrix: events / property / action combinations', () => {
         const ALWAYS_TRUE = ['_H', 1, 29]
         // Real, serializer-compiled bytecode for event.properties.plan == 'growth'.

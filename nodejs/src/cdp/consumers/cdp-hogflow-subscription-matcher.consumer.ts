@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
@@ -51,6 +51,10 @@ const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'l
 // so this only reclaims space.
 const WATCHER_SWEEP_INTERVAL_MS = 60_000
 
+// How stale the has-live-watchers gate may be. A team that just enrolled its first run while its only
+// goal flow was already paused waits at most this long to be admitted.
+const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 30_000
+
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
     help: 'Parked hogflow jobs the matcher loaded from cyclotron and evaluated against a batch.',
@@ -91,6 +95,11 @@ const counterHogflowMatcherWatchersRekeyed = new Counter({
     help: 'Conversion watchers repointed onto a merge survivor. Without this they would be addressed to a person no update will ever mention again.',
 })
 
+const counterHogflowMatcherConversionEventSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_conversion_event_skipped',
+    help: 'Conversions counted as a metric but not emitted as $workflows_conversion, because the run had no distinct_id to attribute a capture event to.',
+})
+
 const counterHogflowMatcherWatchersSkipped = new Counter({
     name: 'cdp_hogflow_matcher_watchers_skipped',
     help: 'Watcher rows skipped because their pinned goal was missing or unreadable. Each one is a run that can never record a conversion.',
@@ -99,6 +108,11 @@ const counterHogflowMatcherWatchersSkipped = new Counter({
 const counterHogflowMatcherWatchersEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_watchers_evaluated',
     help: 'Conversion watcher rows loaded and evaluated against a batch.',
+})
+
+const gaugeHogflowMatcherTeamsWithWatchers = new Gauge({
+    name: 'cdp_hogflow_matcher_teams_with_live_watchers',
+    help: 'Teams admitted through the parse gate purely because they still have unexpired conversion watchers.',
 })
 
 const histogramHogflowMatcherFindWatchers = new Histogram({
@@ -190,6 +204,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private personDistinctIdKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
     private watcherSweepTimer: NodeJS.Timeout | null = null
+    private watcherTeamsRefreshTimer: NodeJS.Timeout | null = null
+    // Teams with at least one unexpired watcher. Empty until the first refresh, which start() awaits
+    // before consuming, so the gate is never consulted against an unpopulated set.
+    private teamsWithLiveWatchers: Set<number> = new Set()
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -664,6 +682,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             )
             // Surfaced as a billable event too, so conversions can power insights and cohorts. The run
             // id is what joins it back to the enrollment that earned it.
+            //
+            // A person-triggered run (batch audience, manual person trigger) enrolls with no
+            // distinct_id, and a person-property change carries none either, so there is nothing to
+            // attribute a capture event to. The app metric still counts, but any consumer reading
+            // conversions from the event stream will not see these — watch the counter.
+            if (!distinctId) {
+                counterHogflowMatcherConversionEventSkipped.inc()
+            }
             if (distinctId) {
                 await this.invocationResultsService.capturedEventsService.queueEvent({
                     team_id: row.team_id,
@@ -684,6 +710,34 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return claimedIds.size
     }
 
+    /**
+     * Whether a team's messages are worth the full parse. True when it has a flow the matcher can act
+     * on, or when it still has live conversion watchers.
+     *
+     * The watcher half matters because the flow cache is active-only. Pausing or archiving a team's
+     * only goal workflow, or removing its goal, would otherwise drop every message for that team, and
+     * its already-enrolled watchers would expire uncounted — silently under-reporting, and defeating
+     * the point of pinning the goal to the run in the first place.
+     */
+    private async teamIsActionable(teamId: number): Promise<boolean> {
+        const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(teamId)
+        if (teamHogFlows.some(hasWaitUntilOrConversion)) {
+            return true
+        }
+        return this.teamsWithLiveWatchers.has(teamId)
+    }
+
+    // One small query per refresh, returning at most one row per team that has ever enrolled a run on
+    // a goal workflow. Kept as a whole-set replace so a team whose watchers have all expired drops out
+    // without needing its own invalidation.
+    private async refreshTeamsWithLiveWatchers(): Promise<void> {
+        const result = await this.cyclotronPool.query(
+            `SELECT DISTINCT team_id FROM conversion_watchers WHERE expires_at > NOW()`
+        )
+        this.teamsWithLiveWatchers = new Set(result.rows.map((row) => row.team_id))
+        gaugeHogflowMatcherTeamsWithWatchers.set(this.teamsWithLiveWatchers.size)
+    }
+
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
@@ -701,8 +755,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     // The vast majority of events belong to teams with no wait_until_condition
                     // step and no event conversion goal. Bail on those via the in-memory hogflow
                     // cache before paying for getTeam + full globals conversion.
-                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id)
-                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                    if (!(await this.teamIsActionable(clickHouseEvent.team_id))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -742,8 +795,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     }
                     // clickhouse_person is a firehose; bail before getTeam + JSON parse for teams
                     // with no flow the matcher can act on.
-                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(data.team_id)
-                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                    if (!(await this.teamIsActionable(data.team_id))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -775,8 +827,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                         return
                     }
-                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(parsed.team_id)
-                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                    if (!(await this.teamIsActionable(parsed.team_id))) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
@@ -1033,6 +1084,20 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         await super.start()
         // Watchers that convert are deleted by the claim; ones that never convert are only removed
         // here, so without this the table grows for the lifetime of the deployment.
+        // Awaited so the first batches are gated against a populated set rather than an empty one,
+        // which would drop messages for teams whose only goal flow is paused. A failure here must not
+        // stop the matcher starting: an empty set degrades the gate to its previous flow-only
+        // behavior for one refresh interval, which is milder than refusing to consume at all.
+        await this.refreshTeamsWithLiveWatchers().catch((err) => {
+            logger.error('⚠️', 'Initial conversion-watcher team refresh failed; gating on flows alone', { err })
+            captureException(err)
+        })
+        this.watcherTeamsRefreshTimer = setInterval(() => {
+            void this.refreshTeamsWithLiveWatchers().catch((err) => {
+                logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
+                captureException(err)
+            })
+        }, WATCHER_TEAMS_REFRESH_INTERVAL_MS)
         this.watcherSweepTimer = setInterval(() => {
             void this.invocationResultsService.conversionWatchersService.sweepExpired().catch((err) => {
                 logger.error('⚠️', 'Conversion watcher sweep failed', { err })
@@ -1080,6 +1145,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         logger.info('💤', `Stopping ${this.name}...`)
         if (this.watcherSweepTimer) {
             clearInterval(this.watcherSweepTimer)
+        }
+        if (this.watcherTeamsRefreshTimer) {
+            clearInterval(this.watcherTeamsRefreshTimer)
         }
         await Promise.all([
             this.kafkaConsumer.disconnect(),
