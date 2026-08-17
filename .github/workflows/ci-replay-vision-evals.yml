@@ -5,7 +5,7 @@
 # empty dataset) surface in the step summary rather than as a red X.
 # The dataset (real dogfood session recordings) is collected fresh on the ephemeral runner each run,
 # which re-verifies AI data-processing consent; it is never cached, uploaded as an artifact, or
-# otherwise persisted. Only aggregate scores reach the step summary.
+# otherwise persisted. Only aggregate scores reach the public job log and step summary.
 # The job executes the PR's own code with secrets, so it only runs once a maintainer applies the
 # replay-vision-evals-ready label, or on manual dispatch. The label approves the labeled revision
 # only: pushes never trigger this workflow, so re-running on a new revision takes removing and
@@ -178,8 +178,6 @@ jobs:
               # Advisory: eval failures (LLM 5xx, harness crash) must not paint a red X; the
               # verdict lives in the step summary.
               continue-on-error: true
-              # bash (not the default shell) for pipefail: without it a failing harness piped into a
-              # succeeding tee reports this step green.
               shell: bash
               env:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
@@ -191,8 +189,12 @@ jobs:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   TRIALS: ${{ inputs.trials || '1' }}
               run: |
+                  # To the runner-local file only, never the public job log: the eval calls run_scan
+                  # directly, without the activity-level exception sanitizer, so a provider error can
+                  # echo prompt and session-derived request content. The summary step publishes the
+                  # safe aggregate lines.
                   python -m products.posthog_ai.eval_harness.harness eval_scanner_quality \
-                      --trials "$TRIALS" 2>&1 | tee /tmp/eval-output.log
+                      --trials "$TRIALS" > /tmp/eval-output.log 2>&1
 
             - name: Publish score summary
               # Publish whatever the run produced, including on failure; the suite is private, so
@@ -200,6 +202,7 @@ jobs:
               if: always() && steps.gate.outputs.enabled == 'true'
               shell: bash
               run: |
+                  # tee: the same sanitized lines double as the job log's only eval output.
                   {
                       echo "## Replay Vision scanner eval"
                       echo ""
@@ -209,11 +212,11 @@ jobs:
                       echo '```'
                       # Only the stable aggregate lines: this summary is public, and case payloads
                       # (session-derived content) must never leave the runner even if the harness's
-                      # console output grows.
-                      grep -E '^(CASE|SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:)' \
+                      # console output grows. CASE lines stay out too: their names carry observation ids.
+                      grep -E '^(SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:)' \
                           /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
                       echo '```'
-                  } >> "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Remove dataset
               # The runner is ephemeral anyway; this just makes the no-persistence guarantee explicit.
