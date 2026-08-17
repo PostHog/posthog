@@ -25,6 +25,7 @@ import {
   useSessionArtifactCount,
   useSessionIsWorking,
 } from "@posthog/ui/features/sessions/useSessionArtifactCount";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
@@ -32,10 +33,7 @@ import {
   ResizableSidebar,
   SLIDE_MS,
 } from "@posthog/ui/primitives/ResizableSidebar";
-import {
-  retireTeachingTip,
-  TeachingTip,
-} from "@posthog/ui/primitives/TeachingTip";
+import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -71,7 +69,7 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
 export const SWITCHER_WIDTH_PX = 112;
 
 /** The one lesson this switcher teaches: where a run's deliverables land. */
-const ARTIFACTS_PANEL_TIP = "right-panel-artifacts";
+const ARTIFACTS_PANEL_TIP = TIP_KEYS.sessionArtifactsLocation;
 
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
@@ -103,14 +101,12 @@ function SideButton({
   active,
   taskId,
   marked = false,
-  retiresTip = false,
 }: {
   side: RightPanelSide;
   active: RightPanelSide | null;
   taskId: string;
   /** Something has arrived on this side that the panel hasn't shown yet. */
   marked?: boolean;
-  retiresTip?: boolean;
 }) {
   const { label, Icon } = SIDES[side];
   return (
@@ -122,10 +118,9 @@ function SideButton({
             size="icon-sm"
             aria-label={marked ? `${label} (new)` : label}
             data-selected={active === side || undefined}
-            onClick={() => {
-              if (retiresTip) retireTeachingTip(ARTIFACTS_PANEL_TIP);
-              openRightPanelSide(active === side ? null : side, taskId);
-            }}
+            onClick={() =>
+              openRightPanelSide(active === side ? null : side, taskId)
+            }
             className="relative text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
           >
             <Icon size={16} />
@@ -156,6 +151,7 @@ export function RightPanelButtons({
   taskId,
   hasNewArtifacts,
   offerArtifactsTip = false,
+  artifactCount,
 }: {
   active: RightPanelSide | null;
   taskId: string;
@@ -163,6 +159,8 @@ export function RightPanelButtons({
   hasNewArtifacts: boolean;
   /** The turn that produced them has ended, so the tip can point at where they went. */
   offerArtifactsTip?: boolean;
+  /** How many the session has, so each new one is a fresh chance to teach. */
+  artifactCount?: number;
 }) {
   return (
     <TooltipProvider delay={400}>
@@ -173,18 +171,17 @@ export function RightPanelButtons({
               key={side}
               id={ARTIFACTS_PANEL_TIP}
               open={offerArtifactsTip}
-              message="Artifacts placed here"
+              // The mark stays up until the panel is opened, so `open` can hold
+              // across several runs. The count is what separates them, and it
+              // is why asking for more artifacts offers the tip again.
+              moment={artifactCount}
+              message="New artifacts show up here"
             >
               <SideButton
                 side={side}
                 active={active}
                 taskId={taskId}
                 marked={hasNewArtifacts}
-                // Opening the panel while the tip is up is the lesson landing,
-                // so it is also the last time it is taught. Only while it is
-                // up: a reader who opens the panel on their own has not been
-                // shown anything to retire.
-                retiresTip={offerArtifactsTip}
               />
             </TeachingTip>
           ) : (
@@ -211,7 +208,7 @@ function useNewArtifacts(
   taskId: string,
   task: Task | null,
   active: RightPanelSide | null,
-): boolean {
+): { hasNew: boolean; count: number } {
   const count = useSessionArtifactCount(task);
   const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[taskId]);
   const markArtifactsSeen = useRightPanelStore((s) => s.markArtifactsSeen);
@@ -225,7 +222,7 @@ function useNewArtifacts(
     if (markSeen) markArtifactsSeen(taskId, count);
   }, [count, markArtifactsSeen, markSeen, taskId]);
 
-  return hasNew;
+  return { hasNew, count };
 }
 
 function ChangesPanelContent({ task }: { task: Task }) {
@@ -287,7 +284,11 @@ export function RightPanel() {
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
   const active = useActiveSide(taskId);
-  const hasNewArtifacts = useNewArtifacts(taskId, task, active);
+  const { hasNew: hasNewArtifacts, count: artifactCount } = useNewArtifacts(
+    taskId,
+    task,
+    active,
+  );
   // Only once the agent has stopped: a tip that lands mid-turn points at a
   // list that is still filling.
   const isWorking = useSessionIsWorking(task);
@@ -373,6 +374,7 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
           taskId={taskId}
           hasNewArtifacts={hasNewArtifacts}
           offerArtifactsTip={hasNewArtifacts && !isWorking}
+          artifactCount={artifactCount}
         />
       </div>
     </>

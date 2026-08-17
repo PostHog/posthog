@@ -73,10 +73,18 @@ export type TerminalFont =
   | "system"
   | "custom";
 
+/**
+ * One lesson's history. `count` is how many times it has been offered, for the
+ * hints that fade on their own after a few showings; `learned` is the person
+ * answering it, which ends it for good.
+ */
 export interface HintState {
   count: number;
   learned: boolean;
 }
+
+/** How many times an unanswered hint is offered before it stops on its own. */
+export const DEFAULT_HINT_MAX = 3;
 
 /**
  * Snapshot of the user-level AGENTS.md/CLAUDE.md that personalization syncs
@@ -255,11 +263,17 @@ interface SettingsStore {
   setDownloadUpdatesAutomatically: (enabled: boolean) => void;
   setDismissibleUpdateBanners: (enabled: boolean) => void;
 
-  // Onboarding hints
+  // Onboarding hints, both the toasts and the anchored tips
   hints: Record<string, HintState>;
+  // One switch over every lesson, separate from the per-lesson answers in
+  // `hints`, so turning it back on restores whatever was left unanswered
+  // rather than everything.
+  tipsEnabled: boolean;
   shouldShowHint: (key: string, max?: number) => boolean;
   recordHintShown: (key: string) => void;
   markHintLearned: (key: string) => void;
+  resetHints: () => void;
+  setTipsEnabled: (enabled: boolean) => void;
 
   _hasHydrated: boolean;
   setHasHydrated: (hydrated: boolean) => void;
@@ -486,7 +500,9 @@ export const useSettingsStore = create<SettingsStore>()(
 
       // Onboarding hints
       hints: {},
-      shouldShowHint: (key, max = 3) => {
+      tipsEnabled: true,
+      shouldShowHint: (key, max = DEFAULT_HINT_MAX) => {
+        if (!get().tipsEnabled) return false;
         const hint = get().hints[key];
         if (!hint) return true;
         return !hint.learned && hint.count < max;
@@ -511,6 +527,11 @@ export const useSettingsStore = create<SettingsStore>()(
             },
           };
         }),
+      // Answering a lesson is otherwise a one-way door, and the lessons point
+      // at parts of the app a person may well come back to. Clears the offer
+      // counts too, so a hint that ran out of showings comes back as well.
+      resetHints: () => set({ hints: {} }),
+      setTipsEnabled: (enabled) => set({ tipsEnabled: enabled }),
 
       _hasHydrated: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
@@ -609,6 +630,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Onboarding hints
         hints: state.hints,
+        tipsEnabled: state.tipsEnabled,
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {

@@ -6,53 +6,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@posthog/quill";
-import { electronStorage } from "@posthog/ui/shell/rendererStorage";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-
-interface TeachingTipStore {
-  /** Tips this person has retired, by id. Persisted: "don't show again" has to
-   *  outlive the window it was clicked in. */
-  retired: Record<string, boolean | undefined>;
-  /** Whether tips are offered at all. One switch over every lesson, separate
-   *  from the per-lesson `retired` answers, so turning them back on restores
-   *  whatever was left un-retired rather than everything. */
-  enabled: boolean;
-  /** Whether the persisted answer has arrived. Nothing is taught before it, or
-   *  every restart would flash the tips someone already retired. */
-  hydrated: boolean;
-  retire: (id: string) => void;
-  reset: () => void;
-  setEnabled: (enabled: boolean) => void;
-}
-
-const useTeachingTipStore = create<TeachingTipStore>()(
-  persist(
-    (set) => ({
-      retired: {},
-      enabled: true,
-      hydrated: false,
-      retire: (id) =>
-        set((state) => ({ retired: { ...state.retired, [id]: true } })),
-      reset: () => set({ retired: {} }),
-      setEnabled: (enabled) => set({ enabled }),
-    }),
-    {
-      name: "teaching-tips",
-      storage: electronStorage,
-      partialize: (state) => ({
-        retired: state.retired,
-        enabled: state.enabled,
-      }),
-      // Also on a failed read: a store that can't answer should stop holding
-      // its tips back rather than silence them forever.
-      onRehydrateStorage: () => () =>
-        useTeachingTipStore.setState({ hydrated: true }),
-    },
-  ),
-);
 
 /**
  * The triangle itself: filled in the tip's own border color, with the border
@@ -77,62 +33,44 @@ function ArrowGlyph() {
 }
 
 /**
- * Retire a tip from outside it: the thing a tip points at counts as the lesson
- * learned, so acting on it should also be the last time the tip is offered.
- */
-export function retireTeachingTip(id: string): void {
-  useTeachingTipStore.getState().retire(id);
-}
-
-/**
- * Offer every retired tip again. "Don't show again" is otherwise a one-way
- * door, and the tips point at parts of the app a person may well come back to.
- */
-export function resetTeachingTips(): void {
-  useTeachingTipStore.getState().reset();
-}
-
-/** Turn every tip on or off, the one answer that outranks the per-tip ones. */
-export function setTeachingTipsEnabled(enabled: boolean): void {
-  useTeachingTipStore.getState().setEnabled(enabled);
-}
-
-/** Whether tips are offered, for the setting that shows the switch. */
-export function useTipsEnabled(): boolean {
-  return useTeachingTipStore((state) => state.enabled);
-}
-
-/** How many tips this person has turned off, for a surface that offers them back. */
-export function useRetiredTipCount(): number {
-  return useTeachingTipStore(
-    (state) => Object.values(state.retired).filter(Boolean).length,
-  );
-}
-
-/**
  * A one-off callout anchored to the thing it is teaching: "this is where that
  * went". The caller says when the moment is right; the tip decides whether it
  * has already been taught.
  *
- * Built on a popover rather than quill's `anchoredToast`, which anchors fine
- * but drops what this needs: its viewport renders a card with only a title and
- * a description, passing neither the `action` nor the `onDismiss` that
- * `ToastCard` accepts and the stacked viewport passes. So an anchored toast
- * has no buttons to put "Don't show again" and "Dismiss" on.
+ * Built on a popover rather than quill's `anchoredToast`. The anchored toast
+ * carries an action and a close button as of quill 0.3.0-beta.28, so the
+ * buttons are no longer the blocker, but its card has no arrow and centers on
+ * its anchor: it lands beside the control rather than pointing at it, which is
+ * the whole job of a tip that says "this is where that went".
+ *
+ * Backed by the same keyed `hints` the toast hints use, so both answer to the
+ * one switch in settings. Unlike a hint it never records a showing: a tip is
+ * offered every occasion until it is answered, because it is pointing at
+ * something a reader can act on rather than reporting something that already
+ * happened.
  */
 export function TeachingTip({
   id,
   open,
+  moment,
   message,
   side = "bottom",
   align = "end",
   className,
   children,
 }: {
-  /** Stable key for this lesson. Retiring it is permanent and per person. */
+  /** Stable key for this lesson, from `TIP_KEYS`. Answering it is permanent
+   *  and per person. */
   id: string;
   /** Whether the caller's moment has arrived; the tip may still stay closed. */
   open: boolean;
+  /**
+   * Which occasion this is, when `open` stays true across several of them. A
+   * new value is a new occasion, so a tip put away for the last one comes back
+   * for this one. Without it, a caller whose `open` never dips has one chance
+   * to teach the lesson and loses it to a stray click outside.
+   */
+  moment?: string | number;
   message: ReactNode;
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
@@ -140,20 +78,22 @@ export function TeachingTip({
   /** What the tip points at. */
   children: ReactNode;
 }) {
-  const retired = useTeachingTipStore((state) => state.retired[id]);
-  const enabled = useTeachingTipStore((state) => state.enabled);
-  const hydrated = useTeachingTipStore((state) => state.hydrated);
-  const retire = useTeachingTipStore((state) => state.retire);
-  // Put away for this moment. Dismissing is the caller's next moment, not the
-  // end of them: any close (the Dismiss button, a click outside, Escape) sets
-  // this, and it lifts when the caller opens a new one.
+  const learned = useSettingsStore((state) => state.hints[id]?.learned);
+  const enabled = useSettingsStore((state) => state.tipsEnabled);
+  // Nothing is taught before the persisted answers arrive, or every restart
+  // would flash the tips someone has already hidden.
+  const hydrated = useSettingsStore((state) => state._hasHydrated);
+  const markLearned = useSettingsStore((state) => state.markHintLearned);
+  // Put away for this occasion only. Closing the tip without answering it (a
+  // click outside, Escape) sets this, and the next occasion lifts it: only
+  // "Hide" ends the lesson.
   const [hidden, setHidden] = useState(false);
-  const [offered, setOffered] = useState(open);
-  if (open !== offered) {
-    setOffered(open);
+  const [offered, setOffered] = useState({ open, moment });
+  if (offered.open !== open || offered.moment !== moment) {
+    setOffered({ open, moment });
     if (open) setHidden(false);
   }
-  const showing = open && enabled && hydrated && !retired && !hidden;
+  const showing = open && enabled && hydrated && !learned && !hidden;
 
   return (
     <Popover
@@ -193,16 +133,14 @@ export function TeachingTip({
           <ArrowGlyph />
         </BaseUIPopover.Arrow>
         <p className="text-[13px]">{message}</p>
-        {/* Left aligned, so the primary action starts on the same edge as the
-            sentence above it. */}
+        {/* Left aligned, so the action starts on the same edge as the sentence
+            above it. */}
         <div className="flex justify-start gap-1">
-          {/* "Got it" is the lesson landing, so it retires the tip; "Dismiss"
-              only clears this one. Settings puts back anything retired here. */}
-          <Button size="sm" variant="primary" onClick={() => retire(id)}>
-            Got it
-          </Button>
-          <Button size="sm" onClick={() => setHidden(true)}>
-            Dismiss
+          {/* The one way to end the lesson, so it is the only button: closing
+              the tip any other way is putting it away for now. Settings puts
+              back anything hidden here. */}
+          <Button size="sm" variant="primary" onClick={() => markLearned(id)}>
+            Hide
           </Button>
         </div>
       </PopoverContent>
