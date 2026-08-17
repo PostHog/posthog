@@ -29,11 +29,12 @@ export const featureFlagsEmptyState: SceneProductEmptyState = {
         },
         primaryAction: {
             label: 'Create your first feature flag',
-            to: urls.featureFlag('new'),
+            to: urls.featureFlagTemplates(),
             accessControl: {
                 resourceType: AccessControlResourceType.FeatureFlag,
                 minAccessLevel: AccessControlLevel.Editor,
             },
+            dataAttr: 'new-feature-flag',
         },
         skippable: false,
         docsUrl: 'https://posthog.com/docs/feature-flags',
