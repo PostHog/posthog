@@ -3596,7 +3596,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 response_placeholder.json(),
-                self.validation_error_response("Unresolved placeholder: {team_id}"),
+                self.validation_error_response("Unresolved placeholder: {team_id}", code="hogql_query_error"),
             )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
