@@ -46,9 +46,10 @@ Create a researched report from the included synthetic fixture:
 ```bash
 python manage.py ingest_report_json \
     products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
-    --team-id 1
+    --team-id 1 \
+    --suggested-reviewer-login <your-github-login>
 ```
 
 Open Desktop and select `general`. The report appears immediately as a canvas session. Its canvas source appears after the generation task finishes.
 
-The Activity item appears only when the fixture resolves to a suggested reviewer in the local organization.
+The GitHub login must belong to a user in the local organization. When the canvas is ready, that user receives an Activity item linking to it.
