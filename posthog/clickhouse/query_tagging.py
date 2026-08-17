@@ -53,6 +53,7 @@ class Product(StrEnum):
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_CATALOG = "data_catalog"
+    DATA_QUALITY = "data_quality"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -112,6 +113,7 @@ class Feature(StrEnum):
     INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
+    DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -125,6 +127,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
@@ -221,6 +224,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY:
             return {"product": Product.METRICS}
+        case NodeKind.ACCOUNTS_TABLE_QUERY:
+            return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (
@@ -400,6 +405,7 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
@@ -481,6 +487,12 @@ class QueryTags(BaseModel):
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
+
+    # data quality
+    data_quality_check_id: Optional[str] = None
+    data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
+    data_quality_subject_type: Optional[str] = None  # table or view
+    data_quality_subject_id: Optional[str] = None
 
     # data warehouse
     trend_volume_display: Optional[str] = None
@@ -769,6 +781,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
 
     from posthog.event_usage import EventSource
 
+    # Stays a bare MCP comparison rather than MCP_TRANSPORT_EVENT_SOURCES: this tag's source is
+    # set by the request middleware, which runs before DRF authentication, so the surfaces that
+    # resolve from the OAuth grant (desktop, Slack) can never reach here — MCP traffic always
+    # arrives as plain `mcp`.
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 

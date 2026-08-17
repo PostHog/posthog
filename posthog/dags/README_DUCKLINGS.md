@@ -155,6 +155,11 @@ class DucklingBackfillConfig:
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 
+Each Dagster backfill session mints a new short-lived Duckgres service credential.
+Concurrent sessions use the same `dagster:events-backfill` audit principal but receive
+different credential IDs and secrets. A reconnect refreshes only the credential ID held
+by that session.
+
 ## Troubleshooting
 
 ### Partition stuck in "Running"
@@ -182,8 +187,12 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Job definition**: `posthog/dags/events_backfill_to_duckling.py`
 - **Tests**: `posthog/dags/test_events_backfill_to_duckling.py`
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
-- **DuckgresServer / DuckgresSinkSchemaState models**: `products/managed_warehouse/backend/models.py`
+- **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
 - **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
+
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
 
 ## S3 Path Structure
 

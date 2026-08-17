@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import requests
 import structlog
 
 from posthog.schema import (
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     PAYMENTS_ENDPOINTS,
+    SYNC_BUDGET_EXCEEDED_MARKER,
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
@@ -110,6 +112,12 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             errors[f"403 Client Error: Forbidden for url: {host}/reports"] = (
                 "Checkout.com denied access to reports. Please check that your access key has the reports scope."
             )
+            # Unlike disputes, a freshly-minted token still gets 401 (not 403) from the
+            # reports endpoint when the access key lacks the reports scope, so a mid-sync
+            # re-mint (which handles a genuinely expired token elsewhere) never resolves it.
+            errors[f"401 Client Error: Unauthorized for url: {host}/reports"] = (
+                "Checkout.com denied access to reports. Please check that your access key has the reports scope."
+            )
             errors[f"403 Client Error: Forbidden for url: {host}/payments/search"] = (
                 "Checkout.com denied access to payments search. Please check that your access key has the payments scope."
             )
@@ -124,6 +132,23 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             )
         return errors
 
+    def get_retryable_errors(self) -> set[str]:
+        # `/payments/search` has no internal retry wrapper — the shared session's retry adapter only
+        # covers GET/HEAD/OPTIONS, since POSTs aren't safe to blindly retry in general — but a search
+        # request has no side effects, so a 503 here is a transient upstream blip, not a bug. Temporal
+        # retries the whole activity, so this stays out of tracked exception noise. Matched on the full
+        # status+reason phrase (not just "for url: .../payments/search") so a 4xx on the same endpoint —
+        # which would be a real bug, e.g. a malformed request body — is never swallowed the same way.
+        return {
+            "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
+            "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+            # A run that stops at its per-run API budget is incomplete, not broken. Every
+            # window it finished is checkpointed, so the retry resumes there and covers more
+            # ground; a long backfill converges over several attempts. It has to raise rather
+            # than return so the schema never reports Completed over an unfilled range.
+            SYNC_BUDGET_EXCEEDED_MARKER,
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -134,7 +159,7 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
 
 Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions), and `vault` (customers and instruments).
 
-Payments, payment actions, customers and instruments sync from the payments search API. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
+Payments, payment actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -215,14 +240,26 @@ Payments, payment actions, customers and instruments sync from the payments sear
         )
 
         # One table per report type the account generates. Discovery needs the API, so
-        # the credential-free path (public docs, placeholder configs) stays static, and
-        # any discovery failure degrades to the static catalog instead of breaking the
-        # schema listing.
+        # the credential-free path (public docs, placeholder configs) stays static.
         if config.client_id and config.client_secret:
             try:
                 discovered = discover_report_types(config.environment, config.client_id, config.client_secret)
-            except Exception:
-                logger.exception("Checkout.com report type discovery failed", team_id=team_id)
+            except requests.HTTPError as e:
+                # 401/403 from the reports endpoint means the access key lacks the
+                # reports scope, which is a valid permanent configuration whose correct
+                # listing is the static catalog. Every other failure must propagate:
+                # degrading to the static catalog on a transient error would make
+                # scheduled discovery prune the report-type schemas it discovered on
+                # earlier runs (sync_old_schemas_with_new_schemas soft-deletes or
+                # disables stored names the listing no longer returns).
+                status = e.response.status_code if e.response is not None else None
+                if status not in (401, 403):
+                    raise
+                logger.warning(
+                    "Checkout.com report type discovery denied; listing the static catalog only",
+                    team_id=team_id,
+                    status=status,
+                )
                 discovered = {}
             for table_name in sorted(discovered):
                 schemas.append(

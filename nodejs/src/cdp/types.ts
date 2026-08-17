@@ -236,12 +236,14 @@ export type MinimalAppMetric = {
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
+        | 'email_link_clicked_by_link'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'email_suppressed'
+        | 'email_suspended'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
@@ -249,6 +251,7 @@ export type MinimalAppMetric = {
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
+        | 'push_opened'
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
@@ -308,6 +311,8 @@ export type CyclotronJobInvocation = {
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
+    /** The invocation deliberately finished without running because its trigger did not match. */
+    skipped?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]

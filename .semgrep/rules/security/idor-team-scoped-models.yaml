@@ -88,6 +88,7 @@ rules:
                               |Canvas
                               |CanvasBuild
                               |CanvasSourceVersion
+                              |CanvasState
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
@@ -115,11 +116,15 @@ rules:
                               |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
+                              |DataQualityCheck
+                              |DataQualityCheckRun
+                              |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -133,6 +138,11 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailChannelSetup
+                              |EmailThread
+                              |EmailThreadAccountLink
+                              |EmailThreadMessage
+                              |EmailThreadParticipant
                               |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
@@ -168,6 +178,11 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
+                              |FeatureRequest
+                              |FeatureRequestAccountLink
+                              |FeatureRequestHistory
+                              |FeatureRequestProductArea
+                              |FeatureRequestProductAreaLink
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -219,6 +234,8 @@ rules:
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
+                              |Meeting
+                              |MeetingParticipant
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageSuppression
@@ -258,6 +275,7 @@ rules:
                               |ReplayObservationLabel
                               |ReplayObservationUsage
                               |ReplayScanner
+                              |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
@@ -278,6 +296,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
+                              |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
@@ -294,8 +313,6 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -312,6 +329,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
@@ -435,6 +453,7 @@ rules:
                         |Canvas
                         |CanvasBuild
                         |CanvasSourceVersion
+                        |CanvasState
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
@@ -462,11 +481,15 @@ rules:
                         |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
+                        |DataQualityCheck
+                        |DataQualityCheckRun
+                        |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
@@ -480,6 +503,11 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailChannelSetup
+                        |EmailThread
+                        |EmailThreadAccountLink
+                        |EmailThreadMessage
+                        |EmailThreadParticipant
                         |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge
@@ -515,6 +543,11 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureRequest
+                        |FeatureRequestAccountLink
+                        |FeatureRequestHistory
+                        |FeatureRequestProductArea
+                        |FeatureRequestProductAreaLink
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
@@ -561,6 +594,8 @@ rules:
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
+                        |Meeting
+                        |MeetingParticipant
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageSuppression
@@ -599,6 +634,7 @@ rules:
                         |ReplayObservationLabel
                         |ReplayObservationUsage
                         |ReplayScanner
+                        |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
@@ -619,6 +655,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
+                        |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
@@ -635,8 +672,6 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
@@ -775,7 +810,10 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDVerificationToken
+                              BillingAlertConfiguration
+                              |BillingAlertEvaluationClaim
+                              |BillingAlertEvent
+                              |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
@@ -843,7 +881,10 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDVerificationToken
+                        BillingAlertConfiguration
+                        |BillingAlertEvaluationClaim
+                        |BillingAlertEvent
+                        |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership

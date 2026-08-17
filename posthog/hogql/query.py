@@ -30,12 +30,15 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     OpaqueFunctionCallTable,
     RangeTable,
 )
+from posthog.hogql.database.schema.information_schema import InformationSchemaTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
+    RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
@@ -48,7 +51,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
-from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
+from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -59,7 +62,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -70,7 +72,7 @@ tracer = trace.get_tracer(__name__)
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
@@ -341,6 +343,19 @@ class HogQLQueryExecutor:
             for table_type in extract_base_table_types(query_type)
             if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
         ]
+
+        # Catalog introspection describes the connection but reads nothing from it: the rows are built
+        # in Python from the resolved Database and shipped to ClickHouse as external data. Send such a
+        # query down the ClickHouse path rather than translating it into the remote engine's dialect,
+        # where these tables do not exist.
+        if any(
+            isinstance(lazy_table_type.table, InformationSchemaTable)
+            for lazy_table_type in extract_lazy_table_types(query_type)
+        ):
+            if base_table_types:
+                raise ExposedHogQLError("Direct queries cannot be joined with the information schema.")
+            return None
+
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
@@ -579,6 +594,14 @@ class HogQLQueryExecutor:
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
+        if raw_query_denied_by_table_access(
+            self.team,
+            source,
+            user=self.user,
+            user_access_control=self.context.user_access_control if self.context else None,
+            bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
+        ):
+            raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
         adapter = get_adapter(source.direct_engine)
@@ -587,48 +610,6 @@ class HogQLQueryExecutor:
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query()
-
-    def _capture_send_raw_query_translation_error(self) -> None:
-        """Try a post-success HogQL translation for raw queries.
-
-        On success, this stores the translated HogQL in ``self.hogql`` for the response.
-        On failure, it records the exception for telemetry and leaves ``self.hogql`` unset.
-
-        This runs synchronously after the raw query succeeds, so it adds the cost of
-        ``_prepare_execution()`` to raw-query responses.
-        """
-        if not isinstance(self.query, str) or self.connection_id is None:
-            return
-
-        try:
-            shadow_executor = HogQLQueryExecutor(
-                query=str(self.query),
-                team=self.team,
-                query_type=self.query_type,
-                filters=self.filters,
-                placeholders=self.placeholders,
-                variables=self.variables,
-                workload=self.workload,
-                settings=self.settings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                pretty=self.pretty,
-                connection_id=self.connection_id,
-                user=self.user,
-            )
-            shadow_executor._prepare_execution()
-            self.hogql = shadow_executor.hogql
-        except Exception as error:
-            capture_exception(
-                error,
-                {
-                    "component": "send_raw_query_parse_and_print",
-                    "send_raw_query": True,
-                    "team_id": self.team.pk,
-                    "connection_id": self.connection_id,
-                    "query_type": self.query_type,
-                },
-            )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
@@ -731,7 +712,6 @@ class HogQLQueryExecutor:
         try:
             if self.send_raw_query and self.connection_id is not None:
                 self._execute_raw_direct_query()
-                self._capture_send_raw_query_translation_error()
             else:
                 prepared_execution = self._prepare_execution()
 

@@ -12,7 +12,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
@@ -51,7 +50,6 @@ export function BillingSpendView(): JSX.Element {
         billingPeriodMarkers,
     } = useValues(logic)
     const { startExport } = useActions(exportsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setFilters,
         setDateRange,
@@ -105,7 +103,7 @@ export function BillingSpendView(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value: string[]) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={getSpendTypeOptions(featureFlags)}
+                            options={getSpendTypeOptions()}
                             allowCustomValues={false}
                         />
                     </div>

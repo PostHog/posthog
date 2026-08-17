@@ -379,10 +379,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.jwks_uri and not self.jwks_uri.startswith("https://"):
             raise ValidationError("jwks_uri must be an https URL")
 
-        # A public client cannot authenticate, so a key set would never be consulted
-        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
-        if self.jwks_uri and not self.requires_client_authentication:
-            raise ValidationError("jwks_uri is only meaningful for a confidential client")
+        # A stored key set on a public client enables optional assertion authentication
+        # (verify_client_assertion) without requiring it: token_endpoint_auth_method reads
+        # requires_client_authentication first, so a public client derives NONE regardless
+        # of jwks_uri.
 
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(
@@ -655,7 +655,15 @@ def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
 def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
-    """Revoke all OAuth artifacts related to a session (access token, refresh token, and grant)."""
+    """Revoke all OAuth artifacts for the token's (user, application) pair - every access
+    token, every refresh token, and every grant, not just the given one.
+
+    Use this where the user or client explicitly asked to disconnect the whole app
+    (connected_apps.py, RFC 7009 revoke_token) - there, sweeping every session for that
+    (user, application) is the correct, intentional scope. For a report that ONE specific
+    credential leaked, use revoke_oauth_token_session instead: a leaked token is evidence
+    about that one token, not about the user's other sessions with the app.
+    """
     from django.utils import timezone
 
     now = timezone.now()
@@ -679,14 +687,90 @@ def revoke_oauth_session(
             refresh_token.revoked = now
             refresh_token.save(update_fields=["revoked"])
     else:
-        # Delete all access tokens for this user+application
-        OAuthAccessToken.objects.filter(user=user, application=application).delete()
+        # Same ordering as revoke_application_sessions below, for the same two reasons:
+        # grants deleted first so this blocks on a racing code exchange's grant-row lock
+        # instead of missing tokens it mints; refresh revoked before access deleted so a
+        # mid-way failure can't leave a refresh token live after its access token is gone.
+        with transaction.atomic():
+            # Delete all grants for this user+application
+            OAuthGrant.objects.filter(user=user, application=application).delete()
 
-        # Revoke all refresh tokens for this user+application
-        OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
+            # Revoke all refresh tokens for this user+application
+            OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(
+                revoked=now
+            )
 
-        # Delete all grants for this user+application
-        OAuthGrant.objects.filter(user=user, application=application).delete()
+            # Delete all access tokens for this user+application
+            OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+
+def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
+    """True for a non-rotating refresh token (DCR/CIMD clients - see
+    OAuthTokenView._save_bearer_token in posthog/api/oauth/views.py), which inserts a new,
+    unlinked OAuthAccessToken row on every refresh instead of updating one access token in
+    place. Those rows carry no queryable link back to the refresh token that minted them
+    (source_refresh_token is left None specifically so sibling rows stay addressable), so
+    there's no way to enumerate every access token a given non-rotating refresh token could
+    have produced.
+    """
+    application = refresh_token.application
+    if application.is_dcr_client or application.is_cimd_client:
+        return True
+    return not oauth2_settings.ROTATE_REFRESH_TOKEN
+
+
+def revoke_oauth_token_session(
+    access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
+) -> None:
+    """Revoke only the one access/refresh token pair the given token belongs to, not
+    every session the user has with the application.
+
+    Use this for a report that identifies ONE specific leaked credential (github.py, the
+    public leaked-key endpoint) - see revoke_oauth_session for where the broader sweep is
+    the correct, intentional scope instead.
+
+    Doesn't touch OAuthGrant: a grant is a single-use authorization code consumed at
+    token exchange, not part of an ongoing session, so there's no "this token's grant" to
+    revoke alongside it.
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    if access_token:
+        # Neither direction of the access_token <-> refresh_token OneToOne is reliably
+        # populated on its own (our non-rotating _save_bearer_token branch leaves
+        # source_refresh_token None - see revoke_token's docstring in
+        # posthog/api/oauth/views.py - and callers that create a refresh token before
+        # its access token don't always back-fill refresh_token.access_token either), so
+        # check both directions instead of trusting one.
+        #
+        # Revoke the refresh token before deleting the access token, in one transaction,
+        # so a mid-way failure can't leave the refresh token live after its access token
+        # is already gone (same reasoning as revoke_application_sessions below).
+        with transaction.atomic():
+            OAuthRefreshToken.objects.filter(
+                Q(access_token=access_token) | Q(pk=access_token.source_refresh_token_id), revoked__isnull=True
+            ).update(revoked=now)
+            access_token.delete()
+    elif refresh_token:
+        if _refresh_token_may_have_untracked_access_tokens(refresh_token):
+            # A leaked non-rotating refresh token can have minted any number of access
+            # tokens with no durable link back to it (see
+            # _refresh_token_may_have_untracked_access_tokens), so a per-token revoke can't
+            # guarantee all of them are caught. Fall back to the same (user, application)
+            # sweep revoke_token already uses for this exact case via RFC 7009.
+            revoke_oauth_session(refresh_token=refresh_token)
+            return
+        # Revoke before deleting the linked access token(s), in one transaction, so a
+        # mid-way failure can't leave this refresh token live (and able to mint a new
+        # access token) after its access token is already gone.
+        with transaction.atomic():
+            refresh_token.revoked = now
+            refresh_token.save(update_fields=["revoked"])
+            OAuthAccessToken.objects.filter(
+                Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
+            ).delete()
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
@@ -721,13 +805,75 @@ def generate_random_token_cimd_verification() -> str:
     return "phvt_" + generate_random_token()
 
 
+# Never a real normalized URL, so it only ever equals another call that hit the same
+# unparseable-input branch. Issuance validates and normalizes before storing (see
+# `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
+# stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
+# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# database, unrevalidated) a value to compare against instead of raising.
+UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
+
+
+def normalize_cimd_url(url: str) -> str:
+    """Canonicalize a CIMD URL so issuance and verification compare equal.
+
+    Both sides store/compare the output of this function, so the only thing that
+    matters is that it is deterministic and collapses the variations a partner
+    can plausibly produce for the same document: scheme and host case, an
+    explicit `:443` (and `:0` — `port and port != 443` treats a falsy port the same as
+    "no port"), and any number of trailing slashes. Reconstructing from `parsed.path`
+    also drops a `;params` segment `urlparse` splits off the last path element, so
+    `.../x.json`, `.../x.json;evil`, and `.../x.json///` all collapse to the same value.
+    This is canonicalization for a database comparison, not a security boundary:
+    `fetch_cimd_metadata` still requires `client_id == url` byte for byte against the
+    real fetch URL.
+
+    Deliberately does not touch path case or percent-encoding — those are
+    server-defined and two paths differing there are legitimately different
+    documents.
+
+    The output is a persisted format, not just a comparison helper: it is stored in
+    `CIMDVerificationToken.cimd_url`, and migration
+    `1296_backfill_cimd_verification_token_url` keeps a frozen copy of this function's
+    logic. Changing this function's output for any input silently unverifies every
+    stored binding of that shape with no test failure elsewhere — see the golden-value
+    table in `TestNormalizeCimdUrl` (posthog/models/test/test_oauth.py) before editing.
+    """
+    try:
+        parsed = urlparse(url.strip())
+        port = parsed.port
+    except ValueError:
+        # Covers both an unparseable port ("h:abc", "h:99999") and a urlparse failure on
+        # the whole URL ("https://[::1/x.json" raises "Invalid IPv6 URL"). Nothing can be
+        # served at either, so a sentinel that matches no real fetch is enough.
+        return UNNORMALIZABLE_CIMD_URL
+    host = (parsed.hostname or "").lower()
+    if port and port != 443:
+        host = f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    return f"{parsed.scheme.lower()}://{host}{path}"
+
+
 class CIMDVerificationToken(models.Model):
     """Token that links a CIMD partner app to a PostHog organization.
 
     A partner embeds the plaintext token in their CIMD metadata document under
     `posthog_verification_token`. On fetch, we hash and look up the token; if it
-    matches, we link the resulting OAuthApplication to this organization and
-    apply the verified-partner rate-limit tier.
+    matches AND the document URL equals `cimd_url`, we link the resulting
+    OAuthApplication to this organization and apply the verified-partner
+    rate-limit tier.
+
+    The token is served unauthenticated at the metadata URL, so possession of it
+    proves nothing — anyone who reads the document can host the same value
+    elsewhere. `cimd_url` is what makes the token unforgeable: it scopes the
+    token to the one document it was issued for, so a copy hosted anywhere else
+    fails to verify.
+
+    `cimd_url` is deliberately NOT unique. Uniqueness would let anyone with a
+    free organization reserve a partner's URL before that partner does and lock
+    them out of verification permanently. Several organizations may claim the
+    same URL; only the one whose token actually appears in the document at that
+    URL verifies.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
@@ -735,6 +881,7 @@ class CIMDVerificationToken(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, related_name="cimd_verification_tokens"
     )
     label: models.CharField = models.CharField(max_length=40)
+    cimd_url: models.URLField = models.URLField(max_length=2048, null=True, blank=True)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
     created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
@@ -759,14 +906,18 @@ def find_cimd_verification_token(token: str) -> "CIMDVerificationToken | None":
 
 
 def create_cimd_verification_token(
-    *, organization: "Organization", label: str, created_by: "User | None" = None
+    *, organization: "Organization", label: str, cimd_url: str, created_by: "User | None" = None
 ) -> tuple[CIMDVerificationToken, str]:
     """Create a new token, returning (instance, plaintext). Plaintext is only
-    available at creation time — we only persist its hash."""
+    available at creation time — we only persist its hash.
+
+    `cimd_url` is stored normalized so verification can compare it to the fetch
+    URL as an exact string."""
     plaintext = generate_random_token_cimd_verification()
     token = CIMDVerificationToken.objects.create(
         organization=organization,
         label=label,
+        cimd_url=normalize_cimd_url(cimd_url),
         created_by=created_by,
         secure_value=hash_key_value(plaintext),
         mask_value=mask_key_value(plaintext),

@@ -199,6 +199,81 @@ class TestBuildDatabaseRootNode(TestCase):
                 unpickler.find_class(module, name)
 
 
+def _catalog_node(names: list[str]) -> TableNode:
+    root = TableNode(name="root", children={})
+    for name in names:
+        node = root
+        for part in name.split("."):
+            node = node.children.setdefault(part, TableNode(name=part, children={}))
+        node.table = Table(fields={"id": StringDatabaseField(name="id")})
+    return root
+
+
+class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "cross_namespace_candidate_is_not_suggested",
+                [],
+                ["stg_customer_orders"],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`.",
+            ),
+            (
+                "same_namespace_typo_is_suggested",
+                ["warehouse.customer_order"],
+                [],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`. Did you mean: warehouse.customer_order?",
+            ),
+            (
+                "unqualified_name_still_reaches_qualified_candidate",
+                ["warehouse.customer_orders"],
+                [],
+                "customer_orders",
+                "Unknown table `customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+            (
+                "misspelled_schema_is_resolved_to_the_closest_one",
+                ["warehouse.customer_orders"],
+                [],
+                "warehous.customer_orders",
+                "Unknown table `warehous.customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+            (
+                "unrelated_schema_is_not_resolved_to_any_other",
+                ["warehouse.customer_orders"],
+                ["stg_customer_orders"],
+                "public.customer_orders",
+                "Unknown table `public.customer_orders`.",
+            ),
+            (
+                "sibling_schema_on_one_connection_is_not_resolved_to_the_other",
+                ["postgres.pg.customer_orders"],
+                [],
+                "postgres.ph3.customer_orders",
+                "Unknown table `postgres.ph3.customer_orders`.",
+            ),
+        ]
+    )
+    def test_suggestions_stay_within_the_namespace_the_author_named(
+        self,
+        _name: str,
+        warehouse_tables: list[str],
+        views: list[str],
+        missing_table: str,
+        expected_message: str,
+    ):
+        database = Database()
+        database._add_warehouse_tables(_catalog_node(warehouse_tables))
+        database._add_views(_catalog_node(views))
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table(missing_table)
+
+        assert str(error.exception) == expected_message
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
     allow_dual_schema_snapshots = True
@@ -276,6 +351,62 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         posthog_table_names = database.get_posthog_table_names()
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
+
+    def test_serialize_database_without_fields_matches_full_metadata(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="warehouse_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=42,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="warehouse_view",
+            query={"query": "SELECT id FROM warehouse_table"},
+            columns={"id": "String"},
+            table=warehouse_table,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        full = database.serialize(context, include_hidden_posthog_tables=True)
+        shallow = database.serialize(context, include_hidden_posthog_tables=True, include_fields=False)
+
+        assert set(shallow.keys()) == set(full.keys())
+        assert "warehouse_table" in shallow
+        assert "warehouse_view" in shallow
+        for table_name, shallow_table in shallow.items():
+            assert shallow_table.fields == {}, table_name
+            assert shallow_table.model_dump(exclude={"fields"}) == full[table_name].model_dump(exclude={"fields"}), (
+                table_name
+            )
+
+    def test_serialize_database_include_only_returns_same_fields_as_full_serialization(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="warehouse_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        full = database.serialize(context, include_hidden_posthog_tables=True)
+        subset = database.serialize(
+            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+        )
+
+        assert set(subset.keys()) == {"events", "warehouse_table"}
+        for table_name, subset_table in subset.items():
+            assert subset_table == full[table_name], table_name
 
     def test_apply_schema_scope_removes_lazy_joins_to_hidden_direct_tables(self):
         database = Database()
@@ -763,8 +894,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
-        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
-        with self.assertNumQueries(6):
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row),
+        # plus the saved-expressions fetch
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )

@@ -121,6 +121,19 @@ wheels = [
 ]
 
 [[package]]
+name = "aiohttp-socks"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "python-socks" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/cc/e5bbd54f76bd56291522251e47267b645dac76327b2657ade9545e30522c/aiohttp_socks-0.11.0.tar.gz", hash = "sha256:0afe51638527c79077e4bd6e57052c87c4824233d6e20bb061c53766421b10f0", size = 11196, upload-time = "2025-12-09T13:35:52.564Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/7d/4b633d709b8901d59444d2e512b93e72fe62d2b492a040097c3f7ba017bb/aiohttp_socks-0.11.0-py3-none-any.whl", hash = "sha256:9aacce57c931b8fbf8f6d333cf3cafe4c35b971b35430309e167a35a8aab9ec1", size = 10556, upload-time = "2025-12-09T13:35:50.18Z" },
+]
+
+[[package]]
 name = "aioitertools"
 version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1731,16 +1744,16 @@ pyarrow = [
 
 [[package]]
 name = "deltalite"
-version = "0.1.3"
+version = "0.1.6"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f9/18/0ebcff958c74ea79f1e8dfbb261f5474bb06033da21ced1bde4d3e1cc2e7/deltalite-0.1.3.tar.gz", hash = "sha256:5daafab4ed9d6f54cdcfea1cb7bfd900b906b6ab9402759c5a176b06fd943815", size = 173464, upload-time = "2026-07-31T13:34:15.853Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/07/51964c17d24dce50a90e617e959dac50bd6ee961ec1d30149a11221435da/deltalite-0.1.6.tar.gz", hash = "sha256:b5f8f728ad12be62875e01e7959e761d0fb350b3279571d32727aa959e78fb4c", size = 175456, upload-time = "2026-08-10T12:43:28.963Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/b8/42fed73269c9b93aace404b1c33dfa5886cb9d03cd377982d3b70b4808b9/deltalite-0.1.3-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f43539e33e90d9d2d4f6010a38a69ac1ebc943b7ddb34cb07682734b7d284594", size = 17956004, upload-time = "2026-07-31T13:33:58.697Z" },
-    { url = "https://files.pythonhosted.org/packages/68/3a/1f9fd47e3df3fc534abb43e97898c03c7e813f566ba484b5e3f3df43fc35/deltalite-0.1.3-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:91a5b5f72e37701ac1d4541681be99a78dd14456fadcbd685026c8d91be1aa41", size = 17837576, upload-time = "2026-07-31T13:34:00.907Z" },
-    { url = "https://files.pythonhosted.org/packages/31/f8/e10658fdb57819b473c824618928b659ad65f541143e9c7a9653a93e9084/deltalite-0.1.3-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:4e7cc11b98f4211027f9ab387fc01b6592430b4d699422bac6f5f1a8774e8210", size = 63147119, upload-time = "2026-07-31T13:34:03.7Z" },
-    { url = "https://files.pythonhosted.org/packages/d6/11/5aea109ae137d97e19f786e6e78114b326e8f334a71c534193815b69b006/deltalite-0.1.3-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ed2d864ab2b63ffd83589f4fc24b23b69ccfc0165e593f04121e7da89b2c4e37", size = 65438695, upload-time = "2026-07-31T13:34:07.314Z" },
-    { url = "https://files.pythonhosted.org/packages/29/6b/2a5ea282e1ded2dfdc97f2dccc9fce88ec419a15f366db229a5e106160df/deltalite-0.1.3-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:206e41394a61182327120351e19df16932481a67a4edb14b3e77cbd6afd8e07e", size = 62731281, upload-time = "2026-07-31T13:34:10.303Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/08/f0ddae42c7aef923a2b4b43b797b6a7ab781f05e05bfeee3916a3106a969/deltalite-0.1.3-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:5f4a13be6ff584cb18b2162877fcb9f017f5d7a650039c271679c33d89914b95", size = 63797093, upload-time = "2026-07-31T13:34:13.349Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/3b/c28f2fcba6ebbbab14a7781108956a288e5e275d6ae342c3641d56ff410b/deltalite-0.1.6-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6fbdbe6e110c738f567b2bd01e79897479f11989b437735daab7b144c5267503", size = 17964670, upload-time = "2026-08-10T12:43:08.032Z" },
+    { url = "https://files.pythonhosted.org/packages/db/a2/917ca2215a7c54ce42f7b3669c7917d1b5470b236c5d680d8ec83f065cc1/deltalite-0.1.6-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:b4ad22983bfbc8335c7880b7d9a2bc8d575f2225b05437f426ec86ceb060891b", size = 17852501, upload-time = "2026-08-10T12:43:11.098Z" },
+    { url = "https://files.pythonhosted.org/packages/16/81/27ca3a8da82ae61c556dbf648bb9ff9eeaf400b03d32b8a7429f2dac5fce/deltalite-0.1.6-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:5308c408502aca987f1a315621fbe5937301263e4a236971525db2d5bc98df89", size = 63172312, upload-time = "2026-08-10T12:43:14.383Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/fa/07d484ef2f8db20ad8841b91084edd0e885fe2c4a7f9e7e7f44aa6210a4d/deltalite-0.1.6-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:dfbccd799364847e262004acb5dc61d6e373ed79ac9e0e0bf5fae8c4aacfce2d", size = 65472792, upload-time = "2026-08-10T12:43:18.12Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/3c/a05a0addbf7b9ca333ded94b360782afd6b9bdd163b665bdf13143cb5d12/deltalite-0.1.6-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:701e7093ff60ed2e6764caf1c8846430f71714b469ac0dcc052740c00fca5f80", size = 62768622, upload-time = "2026-08-10T12:43:22.397Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/7a/0039dcf77fdfe54962311e5f61491f4155e761f7059f1c331ae0c594e399/deltalite-0.1.6-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b267a1adbc22ed802475dbf9e6ea629275c0dc99a77b6c119bd9909d5965ca54", size = 63835586, upload-time = "2026-08-10T12:43:26.654Z" },
 ]
 
 [[package]]
@@ -4362,7 +4375,7 @@ wheels = [
 
 [[package]]
 name = "modal"
-version = "1.5.0"
+version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -4379,9 +4392,15 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "watchfiles" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/f9/87425e60db2a8597b248417772b409c49ca3a05ff6b1282a21cd7d856f09/modal-1.5.0.tar.gz", hash = "sha256:15033cf84f5f4f9f8a3dcf47a768cfcca36d1ad38ab7b3459fd3cbc29aa84a77", size = 771722, upload-time = "2026-06-09T22:37:27.5Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/0d/1a6e710ab64f0c7b7bec9472203dbf6c7c75556dd2d7632da98c96a4e0b0/modal-1.5.4.tar.gz", hash = "sha256:d611bb47fc07117f5d194f7f9a9c0aba4537573a136349bbe45c5694e64bca92", size = 863571, upload-time = "2026-08-12T21:54:12.62Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/71/85e476e7d32c0a648d5aa97c4335ac02357d059c2bb734cf175b08446597/modal-1.5.0-py3-none-any.whl", hash = "sha256:9c5687eff775d1372bd70b87e43499e40777a1de160f23786c00807bf342fcb6", size = 882122, upload-time = "2026-06-09T22:37:24.608Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/93/ca23b7b421e2c9738b710eb1d33eb25a88cba32dff864003a692a0e21f8d/modal-1.5.4-py3-none-any.whl", hash = "sha256:3e54e26037c445af42f9a9ef9862b66bdd2e0b1faeced5fcc7adf3e5f59e44ed", size = 979381, upload-time = "2026-08-12T21:54:10.378Z" },
+]
+
+[package.optional-dependencies]
+api-proxy-support = [
+    { name = "aiohttp-socks" },
+    { name = "python-socks" },
 ]
 
 [[package]]
@@ -5647,7 +5666,7 @@ dependencies = [
     { name = "mcp" },
     { name = "mimesis" },
     { name = "mistralai" },
-    { name = "modal" },
+    { name = "modal", extra = ["api-proxy-support"] },
     { name = "more-itertools" },
     { name = "nanoid" },
     { name = "natsort" },
@@ -5859,7 +5878,7 @@ requires-dist = [
     { name = "databricks-sql-connector", specifier = "~=4.3.0" },
     { name = "defusedxml", specifier = "~=0.7.1" },
     { name = "deltalake", extras = ["pyarrow"], specifier = "==1.6.1" },
-    { name = "deltalite", specifier = "==0.1.3" },
+    { name = "deltalite", specifier = "==0.1.6" },
     { name = "disposable-email-domains", specifier = "~=0.0.140" },
     { name = "dj-database-url", specifier = "~=3.0.0" },
     { name = "django", specifier = "~=5.2.0" },
@@ -5924,7 +5943,7 @@ requires-dist = [
     { name = "mcp", specifier = "~=1.26.0" },
     { name = "mimesis", specifier = "==5.2.1" },
     { name = "mistralai", specifier = "==1.6.0" },
-    { name = "modal", specifier = "~=1.5.0" },
+    { name = "modal", extras = ["api-proxy-support"], specifier = "~=1.5.4" },
     { name = "more-itertools", specifier = "==9.0.0" },
     { name = "nanoid", specifier = "==2.0.0" },
     { name = "natsort", specifier = "==8.4.0" },
@@ -5951,7 +5970,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.30.1" },
+    { name = "posthoganalytics", specifier = "==7.39.1" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6112,7 +6131,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.30.1"
+version = "7.39.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6120,9 +6139,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/c5/01c59158b02c5d645bb3e351b82fc948174c05a1cd0cb21162f4d88fa28f/posthoganalytics-7.30.1.tar.gz", hash = "sha256:17ebed83ba253d5f92baba153b720642a00fdf6fee8bda95957c054c4ea98145", size = 386791, upload-time = "2026-07-27T14:19:39.927Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/61/b78317abb7f99b0b31513f171907434cc9c6fb18a80ffac17e44c0651731/posthoganalytics-7.39.1.tar.gz", hash = "sha256:a81d402b1d139774346ed224016d1f5310ebe89f955b08377fb546691e3a4a91", size = 428630, upload-time = "2026-08-14T13:51:17.661Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/f3/a424e140dde29f3737ecd09d3f97d98a1888c05cf18cb918c9191e8f36e1/posthoganalytics-7.30.1-py3-none-any.whl", hash = "sha256:5a3517d204aebfd02c9af8e010c093f2461bce88ea1299b8cdc9419e3405112b", size = 462838, upload-time = "2026-07-27T14:19:38.143Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/11/3302e6195b9f9dba0b912ce6008cbc6ec89e1d15ad94a4532794bc694fab/posthoganalytics-7.39.1-py3-none-any.whl", hash = "sha256:9349851f4c996e6fd2c8defade3aa7d3d8b9677640ccfa316df4c8d074d4c4e9", size = 507626, upload-time = "2026-08-14T13:51:15.76Z" },
 ]
 
 [[package]]
@@ -6983,6 +7002,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/39/66/9185fbb6605ba92716d9f77fbb13c97eb671cd13c3ad56bd154016fbf08b/python_snappy-0.7.3.tar.gz", hash = "sha256:40216c1badfb2d38ac781ecb162a1d0ec40f8ee9747e610bcfefdfa79486cee3", size = 9337, upload-time = "2024-08-29T13:16:05.705Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/86/c1/0ee413ddd639aebf22c85d6db39f136ccc10e6a4b4dd275a92b5c839de8d/python_snappy-0.7.3-py3-none-any.whl", hash = "sha256:074c0636cfcd97e7251330f428064050ac81a52c62ed884fc2ddebbb60ed7f50", size = 9155, upload-time = "2024-08-29T13:16:04.773Z" },
+]
+
+[[package]]
+name = "python-socks"
+version = "2.8.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/ad/5bbfab3d3a266963cca0c09e23a725bbf5f0535d21c8bd1d5272e4430771/python_socks-2.8.2.tar.gz", hash = "sha256:ffc493951854fa3fc0551e0434a09a7b9f9047f9ad666dce42cb94a52e8a34b6", size = 39656, upload-time = "2026-06-23T05:22:01.994Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/18/23b981b1cf58c1e7b7e36fa1392daf12878b6a3c26c5e4248601647a6d09/python_socks-2.8.2-py3-none-any.whl", hash = "sha256:7cf785d0631e0659384a773b3c402bc22cccdc23894ba1d65f8524748ace1193", size = 55501, upload-time = "2026-06-23T05:22:00.658Z" },
 ]
 
 [[package]]
@@ -8007,14 +8035,14 @@ wheels = [
 
 [[package]]
 name = "synchronicity"
-version = "0.12.3"
+version = "0.12.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/d5/e96e6082790c92480380f28aa53e111844cdac7b0f75846f4772cb535a43/synchronicity-0.12.3.tar.gz", hash = "sha256:0d4228b85eaf2805f23b4615b2039a9d24ea811646e2d9f8d0c033094eb85841", size = 60261, upload-time = "2026-05-28T12:33:50.206Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/1c/f51dc54bbd302991026a53f9790735540e0e9e1184e9d5939f02446aa5bc/synchronicity-0.12.5.tar.gz", hash = "sha256:94d96b1d85698e3056b96a793b8c0949af6584e4a7d877fabdeb5385efe230aa", size = 60745, upload-time = "2026-06-18T21:06:23.545Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/ea/531a6ea751cbd989da386144810b1b8f529b0aae8c1a9beda8b40966c9c2/synchronicity-0.12.3-py3-none-any.whl", hash = "sha256:e476818cd14102136f41622c619de548f0000c024485fc18521c8fe908ea7574", size = 40982, upload-time = "2026-05-28T12:33:49.125Z" },
+    { url = "https://files.pythonhosted.org/packages/06/74/ad9b99520f70c0bc3318e582e359d360cfc0f7afd7bf368a7f24013cece7/synchronicity-0.12.5-py3-none-any.whl", hash = "sha256:fdbbb10d437bc08a6b0f814fc66fddd1b58ffed314533d42f1ab555801e781af", size = 41107, upload-time = "2026-06-18T21:06:22.505Z" },
 ]
 
 [[package]]
