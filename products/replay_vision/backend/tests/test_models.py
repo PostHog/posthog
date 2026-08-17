@@ -20,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -53,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -225,7 +225,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -292,7 +292,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -334,7 +334,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name=f"limit-scanner-{ReplayScanner.objects.count()}",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             **kwargs,
         )
 
@@ -348,7 +348,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name="limit-validator-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:

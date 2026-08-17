@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import uuid
 import string
 import secrets
@@ -202,6 +203,10 @@ class Task(DeletedMetaFields, models.Model):
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
+        # Inbox scout-chat kickoffs ("Suggest a scout", fleet overview, recent signals),
+        # minted server-side by products/signals so the origin proves the run is entitled
+        # through the generally-available Inbox rather than PostHog Desktop.
+        SIGNALS_CHAT = "signals_chat", "Signals Chat"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -650,12 +655,14 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = (
-            Integration.objects.filter(team=team, kind="github")
-            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-            .first()
-        )
+        github_integration = None
+        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+            github_integration = (
+                Integration.objects.filter(team=team, kind="github")
+                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+                .first()
+            )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -2481,6 +2488,78 @@ class TaskRun(models.Model):
         }
         self.append_log([event])
         self.publish_stream_event(event)
+
+    def emit_conversation_cleared(self) -> None:
+        """Record a `/clear` that had no sandbox to run it.
+
+        A live run clears through the agent, which swaps in a fresh agent session and
+        emits this marker itself. A finished run has no sandbox, and booting one just to
+        clear it would cost a whole run, so the marker is written straight to the log.
+        Resume reads a chain's logs concatenated and rebuilds only the turns after the
+        marker, so the next run continues the task with an empty conversation while its
+        checkpoints, artifacts, and visible history stay intact.
+
+        The `/clear` message is recorded ahead of the marker, matching the agent, so the
+        transcript shows what the user typed and rehydration drops it with everything
+        else on the pre-clear side. It carries the `importedUserPrompt` tag because the
+        desktop client renders user turns from `session/prompt` requests and drops raw
+        `user_message_chunk`s; the tag tells its log replay to promote the chunk into one.
+
+        The marker carries no `sessionId`: there is no agent session behind it, and
+        resume reads that field to decide which session to continue.
+
+        A repeat call while the log already ends at the boundary appends nothing, so a
+        double-submitted or retried clear doesn't stack duplicate markers.
+        """
+        if self._log_tail_is_conversation_cleared():
+            return
+        timestamp = django_timezone.now().isoformat()
+        events = [
+            {
+                "type": "notification",
+                "timestamp": timestamp,
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": str(self.id),
+                        "update": {
+                            "sessionUpdate": "user_message_chunk",
+                            "content": {"type": "text", "text": "/clear"},
+                            "_meta": {"importedUserPrompt": True},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "notification",
+                "timestamp": timestamp,
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "_posthog/conversation_cleared",
+                    "params": {},
+                },
+            },
+        ]
+        self.append_log(events)
+        for event in events:
+            self.publish_stream_event(event)
+
+    def _log_tail_is_conversation_cleared(self) -> bool:
+        # Reads the whole object because S3 offers no cheap tail read; clears are rare
+        # and the subsequent append re-reads it anyway.
+        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        last_line = content.strip().rsplit("\n", 1)[-1]
+        if not last_line:
+            return False
+        try:
+            entry = json.loads(last_line)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(entry, dict):
+            return False
+        notification = entry.get("notification")
+        return isinstance(notification, dict) and notification.get("method") == "_posthog/conversation_cleared"
 
     def emit_progress_event(
         self,

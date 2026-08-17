@@ -122,14 +122,13 @@ export enum GraphSeriesAddedSource {
 }
 
 /**
- * Whether the experiment's recordings tab can do its job at all, captured once the session
- * linkability check has resolved. An unmatchable exposure event makes the tab a dead page, and
- * a fallback or an empty selectable-metric list makes it a weaker one, so these are the numbers
- * that say how often the feature is useless to somebody rather than how often it is opened.
+ * How much of the experiment's recordings tab works for this viewer, captured once the session
+ * linkability check has resolved. The exposure population is resolved server-side per person,
+ * so the list itself always has a source; an empty selectable-metric list is what still makes
+ * the tab a weaker page, and these numbers say how often that happens rather than how often
+ * the tab is opened.
  */
 export interface ExperimentRecordingsTabContext {
-    exposure_unlinkable: boolean
-    using_exposure_fallback: boolean
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -160,6 +159,8 @@ export interface ExperimentWatchShelfContext {
     friction_cards: number
     variant_only_cards: number
     metric_cards: number
+    /** Cards removed for restating another card's recordings; what the dedupe threshold is tuned from. */
+    dropped_duplicate_cards: number
 }
 
 /**
@@ -1506,6 +1507,15 @@ export interface eventUsageLogicActions {
     reportInsightCompareChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
+    reportInsightDateExclusionsChanged: (
+        queryKind: string | undefined,
+        excludeIncompletePeriods: boolean,
+        excludedDaysOfWeekCount: number
+    ) => {
+        excludedDaysOfWeekCount: number
+        excludeIncompletePeriods: boolean
+        queryKind: string | undefined
+    }
     reportInsightDatePickerOpened: (queryKind: string | undefined) => {
         queryKind: string | undefined
     }
@@ -2252,6 +2262,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPropertyGroupFilterRemoved: true,
         reportPropertyGroupFilterDuplicated: true,
         reportInsightDateRangeChanged: (queryKind: string | undefined) => ({ queryKind }),
+        reportInsightDateExclusionsChanged: (
+            queryKind: string | undefined,
+            excludeIncompletePeriods: boolean,
+            excludedDaysOfWeekCount: number
+        ) => ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }),
         reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightDragToZoomed: (queryKind: string | undefined) => ({ queryKind }),
         reportInsightBreakdownChanged: (queryKind: string | undefined) => ({ queryKind }),
@@ -3945,6 +3960,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightDateRangeChanged: ({ queryKind }) => {
             posthog.capture('insight date range changed', { query_kind: queryKind })
         },
+        reportInsightDateExclusionsChanged: ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }) => {
+            posthog.capture('insight date exclusions changed', {
+                query_kind: queryKind,
+                exclude_incomplete_periods: excludeIncompletePeriods,
+                excluded_days_of_week_count: excludedDaysOfWeekCount,
+            })
+        },
         reportInsightDatePickerOpened: ({ queryKind }) => {
             posthog.capture('insight date picker opened', { query_kind: queryKind })
         },
@@ -4158,6 +4180,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
 
             posthog.capture('survey created', {
+                // The web app is the only place this event is emitted from — there is no backend
+                // equivalent — so stamping the surface here is what puts surveys in a `source`
+                // breakdown at all, rather than showing up as unattributed.
+                source: 'web',
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,

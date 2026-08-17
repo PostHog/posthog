@@ -1507,6 +1507,22 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert all("1970-01-01" not in q for q in queries)
 
+    def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
+        # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
+        # the same backfill date every run and the refresh replaces the whole table with that same
+        # first slice of history. The run must stay a single open-ended scan over the full range.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=False,
+            )
+
+        assert queries == [
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "ORDER BY segments.date ASC"
+        ]
+
     def test_run_stops_after_max_data_windows(self):
         # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
         # non-empty windows so a single run stays short enough to complete and durably advance the
