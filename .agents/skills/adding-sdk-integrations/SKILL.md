@@ -107,15 +107,20 @@ The runbook covers the per-product installation pages. The SDK's own library pag
 
 **[PostHog/wizard](https://github.com/PostHog/wizard) — optional.** A framework under `src/frameworks/<sdk>/` plus a `SkillId` entry lets the AI setup wizard install the SDK. Only then set `wizardIntegrationName` here, or the banner promises something the wizard cannot do.
 
-The SDK's own repo is out of scope for this skill.
+**[PostHog/context-mill](https://github.com/PostHog/context-mill) — recommended.** It packages docs, prompts and example apps into the manifest the PostHog MCP server and the AI wizard consume, so an SDK missing here is invisible to every agent-driven install. Add an entry to `context/skills/integration/config.yaml` and to `context/commandments.yaml`. An SDK with no example app can ship a docs-only template — see `description-kmp-docs-only.md`.
+
+**[PostHog/squeak-strapi](https://github.com/PostHog/squeak-strapi) — rarely.** Only when the SDK gains HogRef reference docs, which most SDKs do not have. The generated JSON lives in the SDK's own repo under `references/`, and a Strapi cron in `config/cron-tasks.ts` fetches it. See [handbook/wizard-and-docs/sdk-reference-docs](https://posthog.com/handbook/wizard-and-docs/sdk-reference-docs) before starting; it also needs an entry in `src/components/SdkReferences/utils.ts` on posthog.com.
+
+The SDK's own repo is out of scope for this skill, with one hard dependency: the package has to be published to its registry before any of this, because the install snippets name a real artifact.
 
 ### This is several PRs, and the order matters
 
 One SDK means one PR per repo, and they cannot land in any order. `gatsby-source-git` pulls the shared components from this repo's **`master`**, so a posthog.com stub importing `<Sdk>Installation` cannot build until the component exists on master. Opening it early is fine; merging it early breaks the docs build.
 
+0. **The SDK release.** The package must be on its registry first — Maven Central, npm, PyPI — or the install snippet names an artifact nobody can resolve. Check the published versions rather than a local checkout: reading a version out of an unfetched working tree is how a snippet ends up pinning a release that predates the feature it describes.
 1. **This repo** — the app wiring and the step components, together in one PR. Nothing else can merge before it.
 2. **posthog.com** — the installation stubs. Open it as a draft alongside, link the blocking PR in the body, and merge it after step 1. `GATSBY_POSTHOG_BRANCH=<your-branch> pnpm start` renders it locally in the meantime; it does not fix the deployed preview.
-3. **PostHog/wizard** — independent of both. Merge it whenever, but only set `wizardIntegrationName` in step 1 once a framework exists.
+3. **PostHog/wizard** and **PostHog/context-mill** — independent of both, and of each other. Merge whenever, but only set `wizardIntegrationName` in step 1 once a wizard framework exists.
 
 Cross-link the PRs in both directions so whoever reviews one can see the other. Say in the blocked PR's body why it is red, or a reviewer reads a failing build as broken work.
 
@@ -138,6 +143,8 @@ For a compiled SDK (Kotlin, Swift, Java, C#), paste each snippet into a scratch 
 Compiling is necessary and not sufficient. It cannot catch a call that compiles everywhere and **throws on one platform** — the KMP SDK's no-argument `PostHogContext()` throws on Android, so a snippet using it compiled cleanly and crashed on launch. Read the platform-specific implementation of anything a snippet calls.
 
 Also check defaults rather than repeating the marketing line. "PostHog automatically captures events" is false for an SDK that defaults `autocapture` and `captureScreenViews` to `false`.
+
+Prefer a version range over a hardcoded version — `3.+` for a stable major, `0.+` for a pre-release, matching `product-analytics/android.tsx` and `surveys/android.tsx`. Nobody refreshes a pinned version in onboarding docs, and a stale pin sends new users to a release that predates the feature the surrounding text describes. Note in prose that a `0.x` API can change between minor versions, and say how to pin deliberately.
 
 ## Verify the wiring
 
