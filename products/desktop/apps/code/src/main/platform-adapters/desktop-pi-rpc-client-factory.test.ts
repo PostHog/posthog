@@ -93,6 +93,7 @@ describe("DesktopPiRpcClientFactory", () => {
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",
         publicApiUrl: "https://eu.posthog.com",
+        enableObjectReferences: true,
         projectId: 1,
         apiKey: "posthog-code-auth-proxy",
       },

@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPiEnrichmentExtension } from "./enrichment-extension";
 
 type ToolResultPatch = { content?: ToolResultEvent["content"] };
+type BeforeAgentStartHandler = (event: { systemPrompt: string }) => {
+  systemPrompt: string;
+};
 type ToolResultHandler = (
   event: ToolResultEvent,
   ctx: ExtensionContext,
@@ -45,18 +48,36 @@ describe("createPiEnrichmentExtension", () => {
     );
 
     let handler: ToolResultHandler | undefined;
+    let beforeAgentStartHandler: BeforeAgentStartHandler | undefined;
     const extension = createPiEnrichmentExtension({
       apiUrl: "https://us.posthog.com",
+      enableObjectReferences: true,
       projectId: 1,
       apiKey: "token",
     });
     await extension.factory({
-      on: (event: string, registeredHandler: ToolResultHandler) => {
+      on: (
+        event: string,
+        registeredHandler: ToolResultHandler | BeforeAgentStartHandler,
+      ) => {
         if (event === "tool_result") {
-          handler = registeredHandler;
+          handler = registeredHandler as ToolResultHandler;
+        }
+        if (event === "before_agent_start") {
+          beforeAgentStartHandler =
+            registeredHandler as BeforeAgentStartHandler;
         }
       },
     } as unknown as ExtensionAPI);
+
+    expect(
+      beforeAgentStartHandler?.({ systemPrompt: "Base system prompt" })
+        .systemPrompt,
+    ).toContain('<event id="event name">event name</event>');
+    expect(
+      beforeAgentStartHandler?.({ systemPrompt: "Base system prompt" })
+        .systemPrompt,
+    ).toContain('<flag id="flag key">flag key</flag>');
 
     const result = await handler?.(
       {
@@ -79,5 +100,27 @@ describe("createPiEnrichmentExtension", () => {
         ),
       },
     ]);
+  });
+
+  it("does not add object-tag guidance unless enabled", async () => {
+    let beforeAgentStartHandler: BeforeAgentStartHandler | undefined;
+    const extension = createPiEnrichmentExtension({
+      apiUrl: "https://us.posthog.com",
+      projectId: 1,
+      apiKey: "token",
+    });
+    await extension.factory({
+      on: (
+        event: string,
+        registeredHandler: ToolResultHandler | BeforeAgentStartHandler,
+      ) => {
+        if (event === "before_agent_start") {
+          beforeAgentStartHandler =
+            registeredHandler as BeforeAgentStartHandler;
+        }
+      },
+    } as unknown as ExtensionAPI);
+
+    expect(beforeAgentStartHandler).toBeUndefined();
   });
 });
