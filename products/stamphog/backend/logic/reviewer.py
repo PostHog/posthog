@@ -20,7 +20,9 @@ checkout with the default-branch versions, and the engine reads them from there.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 # Final-verdict strings the engine emits (review_pr.Pipeline.final_verdict) mapped
 # onto the contract's ReviewVerdict values. Anything unrecognized escalates —
@@ -53,7 +55,7 @@ _LEGACY_VERDICT_MAP = {
 CHANGE_SUMMARY_MAX_CHARS = 200
 
 
-@dataclass
+@frozen
 class ReviewerInvocation:
     """Everything needed to run the reviewer inside the sandbox.
 
@@ -69,7 +71,7 @@ class ReviewerInvocation:
     context_json: str
 
 
-@dataclass
+@frozen
 class ReviewerVerdict:
     """Parsed result of one reviewer run."""
 

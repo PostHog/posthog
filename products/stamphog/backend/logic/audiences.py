@@ -14,6 +14,7 @@ models.DigestChannel).
 
 from __future__ import annotations
 
+import re
 from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,22 @@ logger = structlog.get_logger(__name__)
 # The engine reports owning teams as GitHub handles; audience keys are bare slugs, matching what
 # the author cascade produces and what channel resolution looks up.
 _TEAM_HANDLE_PREFIX = "@"
+
+# Ownership is resolved from owners.yaml in the PR-HEAD checkout — unlike .stamphog/*, those files
+# are not replaced with default-branch copies, so an owner string is attacker-controlled. A slug is
+# only ever a GitHub team name, so anything else is rejected rather than sanitized. This is what
+# keeps a crafted owner out of the reserved "repo:" namespace, whose channel auto-enables and skips
+# the shared-channel guard.
+_TEAM_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+@frozen
+class _OwnerTeam:
+    """One team's stake in a PR: its slug, a capped sample of its changed paths, and the true count."""
+
+    slug: str
+    files: list[str]
+    file_count: int
 
 
 @frozen
@@ -95,8 +112,8 @@ def _author_team_audience_key(repo_config: StamphogRepoConfig, pr_payload: dict[
         return _repository_audience_key(repo_config)
 
 
-def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str], int]]:
-    """(bare team slug, capped sample of its changed paths, true count) per owning team.
+def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
+    """Every team owning a changed file, with its path sample and true file count.
 
     The review walked the real checkout to get this, which the digest cannot do later. Anything
     unexpected in the blob resolves to "no owners" rather than raising: a merge must still be
@@ -118,14 +135,15 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[tuple[str, list[str
             continue
         # "@PostHog/team-devex" -> "team-devex". A handle without an org is not a team.
         _, _, slug = team.partition("/")
-        if not slug:
+        if not _TEAM_SLUG_RE.match(slug):
+            logger.warning("stamphog_owner_team_slug_rejected", team=team)
             continue
         paths = files_by_team.get(team)
         sample = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
         count = counts_by_team.get(team)
         # Fall back to the sample size when the count is missing or nonsense; never below it.
         owners[slug] = (sample, max(count, len(sample)) if isinstance(count, int) else len(sample))
-    return sorted((slug, sample, count) for slug, (sample, count) in owners.items())
+    return [_OwnerTeam(slug=slug, files=sample, file_count=count) for slug, (sample, count) in sorted(owners.items())]
 
 
 def resolve_audiences(
@@ -152,16 +170,16 @@ def resolve_audiences(
 
     audiences = [primary]
     seen = {primary.key}
-    for slug, owned_files, owned_file_count in _owner_teams(gate_result):
-        if slug in seen:
+    for owner in _owner_teams(gate_result):
+        if owner.slug in seen:
             continue
-        seen.add(slug)
+        seen.add(owner.slug)
         audiences.append(
             ResolvedAudience(
-                key=slug,
+                key=owner.slug,
                 reason=AudienceReason.OWNED,
-                owned_files=owned_files,
-                owned_file_count=owned_file_count,
+                owned_files=owner.files,
+                owned_file_count=owner.file_count,
             )
         )
     return audiences

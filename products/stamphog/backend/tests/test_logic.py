@@ -418,6 +418,11 @@ class ResolveAudiencesTests(SimpleTestCase):
                 [("team-devex", AudienceReason.AUTHORED), ("team-replay", AudienceReason.OWNED)],
             ),
             ("individual_owners_are_not_audiences", ["@someone"], [("team-devex", AudienceReason.AUTHORED)]),
+            (
+                "a_crafted_slug_cannot_claim_the_repo_namespace",
+                ["@PostHog/repo:PostHog/posthog", "@PostHog/team with spaces"],
+                [("team-devex", AudienceReason.AUTHORED)],
+            ),
             ("missing_ownership_section", None, [("team-devex", AudienceReason.AUTHORED)]),
             ("malformed_ownership_section", "team-replay", [("team-devex", AudienceReason.AUTHORED)]),
         ]
@@ -426,7 +431,9 @@ class ResolveAudiencesTests(SimpleTestCase):
         # Owner audiences are what carry "this changed in your area", and they are read back out of a
         # blob the sandbox wrote, so a shape the engine never promised must degrade to author-only
         # rather than dropping the merge. The author winning a collision is what keeps a team that
-        # wrote its own code out of its own "changed in your area" list.
+        # wrote its own code out of its own "changed in your area" list. Ownership comes from the
+        # PR-head owners.yaml, so a slug is attacker-controlled: one shaped like "repo:owner/name"
+        # would otherwise reach the channel path that auto-enables and skips the shared-channel guard.
         repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
         with (
             patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),

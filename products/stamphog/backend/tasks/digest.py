@@ -138,6 +138,21 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in audiences]).update(digest_run=run)
 
     summary = summarize_merged_prs(prs, audiences)
+    if not summary.prs:
+        # The model kept nothing — nothing to post. Release the claim rather than consume it: the
+        # summarizer reads contributor-authored text, so a single injected or degenerate answer
+        # must not be the last word on a whole batch. Genuinely irrelevant PRs are simply
+        # re-evaluated tomorrow and age out of the claim floor on their own.
+        logger.info("stamphog_digest_nothing_relevant", digest_channel_id=digest_channel_id, pr_count=len(prs))
+        with transaction.atomic(using=write_db):
+            DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+                status=DigestRunStatus.COMPLETED, summary=summary.to_dict(), posted_at=timezone.now()
+            )
+            PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in audiences]).update(
+                digest_run=None
+            )
+        return
+
     try:
         message_ts = post_digest(team_id, channel, summary)
     except Exception as e:

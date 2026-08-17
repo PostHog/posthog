@@ -16,7 +16,12 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
-from products.stamphog.backend.logic.digest import DigestSummary, _parse_llm_response, summarize_merged_prs
+from products.stamphog.backend.logic.digest import (
+    DigestPRSummary,
+    DigestSummary,
+    _parse_llm_response,
+    summarize_merged_prs,
+)
 from products.stamphog.backend.models import (
     DigestChannel,
     DigestRun,
@@ -38,8 +43,21 @@ AUDIENCE = "team-devex"
 
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
-    """Stand in for the LLM so the task never reaches a gateway."""
-    return DigestSummary(intro=f"{len(prs)} merged.", prs=[])
+    """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
+    keeps nothing is its own path (the digest posts nothing and releases the claim)."""
+    return DigestSummary(
+        intro=f"{len(prs)} merged.",
+        prs=[
+            DigestPRSummary(
+                pr_number=pr.pr_number,
+                title=pr.title,
+                url=pr.pr_url,
+                author_login=pr.author_login,
+                summary=pr.title,
+            )
+            for pr in prs
+        ],
+    )
 
 
 def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
@@ -234,7 +252,7 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
     def sized_summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
         batch_sizes.append(len(prs))
-        return DigestSummary(intro="x", prs=[])
+        return _summary(prs)
 
     with (
         patch("products.stamphog.backend.tasks.digest.DIGEST_MAX_PRS_PER_RUN", 2),
