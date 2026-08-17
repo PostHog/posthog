@@ -1,4 +1,4 @@
-import { cloneLayoutItem, horizontalCompactor, verticalCompactor } from 'react-grid-layout'
+import { cloneLayoutItem, getAllCollisions, horizontalCompactor, verticalCompactor } from 'react-grid-layout'
 import type { Compactor, Layout } from 'react-grid-layout'
 
 import type { DashboardGridCompaction, DashboardTileSpacing } from '~/types'
@@ -28,7 +28,24 @@ export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, s
 export const preservePositionsCompactor: Compactor = {
     type: null,
     allowOverlap: false,
-    compact: (layout: Layout): Layout => layout.map(cloneLayoutItem),
+    compact: (layout: Layout): Layout => {
+        const items = layout.map((item) => cloneLayoutItem(item))
+        const placedItems = items.filter((item) => item.static)
+        const movableItems = items.filter((item) => !item.static).sort((a, b) => a.y - b.y || a.x - b.x)
+
+        for (const item of movableItems) {
+            let collisions = getAllCollisions(placedItems, item)
+
+            while (collisions.length > 0) {
+                item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
+                collisions = getAllCollisions(placedItems, item)
+            }
+
+            placedItems.push(item)
+        }
+
+        return items
+    },
 }
 
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {

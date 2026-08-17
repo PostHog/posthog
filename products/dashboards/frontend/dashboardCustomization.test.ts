@@ -15,4 +15,20 @@ describe('preservePositionsCompactor', () => {
         expect(compactedLayout[0]).not.toBe(layout[0])
         expect(compactedLayout[1]).not.toBe(layout[1])
     })
+
+    it('moves only tiles that overlap', () => {
+        const layout = [
+            { i: 'first', x: 0, y: 0, w: 6, h: 4 },
+            { i: 'second', x: 0, y: 2, w: 6, h: 4 },
+            { i: 'third', x: 6, y: 2, w: 6, h: 4 },
+        ] as Layout
+
+        const compactedLayout = preservePositionsCompactor.compact(layout, 12)
+
+        expect(compactedLayout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))).toEqual([
+            { i: 'first', x: 0, y: 0, w: 6, h: 4 },
+            { i: 'second', x: 0, y: 4, w: 6, h: 4 },
+            { i: 'third', x: 6, y: 2, w: 6, h: 4 },
+        ])
+    })
 })
