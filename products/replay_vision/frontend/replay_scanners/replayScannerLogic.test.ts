@@ -114,7 +114,7 @@ describe('replayScannerLogic', () => {
                 rationale: 'A classifier fits because you want the mix of visit intents.',
                 query: {
                     kind: 'RecordingsQuery',
-                    events: [{ id: 'signed_up', name: 'signed_up', type: 'events' }],
+                    events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
                 },
             }
             draftSpy.mockReturnValue([200, draft])

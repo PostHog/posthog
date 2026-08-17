@@ -182,10 +182,33 @@ class TestFinalize:
             "properties": [
                 {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
             ],
-            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events"}],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
         }
         # The wizard and the scan pipeline both parse this as a RecordingsQuery; shape drift must fail here.
         RecordingsQuery.model_validate(result.query)
+
+    @pytest.mark.parametrize(
+        "screens,events,expected_keys",
+        [
+            (["/checkout"], ["checkout_started"], {"kind", "properties", "events"}),
+            (["/checkout"], [], {"kind", "properties"}),
+            ([], ["checkout_started"], {"kind", "events"}),
+            ([], [], None),
+        ],
+    )
+    def test_query_carries_only_the_keys_with_surviving_filters(self, screens, events, expected_keys):
+        result = _finalize(
+            _draft(filter_screens=screens, filter_events=events),
+            allowed_screens=["/checkout"],
+            allowed_events=["checkout_started"],
+        )
+
+        if expected_keys is None:
+            assert result.query is None
+        else:
+            # A key must be absent, not an empty list, when its filter kind didn't survive.
+            assert set(result.query) == expected_keys
+            RecordingsQuery.model_validate(result.query)
 
     def test_hallucinated_filters_are_dropped(self):
         # A filter value the product never emits would silently make the scanner match zero sessions.
@@ -197,15 +220,54 @@ class TestFinalize:
 
         assert result.query is None
 
+    @pytest.mark.parametrize("screen", ["/", "/en", "/a/b"])
+    def test_short_screens_cannot_ground_a_filter(self, screen):
+        # An icontains match on "/" or "/en" catches nearly every URL: the draft would render
+        # as narrowing while narrowing nothing.
+        result = _finalize(_draft(filter_screens=[screen]), allowed_screens=[screen, "/checkout"])
+
+        assert result.query is None
+
+    def test_short_screen_does_not_consume_the_screen_cap(self):
+        result = _finalize(_draft(filter_screens=["/en", "/checkout"]), allowed_screens=["/en", "/checkout"])
+
+        assert result.query is not None
+        assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
+
+    def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
+        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+            grounded = _finalize(
+                _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+            assert grounded.query is not None
+            warn.assert_not_called()
+
+            _finalize(
+                _draft(filter_screens=["/imaginary"], filter_events=["made_up_event"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+
+        warn.assert_called_once()
+        kwargs = warn.call_args.kwargs
+        assert kwargs["team_id"] == 42
+        assert kwargs["dropped_screens"] == 1
+        assert kwargs["dropped_events"] == 1
+        assert kwargs["scans_every_session"] is True
+
     def test_filters_are_stripped_capped_and_deduped(self):
         result = _finalize(
-            _draft(filter_screens=["/a", "/b"], filter_events=[" e1", "e1", "e2", "e3"]),
-            allowed_screens=["/a", "/b"],
+            _draft(filter_screens=["/alpha", "/beta"], filter_events=[" e1", "e1", "e2", "e3"]),
+            allowed_screens=["/alpha", "/beta"],
             allowed_events=["e1", "e2", "e3"],
         )
 
         assert result.query is not None
-        assert [p["value"] for p in result.query["properties"]] == [["/a"]]
+        assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
         assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
 
 
@@ -378,7 +440,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "properties": [
                 {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
             ],
-            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events"}],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)

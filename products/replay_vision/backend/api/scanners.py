@@ -1255,9 +1255,13 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
     )
-    query = serializers.JSONField(
-        allow_null=True,
-        help_text="RecordingsQuery narrowing which sessions get scanned; null when the draft targets every session.",
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            allow_null=True,
+            help_text=(
+                "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session."
+            ),
+        )
     )
 
 

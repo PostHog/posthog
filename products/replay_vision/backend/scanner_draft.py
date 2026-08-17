@@ -62,6 +62,10 @@ _SCANNER_GIST_CHARS = 200
 # more just zeroes out the match set.
 _MAX_FILTER_SCREENS = 1
 _MAX_FILTER_EVENTS = 2
+# Screens match via icontains, so a short pathname like "/" or "/en" matches nearly every URL:
+# it renders as a narrowing filter while narrowing nothing. Require this many non-slash
+# characters before a screen can ground a filter.
+_MIN_SCREEN_FILTER_CHARS = 3
 
 
 class DraftError(Exception):
@@ -317,7 +321,7 @@ def draft_scanner_from_goal(
         company=company,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
-    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events)
+    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events, team_id=team.id)
 
 
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft:
@@ -378,6 +382,10 @@ def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str
     return list(dict.fromkeys(v for raw in proposed if (v := raw.strip()) in allowed_set))[:cap]
 
 
+def _screen_can_ground(screen: str) -> bool:
+    return len(screen.strip().replace("/", "")) >= _MIN_SCREEN_FILTER_CHARS
+
+
 def _filters_query(screens: list[str], events: list[str]) -> dict[str, Any] | None:
     if not screens and not events:
         return None
@@ -390,12 +398,16 @@ def _filters_query(screens: list[str], events: list[str]) -> dict[str, Any] | No
             for screen in screens
         ]
     if events:
-        query["events"] = [{"id": event, "name": event, "type": "events"} for event in events]
+        query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
     return query
 
 
 def _finalize(
-    parsed: _LlmDraft, *, allowed_screens: Sequence[str] = (), allowed_events: Sequence[str] = ()
+    parsed: _LlmDraft,
+    *,
+    allowed_screens: Sequence[str] = (),
+    allowed_events: Sequence[str] = (),
+    team_id: int | None = None,
 ) -> ScannerDraft:
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
@@ -436,14 +448,32 @@ def _finalize(
     if error:
         raise DraftError(f"draft config invalid: {error}")
 
+    screens = _grounded(
+        [s for s in parsed.filter_screens if _screen_can_ground(s)], allowed_screens, _MAX_FILTER_SCREENS
+    )
+    events = _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS)
+    dropped_screens = {s for s in (v.strip() for v in parsed.filter_screens) if s} - set(screens)
+    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e} - set(events)
+    if dropped_screens or dropped_events:
+        # Every dropped value silently broadens the scan (worst case to every session, the most
+        # expensive outcome) while the rationale may still describe a narrow one, so the drop
+        # rate has to be observable.
+        logger.warning(
+            "replay_vision.scanner_draft.filter_values_dropped",
+            team_id=team_id,
+            scanner_type=parsed.scanner_type,
+            dropped_screens=len(dropped_screens),
+            dropped_events=len(dropped_events),
+            kept_screens=len(screens),
+            kept_events=len(events),
+            scans_every_session=not screens and not events,
+        )
+
     return ScannerDraft(
         name=name,
         description=parsed.description.strip()[:_MAX_DESCRIPTION_LENGTH],
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
-        query=_filters_query(
-            _grounded(parsed.filter_screens, allowed_screens, _MAX_FILTER_SCREENS),
-            _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS),
-        ),
+        query=_filters_query(screens, events),
     )
