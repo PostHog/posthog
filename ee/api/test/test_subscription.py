@@ -43,6 +43,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -3107,10 +3108,13 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert "ai_prompt_config" in str(response.json()), response.json()
 
 
-@patch("ee.api.subscription.sync_connect")
 class TestSubscriptionObjectAccessControl(APILicensedTest):
     def setUp(self):
         super().setUp()
+        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self.mock_temporal_client = MagicMock(start_workflow=AsyncMock())
+        self._sync_connect_patcher.start().return_value = self.mock_temporal_client
+        self.addCleanup(self._sync_connect_patcher.stop)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -3147,17 +3151,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return payload
 
     def _subscription_for(self, **kwargs) -> Subscription:
-        return Subscription.objects.create(
-            team=self.team,
-            created_by=self.user,
-            target_type="email",
-            target_value="owner@example.com",
-            frequency="daily",
-            interval=1,
-            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
-            title="Existing",
-            **kwargs,
-        )
+        return create_subscription(team=self.team, created_by=self.user, **kwargs)
 
     @parameterized.expand(
         [
@@ -3165,9 +3159,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("restricted_dashboard", "dashboard"),
         ]
     )
-    def test_create_rejects_a_restricted_target(self, mock_sync, target_attr, field):
-        mock_client = MagicMock(start_workflow=AsyncMock())
-        mock_sync.return_value = mock_client
+    def test_create_rejects_a_restricted_target(self, target_attr, field):
         target = getattr(self, target_attr)
         extra = {"dashboard_export_insights": [self.open_insight.id]} if field == "dashboard" else {}
 
@@ -3178,11 +3170,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "Viewer access" in str(response.json()), response.json()
         # send_test_now defaults to true on create, so a rejected target must not enqueue a delivery.
-        mock_client.start_workflow.assert_not_called()
+        self.mock_temporal_client.start_workflow.assert_not_called()
 
-    def test_create_allows_an_open_insight(self, mock_sync):
+    def test_create_allows_an_open_insight(self):
         # Proves the gate doesn't block a member's ordinary subscription.
-        mock_sync.return_value = MagicMock(start_workflow=AsyncMock())
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
@@ -3190,7 +3181,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_create_rejects_restricted_insight_among_dashboard_exports(self, mock_sync):
+    def test_create_rejects_restricted_insight_among_dashboard_exports(self):
         # An insight can be restricted independently of its dashboard, and each selected tile is
         # delivered on its own.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
@@ -3210,7 +3201,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert body["attr"] == "dashboard_export_insights", body
         assert "Viewer access" in body["detail"], body
 
-    def test_patch_cannot_add_a_restricted_insight_to_the_selection(self, mock_sync):
+    def test_patch_cannot_add_a_restricted_insight_to_the_selection(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
         DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
@@ -3227,7 +3218,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert body["attr"] == "dashboard_export_insights", body
         assert "Viewer access" in body["detail"], body
 
-    def test_membership_error_wins_for_a_mixed_selection(self, mock_sync):
+    def test_membership_error_wins_for_a_mixed_selection(self):
         # An out-of-team id and a restricted id in one selection resolve to the membership error.
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         foreign_insight = Insight.objects.create(team=other_team, filters={"events": [{"id": "$pageview"}]})
@@ -3254,8 +3245,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("test_delivery", "post", "/test-delivery", None),
         ]
     )
-    def test_restricted_subscription_is_not_reachable_by_id(self, mock_sync, _name, method, url_suffix, body):
-        mock_sync.return_value = MagicMock(start_workflow=AsyncMock())
+    def test_restricted_subscription_is_not_reachable_by_id(self, _name, method, url_suffix, body):
         subscription = self._subscription_for(insight=self.restricted_insight)
 
         url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
@@ -3263,7 +3253,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
-    def test_list_and_filters_hide_subscriptions_on_restricted_targets(self, mock_sync):
+    def test_list_and_filters_hide_subscriptions_on_restricted_targets(self):
         visible = self._subscription_for(insight=self.open_insight)
         hidden_insight_sub = self._subscription_for(insight=self.restricted_insight)
         self._subscription_for(dashboard=self.restricted_dashboard)
@@ -3278,7 +3268,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert filtered.json()["results"] == []
         assert Subscription.objects.filter(pk=hidden_insight_sub.pk).exists()
 
-    def test_deliveries_of_restricted_subscription_are_hidden(self, mock_sync):
+    def test_deliveries_of_restricted_subscription_are_hidden(self):
         # A delivery row carries the rendered target: content_snapshot holds each insight's query_results.
         subscription = self._subscription_for(insight=self.restricted_insight)
         SubscriptionDelivery.objects.create(
@@ -3298,7 +3288,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
-    def test_export_insight_restricted_after_creation_hides_the_subscription(self, mock_sync):
+    def test_export_insight_restricted_after_creation_hides_the_subscription(self):
         # An insight can be restricted after the subscription was saved; the read side must catch that.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
@@ -3338,7 +3328,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert deliveries.status_code == status.HTTP_200_OK
         assert deliveries.json()["results"] == []
 
-    def test_dashboard_subscription_without_selection_is_gated_on_its_tiles(self, mock_sync):
+    def test_dashboard_subscription_without_selection_is_gated_on_its_tiles(self):
         # An empty selection renders every tile (admin- and legacy-created rows look like this),
         # so a restricted tile must hide the row.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
@@ -3373,7 +3363,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
 
-    def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self, mock_sync):
+    def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
         # A join on the M2M would return the row once per insight and make detail routes 500.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
@@ -3399,7 +3389,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
         assert len(deliveries.json()["results"]) == 1
 
-    def test_selection_without_the_restricted_tile_keeps_the_subscription_visible(self, mock_sync):
+    def test_selection_without_the_restricted_tile_keeps_the_subscription_visible(self):
         # A restricted tile that is not exported cannot leak, so the row stays visible.
         dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
@@ -3413,7 +3403,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
 
     @parameterized.expand([("insight",), ("dashboard",)])
-    def test_subscription_on_a_soft_deleted_target_stays_visible(self, mock_sync, target_field):
+    def test_subscription_on_a_soft_deleted_target_stays_visible(self, target_field):
         # The owner still needs to see and turn off a subscription whose target was soft-deleted.
         if target_field == "insight":
             target: Insight | Dashboard = Insight.objects.create(
@@ -3431,7 +3421,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         deleted = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
         assert deleted.status_code == status.HTTP_200_OK, deleted.json()
 
-    def test_member_without_any_access_rules_sees_their_subscriptions(self, mock_sync):
+    def test_member_without_any_access_rules_sees_their_subscriptions(self):
         # Pins the no-rules short-circuit: a team without object rules must not filter anything.
         AccessControl.objects.filter(team=self.team).delete()
         cache.clear()
@@ -3440,7 +3430,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
         assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
 
-    def test_org_admin_still_sees_subscription_on_a_private_insight(self, mock_sync):
+    def test_org_admin_still_sees_subscription_on_a_private_insight(self):
         # Admins bypass the save-time check; without a read-side bypass their save would then 404.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save(update_fields=["level"])
