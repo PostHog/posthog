@@ -293,9 +293,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class CreatedVia(models.TextChoices):
         # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
-        # attribution can be counted together. The last two have no source equivalent: a source's
-        # own row records how a person connected it, while the tables underneath it are created by
-        # PostHog on that source's behalf.
+        # attribution can be counted together. The last three have no source equivalent — they cover
+        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+        # whoever happened to trigger the run.
         WEB = "web", "web"
         API = "api", "api"
         MCP = "mcp", "mcp"
@@ -303,6 +303,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         SELF_DRIVING = "self_driving", "self_driving"
         SOURCE = "source", "source"
         MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+        DEMO = "demo", "demo"
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)

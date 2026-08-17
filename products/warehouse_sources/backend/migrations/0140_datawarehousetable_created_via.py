@@ -22,6 +22,7 @@ class Migration(migrations.Migration):
                     ("self_driving", "self_driving"),
                     ("source", "source"),
                     ("materialized_view", "materialized_view"),
+                    ("demo", "demo"),
                 ],
                 max_length=20,
                 null=True,

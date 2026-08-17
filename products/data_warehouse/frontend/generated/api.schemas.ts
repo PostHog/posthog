@@ -1694,6 +1694,7 @@ export const TableFormatEnumApi = {
  * * `self_driving` - self_driving
  * * `source` - source
  * * `materialized_view` - materialized_view
+ * * `demo` - demo
  */
 export type TableCreatedViaEnumApi = (typeof TableCreatedViaEnumApi)[keyof typeof TableCreatedViaEnumApi]
 
@@ -1705,6 +1706,7 @@ export const TableCreatedViaEnumApi = {
     SelfDriving: 'self_driving',
     Source: 'source',
     MaterializedView: 'materialized_view',
+    Demo: 'demo',
 } as const
 
 export interface CredentialApi {
@@ -4359,7 +4361,8 @@ export interface TableApi {
      * * `wizard` - wizard
      * * `self_driving` - self_driving
      * * `source` - source
-     * * `materialized_view` - materialized_view */
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
     readonly created_via: TableCreatedViaEnumApi | null
     /** @maxLength 500 */
     url_pattern: string
@@ -4416,7 +4419,8 @@ export interface PatchedTableApi {
      * * `wizard` - wizard
      * * `self_driving` - self_driving
      * * `source` - source
-     * * `materialized_view` - materialized_view */
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
     readonly created_via?: TableCreatedViaEnumApi | null
     /** @maxLength 500 */
     url_pattern?: string

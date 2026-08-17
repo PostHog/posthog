@@ -52375,6 +52375,7 @@ export namespace Schemas {
      * * `self_driving` - self_driving
      * * `source` - source
      * * `materialized_view` - materialized_view
+     * * `demo` - demo
      */
     export type TableCreatedViaEnum = typeof TableCreatedViaEnum[keyof typeof TableCreatedViaEnum];
 
@@ -52387,6 +52388,7 @@ export namespace Schemas {
       SelfDriving: 'self_driving',
       Source: 'source',
       MaterializedView: 'materialized_view',
+      Demo: 'demo',
     } as const;
 
     export interface SimpleExternalDataSourceSerializers {
@@ -52429,7 +52431,8 @@ export namespace Schemas {
        * * `wizard` - wizard
        * * `self_driving` - self_driving
        * * `source` - source
-       * * `materialized_view` - materialized_view */
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
       readonly created_via: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern: string;
@@ -61164,7 +61167,8 @@ export namespace Schemas {
        * * `wizard` - wizard
        * * `self_driving` - self_driving
        * * `source` - source
-       * * `materialized_view` - materialized_view */
+       * * `materialized_view` - materialized_view
+       * * `demo` - demo */
       readonly created_via?: TableCreatedViaEnum | null;
       /** @maxLength 500 */
       url_pattern?: string;
