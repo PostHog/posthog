@@ -196,6 +196,7 @@ const humanizeFileSystemEntryType = (type?: string): string => {
 export interface projectTreeDataLogicValues {
     projectTreeRef: ProjectTreeRef | null // breadcrumbsLogic
     customProducts: UserProductListItem[] // customProductsLogic
+    disabledToolPaths: Set<string> // customProductsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
@@ -554,6 +555,7 @@ export interface projectTreeDataLogicMeta {
         shortcutNonFolderPaths: (shortcutData: FileSystemEntry[]) => Set<string>
         getCustomProductTreeItems: (
             customProducts: UserProductListItem[],
+            disabledToolPaths: Set<string>,
             featureFlags: FeatureFlagsSet,
             folderStates: Record<string, FolderState>,
             users: Record<string, UserBasicType>
@@ -579,7 +581,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
             customProductsLogic,
-            ['customProducts'],
+            ['customProducts', 'disabledToolPaths'],
             userLogic,
             ['user'],
         ],
@@ -1626,9 +1628,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.folderStates, s.users],
+            (s) => [s.customProducts, s.disabledToolPaths, s.featureFlags, s.folderStates, s.users],
             (
                 customProducts: import('~/queries/schema/schema-general').UserProductListItem[],
+                disabledToolPaths: Set<string>,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 folderStates: Record<string, FolderState>,
                 users: Record<string, UserBasicType>
@@ -1641,11 +1644,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const orderedSelectedProductPaths: string[] = []
 
                     for (const item of customProducts) {
-                        for (const productPath of [
-                            item.product_path,
-                            // product_path arrives as a plain string; a path not in the union just misses the map.
-                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path as ProductTreePath] ?? []),
-                        ]) {
+                        // product_path arrives as a plain string; a path not in the union just misses the map.
+                        const companionPaths = (
+                            PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path as ProductTreePath] ?? []
+                        ).filter((companionPath) => !disabledToolPaths.has(companionPath))
+                        for (const productPath of [item.product_path, ...companionPaths]) {
                             if (selectedProductPaths.has(productPath)) {
                                 continue
                             }

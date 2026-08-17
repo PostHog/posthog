@@ -168,7 +168,7 @@ export function SidebarItemsSetting(): JSX.Element {
 }
 
 export function SidebarMyToolsSetting(): JSX.Element {
-    const { enabledToolPaths, customProductsLoading } = useValues(customProductsLogic)
+    const { enabledToolPaths, userProductsLoading } = useValues(customProductsLogic)
     const { setToolEnabled } = useActions(customProductsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -224,7 +224,7 @@ export function SidebarMyToolsSetting(): JSX.Element {
                                     className="py-2"
                                     checked={enabledToolPaths.has(product.path)}
                                     onChange={(checked) => setToolEnabled(product.path, checked)}
-                                    loading={customProductsLoading}
+                                    loading={userProductsLoading}
                                     label={
                                         <ItemLabel
                                             icon={iconForType(product.iconType, product.iconColor)}

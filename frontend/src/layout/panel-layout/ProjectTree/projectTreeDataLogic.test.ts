@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
+import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -36,23 +36,35 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
+    const userProductRow = (productPath: string, enabled: boolean): UserProductListItem => ({
+        id: `id-${productPath}`,
+        product_path: productPath,
+        enabled,
+        reason: UserProductListReason.PRODUCT_INTENT,
+        reason_text: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+    })
+
     it('shows Replay vision to anyone who pinned Session replay', () => {
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            {
-                id: 'abc',
-                product_path: 'Session replay',
-                enabled: true,
-                reason: UserProductListReason.PRODUCT_INTENT,
-                reason_text: null,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-            },
-        ])
+        customProductsLogic.actions.loadUserProductsSuccess([userProductRow('Session replay', true)])
 
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
         expect(paths).toContain('Session replay')
         expect(paths).toContain('Replay vision')
+    })
+
+    it('keeps Replay vision hidden after the user removed it, even with Session replay pinned', () => {
+        customProductsLogic.actions.loadUserProductsSuccess([
+            userProductRow('Session replay', true),
+            userProductRow('Replay vision', false),
+        ])
+
+        const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
+
+        expect(paths).toContain('Session replay')
+        expect(paths).not.toContain('Replay vision')
     })
 
     it('handles null unfiled item responses', async () => {

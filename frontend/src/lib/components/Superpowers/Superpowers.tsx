@@ -179,12 +179,12 @@ function EnablementTag({ enabled }: { enabled: boolean }): JSX.Element {
 }
 
 function ProductsSection(): JSX.Element {
-    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { loadCustomProducts } = useActions(customProductsLogic)
+    const { customProducts, userProductsLoading } = useValues(customProductsLogic)
+    const { loadUserProducts } = useActions(customProductsLogic)
     const { currentTeam } = useValues(teamLogic)
 
     // The modal content unmounts on close, so each open refetches the sidebar list.
-    useOnMountEffect(() => loadCustomProducts())
+    useOnMountEffect(() => loadUserProducts())
 
     const team = currentTeam as TeamType | null
     const enabledByPath = new Map(customProducts.map((item) => [item.product_path, item]))
@@ -249,7 +249,7 @@ function ProductsSection(): JSX.Element {
                     </>
                 )}
             </div>
-            {customProductsLoading && <div className="text-xs text-secondary">Refreshing…</div>}
+            {userProductsLoading && <div className="text-xs text-secondary">Refreshing…</div>}
         </Section>
     )
 }
