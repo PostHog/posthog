@@ -17,6 +17,7 @@ import structlog
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
+from posthog.warehouse_source_prewarm import prewarm_warehouse_source_registry
 from posthog.web_memory_probe import install_memory_probe_handler
 from posthog.web_memory_sampler import start_web_memory_sampler
 
@@ -44,6 +45,14 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # Load the warehouse source catalog before this worker serves, so its first warehouse
+    # query skips the multi-second import. No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY
+    # is set, which deployment config enables only for the Granian deployment that serves
+    # warehouse queries; each Granian worker imports this module itself. Running inside
+    # the GC window lands the catalog in the frozen heap, so future full collections
+    # skip it.
+    prewarm_warehouse_source_registry()
 finally:
     gc.freeze()
     gc.enable()

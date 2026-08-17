@@ -97,6 +97,8 @@ describe('Tool schema snapshots', () => {
             tasks: true,
             loops: true,
             'dashboard-widgets': true,
+            'agent-platform': true,
+            'billing-alerts': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)

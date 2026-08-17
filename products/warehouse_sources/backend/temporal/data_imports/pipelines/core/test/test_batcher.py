@@ -204,8 +204,24 @@ def test_batcher_splits_buffered_list_items():
         # value bytes + 64-bit offset buffer (n * 8): 4 + 16 = 20
         ("large_string_counted", pa.array(["aa", "bb"], type=pa.large_string()), 20),
         ("large_binary_counted", pa.array([b"aa", b"bb"], type=pa.large_binary()), 20),
-        # child element count + 32-bit offset buffer (n * 4): 3 + 8 = 11
-        ("list", pa.array([[1, 2], [3]], type=pa.list_(pa.int64())), 11),
+        # Lists recurse into their child values + 32-bit offset buffer (n * 4). Counting the child
+        # *element count* instead (the old behaviour) undercounts a list of blobs by orders of
+        # magnitude, which silently disables the byte-driven split for every source that maps a
+        # repeated field to a list (e.g. Google Ads repeated protobuf messages -> JSON strings).
+        # child 3 * int64 = 24; offsets 2 * 4 = 8
+        ("list_of_int64", pa.array([[1, 2], [3]], type=pa.list_(pa.int64())), 32),
+        # child strings 4+2+1 value bytes + 3 * 4 offsets = 19; list offsets 2 * 4 = 8
+        ("list_of_string_counts_child_bytes", pa.array([["aaaa", "bb"], ["c"]], type=pa.list_(pa.string())), 27),
+        # child "aa" = 2 + 1 * 4 = 6; large-list offsets 1 * 8 = 8
+        ("large_list_uses_64_bit_offsets", pa.array([["aa"]], type=pa.large_list(pa.string())), 14),
+        # child 4 * int64 = 32; fixed-size lists carry no offset buffer
+        ("fixed_size_list_has_no_offsets", pa.array([[1, 2], [3, 4]], type=pa.list_(pa.int64(), 2)), 32),
+        # struct child: "k" = 1 + 4 = 5, "vv" = 2 + 4 = 6; list offsets 1 * 4 = 4
+        ("map_counted_via_key_value_struct", pa.array([[("k", "vv")]], type=pa.map_(pa.string(), pa.string())), 15),
+        # struct child "aa" = 2 + 1 * 4 = 6; list offsets 1 * 4 = 4
+        ("list_of_struct", pa.array([[{"s": "aa"}]], type=pa.list_(pa.struct([("s", pa.string())]))), 10),
+        # No child values to measure, but the offset buffer is still resident
+        ("all_null_list_counts_offsets_only", pa.array([None, None], type=pa.list_(pa.string())), 8),
         ("int64", pa.array([1, 2, 3], type=pa.int64()), 24),
         ("bool_subbyte_is_zero", pa.array([True, False, True], type=pa.bool_()), 0),
         ("nulls_counted_as_zero_payload", pa.array([None, "abc"], type=pa.string()), 3 + 8),
@@ -255,6 +271,22 @@ def test_split_table_byte_cap_sums_across_columns():
     result = _split_table(table, offset_limit=1_000_000, bytes_limit=20)
 
     assert len(result) > 1
+    assert pa.concat_tables(result).equals(table)
+
+
+def test_split_table_splits_a_list_column_on_its_child_bytes():
+    # The shape that used to slip through: four rows holding ~4 KiB of strings inside a list column.
+    # Measured by child element count the table scored 12 bytes and never split, so a chunk of these
+    # grew to the row limit regardless of its real size and became the loader's merge memory.
+    table = pa.table(
+        {"val": pa.array([["x" * 1000], ["y" * 1000], ["z" * 1000], ["w" * 1000]], type=pa.list_(pa.string()))}
+    )
+
+    result = _split_table(table, offset_limit=1_000_000, bytes_limit=2048)
+
+    assert len(result) > 1
+    for slice_table in result:
+        assert table_payload_bytes(slice_table) <= 2048 or slice_table.num_rows <= 1
     assert pa.concat_tables(result).equals(table)
 
 

@@ -35,6 +35,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsWorkflow,
+    build_register_data_imports_workflow_id,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -162,6 +163,11 @@ Any_Source_Errors: dict[str, str | None] = {
 
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 
+CANCELLED_RUN_MESSAGE = (
+    "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
+    "it or the source is paused. It will run again on its next schedule."
+)
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -178,6 +184,11 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
     if cause is None:
         return UNEXPECTED_ERROR_MESSAGE
+    # A cancelled activity surfaces as a Temporal `CancelledError` whose `message` is the bare word
+    # "Cancelled" — meaningless to a customer, and not a failure they caused (a newer run superseded
+    # this one, the source was paused, or a worker was rolled). Give them something readable.
+    if isinstance(cause, exceptions.CancelledError):
+        return CANCELLED_RUN_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -840,8 +851,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=inputs.external_data_schema_id,
                             prepared_queryable_folder=prepared_queryable_folder,
                         ),
-                        id=(
-                            f"ducklake-register-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}-{job_id}"
+                        id=build_register_data_imports_workflow_id(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
                         ),
                         task_queue=settings.DUCKLAKE_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -871,7 +883,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
+                # friendly mapping is None keeps its raw message, and the finalization activity won't
+                # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
                 raise
             else:
                 # Handle other activity errors normally

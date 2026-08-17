@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { ObservationVersionMarkerApi } from '../generated/api.schemas'
-import { buildChartDayFormatter, fillLabelDays, promptUnchangedSince, versionAccuracyStrip } from './labelStats'
+import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from './labelStats'
 
 describe('labelStats', () => {
     describe('fillLabelDays', () => {
@@ -49,6 +49,13 @@ describe('labelStats', () => {
             version,
             prompt: '',
             scanner_config: {},
+            scanner_type: 'monitor',
+            model: 'gemini-3.7-flash',
+            provider: 'google',
+            emits_signals: false,
+            query: {},
+            sampling_rate: 1,
+            sampling_mode: 'balanced',
             up,
             down,
             total,
@@ -84,42 +91,6 @@ describe('labelStats', () => {
             ['unrated non-active versions are dropped', [marker(1, 0, 0, 5), marker(2, 2, 1, 6)], 2],
         ])('returns no chips when %s', (_name, markers, activeVersion) => {
             expect(versionAccuracyStrip(markers, activeVersion)).toEqual([])
-        })
-    })
-
-    describe('promptUnchangedSince', () => {
-        const versionWithPrompt = (version: number, prompt: string): ObservationVersionMarkerApi => ({
-            date: '2026-07-01',
-            version,
-            prompt,
-            scanner_config: {},
-            up: 0,
-            down: 0,
-            total: 0,
-        })
-
-        it('chains identical prompts to the earliest version, across gaps', () => {
-            // v3 never scanned (no marker); v1, v2 and v4 ran the same prompt, v5 changed it.
-            const result = promptUnchangedSince([
-                versionWithPrompt(5, 'new prompt'),
-                versionWithPrompt(4, 'same prompt'),
-                versionWithPrompt(2, 'same prompt'),
-                versionWithPrompt(1, 'same prompt'),
-            ])
-            expect([...result.entries()]).toEqual([
-                [2, 1],
-                [4, 1],
-            ])
-        })
-
-        it('tags nothing for distinct or empty prompts', () => {
-            const result = promptUnchangedSince([
-                versionWithPrompt(1, 'a'),
-                versionWithPrompt(2, 'b'),
-                versionWithPrompt(3, ''),
-                versionWithPrompt(4, ''),
-            ])
-            expect(result.size).toBe(0)
         })
     })
 })

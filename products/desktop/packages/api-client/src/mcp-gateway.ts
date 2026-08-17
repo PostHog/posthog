@@ -9,6 +9,11 @@ import type { McpApprovalState, McpAuthType, McpCategory } from "./types";
 export type McpGatewayUser = Schemas.UserBasic;
 
 export type McpGatewayScopeType = "team" | "member" | "agent";
+/**
+ * How far an agent grant reaches: "personal" backs only the sharer's own
+ * runs, "team" backs every run of the agent in the project.
+ */
+export type McpAgentGrantScope = "personal" | "team";
 export type McpServiceAccountStatus = "active" | "paused";
 export type McpAuditDecision = "auto" | "approved" | "pending" | "blocked";
 export type McpAuditQuickFilter = "all" | "agents" | "approvals" | "blocked";
@@ -39,9 +44,15 @@ export interface McpGatewayYourConnection {
   last_used_at: string | null;
 }
 
-/** One agent's access to a gateway server. */
+/**
+ * One agent's access to a gateway server, on behalf of one member. A server
+ * can carry several rows for the same agent when multiple members share it.
+ */
 export interface McpGatewayAgentAccess {
   service_account_id: string;
+  /** The member whose connection the agent uses. */
+  user: McpGatewayUser;
+  scope: McpAgentGrantScope;
   name: string;
   /** Agent identity handle, e.g. posthog-support. */
   handle: string;
@@ -153,6 +164,13 @@ export interface McpAuditEvent {
   actor_service_account: McpAuditActorServiceAccount | null;
   /** Denormalized actor label (email or handle) that survives deletion. */
   actor_label: string;
+  /**
+   * Member whose connection an agent call used. Null for member calls and
+   * for owners whose account has since been deleted.
+   */
+  credential_owner: McpGatewayUser | null;
+  /** Scope of the agent grant the call used. Empty for member calls. */
+  grant_scope: McpAgentGrantScope | "";
 }
 
 export interface McpAuditCounts {

@@ -723,7 +723,7 @@ export interface PatchedHogFlowActionEmailUpdateApi {
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
 }
 
@@ -1105,6 +1105,11 @@ export interface HogFlowRevisionApi {
 export interface HogFlowRevisionRestoreRequestApi {
     /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
     overwrite?: boolean
+    /**
+     * The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.
+     * @nullable
+     */
+    expected_draft_updated_at?: string | null
 }
 
 export interface PatchedHogFlowScheduleApi {

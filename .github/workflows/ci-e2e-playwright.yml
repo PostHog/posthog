@@ -1038,6 +1038,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -1066,6 +1069,14 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole
+                  # deploy and leaves triagers with no report on a red run. Trace zips and videos
+                  # can cross that, so drop them from the copy we publish; the full attachments
+                  # stay in the uploaded playwright-test-results artifact. Prune at 24 MiB for margin.
+                  # Guarded and non-fatal so a missing/partial report dir still reaches the deploy.
+                  if [ -d playwright/playwright-report ]; then
+                      find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete || true
+                  fi
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
