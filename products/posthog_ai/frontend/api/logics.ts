@@ -21,6 +21,7 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
+export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the

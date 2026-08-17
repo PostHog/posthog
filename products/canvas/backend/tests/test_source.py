@@ -190,6 +190,57 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertFalse(has_errors(diagnostics))
         self.assertIn("network_fetch", [d["code"] for d in diagnostics])
 
+    @parameterized.expand(
+        [
+            ("http", "http://api.example.com"),
+            ("path", "https://api.example.com/v1"),
+            ("credentials", "https://user:secret@api.example.com"),
+            ("wildcard", "https://*.example.com"),
+            # Origins land in the viewer's connect-src, so private and local
+            # destinations would let a canvas probe the viewer's machine or LAN.
+            ("loopback_ipv4", "https://127.0.0.1:8443"),
+            ("private_ipv4", "https://192.168.1.1"),
+            ("cgnat_ipv4", "https://100.64.0.1"),
+            ("loopback_ipv6", "https://[::1]"),
+            ("localhost", "https://localhost:8010"),
+            ("single_label", "https://intranet"),
+            ("mdns_suffix", "https://printer.local"),
+            # Bypass spellings from the security review: browsers resolve these
+            # to loopback/LAN targets even though the strict IP parse rejects them.
+            ("trailing_dot_localhost", "https://localhost."),
+            ("trailing_dot_metadata", "https://169.254.169.254."),
+            ("trailing_dot_public", "https://api.example.com."),
+            ("ipv4_shorthand", "https://127.1"),
+            ("ipv4_octal", "https://0177.0.0.1"),
+            ("ipv4_leading_zero", "https://192.168.01.1"),
+            ("ipv4_hex_label", "https://1.2.3.0x10"),
+            ("ipv6_scope_id", "https://[fe80::1%eth0]"),
+            ("ipv6_global_scope_id", "https://[2606:4700:4700::1111%foo; img-src evil.example]"),
+            # A delimiter in the hostname would break out of the connect-src it is
+            # spliced into. This form carries no wildcard, so only the hostname
+            # charset check rejects it.
+            ("csp_directive_injection", "https://example.com; img-src evil.example.net"),
+        ]
+    )
+    def test_rejects_network_origins_that_are_not_exact_https_origins(self, _name, origin):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": [origin]},
+            }
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertIn("invalid_network_origin", [d["code"] for d in diagnostics])
+
+    def test_accepts_exact_https_network_origin(self):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": ["https://api.example.com:8443"]},
+            }
+        )
+        self.assertFalse(has_errors(validate_source_project(candidate)))
+
     def test_import_diagnostics_carry_file_and_line(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + 'import _ from "lodash";'})
         entry = next(d for d in validate_source_project(candidate) if d["code"] == "import_not_allowed")
