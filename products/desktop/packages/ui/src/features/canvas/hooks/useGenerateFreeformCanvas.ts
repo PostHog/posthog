@@ -58,23 +58,14 @@ export function useGenerateFreeformCanvas(args: {
 
   const generate = useCallback(
     async (opts: {
-      // The canvas being generated, when the surface already knows it. The
-      // channel composer omits it — the agent resolves or creates the target
-      // itself, so no canvas record is touched client-side.
-      dashboardId?: string;
-      name?: string;
+      dashboardId: string;
+      name: string;
       templateId?: string;
       instruction: string;
-      /** True when the canvas already has published source (a follow-up edit
-       * rather than a first build). The agent re-reads the live source itself
-       * through the canvas tools. */
-      isEdit?: boolean;
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
       reasoningLevel?: string;
-      // Seed the starter scaffold on first build.
-      useStarter?: boolean;
       // Dev-only override (the bar exposes a local/cloud picker in dev so a
       // local build of these features can be tested before merging). Production
       // always runs in the cloud.
@@ -108,8 +99,6 @@ export function useGenerateFreeformCanvas(args: {
             name,
             templateId: opts.templateId,
             instruction,
-            isEdit: opts.isEdit ?? false,
-            useStarter: opts.useStarter,
             channelId,
             channelName,
             channelContext,
@@ -135,17 +124,12 @@ export function useGenerateFreeformCanvas(args: {
 
         // Track this run so a toast (with a link back here) fires when it
         // finishes, even after the user navigates to another canvas.
-        // Target-less runs aren't tracked: there is no canvas to link to until
-        // the agent resolves or creates one, and their channel feed card
-        // already carries completion.
-        if (dashboardId) {
-          useCanvasGenerationTrackerStore.getState().track({
-            taskId: result.taskId,
-            dashboardId,
-            channelId,
-            name: name ?? "Canvas",
-          });
-        }
+        useCanvasGenerationTrackerStore.getState().track({
+          taskId: result.taskId,
+          dashboardId,
+          channelId,
+          name,
+        });
         // Refresh the workspace cache so the new cloud workspace row appears and
         // the task view resolves the cloud run instead of the repo-picker prompt.
         void queryClient.invalidateQueries({

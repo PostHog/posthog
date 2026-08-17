@@ -60,6 +60,103 @@ The Hog authoring constraints learned from those incidents still apply to any fu
 - `trackToolSpan` captures an `$ai_span` (args + truncated results) for every tool by default, joining the same session trace, so a trace-target evaluation sees a call's args and result. Secret-bearing fields (passwords, `client_secret`, API keys, tokens) are redacted from both input and output before capture, so defaulting every tool on never lands a credential in telemetry.
 - `execute-sql` is the one exception, because its payload is the query result and it serves all traffic. Spans are captured for its metadata queries only (SQL referencing `information_schema`, ~4.5% of calls): those results are small and describe what the agent knew about the workspace before writing its next query. That covers catalog lookups of `metrics`, `certifications`, and `relationships` without the telemetry layer naming them. The gate strips SQL comments and string literals before matching, so the marker inside a comment or literal on a data query does not pull the result into telemetry.
 
+## 4. Prometheus metrics and alerts
+
+Everything above measures agent behavior. This section measures the product itself: whether catalog reads, metric runs, and join probes are working. Everything in the data catalog runs synchronously inside web requests, so these are plain `prometheus_client` instruments scraped from the web pods.
+
+The instruments ship in this repo: the run and probe counters in `products/data_catalog/backend/metrics.py`, the read counters in `posthog/hogql/database/data_catalog_metrics.py` (core cannot import product internals, and the loaders that set them live in core). The alert rules do not ship here: vmalert rules live in the private PostHog/charts repo, and Grafana dashboards are UI-managed. The expressions below are the proposed starting points to land there. Every label combination is pre-created at import, so an expression can be validated against live series before any incident.
+
+### Metrics
+
+| Metric                                             | Labels                       | What it measures                                                  |
+| -------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------- |
+| `posthog_data_catalog_reads_total`                 | `surface`                    | Catalog reads attempted. The denominator for the failure counter. |
+| `posthog_data_catalog_read_failures_total`         | `surface`                    | Catalog reads that failed and returned an empty result.           |
+| `posthog_data_catalog_metric_runs_total`           | `definition_kind`, `outcome` | Canonical metric runs, exactly one per invocation.                |
+| `posthog_data_catalog_metric_run_duration_seconds` | `kind`                       | Blocking metric runs that returned results.                       |
+| `posthog_data_catalog_relationship_probe_total`    | `outcome`                    | Live join probes run while accepting a relationship proposal.     |
+
+`surface` names the read that broke, not the model it reads:
+
+| `surface`                | Loader                            | What disappears when it fails                                                                 |
+| ------------------------ | --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `metrics`                | `_catalog_metrics`                | `information_schema.metrics` returns no rows.                                                 |
+| `tables`                 | `_catalog_certifications`         | The `certification` column on `information_schema.tables` reads as null.                      |
+| `certifications`         | `_catalog_certification_rows`     | `information_schema.certifications` returns no rows.                                          |
+| `relationships`          | `_catalog_accepted_relationships` | Accepted joins lose their confidence and reasoning.                                           |
+| `relationship_proposals` | `_catalog_relationship_proposals` | The review queue reads as empty.                                                              |
+| `table_visibility`       | `_catalog_table_visible`          | Individual relationship and certification rows vanish while their own loader reports success. |
+| `schema_serialization`   | `_settled_catalog_certifications` | Trust marks vanish from the serialized database schema.                                       |
+
+No counter carries `team_id`. Each increment sits next to a `logger.exception` that does, so the counter says something is broken and the structured log says for whom.
+
+### How a failed query picks its outcome
+
+Both the run counter and the probe counter classify a failed query with `classify_query_error`, the same function the query SLO path uses. That keeps three classes of failure out of the buckets people alert on:
+
+| `classify_query_error` category | Metric run outcome  | Probe outcome       |
+| ------------------------------- | ------------------- | ------------------- |
+| `USER_ERROR`                    | `definition_error`  | `join_invalid`      |
+| `QUERY_PERFORMANCE_ERROR`       | `query_performance` | `query_performance` |
+| `RATE_LIMITED`                  | `capacity`          | `capacity`          |
+| `CANCELLED`                     | `cancelled`         | `cancelled`         |
+| `ERROR`                         | `internal_error`    | `error`             |
+
+The distinction is not cosmetic. A metric that times out is the query's cost, not a rotten definition, so it must not raise the rot ratio. A ClickHouse error that the classifier calls `ERROR` (an unreadable Parquet file, an S3 object that changed under a warehouse table) is ours to fix, so it must not read as a user's broken definition. A timeout on a join probe does not mean the probe is broken, so it must not page.
+
+`concurrency_limited` stays separate from `capacity`: it is the API concurrency limiter rejecting the run with a 429, not the shared ClickHouse pool saturating.
+
+### Proposed alerts
+
+**Catalog reads are failing** (warning, not a page). Every read path is fail-soft, so a broken catalog looks to an agent exactly like an empty one. This is the only signal that the difference exists.
+
+```promql
+sum by (surface) (increase(posthog_data_catalog_read_failures_total[15m])) > 5
+```
+
+A rate threshold rather than `> 0`: one team with a poisoned metric definition increments on every read until someone fixes it, and a `> 0` page could never resolve. During triage, divide by `posthog_data_catalog_reads_total` for blast radius and read the `team_id` from the logs.
+
+**Metric runs are hitting system faults** (page). `internal_error` is the only outcome that means PostHog broke rather than a definition, a cost guardrail, or a user.
+
+```promql
+sum(increase(posthog_data_catalog_metric_runs_total{outcome="internal_error"}[15m])) > 0
+```
+
+**Governed metrics are rotting** (warning). Definitions that no longer run against the current schema.
+
+```promql
+(
+  sum(increase(posthog_data_catalog_metric_runs_total{outcome=~"definition_error|invalid_query|internal_error"}[30m]))
+  /
+  sum(increase(posthog_data_catalog_metric_runs_total{outcome!="async_enqueued"}[30m]))
+) > 0.2
+and
+sum(increase(posthog_data_catalog_metric_runs_total{outcome!="async_enqueued"}[30m])) > 20
+```
+
+The threshold and the minimum-volume guard are starting numbers and want tuning against real traffic. `async_enqueued` leaves the denominator because an enqueue has no outcome yet. `query_performance`, `capacity`, and `cancelled` stay in the denominator and out of the numerator: those runs happened, and none of them says the definition is stale.
+
+**The join probe is broken** (page). No relationship can be accepted while it is.
+
+```promql
+sum(increase(posthog_data_catalog_relationship_probe_total{outcome="error"}[15m])) > 0
+```
+
+There is deliberately no alert on `concurrency_limited`. That condition already has one on `posthog_clickhouse_query_concurrency_limit_exceeded{product="data_catalog"}`, and a second series measuring the same thing would page twice for one incident.
+
+### What these metrics do not cover
+
+- **Async metric runs end at the enqueue.** `outcome="async_enqueued"` records that a query status was handed back to poll. Whether that run later succeeded lands in the generic worker-side query series, not here.
+- **Governance actions** (create, approve, certify, accept, reject) are covered by the capture events in `backend/logic/analytics.py`. Their failures are user-caused 4xx, and django_prometheus middleware already covers 5xx.
+- **Backlog size** (pending proposals, drifted approved metrics) needs a periodic sweep, and the product has no background job. Adding it means a `PushGatewayTask` Celery beat entry.
+
+### Follow-ups
+
+- A p95 duration alert on `posthog_data_catalog_metric_run_duration_seconds`. Deferred because the product is flag-gated and low-volume, so the alert would flap. The expression is `histogram_quantile(0.95, sum by (le, kind) (rate(posthog_data_catalog_metric_run_duration_seconds_bucket[30m])))`, validatable today against the pre-created series.
+- OTLP twins through `OtelInstrumentFactory`, so the same series also land in the PostHog Metrics product.
+- A counter on the scout harness's fail-silent catalog context injection (`products/signals/backend/scout_harness/runner.py`), exported through the data catalog facade.
+- The backlog gauges described above.
+
 ## Known limits
 
 - The evaluation scheduler triggers only on `$ai_generation`, so sessions with no `execute-sql` call are never evaluated; they remain visible in the dashboard tiles via `$mcp_tool_call`.

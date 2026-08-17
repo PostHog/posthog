@@ -190,6 +190,10 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
 - **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
 
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
+
 ## S3 Path Structure
 
 Each export fans a partition out across many right-sized Parquet files (one per

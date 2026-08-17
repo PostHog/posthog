@@ -621,15 +621,94 @@ runcmd:
                     results = issues_resp.json().get("results", [])
                     if results:
                         print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
-                        return True, "Events, log, and exception issue ingested successfully"
+                        break
                     print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
+        else:
+            return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
 
-        return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
+        session_id = str(uuid.uuid4())
+        snapshot_timestamp = int(time.time() * 1000)
+        print("📤 Sending test session recording...", flush=True)
+        try:
+            replay_resp = requests.post(
+                f"{base_url}/s/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json=[
+                    {
+                        "token": project_api_token,
+                        "event": "$snapshot",
+                        "distinct_id": "hobby-ci-replay-user",
+                        "$session_id": session_id,
+                        "properties": {
+                            "$session_id": session_id,
+                            "$window_id": str(uuid.uuid4()),
+                            "$snapshot_source": "web",
+                            "$snapshot_data": [
+                                {
+                                    "type": 4,
+                                    "timestamp": snapshot_timestamp,
+                                    "data": {
+                                        "href": "https://example.com/hobby-ci",
+                                        "width": 1280,
+                                        "height": 720,
+                                    },
+                                },
+                                {
+                                    "type": 2,
+                                    "timestamp": snapshot_timestamp + 1_000,
+                                    "data": {
+                                        "source": 1,
+                                        "snapshot": {"html": "<html><body>Hobby CI</body></html>"},
+                                    },
+                                },
+                                {
+                                    "type": 3,
+                                    "timestamp": snapshot_timestamp + 2_000,
+                                    "data": {
+                                        "source": 2,
+                                        "mutations": [{"type": "characterData", "id": 1}],
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ],
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Session recording capture request failed: {e}"
+        if replay_resp.status_code != 200:
+            return False, f"Session recording capture failed: HTTP {replay_resp.status_code} - {replay_resp.text[:200]}"
+
+        print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                recordings_resp = requests.get(
+                    f"{base_url}/api/projects/@current/session_recordings",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"session_ids": json.dumps([session_id]), "date_from": "-1d"},
+                    headers=headers,
+                    timeout=10,
+                )
+                if recordings_resp.status_code == 200:
+                    results = recordings_resp.json().get("results", [])
+                    if any(recording.get("id") == session_id for recording in results):
+                        print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
+                        return True, "Events, log, exception issue, and session recording ingested successfully"
+                    print(f"   Poll {attempt}: no session recording yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
