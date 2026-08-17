@@ -233,9 +233,12 @@ function DestinationEmailTemplaterForm({
 }
 
 function NativeEmailIntegrationChoice({
+    label,
     onChange,
     value,
 }: {
+    /** Rendered inside the sender row so it aligns with the select rather than spanning the override rows. */
+    label: ReactNode
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
@@ -258,25 +261,29 @@ function NativeEmailIntegrationChoice({
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
-            <div className="flex gap-2 justify-end items-center">
-                <span className="text-muted">No email senders configured yet</span>
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    to={urls.workflows('channels')}
-                    targetBlank
-                    className="m-1"
-                    icon={<IconExternal />}
-                >
-                    Connect email sender
-                </LemonButton>
+            <div className="flex gap-2 justify-between items-center">
+                {label}
+                <div className="flex gap-2 items-center">
+                    <span className="text-muted">No email senders configured yet</span>
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        to={urls.workflows('channels')}
+                        targetBlank
+                        className="m-1"
+                        icon={<IconExternal />}
+                    >
+                        Connect email sender
+                    </LemonButton>
+                </div>
             </div>
         )
     }
 
     return (
-        <div className="flex flex-col flex-1">
+        <div className="flex flex-col">
             <div className="flex gap-2 items-center">
+                {label}
                 <LemonSelect
                     className="m-1 flex-1"
                     type="tertiary"
@@ -323,10 +330,10 @@ function NativeEmailIntegrationChoice({
                 <>
                     <div className="flex gap-2 items-center border-t">
                         <LemonLabel
-                            className="shrink-0"
+                            className="min-w-30 shrink-0"
                             info="The address to send from. Templates are supported, so the address can come from the triggering event. It must be on the selected sender's verified domain. Leave empty to use the sender's address."
                         >
-                            Address
+                            Custom address
                         </LemonLabel>
                         <LiquidSupportedText
                             value={value?.email ?? ''}
@@ -345,10 +352,10 @@ function NativeEmailIntegrationChoice({
                     </div>
                     <div className="flex gap-2 items-center border-t">
                         <LemonLabel
-                            className="shrink-0"
+                            className="min-w-30 shrink-0"
                             info="The sender name shown in the recipient's inbox. Templates are supported. Leave empty to use the sender's name."
                         >
-                            Name
+                            Custom name
                         </LemonLabel>
                         <LiquidSupportedText
                             value={value?.name ?? ''}
@@ -535,8 +542,8 @@ function NativeEmailTemplaterForm({
                                         renderError={() => null}
                                         showOptional={field.optional}
                                     >
-                                        {({ value, onChange }: ChildFunctionProps) => (
-                                            <div className="flex gap-2 items-center">
+                                        {({ value, onChange }: ChildFunctionProps) => {
+                                            const label = (
                                                 <LemonLabel
                                                     className={fieldError ? 'text-danger' : ''}
                                                     info={field.helpText}
@@ -544,40 +551,49 @@ function NativeEmailTemplaterForm({
                                                 >
                                                     {field.label}
                                                 </LemonLabel>
-                                                {field.key === 'from' ? (
-                                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                                ) : field.key === 'to' ? (
-                                                    /**
-                                                     * In email inputs, "to" maps to { email: string; name: string; },
-                                                     * whereas other fields map directly to their string value
-                                                     */
-                                                    <LiquidSupportedText
-                                                        value={value?.email}
-                                                        onChange={(email) => onChange({ ...value, email })}
-                                                        globals={logicProps.variables}
-                                                    />
-                                                ) : (
-                                                    <LiquidSupportedText
-                                                        value={value}
-                                                        onChange={onChange}
-                                                        globals={logicProps.variables}
-                                                    />
-                                                )}
-                                                {field.isAdvancedField && (
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        type="tertiary"
-                                                        icon={<IconX />}
-                                                        className="mr-2"
-                                                        onClick={() => {
-                                                            onChange('')
-                                                            hideAdvancedField(field.key)
-                                                        }}
-                                                        tooltip="Remove field"
-                                                    />
-                                                )}
-                                            </div>
-                                        )}
+                                            )
+                                            return field.key === 'from' ? (
+                                                <NativeEmailIntegrationChoice
+                                                    label={label}
+                                                    value={value}
+                                                    onChange={onChange}
+                                                />
+                                            ) : (
+                                                <div className="flex gap-2 items-center">
+                                                    {label}
+                                                    {field.key === 'to' ? (
+                                                        /**
+                                                         * In email inputs, "to" maps to { email: string; name: string; },
+                                                         * whereas other fields map directly to their string value
+                                                         */
+                                                        <LiquidSupportedText
+                                                            value={value?.email}
+                                                            onChange={(email) => onChange({ ...value, email })}
+                                                            globals={logicProps.variables}
+                                                        />
+                                                    ) : (
+                                                        <LiquidSupportedText
+                                                            value={value}
+                                                            onChange={onChange}
+                                                            globals={logicProps.variables}
+                                                        />
+                                                    )}
+                                                    {field.isAdvancedField && (
+                                                        <LemonButton
+                                                            size="xsmall"
+                                                            type="tertiary"
+                                                            icon={<IconX />}
+                                                            className="mr-2"
+                                                            onClick={() => {
+                                                                onChange('')
+                                                                hideAdvancedField(field.key)
+                                                            }}
+                                                            tooltip="Remove field"
+                                                        />
+                                                    )}
+                                                </div>
+                                            )
+                                        }}
                                     </LemonField>
                                     <FieldErrorMessage error={fieldError} />
                                 </div>
