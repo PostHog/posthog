@@ -118,6 +118,35 @@ the real dependency). The failures look unrelated to the split.
 **Detection:** `verify_patch_targets.py` covers `conftest.py`. Include it in every
 sweep and every check.
 
+## Moving code makes its old semgrep findings "new"
+
+Semgrep skips its baseline comparison for findings in files that did not exist in the
+baseline commit, so every pre-existing violation in the code you moved comes back as
+newly introduced and blocking.
+
+**Symptom:** a rule fires on code you did not write, in CI only, on a PR you believe is
+a pure move. The log line to look for is "Skipping baseline scan, because all current
+findings are in files that didn't exist in the baseline commit."
+
+**Fix:** fix the finding if it is cheap and safe (a `frozen=True` on a dataclass nothing
+mutates), and say in the PR body that it is the one place the move is not byte-for-byte.
+Check before pushing rather than waiting for CI:
+
+```sh
+uv run --no-project --with semgrep semgrep --config .semgrep/rules/devex <package>/
+```
+
+## Read check results per SHA, not per PR
+
+`gh pr checks` can keep reporting a failure from an earlier push after the fix is green.
+
+**Fix:** ask for the head SHA's check runs, which cannot mix commits:
+
+```sh
+gh api "repos/PostHog/posthog/commits/$(git rev-parse HEAD)/check-runs?per_page=100" \
+  --jq '.check_runs[] | select(.conclusion=="failure") | .name'
+```
+
 ## A slow or busy test database is not a reason to skip verification
 
 The shared `test_posthog` can be mid-migration from another branch, or in use by a
