@@ -73,9 +73,15 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
 from products.conversations.backend.facade.api import (
+    AccountEmailThreadMessage as AccountEmailThreadMessage,
+    AccountEmailThreadSummary as AccountEmailThreadSummary,
+    EmailThreadAddress as EmailThreadAddress,
+    EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
     TicketSummary as TicketSummary,
+    list_account_email_thread_messages,
+    list_account_email_threads,
     list_account_tickets,
     trigger_immediate_channel_summary,
 )
@@ -84,6 +90,7 @@ from products.customer_analytics.backend.events import emit_account_tags_added
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
+from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
 from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
@@ -155,8 +162,6 @@ from . import contracts
 
 # The "Update account property" workflow action (Hog template) stores the custom property values it
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
-logger = structlog.get_logger(__name__)
-
 logger = structlog.get_logger(__name__)
 
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
@@ -2981,6 +2986,8 @@ def update_account(
         account.save(update_fields=update_fields)
     if matching_expanded:
         transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
+    if "external_id" in update_fields or "_properties" in update_fields:
+        schedule_email_thread_link_recalculation(account.team_id)
     return account
 
 
@@ -3029,6 +3036,7 @@ def create_account(
         was_impersonated=was_impersonated,
         trigger=trigger,
     )
+    schedule_email_thread_link_recalculation(team.pk)
     return account
 
 
@@ -3205,6 +3213,7 @@ def delete_account_for_view(
         streams = _event_streams_containing_account(account)
         team = account.team
         account.delete()
+        schedule_email_thread_link_recalculation(team_id)
         for stream in streams:
             sync_event_stream_destination(stream, team=team, user=user)
 
@@ -3459,6 +3468,37 @@ def get_account_support_tickets(
     if account is None or not account.external_id:
         return []
     return list_account_tickets(team_id, account.external_id, limit=limit)
+
+
+def get_account_email_threads(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadSummary], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    return list_account_email_threads(team_id, account_id, offset=offset, limit=limit)
+
+
+def get_account_email_thread_messages(
+    team_id: int,
+    account_id: str,
+    thread_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    return list_account_email_thread_messages(team_id, account_id, thread_id, offset=offset, limit=limit)
 
 
 def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:

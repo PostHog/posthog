@@ -22,6 +22,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -51,6 +52,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -449,6 +452,13 @@ def _rows_select(
     )
 
 
+@frozen
+class _CollectedCatalog:
+    table_rows: list[list[Any]]
+    column_rows: list[list[Any]]
+    relationships: list[_CollectedRelationship]
+
+
 class _Introspection:
     """Walks the live database once and produces the rows for every information_schema table."""
 
@@ -466,7 +476,7 @@ class _Introspection:
         self.materialized_view_ids = warehouse_metadata.materialized_view_ids
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
-        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
+        self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
         # Per-table certification lookup key `(table_type, resource_id)`, parallel to the table rows.
@@ -542,7 +552,7 @@ class _Introspection:
                 return self.column_stats.get((str(table_id), column_name), (None, None, None))
         return (None, None, None)
 
-    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]:
+    def collect(self) -> _CollectedCatalog:
         if self._collected is not None:
             return self._collected
 
@@ -578,12 +588,13 @@ class _Introspection:
             )
 
         self._table_certification_keys = certification_keys
-        self._collected = (table_rows, column_rows, relationship_rows)
+        self._collected = _CollectedCatalog(
+            table_rows=table_rows, column_rows=column_rows, relationships=relationship_rows
+        )
         return self._collected
 
     def table_rows(self) -> list[list[Any]]:
-        table_rows, _, _ = self.collect()
-        return table_rows
+        return self.collect().table_rows
 
     def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_table_rows is not None:
@@ -601,21 +612,18 @@ class _Introspection:
         return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
-        _, column_rows, _ = self.collect()
-        return column_rows
+        return self.collect().column_rows
 
     def relationship_rows(self) -> list[list[Any]]:
-        _, _, relationship_rows = self.collect()
-        return [relationship.values for relationship in relationship_rows]
+        return [relationship.values for relationship in self.collect().relationships]
 
     def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_relationship_rows is not None:
             return self._data_catalog_enriched_relationship_rows
 
-        _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
-        for relationship in relationships:
+        for relationship in self.collect().relationships:
             confidence, reasoning = (
                 accepted_relationships.get(relationship.provenance_key, (None, None))
                 if relationship.provenance_key is not None
@@ -946,6 +954,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
     from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
 
+    record_catalog_read("metrics")
     try:
         denied = context.database._denied_tables if context.database is not None else set()
         queryset = (
@@ -980,6 +989,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
             )
         return rows
     except Exception:
+        record_catalog_read_failure("metrics")
         logger.exception("information_schema: failed to load catalog metrics", team_id=team_id)
         return []
 
@@ -1019,6 +1029,7 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
     from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    record_catalog_read("tables")
     try:
         result: dict[tuple[str, str], str] = {}
         certs = TableCertification.objects.for_team(team_id).filter(
@@ -1039,6 +1050,7 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
             result[("view", str(saved_query_id))] = status
         return result
     except Exception:
+        record_catalog_read_failure("tables")
         logger.exception("information_schema: failed to load certifications", team_id=team_id)
         return {}
 
@@ -1047,9 +1059,16 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
     database = context.database
     if database is None or _references_denied_table([table_name], database._denied_tables):
         return False
+    record_catalog_read("table_visibility")
     try:
         return database.has_table(table_name) and database.get_table(table_name) is not None
     except Exception:
+        record_catalog_read_failure("table_visibility")
+        logger.exception(
+            "information_schema: failed to resolve catalog table visibility",
+            table_name=table_name,
+            team_id=context.team_id,
+        )
         return False
 
 
@@ -1072,6 +1091,7 @@ def _catalog_accepted_relationships(
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationships")
     try:
         accepted = RelationshipProposal.objects.for_team(team_id).filter(
             status=RelationshipStatus.ACCEPTED,
@@ -1131,6 +1151,7 @@ def _catalog_accepted_relationships(
             )
         return result
     except Exception:
+        record_catalog_read_failure("relationships")
         logger.exception("information_schema: failed to load accepted relationships", team_id=team_id)
         return {}
 
@@ -1149,6 +1170,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationship_proposals")
     try:
         proposals = RelationshipProposal.objects.for_team(team_id).filter(status=RelationshipStatus.PROPOSED)
         if allowed is not None:
@@ -1176,6 +1198,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
             )
         return rows
     except Exception:
+        record_catalog_read_failure("relationship_proposals")
         logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
         return []
 
@@ -1193,6 +1216,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
         return []
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    record_catalog_read("certifications")
     try:
         certs = (
             TableCertification.objects.for_team(team_id)
@@ -1232,6 +1256,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
             )
         return rows
     except Exception:
+        record_catalog_read_failure("certifications")
         logger.exception("information_schema: failed to load certifications table", team_id=team_id)
         return []
 

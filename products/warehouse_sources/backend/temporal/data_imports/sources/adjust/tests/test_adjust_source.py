@@ -90,6 +90,17 @@ class TestAdjustSource:
     def test_throttles_and_5xx_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
+    def test_exhausted_connection_pool_error_is_classified_retryable(self) -> None:
+        # Matches the message urllib3 raises once the tracked session's own GET retries
+        # (read timeouts, connection failures) exhaust — keeps this transient, self-recovering
+        # failure out of error tracking instead of reaching `logger.aexception`.
+        observed_error = (
+            "HTTPSConnectionPool(host='automate.adjust.com', port=443): Max retries exceeded with "
+            'url: /reports-service/report?dimensions=day (Caused by ReadTimeoutError("HTTPSConnectionPool'
+            "(host='automate.adjust.com', port=443): Read timed out. (read timeout=300)\"))"
+        )
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
     def test_get_schemas_covers_every_report(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {schema.name for schema in schemas} == set(ENDPOINTS)

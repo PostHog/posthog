@@ -144,7 +144,9 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     digest_enabled: zod
         .boolean()
         .optional()
-        .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+        .describe(
+            "Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved."
+        ),
     review_mode: zod
         .enum(['all', 'label'])
         .describe('\* `all` - all\n\* `label` - label')
@@ -183,7 +185,9 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
     digest_enabled: zod
         .boolean()
         .optional()
-        .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+        .describe(
+            "Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved."
+        ),
     review_mode: zod
         .enum(['all', 'label'])
         .describe('\* `all` - all\n\* `label` - label')
@@ -223,7 +227,9 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     digest_enabled: zod
         .boolean()
         .optional()
-        .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+        .describe(
+            "Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved."
+        ),
     review_mode: zod
         .enum(['all', 'label'])
         .describe('\* `all` - all\n\* `label` - label')

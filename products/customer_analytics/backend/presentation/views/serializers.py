@@ -28,7 +28,13 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
-from products.customer_analytics.backend.facade.api import TicketSummary
+from products.customer_analytics.backend.facade.api import (
+    AccountEmailThreadMessage,
+    AccountEmailThreadSummary,
+    EmailThreadAddress,
+    EmailThreadParticipantSummary,
+    TicketSummary,
+)
 from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
     CUSTOM_PROPERTY_OPTION_COLORS,
@@ -776,6 +782,117 @@ class SupportTicketSerializer(DataclassSerializer):
         dataclass = TicketSummary
         ref_name = "SupportTicket"
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+
+
+class EmailThreadParticipantSerializer(DataclassSerializer):
+    email = serializers.EmailField(read_only=True, help_text="Email address of the thread participant.")
+    display_name = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Display name from the captured email headers.",
+    )
+    kind = serializers.ChoiceField(
+        read_only=True,
+        choices=[("internal", "Internal"), ("customer", "Customer")],
+        help_text="Whether the participant belongs to the PostHog organization or the customer.",
+    )
+
+    class Meta:
+        dataclass = EmailThreadParticipantSummary
+        ref_name = "AccountEmailThreadParticipant"
+        fields = ["email", "display_name", "kind"]
+
+
+class AccountEmailThreadSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the captured email thread.")
+    subject = serializers.CharField(read_only=True, allow_blank=True, help_text="Email thread subject.")
+    preview = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Plain-text preview of the latest captured message.",
+    )
+    first_message_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Source timestamp of the first captured message.",
+    )
+    last_message_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Source timestamp of the latest captured message.",
+    )
+    message_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of captured messages in the thread.",
+    )
+    participants = EmailThreadParticipantSerializer(
+        many=True,
+        read_only=True,
+        help_text="Participants included in the email thread.",
+    )
+
+    class Meta:
+        dataclass = AccountEmailThreadSummary
+        ref_name = "AccountEmailThread"
+        fields = [
+            "id",
+            "subject",
+            "preview",
+            "first_message_at",
+            "last_message_at",
+            "message_count",
+            "participants",
+        ]
+
+
+class EmailThreadAddressSerializer(DataclassSerializer):
+    name = serializers.CharField(read_only=True, allow_blank=True, help_text="Name from the email header.")
+    email = serializers.EmailField(read_only=True, help_text="Email address from the email header.")
+
+    class Meta:
+        dataclass = EmailThreadAddress
+        ref_name = "AccountEmailThreadAddress"
+        fields = ["name", "email"]
+
+
+class AccountEmailThreadMessageSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the captured email message.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="Timestamp from the source email.")
+    sender = EmailThreadAddressSerializer(read_only=True, help_text="Sender from the email From header.")
+    to_recipients = EmailThreadAddressSerializer(
+        many=True,
+        read_only=True,
+        help_text="Recipients from the email To header.",
+    )
+    cc_recipients = EmailThreadAddressSerializer(
+        many=True,
+        read_only=True,
+        help_text="Recipients from the email Cc header.",
+    )
+    sender_authenticated = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether Mailgun authentication verified the sender domain.",
+    )
+    direction = serializers.ChoiceField(
+        read_only=True,
+        choices=[("inbound", "Inbound"), ("outbound", "Outbound")],
+        help_text="Whether PostHog received or sent the message.",
+    )
+    content = serializers.CharField(read_only=True, allow_blank=True, help_text="Plain-text email content.")
+
+    class Meta:
+        dataclass = AccountEmailThreadMessage
+        ref_name = "AccountEmailThreadMessage"
+        fields = [
+            "id",
+            "sent_at",
+            "sender",
+            "to_recipients",
+            "cc_recipients",
+            "sender_authenticated",
+            "direction",
+            "content",
+        ]
 
 
 class CalendarSyncStatusSerializer(DataclassSerializer):
