@@ -121,6 +121,27 @@ describe("SessionLogWriter", () => {
       expect(retriedEntries[0].notification.method).toBe("test");
     });
 
+    it("reports leftover entries after a failed flush, cleared once it succeeds", async () => {
+      // Teardown reads this to decide whether folding a resume snapshot is safe:
+      // a swallowed append failure re-queues entries, so a resolved flush is not
+      // proof the log is complete.
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "one" }));
+      await logWriter.flush(sessionId);
+      expect(logWriter.hasPendingEntries(sessionId)).toBe(false);
+
+      mockAppendLog.mockRejectedValueOnce(new Error("network error"));
+      logWriter.appendRawLine(sessionId, JSON.stringify({ method: "two" }));
+      await logWriter.flush(sessionId);
+      expect(logWriter.hasPendingEntries(sessionId)).toBe(true);
+
+      // The retry (mock now resolves) drains the queue.
+      await logWriter.flush(sessionId);
+      expect(logWriter.hasPendingEntries(sessionId)).toBe(false);
+    });
+
     it("drops entries after max retries", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });

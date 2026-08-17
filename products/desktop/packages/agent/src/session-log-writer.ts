@@ -186,6 +186,17 @@ export class SessionLogWriter {
     return this.sessions.has(sessionId);
   }
 
+  /**
+   * Whether entries queued for the API log are still unpersisted — awaiting a
+   * debounced flush, or re-queued after a failed append. A resolved `flush()`
+   * does not imply an empty queue: `_doFlush` swallows an append failure and
+   * re-queues for retry, so a caller that must not act on a partial log (the
+   * teardown snapshot fold) checks this rather than the flush result.
+   */
+  hasPendingEntries(sessionId: string): boolean {
+    return (this.pendingEntries.get(sessionId)?.length ?? 0) > 0;
+  }
+
   appendRawLine(sessionId: string, line: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) {

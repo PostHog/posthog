@@ -4917,7 +4917,18 @@ ${commonInstructions}
       this.logger.error("Failed to flush session logs", error);
     }
 
-    await this.persistResumeSnapshot();
+    // A failed append is swallowed and re-queued for retry, so the flush above
+    // resolving does not mean the log is complete. Folding now would freeze the
+    // snapshot short of the entries the pending retry still owes, and the next
+    // resume would trust that snapshot over the eventually-complete log. Skip the
+    // snapshot when entries remain; the next resume falls back to replaying the log.
+    if (this.session.logWriter.hasPendingEntries(this.session.payload.run_id)) {
+      this.logger.warn(
+        "Skipping resume snapshot: session log not fully persisted",
+      );
+    } else {
+      await this.persistResumeSnapshot();
+    }
 
     if (this.mcpRelayServer) {
       await this.mcpRelayServer.stop();
