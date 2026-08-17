@@ -344,12 +344,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         # The first subject loads the team's rules once; the rest are seeded from its pool
         team_rows = None
-        requesting_membership = user_access_control._organization_membership
 
         results = []
         for role in roles:
-            subject = SubjectAccessControl(user_access_control.user, team, role_id=str(role.id))
-            subject.preload_access_controls(team_rows, requesting_membership=requesting_membership)
+            subject = SubjectAccessControl.for_role(user_access_control, team, str(role.id))
+            subject.preload_access_controls(team_rows)
             if team_rows is None:
                 team_rows = subject.team_access_controls
             results.append(
@@ -394,16 +393,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         # The first subject loads the team's rules once; the rest are seeded from its pool
         team_rows = None
-        requesting_membership = user_access_control._organization_membership
 
         results = []
-        for membership in memberships:
+        for member in memberships:
             # role_memberships is prefetched on the queryset, so seeding from it costs no query
-            role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
-            subject = SubjectAccessControl(user_access_control.user, team, member=membership)
-            subject.preload_access_controls(
-                team_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
-            )
+            role_ids = [str(rm.role_id) for rm in member.role_memberships.all()]
+            subject = SubjectAccessControl.for_member(user_access_control, team, member)
+            subject.preload_access_controls(team_rows, subject_role_ids=role_ids)
             if team_rows is None:
                 team_rows = subject.team_access_controls
 
@@ -412,17 +408,17 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             if hide_non_project_members and not subject.has_project_scoped_access(team):
                 continue
 
-            user = membership.user
+            user = member.user
             results.append(
                 {
-                    "organization_membership_id": membership.id,
+                    "organization_membership_id": member.id,
                     "user": {
                         "uuid": user.uuid,
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "email": user.email,
                     },
-                    "organization_level": membership.level,
+                    "organization_level": member.level,
                     "project": _project_entry(subject, team),
                     "resources": {
                         resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES

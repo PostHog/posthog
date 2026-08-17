@@ -55,12 +55,45 @@ class SubjectAccessControl(UserAccessControl):
         team: Optional[Team] = None,
         organization_id: Optional[str] = None,
         *,
+        org_membership: Optional[OrganizationMembership] = None,
         member: Optional[OrganizationMembership] = None,
         role_id: Optional[str] = None,
     ):
         super().__init__(user, team, organization_id)
         self._subject_member = member
         self._subject_role_id = role_id
+        # The base resolvers first check that `user` is a member of the organization, and stop with
+        # no access if not. A subject is in the organization by construction, so seed the membership
+        # of `user` and the check passes without one lookup per subject.
+        if org_membership is not None:
+            self.__dict__["_organization_membership"] = org_membership
+
+    @classmethod
+    def for_member(
+        cls, user_access_control: UserAccessControl, team: Team, member: OrganizationMembership
+    ) -> "SubjectAccessControl":
+        """The access of `member`, asked by the user of `user_access_control`."""
+        return cls(
+            user_access_control.user,
+            team,
+            org_membership=user_access_control._organization_membership,
+            member=member,
+        )
+
+    @classmethod
+    def for_role(cls, user_access_control: UserAccessControl, team: Team, role_id: str) -> "SubjectAccessControl":
+        """The access of the role `role_id`, asked by the user of `user_access_control`."""
+        return cls(
+            user_access_control.user,
+            team,
+            org_membership=user_access_control._organization_membership,
+            role_id=role_id,
+        )
+
+    @classmethod
+    def for_default(cls, user_access_control: UserAccessControl, team: Team) -> "SubjectAccessControl":
+        """The access the default rules give everyone, asked by the user of `user_access_control`."""
+        return cls(user_access_control.user, team, org_membership=user_access_control._organization_membership)
 
     def stored_level(self, resource: APIScopeObject, resource_id: Optional[str]) -> Optional[AccessControlLevel]:
         """The level of the subject's own stored rule for a resource (resource-wide when
@@ -116,7 +149,9 @@ class SubjectAccessControl(UserAccessControl):
 
         The same resource resolution (`access_level_for_resource`), with the subject's own rows
         for the resource left out of the fetch. `access_level_for_resource` fetches its own rows,
-        so the mask applies at the fetch layer for the duration of this call only.
+        so the mask applies at the fetch layer for the duration of this call only. No separate
+        precheck, unlike the object twin: the org-admin bypass is part of `access_level_for_resource`
+        itself, and there is no creator at resource level.
         """
         # The mask lives in a context variable for the duration of this call, not on the instance,
         # so it cannot leak into a later resolution
@@ -178,24 +213,25 @@ class SubjectAccessControl(UserAccessControl):
         self,
         rows: Optional[list[_AccessControl]] = None,
         *,
-        requesting_membership: Optional[OrganizationMembership] = None,
         subject_role_ids: Optional[list[str]] = None,
     ) -> None:
-        """Seed this subject's team pool (`_cached_access_controls`) from `rows` — a pool already
-        loaded (a sibling subject's `team_access_controls`, or the caller's own query) — instead of
-        the database, so many subjects share one query. Without `rows`, this subject loads the pool
-        itself. Rows are narrowed to the subject in memory first, exactly as `_filter_options` would
-        in the query the pool stands in for.
+        """Seed the team pool of this subject (`_cached_access_controls`) from `rows`, so that many
+        subjects share one query instead of each reading the database.
 
-        This seeds the pool; the base class's `preload_*` methods do the other half (pre-answering
-        specific lookups *from* the pool) and never write it — only `for_team_ids` does, the same way
-        as here. The two per-instance lookups that don't vary by subject are seeded as `for_team_ids`
-        seeds its siblings: the requesting user's membership, and (for a member subject) the member's
-        role ids when the caller already prefetched them.
+        `rows` is a pool that is already loaded: the `team_access_controls` of a sibling subject, or
+        the caller's own query. Without `rows`, this subject loads the pool itself. The pool is
+        narrowed to the subject in memory first, exactly as `_filter_options` narrows it in the
+        query that the pool replaces.
+
+        This method seeds the pool. The base class's `preload_*` methods do the other half: they
+        pre-answer specific lookups from the pool, and they never write the pool. Only
+        `for_team_ids` writes it, in the same way as here. A `cached_property` is pre-filled by
+        writing its slot in `__dict__`.
+
+        For a member subject, `subject_role_ids` seeds the member's role ids in the same way, when
+        the caller already prefetched them, so N subjects do not read them N times.
         """
         assert self._team is not None
-        if requesting_membership is not None:
-            self.__dict__["_organization_membership"] = requesting_membership
         if subject_role_ids is not None:
             self.__dict__["_user_role_ids"] = list(subject_role_ids) if self.rbac_supported else []
         # Team-scoped lookups are served from _cached_access_controls, so that is what to seed
@@ -298,15 +334,16 @@ def get_project_scoped_visible_membership_ids(
         # for this member as the subject, answered from the pool above. The org-admin bypass is
         # ignored: being an admin is not being granted anything on this project.
         team = teams_by_id[team_id]
-        subject = SubjectAccessControl(requesting_membership.user, team, member=memberships_by_id[membership_id])
+        subject = SubjectAccessControl(
+            requesting_membership.user,
+            team,
+            org_membership=requesting_membership,
+            member=memberships_by_id[membership_id],
+        )
         # The member's roles were loaded above for candidate narrowing (only roles a project rule
         # names can matter, and none count without the entitlement) — hand them over rather than
         # let each subject query them again
-        subject.preload_access_controls(
-            project_rows,
-            requesting_membership=requesting_membership,
-            subject_role_ids=candidate_role_ids.get(membership_id, []),
-        )
+        subject.preload_access_controls(project_rows, subject_role_ids=candidate_role_ids.get(membership_id, []))
         return subject.has_project_scoped_access(team)
 
     accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
