@@ -56,6 +56,8 @@
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
+         "posthog_datawarehousesavedquery"."incremental_config",
+         "posthog_datawarehousesavedquery"."incremental_state",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -158,6 +160,8 @@
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
+         "posthog_datawarehousesavedquery"."incremental_config",
+         "posthog_datawarehousesavedquery"."incremental_state",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -550,6 +554,8 @@
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
+         "posthog_datawarehousesavedquery"."incremental_config",
+         "posthog_datawarehousesavedquery"."incremental_state",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -652,6 +658,8 @@
          "posthog_datawarehousesavedquery"."is_test",
          "posthog_datawarehousesavedquery"."expires_at",
          "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
+         "posthog_datawarehousesavedquery"."incremental_config",
+         "posthog_datawarehousesavedquery"."incremental_state",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -2746,6 +2754,16 @@
                   "hogql_value": "updated_at",
                   "id": null,
                   "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "churned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "churned_at",
+                  "id": null,
+                  "name": "churned_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
@@ -6207,6 +6225,16 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -12960,6 +12988,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "churned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "churned_at",
+                  "id": null,
+                  "name": "churned_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "tags": {
                   "chain": null,
                   "fields": [
@@ -16417,6 +16455,16 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

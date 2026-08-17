@@ -68,7 +68,16 @@ export async function handleFreeformDataRequest(
   method: string,
   payload: unknown,
   queryClient: QueryClient,
+  // State and actions are canvas-scoped, unlike the content-keyed reads above,
+  // so the caller passes the canvas identity in.
+  context?: { dashboardId?: string },
 ): Promise<unknown> {
+  const requireDashboardId = (): string => {
+    if (!context?.dashboardId) {
+      throw new Error(`${method} requires a canvas context`);
+    }
+    return context.dashboardId;
+  };
   switch (method) {
     case "query": {
       const input = payload as CanvasDataQueryInput;
@@ -116,6 +125,58 @@ export async function handleFreeformDataRequest(
         event: input.event,
         distinctId: input.distinctId,
         properties: input.properties,
+      });
+    }
+    case "stateGet": {
+      const input = payload as { key?: string; scope?: "user" | "shared" };
+      if (!input?.key || typeof input.key !== "string") {
+        throw new Error("ph.state.get(key) requires a key");
+      }
+      // Never cached: state is the canvas's live memory, and a stale read
+      // would undo the write the canvas just made.
+      const entries = await hostClient().dashboards.listState.query({
+        id: requireDashboardId(),
+        scope: input.scope ?? "user",
+      });
+      return entries.find((entry) => entry.key === input.key)?.value ?? null;
+    }
+    case "stateSet": {
+      const input = payload as {
+        key?: string;
+        value?: unknown;
+        scope?: "user" | "shared";
+      };
+      if (!input?.key || typeof input.key !== "string") {
+        throw new Error("ph.state.set(key, value) requires a key");
+      }
+      await hostClient().dashboards.setState.mutate({
+        id: requireDashboardId(),
+        scope: input.scope ?? "user",
+        key: input.key,
+        value: input.value ?? null,
+      });
+      return { ok: true };
+    }
+    case "stateList": {
+      const input = payload as { scope?: "user" | "shared" };
+      return hostClient().dashboards.listState.query({
+        id: requireDashboardId(),
+        scope: input?.scope,
+      });
+    }
+    case "actionInvoke": {
+      const input = payload as {
+        verb?: string;
+        payload?: Record<string, unknown>;
+      };
+      if (!input?.verb || typeof input.verb !== "string") {
+        throw new Error("ph.actions.invoke(verb, payload) requires a verb");
+      }
+      // A write into PostHog, never cached.
+      return hostClient().dashboards.invokeAction.mutate({
+        id: requireDashboardId(),
+        verb: input.verb,
+        payload: input.payload ?? {},
       });
     }
     case "run":
