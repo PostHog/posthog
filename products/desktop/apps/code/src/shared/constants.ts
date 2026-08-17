@@ -17,6 +17,30 @@ export const QUICK_ASK_EVENT_CHANNEL = "posthog-quick-ask-event";
 export const QUICK_ASK_LAYOUT_CHANNEL = "posthog-quick-ask-layout";
 export const QUICK_ASK_DRAG_START_CHANNEL = "posthog-quick-ask-drag-start";
 export const QUICK_ASK_DRAG_END_CHANNEL = "posthog-quick-ask-drag-end";
+
+/**
+ * Payload contracts for the quick-ask IPC channels. The preload and the main
+ * process must import these instead of retyping the shapes: the two sides
+ * are compiled separately, so a shape change that touches only one of them
+ * is invisible to the typechecker and fails silently at runtime.
+ */
+export interface QuickAskResizePayload {
+  width: number;
+  height: number;
+}
+
+export interface QuickAskDragStartPayload {
+  /** Grab offset from the window's top-left corner, in CSS pixels. */
+  dx: number;
+  dy: number;
+}
+
+export interface QuickAskLayoutPayload {
+  /** Card renders above the pill (anchor sits low on the screen). */
+  flip: boolean;
+  /** Room between the pill's anchor and the screen edge, in CSS pixels. */
+  maxHeight: number;
+}
 export const ARTIFACT_PREVIEW_ARG = "--posthog-artifact-preview";
 export const ARTIFACT_OPEN_EXTERNAL_CHANNEL = "posthog-artifact-open-external";
 export const ARTIFACT_HOST_TO_PREVIEW_CHANNEL = "posthog-artifact-host-message";

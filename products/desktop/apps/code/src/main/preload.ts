@@ -17,6 +17,8 @@ import {
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
+  type QuickAskDragStartPayload,
+  type QuickAskResizePayload,
 } from "../shared/constants";
 import { trustedArtifactLink } from "./artifact-preview-link";
 import { parseSessionIdArg } from "./posthog-session-arg";
@@ -98,10 +100,10 @@ function setupApplicationPreload(argv: string[]): void {
 function setupQuickAskPreload(): void {
   contextBridge.exposeInMainWorld("quickAsk", {
     hide: () => ipcRenderer.send(QUICK_ASK_HIDE_CHANNEL),
-    resize: (size: { width: number; height: number }) =>
+    resize: (size: QuickAskResizePayload) =>
       ipcRenderer.send(QUICK_ASK_RESIZE_CHANNEL, size),
     openInApp: () => ipcRenderer.send(QUICK_ASK_OPEN_IN_APP_CHANNEL),
-    dragStart: (offset: { dx: number; dy: number }) =>
+    dragStart: (offset: QuickAskDragStartPayload) =>
       ipcRenderer.send(QUICK_ASK_DRAG_START_CHANNEL, offset),
     dragEnd: () => ipcRenderer.send(QUICK_ASK_DRAG_END_CHANNEL),
     ask: (question: string, conversationId?: string) =>

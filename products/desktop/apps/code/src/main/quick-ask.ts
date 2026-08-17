@@ -21,8 +21,18 @@ import {
   QUICK_ASK_RESIZE_CHANNEL,
   QUICK_ASK_SHOWN_CHANNEL,
   QUICK_ASK_WINDOW_ARG,
+  type QuickAskDragStartPayload,
+  type QuickAskLayoutPayload,
+  type QuickAskResizePayload,
 } from "../shared/constants";
 import { container } from "./di/container";
+import {
+  computeGeometry,
+  PILL_HEIGHT,
+  PILL_TOP_TO_WINDOW_BOTTOM,
+  PILL_TOP_TO_WINDOW_TOP,
+  SCREEN_MARGIN,
+} from "./quick-ask-geometry";
 import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
@@ -40,34 +50,22 @@ const QUICK_ASK_VITE_NAME = "main_window";
 // the renderer's measurements, capped here.
 const PANEL_MAX_WIDTH = 640;
 const PANEL_INITIAL_WIDTH = 300;
-// Layout constants matching quick-ask.css: root padding top/bottom 10/14,
-// pill row 46px, card gap 10px. Non-card chrome is 80px of window height.
-const ROOT_PAD_TOP = 10;
-const ROOT_PAD_BOTTOM = 14;
-const PILL_ROW_HEIGHT = 46;
-const CARD_GAP = 10;
-const CHROME_HEIGHT =
-  ROOT_PAD_TOP + PILL_ROW_HEIGHT + CARD_GAP + ROOT_PAD_BOTTOM;
-const PILL_HEIGHT = CHROME_HEIGHT - CARD_GAP;
 const PANEL_INITIAL_HEIGHT = PILL_HEIGHT;
-// Keep the panel clear of the menu bar and screen edges when opening at the cursor.
-const SCREEN_MARGIN = 16;
-const MENU_BAR_CLEARANCE = 40;
 // Where the cursor lands inside the window: on the hedgehog, Figma-style.
 const CURSOR_IN_WINDOW_X = 55;
 const CURSOR_IN_WINDOW_X_OFFSET = 8;
 const CURSOR_ABOVE_PILL_PX = 10;
-interface QuickAskLayoutState {
-  flip: boolean;
-  /** Room between the pill's anchor and the screen edge, in CSS pixels. */
-  maxHeight: number;
-}
-
 /** Last geometry the renderer reported; reused across hides/shows. */
 let cachedContentHeight = PANEL_INITIAL_HEIGHT;
-const cachedContentWidth = PANEL_INITIAL_WIDTH;
+let cachedContentWidth = PANEL_INITIAL_WIDTH;
 /** Whether the current layout has the card above the pill. */
 let currentFlip = false;
+/**
+ * The pill row's top-left corner in screen coordinates — the single fixed
+ * point every other placement value derives from. Planted at summon,
+ * carried along by dragging.
+ */
+let pillAnchor: { x: number; y: number } | null = null;
 
 type QuickAskDragState = {
   dx: number;
@@ -192,63 +190,58 @@ function createQuickAskWindow(): BrowserWindow {
   return window;
 }
 
-/**
- * Geometry math shared by the summon, resize, and drag paths.
- *
- * `maxHeight` is the room between the pill's anchor and the screen edge in
- * the grow direction. It depends only on position and display — never on the
- * content height the renderer reported. (Deriving the card cap from the
- * window height fed the capped measurement back into the cap, locking the
- * panel at whatever sliver it started at.)
- */
-function layoutFor(
-  bounds: { x: number; y: number; height: number },
-  flip: boolean,
-  area: { x: number; y: number; width: number; height: number },
-): { y: number; height: number; maxHeight: number } {
-  if (!flip) {
-    // Window top is anchored at the pill; the card may extend to the screen edge.
-    const maxHeight = Math.max(
-      PILL_HEIGHT,
-      area.y + area.height - SCREEN_MARGIN - bounds.y,
-    );
-    const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
-    return { y: bounds.y, height, maxHeight };
-  }
-  // Window bottom is anchored at the pill; the card extends upward, capped
-  // by the screen edge above.
-  const bottom = bounds.y + bounds.height;
-  const maxHeight = Math.max(
-    PILL_HEIGHT,
-    bottom - (area.y + MENU_BAR_CLEARANCE),
-  );
-  const height = Math.max(PILL_HEIGHT, Math.min(bounds.height, maxHeight));
-  return { y: bottom - height, height, maxHeight };
-}
+/** Last logged decision; geometry logs only when the decision changes. */
+let lastGeometryLogKey = "";
 
-function pushLayout(window: BrowserWindow): void {
+function applyGeometry(window: BrowserWindow, why: string): void {
   if (window.isDestroyed()) return;
   const bounds = window.getBounds();
-  const layout = layoutFor(
-    bounds,
-    currentFlip,
-    screen.getDisplayNearestPoint(bounds).workArea,
-  );
+  const anchor = pillAnchor ?? {
+    x: bounds.x,
+    y: bounds.y + PILL_TOP_TO_WINDOW_TOP,
+  };
+  const area = screen.getDisplayNearestPoint(anchor).workArea;
+  const content = { width: cachedContentWidth, height: cachedContentHeight };
+  const geometry = computeGeometry(anchor, content, area, currentFlip);
+  currentFlip = geometry.flip;
   if (
-    layout.y !== bounds.y ||
-    layout.height !== bounds.height ||
-    bounds.width !== cachedContentWidth
+    geometry.x !== bounds.x ||
+    geometry.y !== bounds.y ||
+    geometry.width !== bounds.width ||
+    geometry.height !== bounds.height
   ) {
     window.setBounds({
-      x: bounds.x,
-      y: layout.y,
-      width: cachedContentWidth,
-      height: layout.height,
+      x: geometry.x,
+      y: geometry.y,
+      width: geometry.width,
+      height: geometry.height,
     });
   }
-  const payload: QuickAskLayoutState = {
-    flip: currentFlip,
-    maxHeight: layout.maxHeight,
+  // Log every decision change so placement bugs are debuggable from the
+  // field (main.log), without spamming a line per streamed token.
+  const clamped = content.height > geometry.maxHeight;
+  const logKey = `${geometry.flip}|${clamped}|${why === "summon"}`;
+  if (why === "summon" || logKey !== lastGeometryLogKey) {
+    lastGeometryLogKey = logKey;
+    log.info("Quick ask geometry", {
+      why,
+      anchor,
+      content,
+      flip: geometry.flip,
+      clamped,
+      maxHeight: geometry.maxHeight,
+      bounds: {
+        x: geometry.x,
+        y: geometry.y,
+        width: geometry.width,
+        height: geometry.height,
+      },
+      workArea: area,
+    });
+  }
+  const payload: QuickAskLayoutPayload = {
+    flip: geometry.flip,
+    maxHeight: geometry.maxHeight,
   };
   window.webContents.send(QUICK_ASK_LAYOUT_CHANNEL, payload);
 }
@@ -261,15 +254,12 @@ function stopDrag(): void {
 }
 
 /**
- * Position the panel so the cursor lands on the hedgehog's nose (Figma
- * cursor-chat style). Near the bottom of the display the card flips above
- * the pill instead of squeezing into the sliver below.
+ * Summon: plant the pill anchor so the cursor lands on the hedgehog's nose
+ * (Figma cursor-chat style); `applyGeometry` derives everything else.
  */
-function positionAtCursor(window: BrowserWindow): void {
+function summonAtCursor(window: BrowserWindow): void {
   const cursor = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(cursor);
-  const area = display.workArea;
-
+  const area = screen.getDisplayNearestPoint(cursor).workArea;
   const x = Math.round(
     Math.min(
       Math.max(
@@ -279,47 +269,20 @@ function positionAtCursor(window: BrowserWindow): void {
       area.x + area.width - PANEL_MAX_WIDTH - SCREEN_MARGIN,
     ),
   );
-  const pillTopY = cursor.y + CURSOR_ABOVE_PILL_PX;
-  const windowTop = pillTopY - ROOT_PAD_TOP;
-  const roomBelow =
-    area.y + area.height - SCREEN_MARGIN - (windowTop + PILL_HEIGHT);
-  const roomAbove =
-    pillTopY +
-    PILL_ROW_HEIGHT +
-    ROOT_PAD_BOTTOM -
-    (area.y + MENU_BAR_CLEARANCE);
-  // Flip when the card cannot fit below but has at least slightly more room above.
-  const needsFlip = roomBelow < cachedContentHeight && roomAbove > roomBelow;
-  currentFlip = needsFlip;
-
-  // Flipped: the pill's top edge keeps its anchor, the card extends upward.
-  const y = needsFlip
-    ? pillTopY - (cachedContentHeight - ROOT_PAD_BOTTOM - PILL_ROW_HEIGHT)
-    : windowTop;
-  const bounds = {
-    x,
-    y: Math.round(y),
-    width: cachedContentWidth,
-    height: cachedContentHeight,
-  };
-  const layout = layoutFor(bounds, needsFlip, area);
-  window.setBounds({
-    x,
-    y: layout.y,
-    width: cachedContentWidth,
-    height: layout.height,
-  });
+  pillAnchor = { x, y: Math.round(cursor.y + CURSOR_ABOVE_PILL_PX) };
+  // Fresh summon, fresh direction decision.
+  currentFlip = false;
+  applyGeometry(window, "summon");
 }
 
 function showQuickAsk(): void {
   if (!quickAskWindow || quickAskWindow.isDestroyed()) {
     quickAskWindow = createQuickAskWindow();
   }
-  positionAtCursor(quickAskWindow);
+  summonAtCursor(quickAskWindow);
   quickAskWindow.show();
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
-  pushLayout(quickAskWindow);
 }
 
 function hideQuickAsk(): void {
@@ -407,18 +370,30 @@ export function setupQuickAsk(): void {
   quickAskEnabled = true;
 
   ipcMain.on(QUICK_ASK_HIDE_CHANNEL, () => hideQuickAsk());
-  ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (_event, height: unknown) => {
+  ipcMain.on(QUICK_ASK_RESIZE_CHANNEL, (_event, size: unknown) => {
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
-    if (typeof height !== "number" || !Number.isFinite(height)) return;
+    const { width, height } = (size ?? {}) as Partial<QuickAskResizePayload>;
+    if (typeof width !== "number" || !Number.isFinite(width)) {
+      log.warn("Quick ask resize payload malformed", { size });
+      return;
+    }
+    if (typeof height !== "number" || !Number.isFinite(height)) {
+      log.warn("Quick ask resize payload malformed", { size });
+      return;
+    }
+    cachedContentWidth = Math.min(
+      PANEL_MAX_WIDTH,
+      Math.max(PANEL_INITIAL_WIDTH, Math.round(width)),
+    );
     cachedContentHeight = Math.max(PILL_HEIGHT, Math.round(height));
-    pushLayout(quickAskWindow);
+    applyGeometry(quickAskWindow, "content");
   });
   // Dragging: native `-webkit-app-region: drag` is incompatible with the
   // forwarded click-through events, so the renderer reports a grab offset
   // and the main process follows the cursor.
   ipcMain.on(QUICK_ASK_DRAG_START_CHANNEL, (_event, offset: unknown) => {
     if (!quickAskWindow || quickAskWindow.isDestroyed()) return;
-    const { dx, dy } = (offset ?? {}) as { dx?: unknown; dy?: unknown };
+    const { dx, dy } = (offset ?? {}) as Partial<QuickAskDragStartPayload>;
     if (
       typeof dx !== "number" ||
       typeof dy !== "number" ||
@@ -446,12 +421,24 @@ export function setupQuickAsk(): void {
         const y = Math.round(point.y - dy);
         if (x !== bounds.x || y !== bounds.y) {
           quickAskWindow.setPosition(x, y);
-          pushLayout(quickAskWindow);
+          // The anchor rides along; the grow direction is re-decided once
+          // at drag end, so the panel does not flip mid-drag.
+          pillAnchor = {
+            x,
+            y: currentFlip
+              ? y + bounds.height - PILL_TOP_TO_WINDOW_BOTTOM
+              : y + PILL_TOP_TO_WINDOW_TOP,
+          };
         }
       }, 15),
     };
   });
-  ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => stopDrag());
+  ipcMain.on(QUICK_ASK_DRAG_END_CHANNEL, () => {
+    stopDrag();
+    if (quickAskWindow && !quickAskWindow.isDestroyed()) {
+      applyGeometry(quickAskWindow, "drag-end");
+    }
+  });
   ipcMain.on(QUICK_ASK_OPEN_IN_APP_CHANNEL, () => {
     hideQuickAsk();
     focusMainWindow("quick-ask-open-in-app");
