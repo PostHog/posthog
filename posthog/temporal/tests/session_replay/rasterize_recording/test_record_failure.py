@@ -6,6 +6,8 @@ from posthog.temporal.session_replay.rasterize_recording.activities.record_failu
 from posthog.temporal.session_replay.rasterize_recording.types import RecordRasterizationFailureInput
 
 from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_OTHER,
+    FAILURE_TYPE_RENDERER_UNKNOWN,
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
@@ -50,6 +52,9 @@ class TestRecordRasterizationFailure:
             ("no_snapshots", "NO_SNAPSHOTS", FAILURE_TYPE_USER),
             ("upload_failed", "S3_UPLOAD_UNDECODABLE_RESPONSE", FAILURE_TYPE_SYSTEM),
             ("worker_death_timeout", "ACTIVITY_TIMEOUT", FAILURE_TYPE_TIMEOUT_GENERATION),
+            # The renderer's catch-alls have their own buckets so they can't hide in "unknown".
+            ("renderer_crash", "UNKNOWN", FAILURE_TYPE_RENDERER_UNKNOWN),
+            ("unrecognized_browser_code", "OTHER", FAILURE_TYPE_OTHER),
             # An unmapped code must land in "unknown" rather than being absorbed into a real bucket,
             # so a code the rasterizer adds later shows up as needing classification.
             ("unrecognized", "SOMETHING_NEW", FAILURE_TYPE_UNKNOWN),

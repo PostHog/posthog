@@ -42,6 +42,8 @@ from posthog.storage.object_storage import ObjectStorageError
 #   - "user": Errors the user can fix by modifying their query or reducing scope
 #   - "system": Infrastructure/capacity errors that may resolve with retries
 #   - "timeout_generation": Export timed out during asset generation
+#   - "renderer_unknown": The video renderer crashed with an exception it has no code for
+#   - "other": The in-browser player reported an error code the renderer doesn't recognize
 #   - "unknown": Errors needing investigation to properly classify
 #
 # These tuples are authoritative. Historical rows have best-effort accuracy.
@@ -50,6 +52,8 @@ from posthog.storage.object_storage import ObjectStorageError
 FAILURE_TYPE_USER = "user"
 FAILURE_TYPE_SYSTEM = "system"
 FAILURE_TYPE_TIMEOUT_GENERATION = "timeout_generation"
+FAILURE_TYPE_RENDERER_UNKNOWN = "renderer_unknown"
+FAILURE_TYPE_OTHER = "other"
 FAILURE_TYPE_UNKNOWN = "unknown"
 
 # Video renders fail with a code from the recording rasterizer rather than a Python exception, so they
@@ -73,12 +77,10 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     # from a lost or wedged worker. Not the renderer's own TIMEOUT, but still a render that ran out
     # of time. Resolved in the workflow's _record_failure, not a rasterizer code.
     "ACTIVITY_TIMEOUT": FAILURE_TYPE_TIMEOUT_GENERATION,
-    # The renderer's own catch-all codes: UNKNOWN wraps a non-RasterizationError, OTHER clamps an
-    # unrecognized browser code. Mapped explicitly because they carry no more classification to
-    # extract — "unknown" is their honest bucket, unlike a code missing from this map, which still
-    # means someone needs to add it.
-    "UNKNOWN": FAILURE_TYPE_UNKNOWN,
-    "OTHER": FAILURE_TYPE_UNKNOWN,
+    # The renderer's own catch-all codes get their own buckets so "unknown" keeps meaning exactly
+    # one thing: a code missing from this map that someone needs to add.
+    "UNKNOWN": FAILURE_TYPE_RENDERER_UNKNOWN,
+    "OTHER": FAILURE_TYPE_OTHER,
 }
 
 # Shown to whoever asked for the export, so each one says what happened and what to do next. A
