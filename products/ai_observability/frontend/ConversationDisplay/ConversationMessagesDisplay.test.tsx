@@ -429,17 +429,24 @@ describe('ConversationMessagesDisplay', () => {
             </Provider>
         )
 
-        expect(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')).toHaveLength(5)
-        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(0)
+        const triggers = container.querySelectorAll<HTMLButtonElement>('[data-attr="llma-message-actions-trigger"]')
 
-        fireEvent.click(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[0])
+        expect(triggers).toHaveLength(5)
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(0)
 
-        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(1)
+        triggers[0].focus()
+        fireEvent.click(triggers[0])
+
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(1)
+        expect(document.activeElement).toBe(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[0])
         expect(await screen.findByText('Translate')).toBeInTheDocument()
 
         fireEvent.click(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
 
-        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(1)
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[data-menu-mounted="true"]')).toHaveLength(1)
+        expect(document.activeElement).toBe(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
     })
 })
 

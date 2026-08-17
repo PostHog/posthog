@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, createContext, useContext, useState } from 'react'
+import { ReactNode, createContext, useContext, useEffect, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { PopoverReferenceContext } from 'lib/lemon-ui/Popover'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -46,7 +48,11 @@ const ActiveMessageActionsMenu = ({
     content,
     traceId,
     startVisible,
-}: MessageActionsMenuProps & { startVisible: boolean }): JSX.Element | null => {
+    triggerRef,
+}: MessageActionsMenuProps & {
+    startVisible: boolean
+    triggerRef?: MutableRefObject<HTMLButtonElement | null>
+}): JSX.Element | null => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
@@ -140,13 +146,14 @@ const ActiveMessageActionsMenu = ({
 
     return (
         <>
-            <LemonMenu items={menuItems} placement="bottom-end" startVisible={startVisible}>
+            <LemonMenu ref={triggerRef} items={menuItems} placement="bottom-end" startVisible={startVisible}>
                 <LemonButton
                     size="small"
                     noPadding
                     icon={<IconEllipsis />}
                     tooltip="More actions"
                     data-attr="llma-message-actions-trigger"
+                    data-menu-mounted="true"
                 />
             </LemonMenu>
 
@@ -172,23 +179,43 @@ export function MessageActionsMenu({
     menuKey = 'standalone',
 }: MessageActionsMenuProps): JSX.Element | null {
     const sharedMenu = useContext(MessageActionsMenuContext)
+    const triggerRef = useRef<HTMLButtonElement | null>(null)
+    const isActive = !sharedMenu || sharedMenu.activeMenuKey === menuKey
+    const shouldRestoreFocus = !!sharedMenu && isActive
+
+    useEffect(() => {
+        if (shouldRestoreFocus) {
+            triggerRef.current?.focus()
+        }
+    }, [shouldRestoreFocus])
 
     if (!content || content.trim().length === 0) {
         return null
     }
 
-    if (sharedMenu && sharedMenu.activeMenuKey !== menuKey) {
+    if (!isActive) {
         return (
-            <LemonButton
-                size="small"
-                noPadding
-                icon={<IconEllipsis />}
-                tooltip="More actions"
-                data-attr="llma-message-actions-trigger"
-                onClick={() => sharedMenu.setActiveMenuKey(menuKey)}
-            />
+            <PopoverReferenceContext.Provider value={[false, 'bottom-end']}>
+                <LemonButton
+                    ref={triggerRef}
+                    size="small"
+                    noPadding
+                    icon={<IconEllipsis />}
+                    tooltip="More actions"
+                    aria-haspopup="true"
+                    data-attr="llma-message-actions-trigger"
+                    onClick={() => sharedMenu?.setActiveMenuKey(menuKey)}
+                />
+            </PopoverReferenceContext.Provider>
         )
     }
 
-    return <ActiveMessageActionsMenu content={content} traceId={traceId} startVisible={!!sharedMenu} />
+    return (
+        <ActiveMessageActionsMenu
+            content={content}
+            traceId={traceId}
+            startVisible={!!sharedMenu}
+            triggerRef={triggerRef}
+        />
+    )
 }
