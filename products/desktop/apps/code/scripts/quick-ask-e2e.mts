@@ -603,16 +603,24 @@ await annotate.addInitScript(`
   };
 `);
 await annotate.goto(`${renderer.origin}/quick-ask-annotate.html`);
-await annotate.waitForSelector(".an-hint", { timeout: 15_000 });
 await annotate.waitForSelector(".an-shot", { timeout: 15_000 });
 
-// Crop: 300x200 at (100, 100). The shot is 2x the viewport, so the
-// dimension label reads export pixels.
+// The whole screen is selected from the start; the toolbar is up
+// immediately and no selection is forced.
+await annotate.waitForSelector(".an-toolbar", { timeout: 15_000 });
+const fullDims = await annotate.locator(".an-size").textContent();
+if (fullDims?.trim() !== "2400 × 1600") {
+  fail(`initial dimension label reads "${fullDims}", expected full screen`);
+}
+
+// Crop via the toolbar tool: 300x200 at (100, 100). The shot is 2x the
+// viewport, so the dimension label reads export pixels.
+await annotate.click('[aria-label="Crop (C)"]');
+await annotate.waitForSelector(".an-hint", { timeout: 5_000 });
 await annotate.mouse.move(100, 100);
 await annotate.mouse.down();
 await annotate.mouse.move(400, 300, { steps: 5 });
 await annotate.mouse.up();
-await annotate.waitForSelector(".an-toolbar", { timeout: 5_000 });
 // The toolbar is pinned to the top of the screen, away from the selection.
 const toolbarBox = await annotate.locator(".an-toolbar").boundingBox();
 if (!toolbarBox || toolbarBox.y > 40) {

@@ -12,6 +12,7 @@ export interface Rect {
 
 export type Tool =
   | "select"
+  | "crop"
   | "arrow"
   | "rect"
   | "ellipse"

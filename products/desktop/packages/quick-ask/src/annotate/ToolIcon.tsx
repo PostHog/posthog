@@ -2,6 +2,12 @@ import type React from "react";
 
 const PATHS: Record<string, React.JSX.Element> = {
   select: <path d="M4 2.5l8 7-3.6.7 2 3.6-2 1-2-3.7-2.4 2.6z" />,
+  crop: (
+    <>
+      <path d="M4.5 1.5v10h10" />
+      <path d="M1.5 4.5h10v10" />
+    </>
+  ),
   counter: (
     <>
       <circle cx="8" cy="8" r="5.8" />

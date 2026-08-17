@@ -35,6 +35,7 @@ const COLORS = ["#ff4d1f", "#ffb224", "#3b82f6", "#ffffff"];
 
 const TOOLS: { tool: Tool; label: string; key: string }[] = [
   { tool: "select", label: "Select", key: "V" },
+  { tool: "crop", label: "Crop", key: "C" },
   { tool: "arrow", label: "Arrow", key: "A" },
   { tool: "rect", label: "Box", key: "R" },
   { tool: "ellipse", label: "Ellipse", key: "O" },
@@ -245,7 +246,12 @@ function resizeShape(shape: Shape, handle: string, to: Point): Shape {
 
 export function Annotate(): React.JSX.Element {
   const [shot, setShot] = useState<HTMLImageElement | null>(null);
-  const [crop, setCrop] = useState<Rect | null>(null);
+  const [crop, setCrop] = useState<Rect | null>(() => ({
+    x: 0,
+    y: 0,
+    w: window.innerWidth,
+    h: window.innerHeight,
+  }));
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState(COLORS[0]);
   const [doc, setDoc] = useState<Doc>({ past: [], shapes: [], future: [] });
@@ -659,7 +665,7 @@ export function Annotate(): React.JSX.Element {
         commitText(true);
         return;
       }
-      if (!crop) {
+      if (!crop || tool === "crop") {
         drag.current = { mode: "select", from };
         setDraft({ kind: "rect", rect: normalizeRect(from, from), color });
         return;
@@ -853,6 +859,7 @@ export function Annotate(): React.JSX.Element {
           (current.rect.w >= MIN_DRAG_PX || current.rect.h >= MIN_DRAG_PX)
         ) {
           setCrop(clampCrop(current.rect));
+          setTool("select");
         }
         return null;
       }
@@ -903,7 +910,7 @@ export function Annotate(): React.JSX.Element {
       {shot && <img className="an-shot" src={shot.src} alt="" />}
       <canvas ref={canvasRef} className="an-overlay" />
 
-      {!crop && (
+      {(!crop || tool === "crop") && (
         <div className="an-hint">
           Drag to select an area
           <span className="an-hint-keys">
