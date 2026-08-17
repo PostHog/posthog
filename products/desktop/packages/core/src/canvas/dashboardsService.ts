@@ -6,14 +6,26 @@ import {
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
+  CanvasActionDefinition,
+  CanvasActionResult,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
+  CanvasStateEntry,
+  CanvasStateScope,
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
-import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
-import { PROJECT_API_CLIENT, type ProjectApiClient } from "./projectApiClient";
+import {
+  type CanvasAgentRequestResult,
+  canvasAgentRequestResultSchema,
+  FREEFORM_TEMPLATE_ID,
+} from "./freeformSchemas";
+import {
+  PROJECT_API_CLIENT,
+  type ProjectApiClient,
+  ProjectApiError,
+} from "./projectApiClient";
 
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
@@ -206,6 +218,128 @@ export class DashboardsService {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
   }
 
+  // File a rendering error in the canvas's authoring-task thread (the server
+  // dedupes per build and error type). Best-effort: a report must never affect
+  // the render, and backends without the endpoint just refuse it, so every
+  // failure is swallowed.
+  async reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void> {
+    try {
+      await this.api.fetch(
+        `canvases/${encodeURIComponent(input.id)}/report_error/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            build_id: input.buildId,
+            error_type: input.errorType,
+          }),
+        },
+      );
+    } catch {
+      // Advisory call — rendering carries on regardless.
+    }
+  }
+
+  // The canvas's readable ph.state entries: shared ones plus the caller's own
+  // user-scoped ones. Optionally narrowed to one scope.
+  async listState(input: {
+    id: string;
+    scope?: CanvasStateScope;
+  }): Promise<CanvasStateEntry[]> {
+    const suffix = input.scope
+      ? `?scope=${encodeURIComponent(input.scope)}`
+      : "";
+    const body = await this.api.json<{
+      entries: Array<{
+        scope: CanvasStateScope;
+        key: string;
+        value: unknown;
+        updated_at: string;
+      }>;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/state/${suffix}`,
+      "read canvas state",
+    );
+    return body.entries.map((entry) => ({
+      scope: entry.scope,
+      key: entry.key,
+      value: entry.value,
+      updatedAt: entry.updated_at,
+    }));
+  }
+
+  // Write one ph.state key; a null value deletes it (the 204 path).
+  async setState(input: {
+    id: string;
+    scope: CanvasStateScope;
+    key: string;
+    value: unknown;
+  }): Promise<void> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/state/set/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: input.scope,
+          key: input.key,
+          value: input.value ?? null,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res
+        .json()
+        .then((body) => (body as { detail?: string }).detail ?? null)
+        .catch(() => null);
+      throw new ProjectApiError(
+        detail ?? `Failed to write canvas state (${res.status})`,
+        res.status,
+      );
+    }
+  }
+
+  // The action registry: every verb a canvas may declare and invoke.
+  async listActions(): Promise<CanvasActionDefinition[]> {
+    const body = await this.api.json<{ actions: CanvasActionDefinition[] }>(
+      `canvases/actions/`,
+      "list canvas actions",
+    );
+    return body.actions;
+  }
+
+  // Invoke one registered action verb as the viewer.
+  async invokeAction(input: {
+    id: string;
+    verb: string;
+    payload: Record<string, unknown>;
+  }): Promise<CanvasActionResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/actions/invoke/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verb: input.verb, payload: input.payload }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      verb?: string;
+      result?: Record<string, unknown>;
+    };
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to invoke canvas action (${res.status})`,
+        res.status,
+      );
+    }
+    return { verb: body.verb ?? input.verb, result: body.result ?? {} };
+  }
+
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
   }
@@ -354,5 +488,27 @@ export class DashboardsService {
     if (!res.ok && res.status !== 404) {
       throw new Error(`Failed to delete canvas (${res.status})`);
     }
+  }
+
+  async requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult> {
+    const body = await this.api.json<{
+      request_outcome: string;
+      task_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/request_agent/`,
+      "request canvas agent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input.prompt }),
+      },
+    );
+    return canvasAgentRequestResultSchema.parse({
+      requestOutcome: body.request_outcome,
+      taskId: body.task_id,
+    });
   }
 }

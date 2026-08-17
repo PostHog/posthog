@@ -1,5 +1,4 @@
 import re
-import socket
 from collections.abc import Mapping
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
@@ -22,6 +21,8 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
+
+from posthog.security.url_validation import is_url_allowed
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -325,14 +326,21 @@ CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "Int128": "integer",
+    "UInt8": "integer",
+    "UInt16": "integer",
+    "UInt32": "integer",
     "UInt64": "integer",
+    "UInt128": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "Date32": "date",
     "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
+    "UUID": "string",
     "Decimal": "numeric",
 }
 
@@ -580,6 +588,88 @@ def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> d
     }
 
 
+# DuckDB base type name (lowercased, parenthesized args stripped) -> ClickHouse type.
+# Anything absent maps to String, which round-trips every remaining DuckDB type
+# (JSON, INTERVAL, BLOB, ENUM, nested LIST/STRUCT/MAP/UNION renderings).
+DUCKDB_TO_CLICKHOUSE_TYPE: dict[str, str] = {
+    "tinyint": "Int8",
+    "smallint": "Int16",
+    "integer": "Int32",
+    "int": "Int32",
+    "bigint": "Int64",
+    "hugeint": "Int128",
+    "utinyint": "UInt8",
+    "usmallint": "UInt16",
+    "uinteger": "UInt32",
+    "ubigint": "UInt64",
+    "uhugeint": "UInt128",
+    "float": "Float32",
+    "real": "Float32",
+    "double": "Float64",
+    "decimal": "Decimal",
+    "numeric": "Decimal",
+    "boolean": "Bool",
+    "date": "Date32",
+    "timestamp": "DateTime64(6)",
+    "datetime": "DateTime64(6)",
+    "timestamp with time zone": "DateTime64(6, 'UTC')",
+    "timestamptz": "DateTime64(6, 'UTC')",
+    "timestamp_s": "DateTime64(0)",
+    "timestamp_ms": "DateTime64(3)",
+    "timestamp_ns": "DateTime64(9)",
+    "uuid": "UUID",
+}
+
+
+def normalize_duckdb_type(duckdb_type: str) -> str:
+    """Lowercased base type name: `DECIMAL(10,2)` -> `decimal`, `INTEGER[]` -> `integer[]`."""
+    base = duckdb_type.strip().lower()
+    if "(" in base and base.endswith(")"):
+        open_index = base.index("(")
+        close_index = base.rindex(")")
+        base = (base[:open_index] + base[close_index + 1 :]).strip()
+    return base
+
+
+def duckdb_to_clickhouse_type(duckdb_type: str) -> str:
+    normalized_type = normalize_duckdb_type(duckdb_type)
+    clickhouse_type = DUCKDB_TO_CLICKHOUSE_TYPE.get(normalized_type)
+    if clickhouse_type is not None:
+        return clickhouse_type
+    # Arrays keep their `[]` suffix through normalization, so check before the scalar
+    # prefix fallbacks below or `DECIMAL(18,3)[]` would come out as a scalar Decimal.
+    if normalized_type.endswith("]"):
+        return "String"
+    if normalized_type.startswith(("decimal", "numeric")):
+        return "Decimal"
+    if normalized_type.startswith("timestamp"):
+        return "DateTime64(6)"
+    # JSON/INTERVAL/BLOB/ENUM and nested LIST/STRUCT/MAP/UNION render as String.
+    return "String"
+
+
+def motherduck_column_to_dwh_column(_column_name: str, duckdb_type: str, nullable: bool) -> dict[str, Any]:
+    clickhouse_type = duckdb_to_clickhouse_type(duckdb_type)
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def motherduck_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: motherduck_column_to_dwh_column(column_name, duckdb_type, nullable)
+        for column_name, duckdb_type, nullable in columns
+    }
+
+
+# Used by mixins.resolve_host for direct SQL-source connections (its own IP-pinning check).
+# validate_warehouse_table_url_pattern below calls posthog.security.url_validation instead.
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 
@@ -649,11 +739,23 @@ def _validate_url_pattern_is_not_posthog_storage(
         return True, ""
 
     if _PATH_STYLE_STORAGE_HOST.match(normalized_hostname):
-        bucket = path.lstrip("/").split("/", 1)[0]
+        segments = path.lstrip("/").split("/")
+        bucket = segments[0]
         # A glob here expands across buckets rather than within one, so it can reach ours whatever
         # it looks like. No source needs to pattern-match a bucket name.
         if any(character in _GLOB_METACHARACTERS for character in bucket):
             return False, "The bucket name in a URL pattern must be exact. Wildcards belong in the file path."
+        # A percent-encoded slash here would put a second path segment (potentially one of our own
+        # bucket names) after whatever the request client decodes it into, while this check still
+        # sees it as part of one opaque bucket segment. Reject the encoding outright rather than
+        # depend on this parser agreeing with ClickHouse's about where it splits.
+        if "%" in bucket:
+            return False, "The bucket name in a URL pattern can't contain percent-encoded characters."
+        # Same reasoning as the percent-encoding check: a literal "." or ".." segment is opaque to
+        # this parser (bucket is just the first segment), but would let a path-normalizing client
+        # resolve a different bucket than the one checked below. No object key legitimately needs one.
+        if any(segment in (".", "..") for segment in segments):
+            return False, "The path in a URL pattern can't contain '.' or '..' segments."
         if bucket in owned_buckets:
             return False, _NOT_OUR_STORAGE
 
@@ -673,32 +775,20 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
 
     normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
 
-    # Runs before the DNS checks below so a URL aimed at our own storage always reports that, rather
-    # than whatever the internal hostname happens to resolve to.
+    # Runs before the generic SSRF check below so a URL aimed at our own storage always reports
+    # that, rather than whatever the internal hostname happens to resolve to.
     is_valid, error_message = _validate_url_pattern_is_not_posthog_storage(
         url_pattern, normalized_hostname, parsed.path
     )
     if not is_valid:
         return is_valid, error_message
 
-    if normalized_hostname in {"localhost"}:
-        return False, "URL pattern hostname is not allowed."
-
-    # Block direct internal IP literals.
-    try:
-        if not _is_safe_public_ip(parsed.hostname):
-            return False, "URL pattern hostname must not resolve to internal IP ranges."
-    except ValueError:
-        pass
-
-    # Resolve the hostname and block if any resolved IP is internal (catches DNS rebinding services).
-    try:
-        addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
-        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-            resolved_ip = sockaddr[0]
-            if not _is_safe_public_ip(str(resolved_ip)):
-                return False, "URL pattern hostname must not resolve to internal IP ranges."
-    except socket.gaierror:
-        return False, "URL pattern hostname could not be resolved."
+    # is_url_allowed is the same SSRF guard used for outbound fetches elsewhere in the codebase
+    # (webhook destinations, integration probes, sibling warehouse_sources connectors): metadata
+    # IPs, loopback/internal-TLD hosts, the backslash/%5c authority-parsing mismatch between
+    # urlparse and the client that actually connects, and DNS resolution to a private IP.
+    allowed, reason = is_url_allowed(url_pattern)
+    if not allowed:
+        return False, reason or "URL pattern hostname is not allowed."
 
     return True, ""

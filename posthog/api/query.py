@@ -52,6 +52,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -176,6 +177,10 @@ def _required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")
@@ -358,6 +363,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
@@ -462,6 +470,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
