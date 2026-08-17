@@ -2,6 +2,8 @@
 
 A service that receives OpenTelemetry Protocol (OTLP) logs via HTTP and processes them based on team authentication.
 
+Test Commit
+
 ## Features
 
 - Receives OTLP logs via HTTP on `/v1/logs` and `/i/v1/logs` endpoints
