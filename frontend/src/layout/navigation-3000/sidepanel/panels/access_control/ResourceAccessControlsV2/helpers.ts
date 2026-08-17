@@ -177,21 +177,17 @@ function inheritedReason(reason: InheritedReason, fallbackTo: string): string {
 }
 
 /**
- * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
- * defaults and role grants server-side; `systemDefault` covers resources with no rule anywhere.
+ * What applies to a resource when the subject has no rule of their own. The entry resolves it
+ * server-side, down to the built-in default when no rule exists anywhere.
  */
-export function inheritedFor(
-    res: EffectiveAccessControlEntry | undefined,
-    systemDefault: AccessControlLevel | undefined,
-    fallbackTo: string
-): InheritedAccess | null {
-    const level = res?.inherited_access?.access_level ?? systemDefault
-    if (!level) {
+export function inheritedFor(res: EffectiveAccessControlEntry | undefined, fallbackTo: string): InheritedAccess | null {
+    const inherited = res?.inherited_access ?? null
+    if (!inherited) {
         return null
     }
     return {
-        label: humanizeAccessControlLevel(level),
-        reason: inheritedReason(inheritedReasonOf(res?.inherited_access ?? null), fallbackTo),
+        label: humanizeAccessControlLevel(inherited.access_level),
+        reason: inheritedReason(inheritedReasonOf(inherited), fallbackTo),
     }
 }
 

@@ -304,7 +304,7 @@ function ToolsSection({
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {
-    const { availableResourceLevels, defaults, canEdit, showAllTools, toolsCollapse } = useValues(
+    const { availableResourceLevels, canEdit, showAllTools, toolsCollapse } = useValues(
         accessControlsLogic({ projectId })
     )
     const { updateResourceAccessControls, setShowAllTools } = useActions(accessControlsLogic({ projectId }))
@@ -375,11 +375,7 @@ function ToolsSection({
                                         minimumLevel={res?.minimum}
                                         onChange={(level) => onResourceChange(resource.key, level)}
                                         disabledReason={subjectDisabledReason(entry, canEdit, user?.uuid)}
-                                        inherited={inheritedFor(
-                                            res,
-                                            defaults?.resource_access_levels[resource.key]?.system_default_access_level,
-                                            resource.label.toLowerCase()
-                                        )}
+                                        inherited={inheritedFor(res, resource.label.toLowerCase())}
                                     />
                                 </div>
                             )
