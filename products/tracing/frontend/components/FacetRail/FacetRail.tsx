@@ -15,6 +15,7 @@ import {
     FacetConfig,
     FacetOption,
     facetSelection,
+    facetValueGroup,
     facetsByGroup,
     filterFacetsByName,
     mergeSelectedIntoOptions,
@@ -77,7 +78,7 @@ export function FacetRail(): JSX.Element {
             const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
             const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
                 ...option,
-                count: countByValue.get(option.value) ?? 0,
+                count: facetValueGroup(source, option.value).reduce((sum, v) => sum + (countByValue.get(v) ?? 0), 0),
             }))
             return (
                 <Facet

@@ -169,16 +169,17 @@ export function cycleFacetFilter(
     source: FilterGroupFacetSource,
     value: string
 ): UniversalFiltersGroup {
+    const valueGroup = facetValueGroup(source, value)
     const { included, excluded } = facetFilterSelection(group, source)
     let nextIncluded = included
     let nextExcluded = excluded
-    if (included.includes(value)) {
-        nextIncluded = included.filter((v) => v !== value)
-        nextExcluded = excluded.includes(value) ? excluded : [...excluded, value]
-    } else if (excluded.includes(value)) {
-        nextExcluded = excluded.filter((v) => v !== value)
+    if (valueGroup.some((v) => included.includes(v))) {
+        nextIncluded = included.filter((v) => !valueGroup.includes(v))
+        nextExcluded = [...excluded, ...valueGroup.filter((v) => !excluded.includes(v))]
+    } else if (valueGroup.some((v) => excluded.includes(v))) {
+        nextExcluded = excluded.filter((v) => !valueGroup.includes(v))
     } else {
-        nextIncluded = [...included, value]
+        nextIncluded = [...included, ...valueGroup.filter((v) => !included.includes(v))]
     }
 
     const values = innerFilters(group).filter((f) => !isRailFacetFilter(f, source))
@@ -201,12 +202,30 @@ export function cycleFacetFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
-// OTel span status. Values must stay the digit strings "0"/"1"/"2": breakdown rows arrive
+// A span that never had its status explicitly set carries no distinct meaning from one marked
+// OK, so the rail folds status_code 0 (Unset) into the OK row: selecting, excluding, and counting
+// "1" also reads and writes "0". Keyed on the digit strings the breakdown rows and filter values
+// already use.
+const STATUS_CODE_VALUE_GROUPS: Record<string, string[]> = {
+    '1': ['0', '1'],
+}
+
+/**
+ * The full set of underlying column values a facet click or count should read/write for `value`.
+ * Only status_code's "OK" (folding in "Unset") expands to more than itself; every other facet
+ * value, including status_code's "Error", is its own singleton group.
+ */
+export function facetValueGroup(source: FacetSource, value: string): string[] {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_VALUE_GROUPS[value] ?? [value]
+    }
+    return [value]
+}
+
+// OTel span status. Values must stay the digit strings "1"/"2": breakdown rows arrive
 // stringified (the backend toString()s the Int16 column), so these are what counts key on.
-// Don't switch to the label strings — the server-side filter normaliser treats "OK" as
-// {Unset, OK}, which would silently widen a selection.
+// "Unset" (0) has no separate row; see STATUS_CODE_VALUE_GROUPS above.
 const STATUS_OPTIONS: FacetOption[] = [
-    { value: '0', label: 'Unset', count: 0 },
     { value: '1', label: 'OK', count: 0 },
     { value: '2', label: 'Error', count: 0 },
 ]
