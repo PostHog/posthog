@@ -649,7 +649,13 @@ class UserAccessControl:
                 }
             )
         )
-        return list(team_rows.union(project_rows))
+        with tracer.start_as_current_span("rbac.access_controls.preload") as span:
+            rows = list(team_rows.union(project_rows))
+            span.set_attribute("rbac.row_count", len(rows))
+            span.set_attribute(
+                "rbac.cross_environment_row_count", sum(1 for row in rows if row.team_id != self._team.id)
+            )
+        return rows
 
     @staticmethod
     def _annotated_access_controls() -> QuerySet:
@@ -730,7 +736,11 @@ class UserAccessControl:
         the DB directly."""
         if self._team is None:
             return False
-        return filters.get("team_id") == self._team.id or filters.get("team__project_id") == self._team.project_id
+        if filters.get("team__project_id") == self._team.project_id:
+            # The preload only carries the project's rows for these resources; answering any other
+            # resource from it would find no rows and fall through to the default level.
+            return filters.get("resource") in PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES
+        return filters.get("team_id") == self._team.id
 
     def _row_matches(self, ac: _AccessControl, filters: dict) -> bool:
         """In-memory equivalent of the targeted DB query's WHERE clause, applied to an already

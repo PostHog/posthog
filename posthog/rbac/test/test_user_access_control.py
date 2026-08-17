@@ -2240,6 +2240,25 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         assert self._level_in(notebook, self.team) == "none"
         assert self._level_in(notebook, self.sibling_team) == "editor"
 
+    def test_resource_level_rule_governs_from_every_environment(self):
+        self._deny("dashboard", None, self.sibling_team)
+
+        assert UserAccessControl(self.user, self.team).access_level_for_resource("dashboard") == "none"
+        assert UserAccessControl(self.user, self.sibling_team).access_level_for_resource("dashboard") == "none"
+
+    def test_conflicting_rules_across_environments_resolve_to_the_loosest(self):
+        # One row per environment can exist for the same subject (the unique constraint is
+        # per-team); resolution takes the highest level across them, like it does across
+        # member and role rows.
+        dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
+        self._deny("dashboard", str(dashboard.id), self.team)
+        self._create_access_control(
+            resource="dashboard", resource_id=str(dashboard.id), access_level="viewer", team=self.sibling_team
+        )
+
+        assert self._level_in(dashboard, self.team) == "viewer"
+        assert self._level_in(dashboard, self.sibling_team) == "viewer"
+
     def test_rule_does_not_reach_another_project(self):
         other_project_team = Team.objects.create(organization=self.organization, name="Other project")
         dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
@@ -2273,7 +2292,7 @@ class TestProjectScopedResources(BaseUserAccessControlTest):
         self._deny("dashboard", str(dashboard.id), self.team)
 
         queryset = UserAccessControl(self.user, self.sibling_team).filter_and_annotate_file_system_queryset(
-            FileSystem.objects.all()
+            FileSystem.objects.filter(team__project_id=self.team.project_id)
         )
 
         assert entry not in queryset
