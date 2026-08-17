@@ -1,6 +1,8 @@
 import pytest
+from unittest.mock import patch
 
 from products.signals.backend.contracts import GithubIssueSignalExtra
+from products.signals.backend.emission import github_issues as github_issues_module
 from products.signals.backend.emission.github_issues import EXTRA_FIELDS, GITHUB_ISSUES_CONFIG, github_issue_emitter
 
 
@@ -100,6 +102,16 @@ class TestGithubIssueEmitter:
         assert result is not None
         assert result.extra["author_login"] is None
         assert result.extra["author_association"] is None
+
+    def test_logged_records_leave_the_user_object_out(self, github_issue_record):
+        # The record reaches the logs on every skipped or malformed issue, and the nested user object
+        # carries a numeric id and avatar URLs that identify a person well beyond the handle.
+        github_issue_record["body"] = ""
+
+        with patch.object(github_issues_module.logger, "info") as log_info:
+            github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert "user" not in log_info.call_args.kwargs["record"]
 
     def test_labels_parsed_from_json_string(self, github_issue_record):
         result = github_issue_emitter(team_id=1, record=github_issue_record)

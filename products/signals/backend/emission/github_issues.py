@@ -65,6 +65,12 @@ AUTHOR_FIELDS = ("author_association", "user")
 EXTRA_FIELDS = (*PASSTHROUGH_FIELDS, "author_login", "author_association")
 
 
+def _loggable(record: dict[str, Any]) -> dict[str, Any]:
+    """The record minus the nested user object, whose numeric id and URLs identify a person well
+    beyond the handle triage needs."""
+    return {k: v for k, v in record.items() if k != "user"}
+
+
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     try:
         issue_id = record["id"]
@@ -72,15 +78,18 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         body = record["body"]
     except KeyError as e:
         msg = f"GitHub issue record missing required field {e}"
-        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg) from e
     if not issue_id or not title:
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
-        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
     if not body:
         logger.info(
-            "Ignoring GitHub issue without a body", record=record, team_id=team_id, signals_type="data-import-signals"
+            "Ignoring GitHub issue without a body",
+            record=_loggable(record),
+            team_id=team_id,
+            signals_type="data-import-signals",
         )
         return None
     return SignalEmitterOutput(
@@ -129,16 +138,16 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
             parsed = json.loads(raw_labels)
         except (json.JSONDecodeError, TypeError) as e:
             msg = f"GitHub issue labels field is not valid JSON: {raw_labels!r}"
-            logger.exception(msg, record=record, signals_type="data-import-signals")
+            logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
             raise ValueError(msg) from e
         if not isinstance(parsed, list):
             msg = f"GitHub issue labels field is not a JSON array: {raw_labels!r}"
-            logger.exception(msg, record=record, signals_type="data-import-signals")
+            logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
             raise ValueError(msg)
         extra["labels"] = [label["name"] for label in parsed if isinstance(label, dict) and "name" in label]
     else:
         msg = f"GitHub issue labels field has unexpected type {type(raw_labels).__name__}: {raw_labels!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
+        logger.exception(msg, record=_loggable(record), signals_type="data-import-signals")
         raise ValueError(msg)
     return extra
 
