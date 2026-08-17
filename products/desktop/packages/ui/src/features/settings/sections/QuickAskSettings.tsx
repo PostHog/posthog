@@ -1,15 +1,10 @@
+import type { LoopSchemas } from "@posthog/api-client/loops";
 import { useServiceOptional } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
-import {
-  type Adapter,
-  DEFAULT_CODEX_MODEL,
-  DEFAULT_GATEWAY_MODEL,
-  getReasoningEffortOptions,
-  isRestrictedModelOption,
-} from "@posthog/shared";
 import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { LoopModelFields } from "@posthog/ui/features/loops/components/LoopModelFields";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
@@ -17,16 +12,9 @@ import {
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
-import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { QuickAskShortcutSetting } from "@posthog/ui/features/settings/sections/QuickAskShortcutSetting";
-import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
-
-const ADAPTER_OPTIONS = [
-  { value: "", label: "Claude (default)" },
-  { value: "codex", label: "Codex" },
-];
 
 export function QuickAskSettings() {
   const client = useServiceOptional<QuickAskSettingsClient>(
@@ -34,19 +22,6 @@ export function QuickAskSettings() {
   );
   const [state, setState] = useState<QuickAskState | null>(null);
   const { channels } = useChannels();
-  const adapterForQuery: Adapter =
-    state?.defaultAdapter === "codex" ? "codex" : "claude";
-  const models = useAuthenticatedQuery(
-    ["quick-ask-settings-models", adapterForQuery],
-    async (apiClient) => {
-      const options =
-        await apiClient.getCloudTaskConfigOptions(adapterForQuery);
-      return (
-        options.find((option) => option.category === "model")?.options ?? []
-      );
-    },
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false },
-  );
 
   useEffect(() => {
     if (!client) return;
@@ -84,23 +59,8 @@ export function QuickAskSettings() {
       ? (selectedSpace?.repositories ?? [])
       : [];
   const off = !state.active;
-  const adapter: Adapter =
+  const adapter: LoopSchemas.LoopRuntimeAdapterEnum =
     state.defaultAdapter === "codex" ? "codex" : "claude";
-  const effortModel =
-    state.defaultModel ||
-    (adapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
-  const modelOptions = [
-    { value: "", label: "Harness default" },
-    ...(models.data ?? [])
-      .filter((option) => !isRestrictedModelOption(option._meta))
-      .map((option) => ({ value: option.value, label: option.name })),
-  ];
-  const effortOptions = [
-    { value: "", label: "Default" },
-    ...(getReasoningEffortOptions(adapter, effortModel) ?? []).map(
-      (option) => ({ value: option.value, label: option.name }),
-    ),
-  ];
 
   return (
     <Flex direction="column">
@@ -160,72 +120,28 @@ export function QuickAskSettings() {
           />
         </SettingRow>
 
-        <SettingRow
-          label="Default harness"
-          description="The agent that answers quick-ask questions."
-        >
-          <SettingsOptionSelect
-            value={state.defaultAdapter}
-            options={ADAPTER_OPTIONS}
-            onValueChange={(value) =>
-              apply({
-                defaultAdapter: value,
-                defaultModel: "",
-                defaultEffort: "",
-              })
+        <Flex direction="column" gap="1" py="4">
+          <Text className="font-medium text-sm">Agent</Text>
+          <Text color="gray" className="mb-2 text-[13px]">
+            The harness, model, and effort quick-ask answers run with.
+          </Text>
+          <LoopModelFields
+            adapter={adapter}
+            model={state.defaultModel}
+            reasoningEffort={
+              (state.defaultEffort ||
+                null) as LoopSchemas.LoopReasoningEffortEnum | null
             }
-            ariaLabel="Default harness"
             disabled={off}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Default model"
-          description="Follows the harness default when unset."
-        >
-          <SettingsOptionSelect
-            value={state.defaultModel}
-            options={modelOptions}
-            onValueChange={(value) =>
-              apply({ defaultModel: value, defaultEffort: "" })
+            onAdapterChange={(next) =>
+              apply({ defaultAdapter: next === "claude" ? "" : next })
             }
-            ariaLabel="Default model"
-            disabled={off || models.isPending}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Default effort"
-          description="How much thinking the model spends per answer."
-        >
-          <SettingsOptionSelect
-            value={
-              effortOptions.some(
-                (option) => option.value === state.defaultEffort,
-              )
-                ? state.defaultEffort
-                : ""
+            onModelChange={(model) => apply({ defaultModel: model })}
+            onReasoningEffortChange={(effort) =>
+              apply({ defaultEffort: effort ?? "" })
             }
-            options={effortOptions}
-            onValueChange={(value) => apply({ defaultEffort: value })}
-            ariaLabel="Default effort"
-            disabled={off || effortOptions.length <= 1}
           />
-        </SettingRow>
-
-        <SettingRow
-          label="Warm a sandbox on summon"
-          description="Boots the agent while you type, so the first answer starts at model speed. Uses compute for summons that never ask."
-          noBorder
-        >
-          <Switch
-            size="sm"
-            checked={state.warmOnSummon}
-            onCheckedChange={(checked) => apply({ warmOnSummon: checked })}
-            aria-label="Warm a sandbox on summon"
-            disabled={off}
-          />
-        </SettingRow>
+        </Flex>
       </div>
     </Flex>
   );

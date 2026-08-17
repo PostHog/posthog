@@ -104,7 +104,6 @@ export interface QuickAskState {
   defaultAdapter: string;
   defaultModel: string;
   defaultEffort: string;
-  warmOnSummon: boolean;
 }
 
 export interface QuickAskSettingsPatch {
@@ -115,7 +114,6 @@ export interface QuickAskSettingsPatch {
   defaultAdapter?: string;
   defaultModel?: string;
   defaultEffort?: string;
-  warmOnSummon?: boolean;
 }
 
 let quickAskEnabled = false;
@@ -157,7 +155,6 @@ export function getQuickAskState(): QuickAskState {
     defaultAdapter: quickAskStore.get("defaultAdapter"),
     defaultModel: quickAskStore.get("defaultModel"),
     defaultEffort: quickAskStore.get("defaultEffort"),
-    warmOnSummon: quickAskStore.get("warmOnSummon"),
   };
 }
 
@@ -192,9 +189,6 @@ export function setQuickAskSettings(
   }
   if (patch.defaultEffort !== undefined) {
     quickAskStore.set("defaultEffort", patch.defaultEffort);
-  }
-  if (patch.warmOnSummon !== undefined) {
-    quickAskStore.set("warmOnSummon", patch.warmOnSummon);
   }
   return getQuickAskState();
 }
@@ -350,9 +344,7 @@ function showQuickAsk(): void {
   quickAskWindow.focus();
   quickAskWindow.webContents.send(QUICK_ASK_SHOWN_CHANNEL);
   // Boot a sandbox while the user types.
-  if (quickAskStore.get("warmOnSummon")) {
-    void getQuickAskService().warm();
-  }
+  void getQuickAskService().warm();
 }
 
 function hideQuickAsk(): void {

@@ -18,7 +18,6 @@ const quickAskStateSchema = z.object({
   defaultAdapter: z.string(),
   defaultModel: z.string(),
   defaultEffort: z.string(),
-  warmOnSummon: z.boolean(),
 });
 
 export const quickAskRouter = router({
@@ -48,7 +47,6 @@ export const quickAskRouter = router({
         defaultAdapter: z.enum(["", "claude", "codex"]).optional(),
         defaultModel: z.string().max(120).optional(),
         defaultEffort: z.string().max(32).optional(),
-        warmOnSummon: z.boolean().optional(),
       }),
     )
     .output(quickAskStateSchema)

@@ -38,7 +38,6 @@ interface QuickAskStoreSchema {
   defaultAdapter: string;
   defaultModel: string;
   defaultEffort: string;
-  warmOnSummon: boolean;
 }
 
 export interface WindowStateSchema {
@@ -70,7 +69,7 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
   name: "quick-ask",
   cwd: userDataDir,
   defaults: {
-    panelEnabled: true,
+    panelEnabled: false,
     shortcut: "",
     defaultChannelId: "",
     defaultRepositories: [],
@@ -78,7 +77,6 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
     defaultAdapter: "",
     defaultModel: "",
     defaultEffort: "",
-    warmOnSummon: true,
   },
 });
 

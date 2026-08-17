@@ -24,8 +24,6 @@ export interface QuickAskState {
   defaultAdapter: string;
   defaultModel: string;
   defaultEffort: string;
-  /** Boot a sandbox when the panel is summoned. */
-  warmOnSummon: boolean;
 }
 
 export interface QuickAskSettingsPatch {
@@ -36,7 +34,6 @@ export interface QuickAskSettingsPatch {
   defaultAdapter?: string;
   defaultModel?: string;
   defaultEffort?: string;
-  warmOnSummon?: boolean;
 }
 
 export interface QuickAskSettingsClient {

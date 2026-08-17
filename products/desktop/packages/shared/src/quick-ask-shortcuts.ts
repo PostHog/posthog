@@ -15,6 +15,11 @@ export interface QuickAskShortcutPreset {
 
 export const QUICK_ASK_SHORTCUT_PRESETS: readonly QuickAskShortcutPreset[] = [
   {
+    accelerator: "CommandOrControl+Alt+P",
+    macLabel: "⌘ ⌥ P",
+    otherLabel: "Ctrl+Alt+P",
+  },
+  {
     accelerator: "Alt+Space",
     macLabel: "⌥ Space",
     otherLabel: "Alt+Space",
