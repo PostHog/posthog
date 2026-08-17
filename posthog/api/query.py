@@ -52,6 +52,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -362,6 +363,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
@@ -466,6 +470,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
