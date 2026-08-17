@@ -21,13 +21,11 @@ class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Resolved at routing time: dispatch never reaches this workflow without a
+    # PostHog user, on either the ``app_mention`` or the untagged-reply path.
+    user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity below. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
-    user_id: int | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
@@ -156,11 +154,10 @@ class PostHogCodeRepoCascadeOutcome:
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
     repos, so the mention becomes a repo-less task and the agent decides whether the
     ask needs code. `agent_needed` → there are multiple candidates and no explicit
-    mention. `needs_user_github` is neither emitted nor handled any more; the value
-    stays in the `Literal` only so an old payload still parses.
+    mention.
     """
 
-    mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
+    mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
 

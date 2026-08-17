@@ -28,11 +28,14 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 
 
-def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
+def _make_inputs(
+    integration_id: int, user_id: int, slack_team_id: str = "T_SLACK"
+) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> do something"},
         integration_id=integration_id,
         slack_team_id=slack_team_id,
+        user_id=user_id,
     )
 
 
@@ -204,7 +207,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -263,6 +266,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -324,7 +328,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             mentioning_slack_user_id="U_ALICE",
         )
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -359,6 +363,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
             slack_event_id="Ev01234567",
+            user_id=self.user.id,
         )
         create_posthog_code_task_for_repo_activity(
             inputs,
@@ -384,7 +389,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -415,7 +420,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -442,7 +447,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -481,7 +486,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -517,7 +522,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -555,7 +560,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -587,7 +592,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -651,7 +656,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
     def test_no_mapping_returns_false(self):
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
@@ -668,7 +673,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
@@ -687,7 +692,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -743,6 +748,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -778,7 +784,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> clone org/repo and open PR", "1234.5679"
         )
@@ -796,7 +802,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
         )
@@ -824,7 +830,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> I connected GitHub, try again", "1234.5679"
         )
@@ -851,7 +857,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
         )
@@ -870,7 +876,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -888,7 +894,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -909,7 +915,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "do something", "1234.5679"
         )
@@ -930,7 +936,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = mock_slack_instance
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> please retry the build", "1234.5679"
         )
@@ -959,7 +965,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
         mock_signal.assert_called_once()
@@ -978,7 +984,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> sneak in", "1234.5679"
         )
@@ -1003,7 +1009,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> fix the tests", "1234.5679"
         )
@@ -1046,7 +1052,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
@@ -1061,7 +1067,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -1104,6 +1110,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -1167,6 +1174,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -1197,7 +1205,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -1220,6 +1228,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
     def setUp(self):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -1228,7 +1237,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         blocked = enforce_posthog_code_billing_quota_activity(
             inputs,
             "C123",
@@ -1245,7 +1254,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         blocked = enforce_posthog_code_billing_quota_activity(
             inputs,
             "C123",

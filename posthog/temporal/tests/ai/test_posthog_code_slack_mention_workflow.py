@@ -7,19 +7,15 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "text,patched,expect_classifier",
+    "text,expect_classifier",
     [
         # File-only replies skip the classifier so the attachment isn't dropped.
-        ("", True, False),
+        ("", False),
         # Replies with text still face the classifier even when files are attached.
-        ("nice weather today", True, True),
-        # Replays of histories recorded before the patch keep the old always-classify sequence.
-        ("", False, True),
+        ("nice weather today", True),
     ],
 )
-async def test_untagged_followup_with_files_classifier_gating(
-    text: str, patched: bool, expect_classifier: bool
-) -> None:
+async def test_untagged_followup_with_files_classifier_gating(text: str, expect_classifier: bool) -> None:
     workflow = posthog_code_slack_mention.PostHogCodeSlackMentionWorkflow()
     calls: list[str] = []
     inputs = PostHogCodeSlackMentionWorkflowInputs(
@@ -50,7 +46,8 @@ async def test_untagged_followup_with_files_classifier_gating(
         raise AssertionError(f"unexpected activity: {activity_fn.__name__}")
 
     with (
-        patch.object(posthog_code_slack_mention.workflow, "patched", return_value=patched),
+        # Runs outside a workflow context, where the real marker call would raise.
+        patch.object(posthog_code_slack_mention.workflow, "deprecate_patch"),
         patch.object(posthog_code_slack_mention, "_execute_posthog_code_activity", side_effect=fake_execute_activity),
     ):
         await workflow.run(inputs)
