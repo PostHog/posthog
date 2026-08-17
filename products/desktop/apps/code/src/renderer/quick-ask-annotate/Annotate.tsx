@@ -999,12 +999,17 @@ export function Annotate(): React.JSX.Element {
             lineHeight: TEXT_LINE,
             ...(editorCap !== null ? { maxWidth: editorCap } : {}),
             ...(textBg
-              ? {
+              ? ({
                   background: color,
                   color: contrastInk(color),
                   caretColor: contrastInk(color),
                   padding: `${TEXT_BG_PAD_Y}px ${TEXT_BG_PAD_X}px`,
-                }
+                  // Placeholder and selection read against this ink.
+                  "--an-ph":
+                    contrastInk(color) === "#ffffff"
+                      ? "rgba(255, 255, 255, 0.55)"
+                      : "rgba(28, 29, 34, 0.45)",
+                } as React.CSSProperties)
               : {
                   color,
                   caretColor: color,
@@ -1012,7 +1017,7 @@ export function Annotate(): React.JSX.Element {
                 }),
           }}
           rows={1}
-          placeholder="Type…"
+          placeholder="Add text"
           // biome-ignore lint/a11y/noAutofocus: the tool just placed the caret
           autoFocus
           spellCheck={false}

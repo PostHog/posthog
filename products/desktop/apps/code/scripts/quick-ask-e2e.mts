@@ -666,12 +666,13 @@ const textW = (await annotate.evaluate(`(() => {
   ctx.font = '600 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
   return ctx.measureText("wrap me please now").width;
 })()`)) as number;
+// Solid pill ink only; the pill's soft drop shadow does not count.
 const probe = async (): Promise<number> =>
   (await annotate.evaluate(`(() => {
     const ctx = document.querySelector(".an-overlay").getContext("2d");
     return ctx.getImageData(150, 295, 1, 1).data[3];
   })()`)) as number;
-if ((await probe()) !== 0) {
+if ((await probe()) > 128) {
   fail("second text line is inked before the width drag");
 }
 const edgeX = 140 + textW + 13;
@@ -679,7 +680,7 @@ await annotate.mouse.move(edgeX, 271);
 await annotate.mouse.down();
 await annotate.mouse.move(140 + textW / 2, 271, { steps: 5 });
 await annotate.mouse.up();
-if ((await probe()) === 0) {
+if ((await probe()) < 128) {
   fail("narrowing the text did not wrap it onto a second line");
 }
 pass("text options row sizes text; side handle wraps it to multi-line");
@@ -710,7 +711,7 @@ const wrapped = (await annotate.evaluate(`(() => {
   const ctx = document.querySelector(".an-overlay").getContext("2d");
   return ctx.getImageData(150, 335, 1, 1).data[3];
 })()`)) as number;
-if (wrapped === 0) {
+if (wrapped < 128) {
   fail("long label did not auto-wrap inside the selection");
 }
 pass("long labels auto-wrap and finish into the select tool");

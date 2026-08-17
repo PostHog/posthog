@@ -310,10 +310,16 @@ export function drawShape(
       ctx.textAlign = "left";
       if (shape.bg) {
         const box = shapeBBox(shape);
+        ctx.save();
+        // Soft drop shadow lifts the pill off busy screenshots.
+        ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 2;
         ctx.fillStyle = shape.color;
         ctx.beginPath();
         ctx.roundRect(box.x, box.y, box.w, box.h, 7);
         ctx.fill();
+        ctx.restore();
         ctx.fillStyle = contrastInk(shape.color);
       } else {
         ctx.save();

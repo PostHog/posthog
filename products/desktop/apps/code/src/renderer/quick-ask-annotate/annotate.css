@@ -15,7 +15,7 @@ body,
 
 :root {
   --an-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --an-glass: rgba(22, 23, 28, 0.72);
+  --an-glass: rgba(24, 25, 30, 0.8);
   --an-hairline: rgba(255, 255, 255, 0.14);
   --an-fg: rgba(255, 255, 255, 0.92);
   --an-fg-dim: rgba(255, 255, 255, 0.6);
@@ -27,6 +27,8 @@ body,
   inset: 0;
   user-select: none;
   font-family: var(--an-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .an-shot,
@@ -189,7 +191,29 @@ body,
 
 .an-tool:hover:not(:disabled) {
   color: var(--an-fg);
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.an-tool:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.an-tool,
+.an-color,
+.an-cancel,
+.an-attach {
+  transition:
+    color 0.1s,
+    background 0.1s,
+    transform 0.12s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.an-tool:focus-visible,
+.an-color:focus-visible,
+.an-cancel:focus-visible,
+.an-attach:focus-visible {
+  outline: 2px solid rgba(247, 165, 1, 0.8);
+  outline-offset: 1px;
 }
 
 .an-tool:disabled {
@@ -215,6 +239,9 @@ body,
   border-radius: 50%;
   outline: 2px solid transparent;
   outline-offset: 2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   transition:
     outline-color 0.1s,
@@ -256,11 +283,17 @@ body,
 .an-attach {
   background: var(--an-accent);
   color: #1c1400;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .an-attach:hover {
   background: #ffb92e;
+}
+
+.an-attach:active {
+  transform: scale(0.96);
 }
 
 .an-attach kbd {
@@ -305,11 +338,17 @@ body,
   margin: 0;
   border: none;
   border-radius: 7px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.28);
 }
 
 .an-text-solid::placeholder {
-  color: rgba(0, 0, 0, 0.35);
+  color: var(--an-ph, rgba(255, 255, 255, 0.55));
+}
+
+.an-text-solid::selection {
+  background: var(--an-ph, rgba(255, 255, 255, 0.55));
 }
 
 @media (prefers-reduced-motion: reduce) {
