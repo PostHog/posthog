@@ -14979,7 +14979,7 @@ export namespace Schemas {
     export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
 
     /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     * Exact-version dependencies, restricted to the platform-supported set at its pinned versions.
      */
     export type CanvasSourceProjectDependencies = {[key: string]: string};
 
@@ -14995,11 +14995,11 @@ export namespace Schemas {
       assets?: CanvasSourceProjectAssets;
       /** The project's entry HTML file. Currently always "index.html". */
       entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      /** Exact-version dependencies, restricted to the platform-supported set at its pinned versions. */
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
 
@@ -80142,7 +80142,7 @@ export namespace Schemas {
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
     export interface _LogPatternExample {
-      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
       body: string;
       /** Severity of the sampled line, e.g. "info", "error". */
       severity_text: string;
@@ -80178,7 +80178,7 @@ export namespace Schemas {
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
       /**
-         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
          * @nullable
          */
       match_regex: string | null;
