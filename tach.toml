@@ -839,8 +839,15 @@ layer = "modules"
 # the Celery registrations posthog/tasks/scheduled.py imports.
 [[interfaces]]
 expose = [
-    "backend\\.report_canvas.*",
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.report_canvas.*",
 ]
 from = [
     "products.canvas",
