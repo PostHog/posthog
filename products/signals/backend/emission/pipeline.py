@@ -274,6 +274,11 @@ async def summarize_long_descriptions(
     return result
 
 
+def _declared_context(extra: dict[str, Any], context_fields: tuple[str, ...]) -> dict[str, Any]:
+    """The subset of `extra` a source declared for its gate, dropping keys with nothing to say."""
+    return {key: extra[key] for key in context_fields if extra.get(key) is not None}
+
+
 async def _check_actionability(
     client: AsyncAnthropic,
     team_id: int,
@@ -281,13 +286,17 @@ async def _check_actionability(
     actionability_prompt: str,
     gateway_mode: bool | None = None,
     include_record_metadata: bool = False,
+    context_fields: tuple[str, ...] = (),
 ) -> bool:
     description = output.description
-    if include_record_metadata and output.extra:
-        # Steering rules often reference metadata (labels, state, priority) that emitters keep in
-        # `extra` rather than in the description, so the steered gate gets to see it. Bounded, and
-        # substituted through the `{description}` placeholder so it is never format-processed.
-        metadata = json.dumps(output.extra, default=str)[:RECORD_METADATA_MAX_CHARS]
+    # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
+    # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
+    # the keys its source declared, keeping every other source's prompt byte-identical.
+    metadata_fields = output.extra if include_record_metadata else _declared_context(output.extra, context_fields)
+    if metadata_fields:
+        # Bounded, and substituted through the `{description}` placeholder so it is never
+        # format-processed.
+        metadata = json.dumps(metadata_fields, default=str)[:RECORD_METADATA_MAX_CHARS]
         description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
     prompt = actionability_prompt.format(description=description)
     extra_headers = _signals_extra_headers(output, stage="actionability", gateway_mode=gateway_mode, team_id=team_id)
@@ -329,6 +338,7 @@ async def filter_actionable(
     actionability_prompt: str,
     extra: dict[str, Any],
     include_record_metadata: bool = False,
+    context_fields: tuple[str, ...] = (),
 ) -> list[SignalEmitterOutput]:
     client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
     gateway_mode = resolve_ai_gateway_config() is not None
@@ -347,6 +357,7 @@ async def filter_actionable(
                     actionability_prompt,
                     gateway_mode=gateway_mode,
                     include_record_metadata=include_record_metadata,
+                    context_fields=context_fields,
                 )
             except Exception:
                 logger.exception(
@@ -535,8 +546,10 @@ async def run_signal_pipeline(
             outputs=outputs,
             actionability_prompt=apply_steering(config.actionability_prompt, steering),
             extra=extra,
-            # Only steered teams get the metadata block, so unsteered prompts stay byte-identical.
+            # Steered teams get all of `extra`; everyone else gets only what the source declared, so
+            # a prompt with nothing declared stays byte-identical.
             include_record_metadata=steering.active,
+            context_fields=config.actionability_context_fields,
         )
         post_filter_ids = {o.source_id for o in outputs}
         for source_id, output in pre_filter_by_id.items():

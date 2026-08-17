@@ -23,6 +23,9 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 4. **Actionability filter** — optionally filters non-actionable records via LLM.
    Teams can steer this gate per source via two keys on `SignalSourceConfig.config`: `steering` (plain-language rules injected into the canonical prompt) and `default_not_actionable` (flips the "when in doubt" posture from keep to filter).
    See `steering.py` — the injection escapes braces and caps length so team text can never break the prompt's one-word output contract, and every canonical actionability prompt must keep the `When in doubt, classify as ACTIONABLE` posture line the injection anchors on.
+   The gate runs before a signal exists, so it sees only the description unless the record carries the verdict elsewhere.
+   A source whose verdict depends on metadata the description doesn't carry declares those `extra` keys in `actionability_context_fields`, and they arrive in a `<record_metadata>` block inside the description (see `github_issues.py`, which declares the issue author).
+   A steered gate gets all of `extra` in that block instead; a source declaring nothing keeps a byte-identical prompt.
 5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
 
 ### Registry

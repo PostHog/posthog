@@ -59,6 +59,11 @@ class SignalSourceTableConfig(BaseModel):
     first_sync_lookback_days: int = 7
     # LLM prompt to check if a record is actionable before emitting. If None, all records == actionable.
     actionability_prompt: str | None = None
+    # `extra` keys the actionability gate needs alongside the description, for sources whose verdict
+    # depends on metadata the description doesn't carry (e.g. who filed a GitHub issue). Declared per
+    # source rather than dumping all of `extra`, so a prompt only ever widens where its source asked.
+    # Steered teams already see all of `extra`, so this is what unsteered teams get.
+    actionability_context_fields: tuple[str, ...] = ()
     # LLM prompt to summarize descriptions that exceed the threshold. If None, no summarization is performed.
     summarization_prompt: str | None = None
     # How large the description can be before emitting

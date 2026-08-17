@@ -41,6 +41,8 @@ An issue is NOT_ACTIONABLE if it is:
 - A meta/tracking issue with no substantive feedback — issues that contain only a title and a bare link or a short reminder without describing a problem, use case, or solution (release checklists, sprint trackers, experiment-to-do notes)
 - A duplicate that only says "same as #X" with no new information
 
+The issue may end with a record_metadata block naming its author. `author_login` is the GitHub handle that filed it, and `author_association` is that account's relationship to the repository: OWNER, MEMBER, and COLLABORATOR are maintainers, while CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, and NONE are reporters from outside the org. A handle ending in [bot] is automation, so treat what it files as bot-generated. Beyond that, the author is context and not a verdict — a bug report from an outside reporter is exactly the feedback worth capturing, so never classify an issue as NOT_ACTIONABLE just because its author isn't a maintainer.
+
 When in doubt, classify as ACTIONABLE. GitHub issues are filed intentionally, so err on the side of capturing the signal. However, if an issue clearly matches one of the NOT_ACTIONABLE categories above, classify it as NOT_ACTIONABLE regardless.
 
 <issue>
@@ -153,6 +155,7 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,
+    actionability_context_fields=("author_login", "author_association"),
     summarization_prompt=GITHUB_SUMMARIZATION_PROMPT,
     description_summarization_threshold_chars=2000,
 )
