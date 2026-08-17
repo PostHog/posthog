@@ -9,7 +9,6 @@
   --qa-fg-muted: #a1a1aa;
   --qa-fg-subtle: #77777e;
   --qa-accent: #f1a82c; /* quill primary (dark) */
-  --qa-brand: #f54e00; /* PostHog brand orange */
   --qa-hover: rgba(255, 255, 255, 0.07);
   --qa-font:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica,
@@ -67,23 +66,68 @@ body {
   -webkit-app-region: drag;
 }
 
-.qa-avatar {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--qa-brand), #c93c00);
-  box-shadow: 0 2px 8px rgba(245, 78, 0, 0.35);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
+.qa-sparkle {
+  fill: var(--qa-accent);
 }
 
-.qa-avatar img {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  transform: translateY(2px);
+/* PostHog AI mark: three-sparkle cluster, laid out like the web app's
+ * AnimatedSparkles. */
+.qa-mark {
+  flex: none;
+  position: relative;
+  width: 26px;
+  height: 26px;
+}
+
+.qa-mark .qa-sparkle {
+  position: absolute;
+  transform-origin: center;
+}
+
+.qa-mark-large {
+  right: 2px;
+  bottom: 3px;
+}
+
+.qa-mark-medium {
+  top: 3px;
+  left: 5px;
+}
+
+.qa-mark-small {
+  top: 13px;
+  left: 2px;
+  opacity: 0.75;
+}
+
+.qa-mark-thinking .qa-sparkle {
+  animation: qa-sparkle-pulse 1.3s ease-in-out infinite;
+}
+
+.qa-mark-thinking .qa-mark-medium {
+  animation-delay: 0.1s;
+}
+
+.qa-mark-thinking .qa-mark-small {
+  animation-delay: 0.2s;
+}
+
+@keyframes qa-sparkle-pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  90% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .qa-ask-row input {
@@ -125,7 +169,7 @@ kbd {
 }
 
 .qa-answer-area {
-  padding: 14px 16px 12px 57px;
+  padding: 14px 16px 12px 53px;
 }
 
 .qa-thinking {
@@ -219,7 +263,7 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px 13px 57px;
+  padding: 10px 16px 13px 53px;
 }
 
 .qa-source {
@@ -265,11 +309,7 @@ kbd {
 }
 
 .qa-followup-hint {
-  padding: 0 16px 11px 57px;
+  padding: 0 16px 11px 53px;
   font-size: 11px;
   color: var(--qa-fg-subtle);
-}
-
-.qa-sparkle {
-  fill: var(--qa-accent);
 }

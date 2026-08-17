@@ -1,4 +1,3 @@
-import { happyHog } from "@posthog/ui/assets/hedgehogs";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { type MockResponse, pickMockResponse } from "./mockResponses";
 
@@ -7,13 +6,19 @@ type Phase = "idle" | "thinking" | "answered";
 const THINKING_MS = 1100;
 
 /** Sparkle from the web app's PostHog AI branding (AnimatedSparkles). */
-function Sparkle({ size }: { size: number }): React.JSX.Element {
+function Sparkle({
+  size,
+  className,
+}: {
+  size: number;
+  className?: string;
+}): React.JSX.Element {
   return (
     <svg
       width={size}
       height={size + 1}
       viewBox="0 0 14 15"
-      className="qa-sparkle"
+      className={className ?? "qa-sparkle"}
       role="img"
       aria-label="PostHog AI"
     >
@@ -23,6 +28,22 @@ function Sparkle({ size }: { size: number }): React.JSX.Element {
         d="M7 0C7 0 6.49944 2.07875 6.08971 3.78113C5.76569 5.12694 4.77707 6.17975 3.50849 6.5303C1.9232 6.96825 0 7.50005 0 7.50005C0 7.50005 1.9232 8.03143 3.50849 8.46949C4.77707 8.82025 5.76569 9.87317 6.08971 11.2189C6.49944 12.9214 7 15 7 15C7 15 7.50056 12.9214 7.91029 11.2189C8.23441 9.87317 9.22293 8.82025 10.4918 8.46949C12.0769 8.03143 14 7.50005 14 7.50005C14 7.50005 12.0769 6.96825 10.4918 6.5303C9.22293 6.17975 8.23441 5.12694 7.91029 3.78113C7.50056 2.07875 7 0 7 0Z"
       />
     </svg>
+  );
+}
+
+/** The web app's PostHog AI mark: a cluster of three sparkles. Pulses while
+ * an answer is streaming. */
+function SparkleCluster({
+  thinking,
+}: {
+  thinking: boolean;
+}): React.JSX.Element {
+  return (
+    <div className={thinking ? "qa-mark qa-mark-thinking" : "qa-mark"}>
+      <Sparkle size={14} className="qa-sparkle qa-mark-large" />
+      <Sparkle size={7} className="qa-sparkle qa-mark-medium" />
+      <Sparkle size={5} className="qa-sparkle qa-mark-small" />
+    </div>
   );
 }
 
@@ -170,9 +191,7 @@ export function QuickAsk(): React.JSX.Element {
     <div ref={shellRef} className="qa-shell">
       <div className="qa-panel">
         <div className="qa-ask-row">
-          <div className="qa-avatar">
-            <img src={happyHog} alt="" draggable={false} />
-          </div>
+          <SparkleCluster thinking={phase === "thinking"} />
           <input
             ref={inputRef}
             type="text"
