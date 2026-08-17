@@ -221,7 +221,7 @@ class TestShadowDriftCompanion:
         [
             ([".github/workflows/ci-backend.yml"], 1, "mirror the change into .depot/workflows/ci-backend.yml"),
             ([".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"], 0, "both files updated"),
-            # Depot-only is a notice in CI, never a failure — blocking it would false-block depot tuning.
+            # Depot-only is a notice in CI, never a failure. Blocking it would false-block depot tuning.
             ([".depot/workflows/ci-backend.yml"], 0, ""),
         ],
     )

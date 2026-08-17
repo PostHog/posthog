@@ -206,14 +206,14 @@ DIFF_CHECKS: list[DiffCheck] = [
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CompanionCheck:
-    """Two files a CI gate requires to move together. Unlike a ``DiffCheck`` there is
-    nothing to run: the diff itself is the evidence, so this costs no subprocess."""
+    """Two files a CI gate requires to move together. The diff is the evidence, so
+    unlike a ``DiffCheck`` there is nothing to run."""
 
     key: str
     label: str
     source: str
     companion: str
-    guidance: str
+    escape_hatch: str  # what to do when the change is deliberately one-sided
 
 
 # Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
@@ -224,10 +224,7 @@ COMPANION_CHECKS: list[CompanionCheck] = [
         label="depot shadow drift (.depot mirror of ci-backend.yml)",
         source=".github/workflows/ci-backend.yml",
         companion=".depot/workflows/ci-backend.yml",
-        guidance=(
-            "mirror the change into {companion} — or, if it is one of the intentional "
-            "deltas, document it in that file's header"
-        ),
+        escape_hatch="document it as an intentional delta in that file's header",
     ),
 ]
 
@@ -362,7 +359,7 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
 def _run_companion_check(chk: CompanionCheck, files: list[str]) -> tuple[Status, str]:
     if chk.companion in files:
         return "pass", "both files updated"
-    return "fail", chk.guidance.format(companion=chk.companion)
+    return "fail", f"mirror the change into {chk.companion}, or {chk.escape_hatch}"
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
@@ -607,7 +604,6 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
-    # Free (set logic over the diff), so it runs before the subprocess-backed checks.
     for companion in triggered_companions:
         status, detail = _run_companion_check(companion, files)
         failures += status == "fail"
