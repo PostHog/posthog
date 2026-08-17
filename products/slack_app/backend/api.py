@@ -2827,6 +2827,14 @@ def _post_untagged_followup_prompt(
     slack_user_id = event.get("user") if isinstance(event.get("user"), str) else None
     thread_ts = event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else None
     if not channel or not slack_user_id or not thread_ts:
+        logger.warning(
+            "slack_app_untagged_followup_prompt_skipped",
+            reason="incomplete_event",
+            integration_id=integration.id,
+            has_channel=bool(channel),
+            has_user=bool(slack_user_id),
+            has_thread_ts=bool(thread_ts),
+        )
         return False
 
     context_token = uuid.uuid4().hex
@@ -2906,6 +2914,53 @@ def _post_untagged_followup_prompt(
     return True
 
 
+def _can_access_team(posthog_user: User, integration: Integration) -> bool:
+    """Whether the user can reach the integration's project.
+
+    Org membership alone is what ``_is_org_member`` answers, and it is not enough
+    here: the routing path drops a reply whose author can't reach the mapped
+    project, so a click must clear the same bar or it becomes a way around it.
+    """
+    try:
+        return UserPermissions(user=posthog_user).team(integration.team).effective_membership_level is not None
+    except Exception:
+        logger.exception(
+            "slack_app_untagged_followup_access_check_failed",
+            integration_id=integration.id,
+            user_id=posthog_user.id,
+        )
+        return False
+
+
+def _untagged_followups_revoked_since_prompt(integration: Integration, context: dict[str, Any]) -> bool:
+    """Whether the thread creator switched follow-ups off while the prompt sat unanswered.
+
+    The confirmed run skips the mode activity — its answer is what re-dispatched
+    the message — so this is the only place left that can honour a mode changed
+    inside the prompt's lifetime.
+    """
+    mapping = (
+        SlackThreadTaskMapping.objects.filter(
+            integration_id=integration.id,
+            channel=context.get("slack_channel_id"),
+            thread_ts=context.get("thread_ts"),
+        )
+        .only("mentioning_slack_user_id")
+        .first()
+    )
+    if mapping is None:
+        return True
+    if resolve_untagged_followup_mode(integration, mapping.mentioning_slack_user_id) != UntaggedFollowupMode.NEVER:
+        return False
+    logger.info(
+        "slack_app_untagged_followup_confirm_after_revoke",
+        integration_id=integration.id,
+        slack_channel_id=context.get("slack_channel_id"),
+        thread_ts=context.get("thread_ts"),
+    )
+    return True
+
+
 def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
     """Dispatch the message the replier just confirmed, then clear the prompt."""
     response_url = payload.get("response_url", "")
@@ -2944,8 +2999,21 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
 
+    # A confirmed run re-enters the pipeline past the gates the webhook applied to the
+    # original reply, so the two it can't inherit are re-checked here: the clicker's
+    # access to the mapped project, and the creator's mode as it stands now.
     posthog_user = _is_org_member(integration, clicker_slack_user_id)
-    if posthog_user is None:
+    if posthog_user is None or not _can_access_team(posthog_user, integration):
+        logger.info(
+            "slack_app_untagged_followup_confirm_no_access",
+            integration_id=integration.id,
+            slack_workspace_id=slack_team_id,
+            slack_user_id=clicker_slack_user_id,
+        )
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+
+    if _untagged_followups_revoked_since_prompt(integration, context):
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
 

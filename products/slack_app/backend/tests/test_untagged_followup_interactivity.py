@@ -2,8 +2,9 @@ import json
 import time
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
@@ -21,6 +22,7 @@ from products.slack_app.backend.api import (
     UNTAGGED_FOLLOWUP_CONTEXT_KIND,
     _picker_context_cache_key,
 )
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -51,6 +53,34 @@ class TestUntaggedFollowupInteractivity(TestCase):
             kind="slack",
             integration_id=self.slack_team_id,
             sensitive_config={"access_token": "xoxb-test"},
+        )
+
+        # The prompt only exists because the thread is mapped to a task, and the
+        # click re-reads that mapping to see the creator's current mode.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="Fix the broken dashboard export",
+            description="desc",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=self.member_user,
+            repository="org/repo",
+        )
+        self.mapping = SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id=self.slack_team_id,
+            channel=self.slack_channel_id,
+            thread_ts="1000.0000",
+            task=task,
+            task_run=TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS),
+            mentioning_slack_user_id="U_ALICE",
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id=self.slack_team_id,
+            slack_user_id="U_ALICE",
+            untagged_followup_mode=UntaggedFollowupMode.ASK,
         )
 
         self.event = {
@@ -169,5 +199,50 @@ class TestUntaggedFollowupInteractivity(TestCase):
             response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB")
 
         self._ff_patcher.start()
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+
+    def test_confirmation_after_the_creator_switched_to_never_dispatches_nothing(self, mock_slack_cls, mock_post):
+        # The confirmed run skips the mode activity, so the click is the last place
+        # that can honour a mode changed while the prompt sat unanswered.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        SlackSettings.objects.filter(slack_user_id="U_ALICE").update(untagged_followup_mode=UntaggedFollowupMode.NEVER)
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB")
+
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+
+    def test_confirmation_from_a_member_without_project_access_dispatches_nothing(self, mock_slack_cls, mock_post):
+        # Org membership is all `_is_org_member` proves. The routing path drops a reply
+        # whose author can't reach the mapped project, so the click has to as well.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        no_access = MagicMock()
+        no_access.team.return_value.effective_membership_level = None
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api.UserPermissions", return_value=no_access),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB")
+
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+
+    def test_thread_whose_mapping_disappeared_dispatches_nothing(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self.mapping.delete()
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            response = self._click(UNTAGGED_FOLLOWUP_ACTION_RUN, "U_BOB")
+
         assert response.status_code == 200
         mock_start.assert_not_called()
