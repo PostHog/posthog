@@ -142,6 +142,24 @@ function reconnectDelay(attempts: number): Promise<void> {
 }
 
 /**
+ * Deadline for the non-stream task calls and attachment uploads. Passing the
+ * turn signal to AuthService replaces its own default deadline, so a stalled
+ * proxy or half-open socket would otherwise wedge the panel in "Thinking…"
+ * with no error. The SSE stream is deliberately left unbounded.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Bounds a request by both the turn signal and a timeout, so cancelling the
+ * turn or a stall each abort it. Used for every non-stream call; the SSE fetch
+ * keeps the raw turn signal.
+ */
+function withRequestTimeout(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/**
  * Per-thread state. `conversationId` is a client-minted key the renderer
  * echoes back so follow-ups land on the same task; `cursor` is the stream id
  * of the last ingested event, carried across turns and reconnects so no frame
@@ -363,7 +381,7 @@ export class QuickAskService {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal,
+        signal: withRequestTimeout(signal),
       },
     );
   }
@@ -708,7 +726,7 @@ export class QuickAskService {
       const uploadResponse = await this.fetchImpl(artifact.presigned_post.url, {
         method: "POST",
         body: form,
-        signal,
+        signal: withRequestTimeout(signal),
       });
       if (!uploadResponse.ok) return null;
     }
