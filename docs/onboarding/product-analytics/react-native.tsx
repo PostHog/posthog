@@ -137,6 +137,6 @@ export const getReactNativeSteps = (
     options?: {
         minVersion?: string
     }
-): StepDefinition[] => [...getReactNativeInstallSteps(ctx, options), getReactNativeEventStep(ctx, options)]
+): StepDefinition[] => [...getReactNativeInstallSteps(ctx, options), getReactNativeEventStep(ctx)]
 
 export const ReactNativeInstallation = createInstallation(getReactNativeSteps)

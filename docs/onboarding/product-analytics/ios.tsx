@@ -129,6 +129,6 @@ export const getIOSSteps = (
         minVersionPod?: string
         minVersionSPM?: string
     }
-): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx, options)]
+): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]
 
 export const IOSInstallation = createInstallation(getIOSSteps)
