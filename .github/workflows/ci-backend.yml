@@ -1013,12 +1013,13 @@ jobs:
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   # --junitxml: written relative to each product's dir (turbo's cwd), so every
-                  # product in the group gets its own products/<name>/junit-product.xml.
+                  # product gets its own call-only report for migration-carrier detection.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
                       --junitxml=junit-product.xml
+                      -o junit_duration_report=call
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
