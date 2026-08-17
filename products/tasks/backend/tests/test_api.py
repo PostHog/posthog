@@ -10019,9 +10019,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     def _resume_state_sync_url(self, task, run):
         return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_state_sync/"
 
+    @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.read")
     @patch("posthog.storage.object_storage.write")
-    def test_resume_state_write_then_read_round_trip(self, mock_write, mock_read):
+    def test_resume_state_write_then_read_round_trip(self, mock_write, mock_read, mock_tag):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         self._open_sandbox_session(run)
@@ -10048,6 +10049,30 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(read_response["Cache-Control"], "no-cache")
         self.assertEqual(read_response.content, content)
         mock_read.assert_called_once_with(run.resume_state_url, missing_ok=True)
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    def test_resume_state_sync_tags_snapshot_with_log_retention(self, mock_write, mock_tag):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+        self._open_sandbox_session(run)
+
+        response = self.client.generic(
+            "POST",
+            self._resume_state_sync_url(task, run),
+            cast(str, b'{"conversation":[]}'),
+            content_type="application/octet-stream",
+            HTTP_X_SANDBOX_ID="sandbox-1",
+            HTTP_X_TASK_RUN_TOKEN=create_sandbox_event_ingest_token(run),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # An untagged snapshot never auto-expires, so it outlives the 30-day window
+        # its own source log honors and leaks conversation content indefinitely.
+        mock_tag.assert_called_once_with(
+            run.resume_state_url,
+            {"ttl_days": str(TaskRun.DEFAULT_LOG_TTL_DAYS), "team_id": str(run.team_id)},
+        )
 
     @patch("posthog.storage.object_storage.read", return_value=None)
     def test_resume_state_read_returns_404_when_never_written(self, mock_read):

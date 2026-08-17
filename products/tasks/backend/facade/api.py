@@ -2940,6 +2940,19 @@ def write_task_run_resume_state(
     if not content or len(content) > RESUME_STATE_MAX_SIZE_BYTES:
         raise ValueError("The resume state content size is invalid")
     object_storage.write(run.resume_state_url, content)
+    # The snapshot is a derived cache of the log, so it must not outlive the log's
+    # retention: tag it for the same expiry the log carries. A tag failure leaves the
+    # object in place but must not fail the write that already landed.
+    try:
+        object_storage.tag(
+            run.resume_state_url,
+            {"ttl_days": str(TaskRun.DEFAULT_LOG_TTL_DAYS), "team_id": str(run.team_id)},
+        )
+    except Exception as exc:
+        logger.warning(
+            "task_run.resume_state_tag_failed",
+            extra={"task_run_id": str(run.id), "storage_path": run.resume_state_url, "error": str(exc)},
+        )
     return True
 
 
