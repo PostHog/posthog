@@ -41,7 +41,7 @@ import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
-import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
+import { AlertMode, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
@@ -164,6 +164,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
+        forecastSimulationResult,
+        forecastSimulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
         hogqlAlertPreview,
@@ -177,6 +179,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         snoozeAlert,
         clearSnooze,
         simulateAlert,
+        simulateForecast,
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
@@ -187,6 +190,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
+    const forecastAlertsEnabled = useFeatureFlag('FORECAST_ALERTS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
     const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
@@ -212,7 +216,11 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const creatingNewAlert = alertId === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode: AlertMode = alertForm.forecast_config
+        ? 'forecast'
+        : alertForm.detector_config
+          ? 'detector'
+          : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
             isNextPlannedEvaluationStale(
@@ -336,15 +344,19 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
+            supportsForecast={forecastAlertsEnabled && !isNonTimeSeriesDisplay && supportsForecast(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
             investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
+            forecastSimulationResult={forecastSimulationResult}
+            forecastSimulationResultLoading={forecastSimulationResultLoading}
             simulationDateFrom={simulationDateFrom}
             onSetAlertFormValue={setAlertFormValue}
             thresholdRowRenderer={(props) => <ThresholdConditionRow {...props} />}
             onSimulateAlert={simulateAlert}
+            onSimulateForecast={simulateForecast}
             onSetSimulationDateFrom={setSimulationDateFrom}
             onClearSimulation={clearSimulation}
             onClearSimulationOverlay={clearSimulationOverlay}

@@ -2,20 +2,31 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
+import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
+
+import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
 import {
+    AlertMode,
     AlertSimulationResult,
     isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'products/alerts/frontend/types'
 import { DetectorSelector } from 'products/alerts/frontend/views/DetectorSelector'
+import { getDefaultForecastConfig, ForecastSelector } from 'products/alerts/frontend/views/ForecastSelector'
 
-import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
+import {
+    breakdownDisabledReason,
+    FunnelsDefinitionFields,
+    HogQLDefinitionFields,
+    TrendsDefinitionFields,
+} from './AlertDefinitionFields'
 import { AlertSimulationSection } from './AlertSimulationSection'
+import { ForecastSimulationSection } from './ForecastSimulationSection'
 import { InvestigationAgentSettings } from './InvestigationAgentSettings'
 import { ThresholdDefinitionRow } from './ThresholdDefinitionRow'
 import type { ThresholdRowRenderProps } from './ThresholdDefinitionRow'
@@ -53,7 +64,7 @@ export interface HogQLDefinitionProps {
 
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
-    alertMode: 'detector' | 'threshold'
+    alertMode: AlertMode
     thresholdBoundsFormError?: string
     isNonTimeSeriesDisplay: boolean
     // Kind-specific inputs, grouped so the shared section only carries the bundle for the active kind.
@@ -61,17 +72,21 @@ export interface AlertDefinitionSectionProps {
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
+    supportsForecast: boolean
     showAnomalyGuidance?: boolean
     twoColumnLayout?: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
+    forecastSimulationResult: ForecastSimulateResponseApi | null
+    forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
     /** Override the threshold row renderer. The legacy modal uses the inline wrapping row; the
      *  redesigned modal passes a stacked, labeled variant. Omit to keep the legacy row. */
     thresholdRowRenderer?: (props: ThresholdRowRenderProps) => JSX.Element
     onSimulateAlert: () => void
+    onSimulateForecast: () => void
     onSetSimulationDateFrom: (value: string) => void
     onClearSimulation: () => void
     onClearSimulationOverlay: () => void
@@ -86,15 +101,19 @@ export function AlertDefinitionSection({
     funnel,
     hogql,
     supportsAnomalyDetection,
+    supportsForecast,
     showAnomalyGuidance = false,
     twoColumnLayout = false,
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
+    forecastSimulationResult,
+    forecastSimulationResultLoading,
     simulationDateFrom,
     onSetAlertFormValue,
     thresholdRowRenderer,
     onSimulateAlert,
+    onSimulateForecast,
     onSetSimulationDateFrom,
     onClearSimulation,
     onClearSimulationOverlay,
@@ -103,6 +122,20 @@ export function AlertDefinitionSection({
     // value to compare against. A historical-trend funnel is a time series, so it does support them.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const supportsRelativeConditions = !isFunnelAlert || funnel.isTrendsFunnel
+    // A future-breach forecast fires when the prediction crosses the user's threshold, so it reuses
+    // the threshold bounds. A band-deviation forecast scores against its own band and has none.
+    const forecastUsesThresholdBounds =
+        alertMode === 'forecast' && alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+    // Forecast bounds are always an absolute comparison, so the row renders as bare bounds inputs:
+    // its condition picker is suppressed here and its %/# toggle hides itself on ABSOLUTE_VALUE.
+    const showThresholdRow = alertMode === 'threshold' || forecastUsesThresholdBounds
+    const thresholdRowProps: ThresholdRowRenderProps = {
+        alertForm,
+        thresholdBoundsFormError,
+        isNonTimeSeriesDisplay,
+        supportsRelativeConditions: supportsRelativeConditions && alertMode === 'threshold',
+        onSetAlertFormValue,
+    }
     let definitionFields: JSX.Element | null = null
     if (isTrendsAlertConfig(alertForm.config)) {
         definitionFields = (
@@ -142,11 +175,7 @@ export function AlertDefinitionSection({
         <>
             {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
             {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
-                <LemonBanner type="warning">
-                    {alertMode === 'detector'
-                        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
-                </LemonBanner>
+                <LemonBanner type="warning">{breakdownDisabledReason(alertMode)}</LemonBanner>
             )}
             <div
                 className={
@@ -156,18 +185,27 @@ export function AlertDefinitionSection({
                 <div className="space-y-3">
                     {definitionFields}
 
-                    {supportsAnomalyDetection && (
+                    {(supportsAnomalyDetection || supportsForecast) && (
                         <LemonRadio
                             radioPosition="top"
                             value={alertMode}
-                            onChange={(value) =>
+                            onChange={(value: AlertMode) => {
                                 onSetAlertFormValue(
                                     'detector_config',
                                     value === 'detector'
                                         ? getDefaultAnomalyDetectorConfig(alertForm.calculation_interval)
                                         : null
                                 )
-                            }
+                                onSetAlertFormValue(
+                                    'forecast_config',
+                                    value === 'forecast' ? getDefaultForecastConfig() : null
+                                )
+                                if (value === 'forecast') {
+                                    // A predicted breach compares the forecast against a fixed value, so a
+                                    // relative condition carried over from threshold mode would not apply.
+                                    onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
+                                }
+                            }}
                             options={[
                                 {
                                     value: 'threshold',
@@ -175,39 +213,54 @@ export function AlertDefinitionSection({
                                     description: 'Alert when a value goes above or below a fixed value you set.',
                                     'data-attr': 'alertForm-mode-threshold',
                                 },
-                                {
-                                    value: 'detector',
-                                    label: 'Anomaly detection',
-                                    description: showAnomalyGuidance
-                                        ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
-                                        : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
-                                    'data-attr': 'alertForm-mode-detector',
-                                },
+                                ...(supportsAnomalyDetection
+                                    ? [
+                                          {
+                                              value: 'detector' as const,
+                                              label: 'Anomaly detection',
+                                              description: showAnomalyGuidance
+                                                  ? 'Choose this when you want an alert for unusual changes and do not know what threshold to set.'
+                                                  : 'Automatically flag unusual changes using statistical models. No fixed value needed.',
+                                              'data-attr': 'alertForm-mode-detector',
+                                          },
+                                      ]
+                                    : []),
+                                ...(supportsForecast
+                                    ? [
+                                          {
+                                              value: 'forecast' as const,
+                                              label: 'Forecast',
+                                              description:
+                                                  'Alert on where this metric is heading, before it crosses your threshold.',
+                                              'data-attr': 'alertForm-mode-forecast',
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     )}
                 </div>
 
                 <div className="space-y-3">
-                    {alertMode === 'threshold' ? (
+                    {alertMode === 'forecast' && (
+                        <ForecastSelector
+                            value={alertForm.forecast_config ?? null}
+                            onChange={(config) => {
+                                onSetAlertFormValue('forecast_config', config)
+                                onClearSimulation()
+                                onClearSimulationOverlay()
+                            }}
+                            calculationInterval={alertForm.calculation_interval}
+                        />
+                    )}
+
+                    {showThresholdRow ? (
                         thresholdRowRenderer ? (
-                            thresholdRowRenderer({
-                                alertForm,
-                                thresholdBoundsFormError,
-                                isNonTimeSeriesDisplay,
-                                supportsRelativeConditions,
-                                onSetAlertFormValue,
-                            })
+                            thresholdRowRenderer(thresholdRowProps)
                         ) : (
-                            <ThresholdDefinitionRow
-                                alertForm={alertForm}
-                                thresholdBoundsFormError={thresholdBoundsFormError}
-                                isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                                supportsRelativeConditions={supportsRelativeConditions}
-                                onSetAlertFormValue={onSetAlertFormValue}
-                            />
+                            <ThresholdDefinitionRow {...thresholdRowProps} />
                         )
-                    ) : (
+                    ) : alertMode === 'detector' ? (
                         <DetectorSelector
                             value={alertForm.detector_config ?? null}
                             onChange={(config) => {
@@ -217,7 +270,7 @@ export function AlertDefinitionSection({
                             }}
                             calculationInterval={alertForm.calculation_interval}
                         />
-                    )}
+                    ) : null}
 
                     {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
                         <InvestigationAgentSettings alertForm={alertForm} onSetAlertFormValue={onSetAlertFormValue} />
@@ -230,6 +283,17 @@ export function AlertDefinitionSection({
                             simulationResultLoading={simulationResultLoading}
                             simulationDateFrom={simulationDateFrom}
                             onSimulateAlert={onSimulateAlert}
+                            onSetSimulationDateFrom={onSetSimulationDateFrom}
+                        />
+                    )}
+
+                    {alertMode === 'forecast' && alertForm.forecast_config && (
+                        <ForecastSimulationSection
+                            alertForm={alertForm}
+                            forecastSimulationResult={forecastSimulationResult}
+                            forecastSimulationResultLoading={forecastSimulationResultLoading}
+                            simulationDateFrom={simulationDateFrom}
+                            onSimulateForecast={onSimulateForecast}
                             onSetSimulationDateFrom={onSetSimulationDateFrom}
                         />
                     )}

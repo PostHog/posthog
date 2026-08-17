@@ -1,7 +1,7 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
-import { AlertConditionType } from '~/queries/schema/schema-general'
+import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
@@ -17,6 +17,11 @@ function isFiniteThresholdBound(value: number | null | undefined): value is numb
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
     if (alert.detector_config) {
+        return true
+    }
+    // A band-deviation forecast scores the value against the forecast's own band, so there is no
+    // threshold for the user to enter. A future-breach forecast still uses the bounds below.
+    if (alert.forecast_config && alert.forecast_config.condition !== ForecastConditionType.FUTURE_BREACH) {
         return true
     }
     const bounds = alert.threshold?.configuration?.bounds
