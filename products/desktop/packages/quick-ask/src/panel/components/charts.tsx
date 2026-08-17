@@ -164,7 +164,7 @@ function BarPlot({
   scale: PlotScale;
   hoverIndex: number | null;
 }): React.JSX.Element {
-  // Bars draw the first series only; extra series read better as lines.
+  // Bars draw a single series; Chart renders multi-series data as lines.
   const points = chart.series[0].points;
   const slot = WIDTH / points.length;
   const barWidth = slot * 0.62;
@@ -252,13 +252,20 @@ interface HoverState {
 }
 
 export function Chart({
-  chart,
+  chart: chartProp,
   onOpen,
 }: {
   chart: QuickAskChart;
   /** Makes the title a link into PostHog. */
   onOpen?: () => void;
 }): React.JSX.Element {
+  // BarPlot draws a single series; a multi-series bar would plot the first
+  // series while the tooltip and legend list them all. Lines carry every
+  // series, so multi-series bar data renders as a line chart instead.
+  const chart: QuickAskChart =
+    chartProp.kind === "bar" && chartProp.series.length > 1
+      ? { ...chartProp, kind: "line" }
+      : chartProp;
   const [hover, setHover] = useState<HoverState | null>(null);
   const scale = useMemo(() => buildScale(chart.series), [chart.series]);
   const pointCount = chart.series[0].points.length;
