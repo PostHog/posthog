@@ -40,7 +40,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend import loop_service, loop_slack_events
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
@@ -617,14 +617,20 @@ def sandbox_environment_queryset() -> QuerySet[SandboxEnvironment]:
 
 
 def active_mcp_installation_ids(team_id: int, owner_id: int | None) -> set[str]:
-    """Active MCP Store installation ids for the loop owner, for connectors validation.
+    """MCP Store installation ids a loop's runs could actually mount, for connectors validation.
+
+    Resolved through the same function the sandbox uses so the two ends cannot disagree. A
+    loop run is an internal task, so it never receives a member's personal credentials
+    (`_include_personal_mcp_for_task`); validating against the personal set instead would
+    accept ids the run then silently drops, and reject the shared ones that do work.
 
     Connectors are identity-bearing (owner-only to edit), so the acting user is always the
     owner whenever this matters — see `_authorize_update`.
     """
     if owner_id is None:
         return set()
-    return {installation.id for installation in get_active_installations(team_id, owner_id)}
+    installations = get_installations_for_sandbox(team_id, user_id=owner_id, include_personal=False)
+    return {str(installation.id) for installation in installations}
 
 
 def github_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]) -> set[int]:
