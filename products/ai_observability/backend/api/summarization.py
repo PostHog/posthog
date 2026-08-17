@@ -10,6 +10,7 @@ Endpoints:
 """
 
 import time
+from datetime import datetime
 
 from django.core.cache import cache
 
@@ -53,6 +54,9 @@ from products.ai_observability.backend.text_repr.formatters import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
+SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
 
 
 # Request/Response Serializers
@@ -289,15 +293,16 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise exceptions.NotFound(f"Trace '{trace_id}' not found in the given date range.")
 
         trace_obj = response.results[0]
-        trace_dict, hierarchy = llm_trace_to_formatter_format(trace_obj)
+        trace_dict, hierarchy = llm_trace_to_formatter_format(trace_obj, nest_children=True)
         return trace_id, {"trace": trace_dict, "hierarchy": hierarchy}
 
     def _fetch_generation_data(
         self, generation_id: str, date_from: str | None, date_to: str | None
     ) -> tuple[str, dict]:
-        """Fetch a single generation event by UUID and return (entity_id, entity_data) for summarization."""
-        from datetime import datetime
+        """Fetch a single event by UUID and return (entity_id, entity_data) for summarization.
 
+        Covers every event type the trace view offers a summary for, not just generations.
+        """
         qdr = QueryDateRange(
             DateRange(date_from=date_from or "-30d", date_to=date_to),
             self.team,
@@ -311,7 +316,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     """
                     SELECT uuid, event, timestamp, properties
                     FROM events
-                    WHERE event = '$ai_generation'
+                    WHERE event IN {summarizable_events}
                       AND uuid = {generation_uuid}
                       AND timestamp >= {date_from}
                       AND timestamp <= {date_to}
@@ -319,6 +324,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                     """,
                 ),
                 placeholders={
+                    "summarizable_events": ast.Tuple(exprs=[ast.Constant(value=e) for e in SUMMARIZABLE_EVENT_TYPES]),
                     "generation_uuid": ast.Constant(value=generation_id),
                     "date_from": ast.Constant(value=qdr.date_from().isoformat()),
                     "date_to": ast.Constant(value=qdr.date_to().isoformat()),
@@ -327,7 +333,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             )
 
         if not result.results:
-            raise exceptions.NotFound(f"Generation '{generation_id}' not found in the given date range.")
+            raise exceptions.NotFound(f"Event '{generation_id}' not found in the given date range.")
 
         row = result.results[0]
         props = row[3]
@@ -512,10 +518,11 @@ The response includes the structured summary, the text representation, and metad
             date_from = serializer.validated_data.get("date_from")
             date_to = serializer.validated_data.get("date_to")
 
+            entity_data: dict | None = None
             if trace_id:
-                entity_id, entity_data = self._fetch_trace_data(trace_id, date_from, date_to)
+                entity_id = trace_id
             elif generation_id:
-                entity_id, entity_data = self._fetch_generation_data(generation_id, date_from, date_to)
+                entity_id = generation_id
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
@@ -532,6 +539,14 @@ The response includes the structured summary, the text representation, and metad
                         team_id=self.team_id,
                     )
                     return Response(cached_result, status=status.HTTP_200_OK)
+
+            if trace_id:
+                _, entity_data = self._fetch_trace_data(trace_id, date_from, date_to)
+            elif generation_id:
+                _, entity_data = self._fetch_generation_data(generation_id, date_from, date_to)
+
+            if entity_data is None:
+                raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 
