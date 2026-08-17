@@ -225,6 +225,7 @@ DASHBOARD_SHARED_FIELDS = [
     "variables",
     "breakdown_colors",
     "data_color_theme_id",
+    "tile_gap",
     "tags",
     "restriction_level",
     "effective_restriction_level",
@@ -1179,6 +1180,12 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     data_color_theme_id = serializers.IntegerField(
         required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
     )
+    tile_gap = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=32,
+        help_text="Space in pixels between dashboard tiles.",
+    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -1508,6 +1515,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if existing_dashboard and existing_dashboard.data_color_theme_id:
             validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
+        if existing_dashboard:
+            validated_data["tile_gap"] = existing_dashboard.tile_gap
 
         if existing_dashboard and existing_dashboard.quick_filter_ids:
             validated_data["quick_filter_ids"] = self._filter_out_non_existing_quick_filter_ids(

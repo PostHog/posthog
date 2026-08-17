@@ -125,7 +125,7 @@ import {
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS, DEFAULT_DASHBOARD_TILE_GAP } from './dashboardConstants'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -299,6 +299,7 @@ export interface dashboardLogicValues {
     hasIntermittentFilters: boolean
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
+    hasUnsavedTileGapChanges: boolean
     hasUrlFilters: boolean
     hasVariables: boolean
     highlightedInsightId: any
@@ -348,9 +349,11 @@ export interface dashboardLogicValues {
     temporaryDataColorThemeId: {
         themeId: number | null
     } | null
+    temporaryTileGap: number | null
     terraformModalOpen: boolean
     textTileId: number | 'new' | null
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+    tileGap: number
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
@@ -822,6 +825,9 @@ export interface dashboardLogicActions {
     setTextTileId: (textTileId: number | 'new' | null) => {
         textTileId: number | 'new' | null
     }
+    setTileGap: (tileGap: number) => {
+        tileGap: number
+    }
     setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
     }
@@ -1115,6 +1121,10 @@ export interface dashboardLogicMeta {
             } | null,
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => number | null
+        tileGap: (
+            temporaryTileGap: number | null,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        ) => number
         dataColorTheme: (
             dataColorThemeId: number | null,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
@@ -1137,6 +1147,10 @@ export interface dashboardLogicMeta {
             temporaryDataColorThemeId: {
                 themeId: number | null
             } | null,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        ) => boolean
+        hasUnsavedTileGapChanges: (
+            temporaryTileGap: number | null,
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => boolean
         maxContext: (
@@ -1308,6 +1322,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelEditMode: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
+        setTileGap: (tileGap: number) => ({ tileGap }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -1474,6 +1489,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const persistedVariables = currentDashboard.persisted_variables || {}
                         const persistedBreakdownColors = currentDashboard.breakdown_colors || []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
+                        const persistedTileGap = currentDashboard.tile_gap ?? DEFAULT_DASHBOARD_TILE_GAP
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
                         const variablesChanged = !equal(
@@ -1493,6 +1509,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             : values.effectiveBreakdownColors
                         const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
                         const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
+                        const tileGapChanged = values.tileGap !== persistedTileGap
 
                         const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
                             const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
@@ -1505,6 +1522,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             !variablesChanged &&
                             !breakdownColorsChanged &&
                             !themeChanged &&
+                            !tileGapChanged &&
                             !layoutsChanged
                         ) {
                             actions.resetUrlFilters()
@@ -1525,6 +1543,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: breakdownColorsToSave,
                                 data_color_theme_id: values.dataColorThemeId,
+                                tile_gap: values.tileGap,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -1868,6 +1887,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (state, { source }) =>
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
                 restoreTemporaryColorState: (_, { themeId }) => themeId,
+            },
+        ],
+        temporaryTileGap: [
+            null as number | null,
+            {
+                setTileGap: (_, { tileGap }) => tileGap,
+                setDashboardMode: (state, { source }) =>
+                    source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
             },
         ],
         layoutZoom: [
@@ -2961,6 +2988,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? temporaryDataColorThemeId.themeId
                     : (dashboard?.data_color_theme_id ?? null),
         ],
+        tileGap: [
+            (s) => [s.temporaryTileGap, s.dashboard],
+            (temporaryTileGap: number | null, dashboard: DashboardType<QueryBasedInsightModel> | null): number =>
+                temporaryTileGap ?? dashboard?.tile_gap ?? DEFAULT_DASHBOARD_TILE_GAP,
+        ],
         dataColorTheme: [
             (s) => [s.dataColorThemeId, s.getTheme],
             (
@@ -3051,6 +3083,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     (temporaryDataColorThemeId.themeId ?? null) !== (dashboard?.data_color_theme_id ?? null)
                 return colorsChanged || themeChanged
             },
+        ],
+        hasUnsavedTileGapChanges: [
+            (s) => [s.temporaryTileGap, s.dashboard],
+            (temporaryTileGap: number | null, dashboard: DashboardType<QueryBasedInsightModel> | null): boolean =>
+                temporaryTileGap !== null && temporaryTileGap !== (dashboard?.tile_gap ?? DEFAULT_DASHBOARD_TILE_GAP),
         ],
         maxContext: [
             (s) => [s.dashboard],
@@ -3986,7 +4023,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const discard = (): void =>
                 actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
             const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
-            if (!promptEnabled || !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges)) {
+            if (
+                !promptEnabled ||
+                !(values.hasUnsavedLayoutChanges || values.hasUnsavedColorChanges || values.hasUnsavedTileGapChanges)
+            ) {
                 discard()
                 return
             }

@@ -2096,6 +2096,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.filters, {})
 
+    def test_dashboard_duplication_copies_tile_gap(self):
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with custom tile gap",
+            created_by=self.user,
+            tile_gap=24,
+        )
+
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk}
+        )
+
+        self.assertEqual(response["tile_gap"], 24)
+        self.assertEqual(Dashboard.objects.get(id=response["id"]).tile_gap, 24)
+
     def test_dashboard_duplication_copies_breakdown_colors(self):
         """Test that breakdown_colors are copied during duplication"""
         # The shape the frontend persists: a list of BreakdownColorConfig objects

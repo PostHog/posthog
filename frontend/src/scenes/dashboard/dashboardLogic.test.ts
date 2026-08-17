@@ -393,6 +393,27 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('saves an updated tile gap', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setTileGap(24)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ hasUnsavedTileGapChanges: true, tileGap: 24 })
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({ tile_gap: 24 })
+            )
+        })
+
         it('saving after filter change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -794,6 +815,22 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        it('discarding edit mode restores the saved tile gap', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setTileGap(24)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ hasUnsavedTileGapChanges: true, tileGap: 24 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ hasUnsavedTileGapChanges: false, tileGap: 16 })
         })
 
         describe('layoutEditMode', () => {

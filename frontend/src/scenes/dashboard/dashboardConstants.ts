@@ -1,6 +1,7 @@
 import { DashboardAutoRefreshInterval } from '~/queries/schema/schema-general'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = DashboardAutoRefreshInterval.SECONDS
+export const DEFAULT_DASHBOARD_TILE_GAP = 16
 
 /**
  * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,

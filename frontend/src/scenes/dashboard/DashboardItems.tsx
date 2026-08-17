@@ -36,6 +36,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { DEFAULT_DASHBOARD_TILE_GAP } from './dashboardConstants'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
@@ -44,7 +45,6 @@ const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
 
 const BASE_ROW_HEIGHT = 80
-const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
 interface DashboardItemsProps {
@@ -98,6 +98,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        tileGap,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -242,7 +243,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const margin = useMemo(
+        () =>
+            [tileGap ?? DEFAULT_DASHBOARD_TILE_GAP, tileGap ?? DEFAULT_DASHBOARD_TILE_GAP].map(
+                (gap) => gap * spacingFactor
+            ) as [number, number],
+        [spacingFactor, tileGap]
+    )
 
     const getInsertMenuItems = useCallback(
         (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>

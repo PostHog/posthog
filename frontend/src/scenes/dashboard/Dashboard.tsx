@@ -6,6 +6,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
@@ -99,9 +100,9 @@ function DashboardScene({
         accessDeniedToDashboard,
         error404,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
+    const { layoutZoom, tileGap } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom, setTileGap } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -172,7 +173,20 @@ function DashboardScene({
                                 DashboardPlacement.ProjectHomepage,
                                 DashboardPlacement.Builtin,
                             ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
+                                <>
+                                    <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
+                                    <div className="hidden md:flex items-center gap-2 text-sm text-muted">
+                                        <span>Tile spacing: {tileGap}px</span>
+                                        <LemonSlider
+                                            className="w-28"
+                                            value={tileGap}
+                                            min={0}
+                                            max={32}
+                                            step={4}
+                                            onChange={setTileGap}
+                                        />
+                                    </div>
+                                </>
                             )}
                     </SceneStickyBar>
 

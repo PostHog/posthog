@@ -294,6 +294,12 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         allow_null=True,
         help_text="ID of the color theme used for chart visualizations.",
     )
+    tile_gap = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=32,
+        help_text="Space in pixels between dashboard tiles.",
+    )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
     restriction_level = serializers.ChoiceField(choices=[21, 37], required=False)
     quick_filter_ids = serializers.ListField(

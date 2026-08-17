@@ -78,6 +78,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
     )  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
+    tile_gap = models.PositiveSmallIntegerField(default=16, db_default=16)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
