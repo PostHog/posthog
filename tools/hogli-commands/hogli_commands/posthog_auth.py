@@ -310,10 +310,10 @@ def token(
         if credential is not None and not credential.covers(scopes):
             missing = " ".join(scope for scope in scopes if scope not in credential.granted)
             headline = f"hogli is signed in to {host} but not for {missing}."
-            command = f"`hogli auth:posthog:login --scope {missing}`"
+            command = f"`hogli posthog:login --scope {missing}`"
         else:
             headline = f"hogli is not signed in to {host}."
-            command = "`hogli auth:posthog:login`"
+            command = "`hogli posthog:login`"
         raise AuthError(
             f"{headline}\n"
             f"  Run {command} once. It opens a browser and asks for no API key.\n"
@@ -332,7 +332,7 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         # A browser opened here answers to nobody, and the login would sit out its whole timeout.
         raise AuthError(
             f"A login to {host} needs a terminal, and this one is not attached to any.\n"
-            f"  Run `hogli auth:posthog:login` yourself, or set {KEY_ENV_VARS[0]} for this caller."
+            f"  Run `hogli posthog:login` yourself, or set {KEY_ENV_VARS[0]} for this caller."
         )
 
     client = _client(host)
@@ -661,7 +661,7 @@ def _readable_terminal() -> bool:
     """Whether this process may read stdin, rather than only whether stdin is a terminal.
 
     Reading a terminal from a background process group raises SIGTTIN, which by default stops the
-    whole process, so `hogli auth:posthog:login &` would hang on the read instead of finishing on
+    whole process, so `hogli posthog:login &` would hang on the read instead of finishing on
     the listener the browser can still reach.
     """
     if not sys.stdin.isatty():

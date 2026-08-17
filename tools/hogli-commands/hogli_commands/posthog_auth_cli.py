@@ -1,11 +1,11 @@
-"""`hogli auth:posthog:*`, which signs hogli in to a PostHog host once, for every command.
+"""`hogli posthog:*`, which signs hogli in to a PostHog host once, for every command.
 
 The commands live here so `posthog_auth` stays a plain helper: a command that just needs a token
 imports that module and picks up none of these.
 
-    hogli auth:posthog:login     # opens a browser; no API key to mint
-    hogli auth:posthog:status    # which host, which scopes, how long the token has left
-    hogli auth:posthog:logout    # revoke the grant, then drop the local credential
+    hogli posthog:login     # opens a browser; no API key to mint
+    hogli posthog:status    # which host, which scopes, how long the token has left
+    hogli posthog:logout    # revoke the grant, then drop the local credential
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def _lifetime(expires_at: float | None) -> str:
     return "expires in under a minute"
 
 
-@click.command(name="auth:posthog:login", help="Sign hogli in to PostHog in your browser.")
+@click.command(name="posthog:login", help="Sign hogli in to PostHog in your browser.")
 @_HOST_OPTION
 @click.option(
     "--scope",
@@ -76,7 +76,7 @@ def posthog_login(host: str, scopes: tuple[str, ...]) -> None:
         )
 
 
-@click.command(name="auth:posthog:status", help="Show hogli's cached PostHog credential.")
+@click.command(name="posthog:status", help="Show hogli's cached PostHog credential.")
 @_HOST_OPTION
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of a table.")
 def posthog_status(host: str, as_json: bool) -> None:
@@ -102,7 +102,7 @@ def posthog_status(host: str, as_json: bool) -> None:
     if found := posthog_auth.key_in_env():
         click.echo(f"environment    {found.variable} is set, and it wins over any cached credential")
     if credential is None:
-        click.echo(f"credential     none cached for {host}. Run `hogli auth:posthog:login`")
+        click.echo(f"credential     none cached for {host}. Run `hogli posthog:login`")
         raise SystemExit(0 if env_key else posthog_auth.EXIT_NOT_CONFIGURED)
 
     lifetime = _lifetime(credential.expires_at)
@@ -112,7 +112,7 @@ def posthog_status(host: str, as_json: bool) -> None:
     click.echo(f"access token   {lifetime}" + (", refreshable" if credential.refresh_token else ", not refreshable"))
 
 
-@click.command(name="auth:posthog:logout", help="Revoke and forget hogli's cached PostHog credential.")
+@click.command(name="posthog:logout", help="Revoke and forget hogli's cached PostHog credential.")
 @_HOST_OPTION
 def posthog_logout(host: str) -> None:
     host = host.rstrip("/")

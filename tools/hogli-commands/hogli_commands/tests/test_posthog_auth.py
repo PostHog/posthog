@@ -277,7 +277,7 @@ def test_a_non_interactive_caller_never_opens_a_browser() -> None:
         with pytest.raises(posthog_auth.AuthError) as caught:
             posthog_auth.token(scopes=[_SCOPE], host=_HOST, interactive=False)
     assert caught.value.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
-    assert "auth:posthog:login" in caught.value.message
+    assert "posthog:login" in caught.value.message
 
 
 def test_a_dead_refresh_token_reports_not_configured_rather_than_the_http_error() -> None:
@@ -508,7 +508,7 @@ def test_status_exits_not_configured_when_nothing_is_cached(runner: CliRunner) -
     # So a script can gate on the exit code instead of grepping the table.
     result = runner.invoke(posthog_auth_cli.posthog_status, [])
     assert result.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
-    assert "auth:posthog:login" in result.output
+    assert "posthog:login" in result.output
 
 
 def test_status_reports_the_same_verdict_in_both_output_shapes(runner: CliRunner) -> None:
