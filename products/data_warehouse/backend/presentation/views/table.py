@@ -809,8 +809,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 table.save(internally_computed_url_pattern=True)
 
                 # Validate columns in background
-                from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
-
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))
 
                 return response.Response(
