@@ -98,7 +98,13 @@ export function StepDelayConfiguration({
                             />
                             <TaxonomicStringPopover
                                 size="small"
-                                groupType={TaxonomicFilterGroupType.PersonProperties}
+                                // Reopen on the category the saved expression came from, so an event
+                                // property does not read back as, and get silently repointed to, a person one.
+                                groupType={
+                                    property?.source === 'event'
+                                        ? TaxonomicFilterGroupType.EventProperties
+                                        : TaxonomicFilterGroupType.PersonProperties
+                                }
                                 groupTypes={PROPERTY_GROUP_TYPES}
                                 value={property?.key}
                                 placeholder="Choose a date property"
