@@ -15,7 +15,7 @@ import {
   type QuickAskService,
 } from "@posthog/quick-ask/service/quick-ask";
 import {
-  isQuickAskShortcut,
+  isValidQuickAskAccelerator,
   QUICK_ASK_DEFAULT_SHORTCUT,
 } from "@posthog/shared/quick-ask-shortcuts";
 import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
@@ -89,7 +89,10 @@ type QuickAskDragState = {
 let dragState: QuickAskDragState | null = null;
 
 export interface QuickAskState {
+  /** The panel exists in this build. */
   enabled: boolean;
+  /** The user toggle; off unregisters the shortcut and drops the window. */
+  active: boolean;
   shortcut: string;
   /** False when another app owns the accelerator. */
   registered: boolean;
@@ -101,6 +104,7 @@ export interface QuickAskState {
 }
 
 export interface QuickAskSettingsPatch {
+  active?: boolean;
   defaultChannelId?: string;
   defaultRepositories?: string[];
   defaultGithubIntegrationId?: number;
@@ -132,6 +136,7 @@ function registerShortcut(accelerator: string): boolean {
 export function getQuickAskState(): QuickAskState {
   return {
     enabled: quickAskEnabled,
+    active: quickAskStore.get("panelEnabled"),
     shortcut: currentShortcut,
     registered: shortcutRegistered,
     defaultChannelId: quickAskStore.get("defaultChannelId"),
@@ -144,6 +149,14 @@ export function getQuickAskState(): QuickAskState {
 export function setQuickAskSettings(
   patch: QuickAskSettingsPatch,
 ): QuickAskState {
+  if (patch.active !== undefined && quickAskEnabled) {
+    quickAskStore.set("panelEnabled", patch.active);
+    if (patch.active) {
+      activateQuickAsk();
+    } else {
+      deactivateQuickAsk();
+    }
+  }
   if (patch.defaultChannelId !== undefined) {
     quickAskStore.set("defaultChannelId", patch.defaultChannelId);
   }
@@ -163,7 +176,12 @@ export function setQuickAskSettings(
 }
 
 export function setQuickAskShortcut(accelerator: string): QuickAskState {
-  if (!quickAskEnabled || !isQuickAskShortcut(accelerator)) {
+  if (!quickAskEnabled || !isValidQuickAskAccelerator(accelerator)) {
+    return getQuickAskState();
+  }
+  if (!quickAskStore.get("panelEnabled")) {
+    quickAskStore.set("shortcut", accelerator);
+    currentShortcut = accelerator;
     return getQuickAskState();
   }
   const registered = registerShortcut(accelerator);
@@ -398,6 +416,35 @@ export function destroyQuickAskWindow(): void {
   quickAskWindow = null;
 }
 
+function activateQuickAsk(): void {
+  const stored = quickAskStore.get("shortcut");
+  const preferred =
+    stored && isValidQuickAskAccelerator(stored)
+      ? stored
+      : QUICK_ASK_DEFAULT_SHORTCUT;
+  let registered = registerShortcut(preferred);
+  // The default may be taken (Option+Space is popular); fall back so the
+  // feature still works until the user picks another one in settings.
+  if (!registered && preferred !== "CommandOrControl+Shift+Space") {
+    registered = registerShortcut("CommandOrControl+Shift+Space");
+  }
+  if (!registered) {
+    currentShortcut = preferred;
+  }
+  // Pre-create hidden so the first summon is instant.
+  if (!quickAskWindow || quickAskWindow.isDestroyed()) {
+    quickAskWindow = createQuickAskWindow();
+  }
+}
+
+function deactivateQuickAsk(): void {
+  if (shortcutRegistered) {
+    globalShortcut.unregister(currentShortcut);
+    shortcutRegistered = false;
+  }
+  destroyQuickAskWindow();
+}
+
 export function setupQuickAsk(): void {
   // Prototype: dev builds only, or explicit opt-in.
   if (!isDevBuild() && process.env.POSTHOG_QUICK_ASK !== "1") {
@@ -518,21 +565,9 @@ export function setupQuickAsk(): void {
   });
   setupQuickAskCapture(captureHost);
 
-  const stored = quickAskStore.get("shortcut");
-  const preferred =
-    stored && isQuickAskShortcut(stored) ? stored : QUICK_ASK_DEFAULT_SHORTCUT;
-  let registered = registerShortcut(preferred);
-  // The default may be taken (Option+Space is popular); fall back so the
-  // feature still works until the user picks another one in settings.
-  if (!registered && preferred !== "CommandOrControl+Shift+Space") {
-    registered = registerShortcut("CommandOrControl+Shift+Space");
+  if (quickAskStore.get("panelEnabled")) {
+    activateQuickAsk();
   }
-  if (!registered) {
-    currentShortcut = preferred;
-  }
-
-  // Pre-create hidden so the first summon is instant.
-  quickAskWindow = createQuickAskWindow();
 
   app.on("will-quit", () => {
     if (shortcutRegistered) {

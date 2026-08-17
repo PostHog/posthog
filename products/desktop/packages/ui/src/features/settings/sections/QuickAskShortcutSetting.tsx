@@ -1,30 +1,122 @@
 import { useServiceOptional } from "@posthog/di/react";
+import { Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import { QUICK_ASK_SHORTCUT_PRESETS } from "@posthog/shared/quick-ask-shortcuts";
+import {
+  formatAccelerator,
+  isValidQuickAskAccelerator,
+} from "@posthog/shared/quick-ask-shortcuts";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
   type QuickAskState,
 } from "@posthog/ui/features/quick-ask/identifiers";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
-import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { track } from "@posthog/ui/shell/analytics";
-import { Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
-const IS_MAC =
-  typeof navigator !== "undefined" && navigator.platform.startsWith("Mac");
+const IS_MAC = globalThis.navigator?.platform.startsWith("Mac") ?? false;
 
-const OPTIONS = QUICK_ASK_SHORTCUT_PRESETS.map((preset) => ({
-  value: preset.accelerator,
-  label: IS_MAC ? preset.macLabel : preset.otherLabel,
-}));
+const CODE_KEYS: Record<string, string> = {
+  Space: "Space",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Minus: "-",
+  Equal: "=",
+  Backquote: "`",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Enter: "Return",
+  Tab: "Tab",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+};
+
+function acceleratorFromEvent(event: KeyboardEvent): string | null {
+  let key: string | null = null;
+  if (event.code.startsWith("Key")) key = event.code.slice(3);
+  else if (event.code.startsWith("Digit")) key = event.code.slice(5);
+  else if (/^F\d+$/.test(event.code)) key = event.code;
+  else key = CODE_KEYS[event.code] ?? null;
+  if (!key) return null;
+
+  const modifiers: string[] = [];
+  if (event.metaKey || event.ctrlKey) modifiers.push("CommandOrControl");
+  if (event.altKey) modifiers.push("Alt");
+  if (event.shiftKey) modifiers.push("Shift");
+  const accelerator = [...modifiers, key].join("+");
+  return isValidQuickAskAccelerator(accelerator) ? accelerator : null;
+}
+
+function ShortcutRecorder({
+  value,
+  disabled,
+  onRecord,
+}: {
+  value: string;
+  disabled: boolean;
+  onRecord: (accelerator: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setRecording(false);
+        return;
+      }
+      const accelerator = acceleratorFromEvent(event);
+      if (accelerator) {
+        setRecording(false);
+        onRecord(accelerator);
+      }
+    };
+    const cancel = (): void => setRecording(false);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("blur", cancel);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("blur", cancel);
+    };
+  }, [recording, onRecord]);
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={disabled}
+      onClick={() => setRecording((current) => !current)}
+      aria-label="Record shortcut"
+      className="min-w-[160px] font-mono"
+    >
+      {recording
+        ? "Press a shortcut… (Esc cancels)"
+        : formatAccelerator(value, IS_MAC)}
+    </Button>
+  );
+}
 
 /**
- * Global shortcut picker for the quick-ask panel. Renders nothing on hosts
- * without the panel (no bound client, or the host reports it disabled).
+ * Records any modifier+key combination as the panel's global shortcut.
+ * Renders nothing on hosts without the panel.
  */
-export function QuickAskShortcutSetting() {
+export function QuickAskShortcutSetting({
+  disabled = false,
+}: {
+  disabled?: boolean;
+}) {
   const client = useServiceOptional<QuickAskSettingsClient>(
     QUICK_ASK_SETTINGS_CLIENT,
   );
@@ -45,7 +137,7 @@ export function QuickAskShortcutSetting() {
     return null;
   }
 
-  const handleChange = (accelerator: string): void => {
+  const handleRecord = (accelerator: string): void => {
     track(ANALYTICS_EVENTS.SETTING_CHANGED, {
       setting_name: "quick_ask_shortcut",
       new_value: accelerator,
@@ -58,25 +150,16 @@ export function QuickAskShortcutSetting() {
     <SettingRow
       label="Ask PostHog anywhere"
       description={
-        state.registered
-          ? "Summons the PostHog AI pill at your cursor, over any app."
-          : "This shortcut is taken by another app. Pick a different one."
+        state.active && !state.registered
+          ? "Another app owns this shortcut. Record a different one."
+          : "Click, then press the keys you want to summon the panel with."
       }
     >
-      <div className="flex flex-col items-end gap-1">
-        <SettingsOptionSelect
-          value={state.shortcut}
-          options={OPTIONS}
-          onValueChange={handleChange}
-          ariaLabel="Quick ask shortcut"
-          className="w-44"
-        />
-        {!state.registered && (
-          <Text color="red" className="text-xs">
-            Not active
-          </Text>
-        )}
-      </div>
+      <ShortcutRecorder
+        value={state.shortcut}
+        disabled={disabled}
+        onRecord={handleRecord}
+      />
     </SettingRow>
   );
 }

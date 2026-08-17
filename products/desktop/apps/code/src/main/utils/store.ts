@@ -30,6 +30,7 @@ interface RendererStoreSchema {
 }
 
 interface QuickAskStoreSchema {
+  panelEnabled: boolean;
   shortcut: string;
   defaultChannelId: string;
   defaultRepositories: string[];
@@ -66,6 +67,7 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
   name: "quick-ask",
   cwd: userDataDir,
   defaults: {
+    panelEnabled: true,
     shortcut: "",
     defaultChannelId: "",
     defaultRepositories: [],

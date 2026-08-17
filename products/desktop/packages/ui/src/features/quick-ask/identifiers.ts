@@ -9,6 +9,8 @@
 export interface QuickAskState {
   /** Whether the quick-ask panel is available in this build. */
   enabled: boolean;
+  /** The user toggle; off unregisters the shortcut and drops the panel. */
+  active: boolean;
   /** The configured Electron accelerator. */
   shortcut: string;
   /** False when another app owns the accelerator. */
@@ -23,6 +25,7 @@ export interface QuickAskState {
 }
 
 export interface QuickAskSettingsPatch {
+  active?: boolean;
   defaultChannelId?: string;
   defaultRepositories?: string[];
   defaultGithubIntegrationId?: number;
