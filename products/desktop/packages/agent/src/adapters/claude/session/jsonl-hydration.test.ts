@@ -524,9 +524,6 @@ describe("conversationTurnsToJsonlEntries", () => {
     expect(parsed.slug).toBeDefined();
   });
 
-  // The slug rides into the CLI's plan filename, so a fresh one per rehydration
-  // sent the CLI looking for a plan file that does not exist — it reported "No plan
-  // file exists yet" and the plan from before the resume was gone.
   it("derives a stable slug from the session id across rehydrations", () => {
     const turns = [
       {
@@ -542,7 +539,6 @@ describe("conversationTurnsToJsonlEntries", () => {
 
     expect(first).toBeDefined();
     expect(slugOf(conversationTurnsToJsonlEntries(turns, config))).toBe(first);
-    // Two sessions must not land on one plan file either.
     expect(
       slugOf(
         conversationTurnsToJsonlEntries(turns, {

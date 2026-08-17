@@ -687,9 +687,6 @@ describe("ClaudeAcpAgent /clear", () => {
   });
 
   it("resets pre-clear plan and notification state so it can't resurface after /clear", async () => {
-    // ExitPlanMode reads the plan from whichever file the session recorded;
-    // left untouched, a plan written before /clear (possibly carrying
-    // repo-injected content) could resurface in the fresh session.
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-plan");
     (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath =

@@ -17,14 +17,7 @@ export function isClaudePlanFilePath(filePath: string | undefined): boolean {
   return resolved === plansDir || resolved.startsWith(plansDir + path.sep);
 }
 
-/**
- * Subagents are assigned their own plan file, suffixed with their agent id.
- * Treating one as the session's plan would put a subagent's working notes in
- * front of the user instead of the plan they are being asked to approve.
- */
 export function isSubagentPlanFilePath(filePath: string): boolean {
-  // Agent ids are long hex strings. Requiring length keeps an ordinary plan name
-  // that happens to end in "-agent-<word>" from being mistaken for one.
   return /-agent-[0-9a-f]{8,}\.md$/i.test(path.basename(filePath));
 }
 
@@ -35,15 +28,13 @@ export function isPlanReady(plan: string | undefined): boolean {
   return /(^|\n)#{1,6}\s+\S/.test(trimmed);
 }
 
-/**
- * The plan file is the source of truth. `ExitPlanMode` has no `plan` parameter,
- * and the CLI has the model build the plan up incrementally with Write then
- * Edit — so only the file on disk holds the current plan.
- */
 export async function readPlanFile(filePath: string): Promise<string | null> {
   try {
     const content = await fs.readFile(filePath, "utf8");
-    return content.trim() ? content : null;
+    if (!content.trim()) {
+      return null;
+    }
+    return content;
   } catch {
     return null;
   }

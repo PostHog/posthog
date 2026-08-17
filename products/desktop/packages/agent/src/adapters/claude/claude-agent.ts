@@ -1867,9 +1867,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.taskState.clear();
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
-    // Nothing from before the boundary should be able to reach the fresh
-    // session: forget the plan file so a stale (possibly repo-injected)
-    // pre-clear plan can't resurface after approval.
+    // Nothing from before the boundary should reach the fresh session.
     session.notificationHistory.length = 0;
     session.lastPlanFilePath = undefined;
     this.fileContentCache = {};

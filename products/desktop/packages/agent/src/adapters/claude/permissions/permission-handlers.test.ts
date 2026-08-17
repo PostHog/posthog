@@ -678,7 +678,6 @@ describe("ExitPlanMode plan resolution", () => {
       }),
     );
 
-    // The agent fills the plan in afterwards, which only the file reflects.
     await fs.writeFile(planFilePath, PLAN);
     const context = exitPlanModeContext(new Set(["test-tool-use-id"]), session);
 
@@ -688,10 +687,6 @@ describe("ExitPlanMode plan resolution", () => {
     expect(planUpdates(context, SKELETON)).toEqual([]);
   });
 
-  // The CLI decides plan mode for itself, so its view can differ from the
-  // session's. While recording sat behind the mode branches, every such session
-  // reached approval with no plan to show. ("bypassPermissions" is excluded: it
-  // auto-allows ExitPlanMode itself, so no approval happens to carry a plan.)
   it.each(["auto", "acceptEdits", "default"])(
     "surfaces the plan when the session mode is %s while the CLI is planning",
     async (permissionMode) => {
@@ -742,7 +737,6 @@ describe("ExitPlanMode plan resolution", () => {
 
     expect(result.behavior).toBe("deny");
     if (result.behavior === "deny") {
-      // Recoverable: the agent should write the plan and call the tool again.
       expect(result.interrupt).toBe(false);
     }
   });

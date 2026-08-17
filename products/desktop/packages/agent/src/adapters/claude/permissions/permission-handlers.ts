@@ -178,35 +178,22 @@ function extractPlanText(input: Record<string, unknown>): string | undefined {
   return typeof plan === "string" ? plan : undefined;
 }
 
-/**
- * Resolves the plan to review, reading it off disk every time.
- *
- * `ExitPlanMode` carries no plan: its input is only `allowedPrompts`, so the
- * plan has to come from the file the CLI assigned. Reading it fresh here is
- * also what makes edits visible — the model builds the plan up with a Write
- * followed by Edits, and only the file reflects those.
- *
- * The resolved path travels with the plan so clients can open the document
- * rather than only render the text.
- */
 async function resolvePlanInput(
   context: ToolHandlerContext,
 ): Promise<Record<string, unknown>> {
   const { session, toolInput } = context;
   const planFilePath = session.lastPlanFilePath;
   const planFromFile = planFilePath ? await readPlanFile(planFilePath) : null;
-  // An inline plan is only a fallback for hosts that synthesize one.
   const plan = planFromFile ?? extractPlanText(toolInput);
 
   if (!plan) {
     return toolInput;
   }
+  if (!planFilePath) {
+    return { ...toolInput, plan };
+  }
 
-  return {
-    ...toolInput,
-    plan,
-    ...(planFilePath ? { planFilePath } : {}),
-  };
+  return { ...toolInput, plan, planFilePath };
 }
 
 async function createPlanValidationError(
@@ -217,9 +204,6 @@ async function createPlanValidationError(
   return { behavior: "deny", message, interrupt: false };
 }
 
-// Denials have to name an action the model can actually take. `ExitPlanMode`
-// has no `plan` parameter, so asking for the plan "in ExitPlanMode" describes
-// something impossible and the model can only retry into the same denial.
 async function validatePlanContent(
   planText: string | undefined,
   context: ToolHandlerContext,
@@ -319,16 +303,14 @@ async function applyPlanApproval(
       response.outcome.optionId === "acceptEdits" ||
       response.outcome.optionId === "bypassPermissions")
   ) {
-    // Re-read the plan file: the user may have edited it while reviewing, and
-    // what they approved is what the file says now, not what it said when the
-    // prompt opened. Reading it here covers every way they could have edited it
-    // — an editor pane, an external editor — without routing an edited payload
-    // back through the permission response.
     const approvedInput = await resolvePlanInput({
       ...context,
       toolInput: updatedInput,
     });
-    if (extractPlanText(approvedInput) !== extractPlanText(updatedInput)) {
+    const approvedPlan = extractPlanText(approvedInput);
+    const reviewedPlan = extractPlanText(updatedInput);
+
+    if (approvedPlan !== reviewedPlan) {
       await publishPlanUpdate(
         context,
         approvedInput,
@@ -712,16 +694,6 @@ async function handlePostHogExecApprovalFlow(
   return buildDenialResult(context, response);
 }
 
-/**
- * Records which file holds this session's plan.
- *
- * Observation only, never a permission decision — which is why it runs ahead of
- * every allow/deny branch. The CLI decides plan mode for itself and its view can
- * differ from this session's: a cloud run whose mode is "auto", or a mode change
- * that raced the SDK. Those modes approve writes and return early, so while this
- * lived further down, the plan file went unrecorded and `ExitPlanMode` had
- * nothing to show — the user got an approval prompt with no plan in it.
- */
 function recordPlanFile(context: ToolHandlerContext): void {
   const { session, toolName, toolInput } = context;
 
@@ -740,8 +712,6 @@ function recordPlanFile(context: ToolHandlerContext): void {
   session.lastPlanFilePath = filePath;
 }
 
-// Writing the plan is plan mode's one write exception. Outside plan mode a write
-// to the plans directory goes through the normal approval path.
 function handlePlanFileException(
   context: ToolHandlerContext,
 ): ToolPermissionResult | null {
@@ -822,8 +792,6 @@ export async function canUseTool(
 ): Promise<ToolPermissionResult> {
   const { toolName, toolInput, session, allowedDomains } = context;
 
-  // Ahead of every allow/deny branch: the hands-off modes approve writes and
-  // return early, so this is the only place that sees every plan-file write.
   recordPlanFile(context);
 
   // Enforce domain allowlist for web tools

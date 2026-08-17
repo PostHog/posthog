@@ -90,7 +90,6 @@ export type Session = BaseSession & {
   modelId?: string;
   cwd: string;
   taskRunId?: string;
-  /** The file holding this session's plan, recorded when the agent writes it. */
   lastPlanFilePath?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */

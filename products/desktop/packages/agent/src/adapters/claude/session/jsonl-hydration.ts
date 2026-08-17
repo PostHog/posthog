@@ -367,15 +367,11 @@ function generateMessageId(): string {
   return id;
 }
 
-/**
- * The slug rides into the CLI's plan filename, so it has to come out the same on
- * every rehydration of a session. A fresh slug per rehydration sent the CLI looking
- * for a plan file that does not exist, so it reported "No plan file exists yet" and
- * the plan from before the resume was gone.
- */
 function sessionSlug(sessionId: string): string {
   const compact = sessionId.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  return `session-${compact.slice(0, 12) || "unknown"}`;
+  const suffix = compact.slice(0, 12) || "unknown";
+
+  return `session-${suffix}`;
 }
 
 export function conversationTurnsToJsonlEntries(
