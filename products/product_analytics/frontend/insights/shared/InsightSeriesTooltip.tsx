@@ -192,17 +192,19 @@ export function SeriesLabel({
             </>
         ) : null
 
+    // The period label sits at the row's right edge so the dates line up as a column down the
+    // tooltip rather than trailing labels of different lengths.
     // Three levels of priority, in order: the period label never shrinks, the breakdown value
     // shrinks only once the row runs out of name, and the name absorbs everything before that.
-    // The breakdown and the period share a shrink-0 group so shrinking is sequential — a group
+    // The name and the breakdown share a growing group so shrinking is sequential — a group
     // that shrinks proportionally costs a short value two characters to the ellipsis.
     return (
         <span className="inline-flex items-center w-full overflow-hidden">
-            {seriesPrefix}
-            <span className="inline-flex items-center min-w-0 shrink-0 max-w-full">
-                <span className="truncate min-w-0 shrink">{breakdownTitle ?? datum.label}</span>
-                {periodLabel && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{periodLabel}</span>}
+            <span className="inline-flex items-center min-w-0 flex-1 overflow-hidden">
+                {seriesPrefix}
+                <span className="truncate min-w-0 shrink-0 max-w-full">{breakdownTitle ?? datum.label}</span>
             </span>
+            {periodLabel && <span className="shrink-0 opacity-60 pl-2">{periodLabel}</span>}
         </span>
     )
 }
