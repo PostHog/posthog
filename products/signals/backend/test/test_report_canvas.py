@@ -177,5 +177,5 @@ class TestReportCanvasGeneration(APIBaseTest):
             team_id=self.team.id,
             task_id=discussion.id,
             user_ids={self.user.id},
-            kind="mention",
+            kind="completed",
         )

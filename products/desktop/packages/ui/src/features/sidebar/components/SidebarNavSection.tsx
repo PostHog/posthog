@@ -5,7 +5,6 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
@@ -17,7 +16,6 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   navigateToActivity,
   navigateToCommandCenter,
-  navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
@@ -31,12 +29,9 @@ import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
-import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
 import { SearchItem } from "./items/SearchItem";
-
-const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 interface SidebarNavSectionProps {
   // The Command Center badge counts how many command-center cells point at a
@@ -51,8 +46,7 @@ interface SidebarNavSectionProps {
 // and the Channels pane. It is fully self-contained — every item's active
 // state, badge count, and click handler is wired here — so it can be dropped
 // into either layout. In the Channels space, destinations with a /website
-// mirror (Command Center) stay in that space; Inbox and New task have
-// no mirror yet and jump back to Code.
+// mirror (Command Center) stay in that space; New task jumps back to Code.
 // Configure opens the shared settings UI. Search opens the command menu in
 // place and defaults to the collapsible More row; the Customize sidebar
 // dialog controls which items show at the top level.
@@ -70,8 +64,8 @@ export function SidebarNavSection({
   );
   // When this section renders inside the Channels space, the destinations that
   // have a /website mirror stay in that space; everything else (and the whole
-  // section in the Code space) uses the canonical routes. Inbox and New task
-  // have no mirror yet, so they intentionally jump back to Code.
+  // section in the Code space) uses the canonical routes. New task has no
+  // mirror yet, so it intentionally jumps back to Code.
   const inChannels = useRouterState({
     select: (s) => s.location.pathname.startsWith("/website"),
   });
@@ -86,21 +80,8 @@ export function SidebarNavSection({
   const isHomeActive =
     view.type === "task-input" || view.type === "task-pending";
   const isActivityActive = view.type === "activity";
-  const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
-
-  // Open pull requests in the inbox — the main CTA, and the same count the inbox
-  // Pull requests tab shows, so the badge and the tab always agree.
-  // `ignoreFilters` keeps the badge stable against the inbox's filter chrome;
-  // scope still follows the user's For-you / project choice.
-  // The sidebar mounts on every route, so its badge polls slowly; opening the
-  // inbox adds its own 3s observers and React Query uses the shortest interval.
-  const { counts: inboxCounts } = useInboxAllReports({
-    ignoreFilters: true,
-    refetchIntervalMs: SIDEBAR_INBOX_REFETCH_INTERVAL_MS,
-  });
-  const inboxPullRequestCount = inboxCounts.pulls;
 
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
@@ -134,7 +115,6 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    inbox: true,
     "command-center": true,
     activity: bluebirdEnabled,
     configure: true,
@@ -147,14 +127,6 @@ export function SidebarNavSection({
     CustomizableNavItemId,
     (depth: 0 | 1) => ReactNode
   > = {
-    inbox: (depth) => (
-      <InboxItem
-        depth={depth}
-        isActive={isInboxActive}
-        onClick={withNavTrack("inbox", navigateToInbox, depth)}
-        pullRequestCount={inboxPullRequestCount}
-      />
-    ),
     "command-center": (depth) => (
       <CommandCenterItem
         depth={depth}
