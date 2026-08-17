@@ -9,9 +9,17 @@ import {
   enrichFileForAgent,
 } from "../enrichment/file-enricher";
 
+const POSTHOG_OBJECT_REFERENCES_SYSTEM_PROMPT = [
+  "## PostHog source references",
+  "When a source read includes a PostHog annotation, cite the relevant object in your reply.",
+  'Use `<event id="event name">event name</event>` for events and `<flag id="flag key">flag key</flag>` for feature flags.',
+  "Use only keys from the annotation. Put references in the reply, never in source code or code fences.",
+].join("\n");
+
 export interface PiEnrichmentConfig {
   apiUrl: string;
   publicApiUrl?: string;
+  enableObjectReferences?: boolean;
   projectId: number;
   apiKey: string;
 }
@@ -23,6 +31,12 @@ export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
   return {
     name: "posthog-enricher",
     factory: (pi: ExtensionAPI) => {
+      if (config.enableObjectReferences) {
+        pi.on("before_agent_start", (event) => ({
+          systemPrompt: `${event.systemPrompt}\n\n${POSTHOG_OBJECT_REFERENCES_SYSTEM_PROMPT}`,
+        }));
+      }
+
       const enrichment = createEnrichment({
         apiUrl: config.apiUrl,
         publicApiUrl: config.publicApiUrl,

@@ -127,6 +127,7 @@ test.describe("Pi enrichment", () => {
       'posthog.capture("checkout_completed");\n',
     );
 
+    let initialModelRequest = "";
     let enrichedModelRequest = "";
     let eventDefinitionRequests = 0;
     let eventStatsRequests = 0;
@@ -153,6 +154,8 @@ test.describe("Pi enrichment", () => {
         const hasToolResult = serialized.includes('"tool_result"');
         if (hasToolResult) {
           enrichedModelRequest = serialized;
+        } else {
+          initialModelRequest = serialized;
         }
         response.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -226,6 +229,7 @@ test.describe("Pi enrichment", () => {
         enrichment: {
           apiUrl: baseUrl,
           publicApiUrl: "https://us.posthog.com",
+          enableObjectReferences: true,
           projectId: 1,
           apiKey: "posthog-test-key",
         },
@@ -237,6 +241,12 @@ test.describe("Pi enrichment", () => {
 
       expect(eventDefinitionRequests).toBe(1);
       expect(eventStatsRequests).toBe(1);
+      expect(initialModelRequest).toContain(
+        '<event id=\\"event name\\">event name</event>',
+      );
+      expect(initialModelRequest).toContain(
+        '<flag id=\\"flag key\\">flag key</flag>',
+      );
       expect(enrichedModelRequest).toContain(
         '[PostHog] Event: \\"checkout_completed\\"',
       );

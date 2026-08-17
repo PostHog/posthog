@@ -61,6 +61,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       enrichment: {
         apiUrl: enrichmentApiUrl,
         publicApiUrl: access.apiHost,
+        enableObjectReferences: true,
         projectId,
         apiKey: PROXY_API_KEY,
       },
