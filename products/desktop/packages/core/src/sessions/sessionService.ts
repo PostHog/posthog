@@ -134,6 +134,13 @@ const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
  */
 const MAX_HOST_ENDED_RESUBSCRIBES = 3;
 /**
+ * A local turn that delivers nothing to this renderer for this long is logged
+ * once, with whether the run is still subscribed, so a transcript that stops
+ * updating can be told apart from an agent that is quietly working.
+ */
+const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
+const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+/**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
  * per event. Electron IPC delivers each event as its own task, so a microtask
@@ -1653,6 +1660,11 @@ export class SessionService {
   >();
   /** Resubscribes since the run's last received event, per taskRunId. */
   private hostEndedResubscribes = new Map<string, number>();
+  /** When each local run last delivered a session event to this renderer. */
+  private lastSessionEventAt = new Map<string, number>();
+  /** Runs already logged for their current stretch of silence. */
+  private silenceLogged = new Set<string>();
+  private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
@@ -2647,6 +2659,9 @@ export class SessionService {
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
     this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.set(taskRunId, Date.now());
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
     if (isAgentTextStreamEvent(acpMsg)) {
       this.lastAgentTextAt.set(taskRunId, Date.now());
     }
@@ -2683,6 +2698,47 @@ export class SessionService {
     this.pendingSessionEvents.delete(taskRunId);
     for (const acpMsg of events) {
       this.handleSessionEvent(taskRunId, acpMsg);
+    }
+  }
+
+  private ensureSilenceCheck(): void {
+    if (this.silenceCheckHandle !== null) return;
+    this.silenceCheckHandle = setInterval(
+      () => this.checkLocalSessionSilence(),
+      LOCAL_SILENCE_CHECK_INTERVAL_MS,
+    );
+  }
+
+  private checkLocalSessionSilence(): void {
+    const now = Date.now();
+    let anyPending = false;
+    for (const session of Object.values(this.d.store.getSessions())) {
+      if (session.isCloud || !session.isPromptPending) continue;
+      if (session.status !== "connected") continue;
+      anyPending = true;
+      const { taskRunId } = session;
+      if (this.silenceLogged.has(taskRunId)) continue;
+      const lastSignalAt = Math.max(
+        this.lastSessionEventAt.get(taskRunId) ?? 0,
+        session.promptStartedAt ?? 0,
+      );
+      if (lastSignalAt === 0) continue;
+      const silentForMs = now - lastSignalAt;
+      if (silentForMs < LOCAL_SILENCE_WARN_AFTER_MS) continue;
+      this.silenceLogged.add(taskRunId);
+      this.d.log.warn("Local session silent while a prompt is pending", {
+        taskRunId,
+        taskId: session.taskId,
+        silentForMs,
+        subscribed: this.subscriptions.has(taskRunId),
+        bufferedEvents: this.pendingSessionEvents.get(taskRunId)?.length ?? 0,
+        eventCount: session.events.length,
+        online: this.d.getIsOnline(),
+      });
+    }
+    if (!anyPending && this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
     }
   }
 
@@ -2884,6 +2940,8 @@ export class SessionService {
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
     this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.delete(taskRunId);
+    this.silenceLogged.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
     this.lastAgentTextAt.delete(taskRunId);
@@ -2919,6 +2977,12 @@ export class SessionService {
     }
     this.pendingSessionEvents.clear();
     this.hostEndedResubscribes.clear();
+    this.lastSessionEventAt.clear();
+    this.silenceLogged.clear();
+    if (this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
+    }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
@@ -3939,6 +4003,8 @@ export class SessionService {
       promptStartedAt: Date.now(),
       pausedDurationMs: 0,
     });
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
 
     const skillButtonId = this.d.h.extractSkillButtonId(blocks);
     if (skillButtonId) {

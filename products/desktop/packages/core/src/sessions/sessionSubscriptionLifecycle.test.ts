@@ -23,7 +23,7 @@ function fakeSubscription() {
   };
 }
 
-function createHarness() {
+function createHarness(sessionOverrides: Partial<AgentSession> = {}) {
   const sessions: Record<string, AgentSession> = {
     [RUN_ID]: {
       taskRunId: RUN_ID,
@@ -33,6 +33,9 @@ function createHarness() {
       messageQueue: [],
       pendingPermissions: new Map(),
       status: "connected",
+      isPromptPending: false,
+      promptStartedAt: null,
+      ...sessionOverrides,
     } as unknown as AgentSession,
   };
   const events = fakeSubscription();
@@ -44,8 +47,17 @@ function createHarness() {
       getSessionByTaskId: (taskId: string) =>
         Object.values(sessions).find((s) => s.taskId === taskId),
       updateSession: vi.fn(),
+      appendEvents: vi.fn(),
+      replaceOptimisticWithEvent: vi.fn(),
+      setPendingPermissions: vi.fn(),
+      clearMessageQueue: vi.fn(),
+      clearTailOptimisticItems: vi.fn(),
+      appendOptimisticItem: vi.fn(),
     },
     log,
+    getIsOnline: () => true,
+    notifyAgentSession: vi.fn(),
+    enqueueSpeech: vi.fn(),
     trpc: {
       agent: {
         onSessionEvent: { subscribe: events.subscribe },
@@ -121,5 +133,69 @@ describe("session subscription lifecycle", () => {
     expect(events.subscribe).toHaveBeenCalledTimes(1);
     expect(permissions.subscribe).toHaveBeenCalledTimes(1);
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  describe("silence while a local prompt is pending", () => {
+    const chunk = {
+      type: "acp_message",
+      ts: 1,
+      message: {
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: RUN_ID,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "x" },
+          },
+        },
+      },
+    };
+
+    it.each([
+      {
+        name: "logs one warning after a minute of silence",
+        eventEvery: null,
+        warnings: 1,
+      },
+      {
+        name: "stays quiet while events keep arriving",
+        eventEvery: 30_000,
+        warnings: 0,
+      },
+    ])("$name", ({ eventEvery, warnings }) => {
+      vi.useFakeTimers();
+      try {
+        const { events, log, service } = createHarness({
+          isPromptPending: true,
+          promptStartedAt: Date.now(),
+        });
+        // A first event starts the check, as the prompt echo does in the app.
+        events.subscriptions[0].handlers.onData(chunk);
+
+        for (let elapsed = 0; elapsed < 150_000; elapsed += 30_000) {
+          vi.advanceTimersByTime(30_000);
+          if (eventEvery !== null) {
+            events.subscriptions[0].handlers.onData(chunk);
+          }
+        }
+
+        const silenceWarnings = log.warn.mock.calls.filter(
+          ([message]) =>
+            message === "Local session silent while a prompt is pending",
+        );
+        expect(silenceWarnings).toHaveLength(warnings);
+        if (warnings > 0) {
+          expect(silenceWarnings[0][1]).toMatchObject({
+            taskRunId: RUN_ID,
+            subscribed: true,
+            online: true,
+          });
+        }
+        service.reset();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
