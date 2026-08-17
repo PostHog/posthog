@@ -5403,7 +5403,7 @@ snapshots:
     replay-tabs-home-success--second-recording-in-list--dark:
         hash: v1.k794b7964.e55e3f17536c13f7561cd6275dc2c63e9950e7f83394de972364ba0b51211c58.S9fUa5v1eSxXT-D7D7lmS3os0kSj8a1gIhb7EPsivNc
     replay-tabs-home-success--second-recording-in-list--light:
-        hash: v1.k794b7964.db9df524befb2d2b1f9115318d2a4ddc5cd5009ef1e38100a7511011634114b8.wlpOrqbKlF47Bul9gFvQ2fuD9OXN-TopZSNFM3Z7K2I
+        hash: v1.k794b7964.3a8372e58168132be7cc904fd0b41f6758930206eb5c51fb50f3a067f19398fc.HToJJ6kF0cytmkWxhkwCEtjSN0YxsJV7p8OtC9qShv0
     scenes-app-ai-observability-clustercard--default--dark:
         hash: v1.k794b7964.745c8ac41b251f329b890d56d7b07fb31b4939a440a40eea7932f1081d3de702.ESnQVAOfySBfRJWfJsURYu-prgU3EUvQZCD62MyLlX4
     scenes-app-ai-observability-clustercard--default--light:
@@ -6569,13 +6569,13 @@ snapshots:
     scenes-app-inbox-signalsourcespanel--tools-on-no-recent-data--light:
         hash: v1.k794b7964.ace77adbc25963a6ba9f41c77744f726165855b31c0e4486bc5fbbeeec55250f.vWRUFUczQF3fmjvF_LizkGQaBK-ddzgEIjTB8sJEFro
     scenes-app-inbox-sourcesteeringmodal--no-rules-yet--dark:
-        hash: v1.k794b7964.6f8f050084142d4b24339c3bae76ea79b7c9ee2f4117a1b30789c5fcf19d7f19.15Qm_zKixrOfhwvrNG3ppjc95M8ywNgUCO5kC776Zto
+        hash: v1.k794b7964.a7e61e9e66ce92ec6002a2afab91836f3235de74eef26c450d7dafcc2da0e1c8.G6Jfi1ua7U3QyXzOg127Twg1h1nelaWDcZR13zTzs1s
     scenes-app-inbox-sourcesteeringmodal--no-rules-yet--light:
-        hash: v1.k794b7964.528d9648d48be5dfd57fbe8a9bc73e77d068616a6494007467140a1c1c741699.UYbkqgjLUPZ5QDhX34y25DiD29mqD2Nh67sfdIhoO20
+        hash: v1.k794b7964.907b6e38e6ca847a400c365c37b294ce61ef4d15ee0f37584b527323e0d8b5d8.Cr_5Q32bCgzvjbOg3KNjk0BlGSAW07Kr3E7R6ikS7lg
     scenes-app-inbox-sourcesteeringmodal--rules-set--dark:
-        hash: v1.k794b7964.eee5b962d9e849371de058017e32ef513268ec4ddf928057d9e6de6acf263e7a._q88iOBj8aTgXKOVWzF3c3ej0TrFuuTe7XwczbfAyKA
+        hash: v1.k794b7964.740612fa137e304fc2840a5e41b44ac04614dfd183fd55a72c041e4168f46a04.eInqcr24eNVcNY1idkcXctdumOGkShuBP27l6pf2XsQ
     scenes-app-inbox-sourcesteeringmodal--rules-set--light:
-        hash: v1.k794b7964.385738bfcd292440eaa22250862067de71f5e2b2b09c77014c89fd47f616c2e8.0E8wRwNii_FGTwEogE_RA51a_JU-8-dFtH41VmbGOKg
+        hash: v1.k794b7964.d1279fa1214369e191ab56aeef694231fcd401abf93e1854000fdfdcf97399bc.BKbf7ywpJGW7XqCNbou14Du1jqORsoYt5No4mJCVU3Q
     scenes-app-inbox-tabs--pull-requests--dark:
         hash: v1.k794b7964.474d8e744637e08afd4bb7540f0f5dafd6a79342c2f547188cb436b55f9ef8e7.PiyD1Zkhkot-_DKLU3W0T5uA7rvpTUTn5bKChCa3AV4
     scenes-app-inbox-tabs--pull-requests--light:
