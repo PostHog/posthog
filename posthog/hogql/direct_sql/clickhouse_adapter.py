@@ -279,6 +279,8 @@ class ClickHouseAdapter:
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
+        from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
+
         source = request.source
         clickhouse_source, config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -311,7 +313,13 @@ class ClickHouseAdapter:
                     fetch_result = _fetch_capped_clickhouse_rows(
                         client, request.sql, request.values or None, statement_timeout_seconds
                     )
-        except (ClickHouseError, OSError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            ClickHouseError,
+            ClickHouseConnectionError,
+            OSError,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(
