@@ -351,7 +351,7 @@ async def test_acheck_query_in_query_log_classifies_the_error(clickhouse_client,
     query_id = f"test-memory-limit-query-{uuid.uuid4()}"
 
     with pytest.raises(ClickHouseMemoryLimitExceededError) as direct:
-        await clickhouse_client.execute_query(
+        await clickhouse_client.execute_query_with_summary(
             "SELECT groupArray(toString(number)) FROM numbers(10000000)",
             query_id=query_id,
             settings={"max_memory_usage": "1000000"},
