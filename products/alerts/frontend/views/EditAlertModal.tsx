@@ -14,7 +14,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -350,7 +355,6 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             investigationAgentEnabled={investigationAgentEnabled}
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}
-            forecastSimulationResult={forecastSimulationResult}
             forecastSimulationResultLoading={forecastSimulationResultLoading}
             simulationDateFrom={simulationDateFrom}
             onSetAlertFormValue={setAlertFormValue}
@@ -415,6 +419,17 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}
+            forecast={
+                alertMode === 'forecast' && forecastSimulationResult
+                    ? {
+                          result: forecastSimulationResult,
+                          thresholdBounds:
+                              alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+                                  ? (alertForm.threshold?.configuration?.bounds ?? null)
+                                  : null,
+                      }
+                    : undefined
+            }
             loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
         />
     )

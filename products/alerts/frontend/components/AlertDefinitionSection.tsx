@@ -4,7 +4,6 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
 
-import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
@@ -79,7 +78,6 @@ export interface AlertDefinitionSectionProps {
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
-    forecastSimulationResult: ForecastSimulateResponseApi | null
     forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
@@ -108,7 +106,6 @@ export function AlertDefinitionSection({
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
-    forecastSimulationResult,
     forecastSimulationResultLoading,
     simulationDateFrom,
     onSetAlertFormValue,
@@ -265,7 +262,6 @@ export function AlertDefinitionSection({
                     {alertMode === 'forecast' && alertForm.forecast_config && (
                         <ForecastSimulationSection
                             alertForm={alertForm}
-                            forecastSimulationResult={forecastSimulationResult}
                             forecastSimulationResultLoading={forecastSimulationResultLoading}
                             simulationDateFrom={simulationDateFrom}
                             onSimulateForecast={onSimulateForecast}

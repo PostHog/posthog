@@ -1,63 +1,56 @@
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { ForecastConditionType } from '~/queries/schema/schema-general'
-
-import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
-import { ForecastPreview } from 'products/alerts/frontend/views/ForecastPreview'
 
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 interface ForecastSimulationSectionProps {
     alertForm: AlertFormType
-    forecastSimulationResult: ForecastSimulateResponseApi | null
     forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSimulateForecast: () => void
     onSetSimulationDateFrom: (value: string) => void
 }
 
+/** Controls for the forecast simulation. The result renders in the editor's preview card rather
+ *  than here, so the user sees one chart instead of a second one under the controls. */
 export function ForecastSimulationSection({
     alertForm,
-    forecastSimulationResult,
     forecastSimulationResultLoading,
     simulationDateFrom,
     onSimulateForecast,
     onSetSimulationDateFrom,
 }: ForecastSimulationSectionProps): JSX.Element {
     return (
-        <div className="deprecated-space-y-2">
-            <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-1.5">
                 <h4 className="m-0">Simulation</h4>
-                <LemonSelect
-                    size="small"
-                    data-attr="alertForm-simulate-forecast-range"
-                    value={simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)}
-                    onChange={onSetSimulationDateFrom}
-                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
-                />
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    data-attr="alertForm-simulate-forecast"
-                    onClick={onSimulateForecast}
-                    loading={forecastSimulationResultLoading}
-                    tooltip="Run the forecast on historical data to preview the predicted trend and its expected range"
+                <Tooltip
+                    title="Previews the forecast over past data. It does not change what the alert evaluates when it runs."
+                    delayMs={0}
                 >
-                    Simulate
-                </LemonButton>
+                    <IconInfo className="text-muted size-3.5" />
+                </Tooltip>
             </div>
-            {forecastSimulationResult && (
-                <ForecastPreview
-                    result={forecastSimulationResult}
-                    thresholdBounds={
-                        alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
-                            ? (alertForm.threshold.configuration.bounds ?? null)
-                            : null
-                    }
-                />
-            )}
+            <LemonSelect
+                size="small"
+                data-attr="alertForm-simulate-forecast-range"
+                value={simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)}
+                onChange={onSetSimulationDateFrom}
+                options={getSimulationRangeOptions(alertForm.calculation_interval)}
+            />
+            <LemonButton
+                type="secondary"
+                size="small"
+                data-attr="alertForm-simulate-forecast"
+                onClick={onSimulateForecast}
+                loading={forecastSimulationResultLoading}
+                tooltip="Run the forecast on historical data to preview the predicted trend and its expected range"
+            >
+                Simulate
+            </LemonButton>
         </div>
     )
 }

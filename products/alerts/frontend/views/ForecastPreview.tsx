@@ -210,7 +210,7 @@ export function ForecastPreview({
     const outsideNearBand = !hasBounds ? isLatestValueOutsideNearBand(result) : null
 
     return (
-        <div className="rounded-lg p-3 space-y-2">
+        <div className="space-y-2">
             <FitQualityBadge fitQuality={result.fit_quality} />
             <ForecastChart
                 result={result}

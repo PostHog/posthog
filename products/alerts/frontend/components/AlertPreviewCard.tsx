@@ -5,8 +5,9 @@ import { Sparkline, SparklineReferenceLine } from 'lib/components/Sparkline'
 import type { AnyScaleOptions } from 'lib/components/Sparkline'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightsThresholdBounds, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
@@ -15,6 +16,7 @@ import {
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import { ForecastPreview } from 'products/alerts/frontend/views/ForecastPreview'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
 import { fromLogScale, shouldUseLogScale, thresholdReferenceLines, toLogScale } from './AlertPreviewCard.utils'
@@ -58,6 +60,9 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
+    /** A forecast simulation the user just ran. It replaces the card's own chart so the editor
+     *  shows one preview rather than a second chart below the controls. */
+    forecast?: { result: ForecastSimulateResponseApi; thresholdBounds: InsightsThresholdBounds | null }
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
     loading?: boolean
 }
@@ -69,6 +74,7 @@ export function AlertPreviewCard({
     funnelPreview,
     hogqlPreview,
     checkPreview,
+    forecast,
     loading,
 }: AlertPreviewCardProps): JSX.Element {
     const config = alertForm.config
@@ -99,7 +105,9 @@ export function AlertPreviewCard({
         !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isUnconfiguredAbsoluteThreshold) {
+    if (forecast) {
+        body = <ForecastPreview result={forecast.result} thresholdBounds={forecast.thresholdBounds} />
+    } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
@@ -171,12 +179,14 @@ export function AlertPreviewCard({
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
-                    <span>{checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
+                    <span>{forecast ? 'Forecast' : checkPreview !== undefined ? 'Recent evaluations' : 'Preview'}</span>
                     <Tooltip
                         title={
-                            checkPreview !== undefined
-                                ? 'Values recorded by recent alert evaluations.'
-                                : 'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
+                            forecast
+                                ? 'History plus the forecast and its expected range. Run Simulate again after changing the forecast settings.'
+                                : checkPreview !== undefined
+                                  ? 'Values recorded by recent alert evaluations.'
+                                  : 'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
                         }
                         delayMs={0}
                     >
@@ -184,7 +194,7 @@ export function AlertPreviewCard({
                     </Tooltip>
                 </div>
                 <div className="flex items-center gap-2">
-                    {useLogScale ? (
+                    {useLogScale && !forecast ? (
                         <Tooltip title="A log scale keeps thresholds with very different values visually distinct.">
                             <LemonTag type="default" className="m-0">
                                 Log scale
