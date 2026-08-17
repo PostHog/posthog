@@ -1,5 +1,6 @@
 import { buildDiscussReportPrompt } from "@posthog/core/inbox/reportActions";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { Task } from "@posthog/shared";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
@@ -10,6 +11,9 @@ interface UseDiscussReportOptions {
   reportId: string;
   reportTitle: string | null;
   cloudRepository: string | null;
+  redirectOnSuccess?: boolean;
+  allowMissingRepository?: boolean;
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseDiscussReportReturn {
@@ -23,6 +27,9 @@ export function useDiscussReport({
   reportId,
   reportTitle,
   cloudRepository,
+  redirectOnSuccess,
+  allowMissingRepository,
+  onTaskCreated,
 }: UseDiscussReportOptions): UseDiscussReportReturn {
   // Carry the per-invocation question through to `buildInput`. A ref (not
   // state) so `discussReport`'s identity stays stable across question changes.
@@ -49,6 +56,7 @@ export function useDiscussReport({
         cloudPrAuthorshipMode: "user",
         cloudRunSource: "signal_report",
         signalReportId: reportId,
+        signalReportTaskRelationship: "discussion",
       };
     },
     [reportId, reportTitle],
@@ -58,6 +66,7 @@ export function useDiscussReport({
     reportId,
     reportTitle,
     cloudRepository,
+    allowMissingRepository,
     loggerScope: "discuss-report",
     copy: {
       loadingTitle: "Starting discussion...",
@@ -70,6 +79,8 @@ export function useDiscussReport({
     },
     buildInput,
     analyticsExtras: { has_branch: false },
+    onTaskCreated,
+    redirectOnSuccess,
   });
 
   const discussReport = useCallback(
