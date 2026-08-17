@@ -916,7 +916,17 @@ export class AgentServer {
         return;
       }
 
-      await this.posthogAPI.putTaskRunResumeState(taskId, runId, serialized);
+      const stored = await this.posthogAPI.putTaskRunResumeState(
+        taskId,
+        runId,
+        serialized,
+      );
+      if (!stored) {
+        this.logger.warn(
+          "Resume snapshot declined: a clear retired this conversation",
+        );
+        return;
+      }
       this.logger.debug("Persisted resume snapshot", {
         turns: snapshot.conversation.length,
         logEntries: snapshot.logEntryCount,

@@ -2931,18 +2931,33 @@ def write_task_run_resume_state(
     team_id: int,
     *,
     content: bytes,
-) -> bool:
+) -> Literal["written", "not_found", "superseded"]:
+    """Store a run's teardown resume snapshot, unless a `/clear` has since retired it.
+
+    Takes the row lock `clear_task_run_conversation` holds across its delete-then-append,
+    so the two paths serialize: a clear that lands first leaves the boundary at the log's
+    tail and this refuses, and a clear that lands second deletes what this just wrote.
+    Without the lock a fold that started before the clear could write the retired
+    conversation back afterwards, and resume reads the snapshot before it reads the log.
+    """
     from posthog.storage import object_storage  # noqa: PLC0415
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return False
+        return "not_found"
     if not content or len(content) > RESUME_STATE_MAX_SIZE_BYTES:
         raise ValueError("The resume state content size is invalid")
-    object_storage.write(run.resume_state_url, content)
+    with transaction.atomic():
+        run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
+        # Tail rather than "ever cleared": a run cleared and then resumed appends past the
+        # boundary, and that later snapshot folds the marker in, so it is legitimate.
+        if run._log_tail_is_conversation_cleared():
+            return "superseded"
+        object_storage.write(run.resume_state_url, content)
     # The snapshot is a derived cache of the log, so it must not outlive the log's
-    # retention: tag it for the same expiry the log carries. A tag failure leaves the
-    # object in place but must not fail the write that already landed.
+    # retention: tag it for the same expiry the log carries. Tagging outside the lock
+    # keeps the hold to the read and the write; a tag failure leaves the object in place
+    # but must not fail the write that already landed.
     try:
         object_storage.tag(
             run.resume_state_url,
@@ -2953,7 +2968,7 @@ def write_task_run_resume_state(
             "task_run.resume_state_tag_failed",
             extra={"task_run_id": str(run.id), "storage_path": run.resume_state_url, "error": str(exc)},
         )
-    return True
+    return "written"
 
 
 def read_task_run_resume_state(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:

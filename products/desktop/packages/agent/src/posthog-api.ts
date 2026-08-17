@@ -630,11 +630,14 @@ export class PostHogAPIClient {
     return response.json();
   }
 
+  /**
+   * @returns false when the server declined the snapshot because a `/clear` retired it.
+   */
   async putTaskRunResumeState(
     taskId: string,
     runId: string,
     content: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const teamId = this.getTeamId();
     const response = await this.performRequestWithRetry(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_state_sync/`,
@@ -652,5 +655,10 @@ export class PostHogAPIClient {
         `Failed to write resume state: [${response.status}] ${error}`,
       );
     }
+    // An older backend has no `ok` field and always stored the snapshot.
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+    } | null;
+    return result?.ok !== false;
   }
 }

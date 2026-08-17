@@ -10027,6 +10027,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         run = self._create_run_with_sandbox(task)
         self._open_sandbox_session(run)
         content = b'{"last_event_id":"42"}'
+        # The write path reads the log to check for a clear boundary; only the snapshot
+        # key serves the stored bytes back.
+        stored: dict[str, str] = {}
+        mock_read.side_effect = lambda key, missing_ok=False: stored.get(key)
 
         write_response = self.client.generic(
             "POST",
@@ -10041,14 +10045,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(write_response.json(), {"ok": True})
         mock_write.assert_called_once_with(run.resume_state_url, content)
 
-        mock_read.return_value = content.decode()
+        stored[run.resume_state_url] = content.decode()
         read_response = self.client.get(self._resume_state_url(task, run))
 
         self.assertEqual(read_response.status_code, status.HTTP_200_OK)
         self.assertEqual(read_response["Content-Type"], "application/json")
         self.assertEqual(read_response["Cache-Control"], "no-cache")
         self.assertEqual(read_response.content, content)
-        mock_read.assert_called_once_with(run.resume_state_url, missing_ok=True)
+        mock_read.assert_any_call(run.resume_state_url, missing_ok=True)
 
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
@@ -10073,6 +10077,25 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             run.resume_state_url,
             {"ttl_days": str(TaskRun.DEFAULT_LOG_TTL_DAYS), "team_id": str(run.team_id)},
         )
+
+    def test_resume_state_sync_declines_a_snapshot_a_clear_retired(self):
+        # A teardown fold that began before the clear would otherwise write the retired
+        # conversation back afterwards, and resume reads the snapshot before the log, so
+        # the clear would silently do nothing for the next run.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")
+
+        response = self.client.generic(
+            "POST",
+            self._resume_state_sync_url(task, run),
+            cast(str, b'{"conversation":[{"role":"user"}]}'),
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"ok": False})
+        self.assertIsNone(object_storage.read(run.resume_state_url, missing_ok=True))
 
     @patch("posthog.storage.object_storage.read", return_value=None)
     def test_resume_state_read_returns_404_when_never_written(self, mock_read):

@@ -1724,7 +1724,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
 
         try:
-            written = tasks_facade.write_task_run_resume_state(
+            outcome = tasks_facade.write_task_run_resume_state(
                 pk,
                 task_id,
                 self.team_id,
@@ -1735,9 +1735,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": str(error)}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not written:
+        if outcome == "not_found":
             raise NotFound()
-        return Response(TaskRunResumeStateSyncResponseSerializer({"ok": True}).data)
+        # A snapshot that a `/clear` already retired is declined, not failed: the caller
+        # wanted no stale snapshot stored, and none is.
+        return Response(TaskRunResumeStateSyncResponseSerializer({"ok": outcome == "written"}).data)
 
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
