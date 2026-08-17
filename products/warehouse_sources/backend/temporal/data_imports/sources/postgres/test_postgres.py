@@ -418,12 +418,30 @@ class TestPostgresSourceNonRetryableErrors:
             # Newlines are normalized to spaces upstream, so the FATAL/DETAIL pair arrives on one line.
             # Permanent until the replica's config changes or it's promoted — must not keep retrying.
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  the database system is not accepting connections DETAIL:  Hot standby mode is disabled.',
+            # A custom app.* session GUC the connecting role doesn't set (SQLSTATE 42704), read by a
+            # customer RLS policy, view, or pooler. Permanent until the customer changes it — must not
+            # keep retrying. Parameter name is invented, not a real customer value.
+            'unrecognized configuration parameter "app.current_tenant"',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_unrecognized_session_parameter_surfaces_actionable_message(self, source):
+        # A missing custom app.* session setting must stop retrying and explain the pooler/RLS/view
+        # source, rather than storing the raw driver text. Mirror the finalizer's first-match
+        # selection so a future reorder that shadows it with an earlier None-valued key is caught.
+        error_msg = 'unrecognized configuration parameter "app.current_tenant"'
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "unrecognized session parameter must be classified non-retryable"
+        assert matches[0] is not None, "unrecognized session parameter must surface an actionable message"
+        assert "session setting" in matches[0].lower()
 
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
