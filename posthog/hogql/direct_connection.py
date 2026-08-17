@@ -9,6 +9,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.database.database import Database
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.models import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
@@ -21,7 +22,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from posthog.models import Team
 
 
 INVALID_CONNECTION_ID_ERROR = (
@@ -84,7 +85,11 @@ def raw_query_denied_by_table_access(
 
 
 def get_direct_connection_source(
-    team: "Team", connection_id: str | None, *, user: Optional["User"] = None, require_pure_direct: bool = False
+    team: "Team",
+    connection_id: str | None,
+    *,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
+    require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
     if not connection_id:
         return None
@@ -122,8 +127,12 @@ def get_direct_connection_source(
     if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return None
 
+    # Only real users carry an RBAC identity. Non-user principals (shared-link viewers, service
+    # tokens) have no organization membership to query by - filtering AccessControl by their
+    # non-integer id raises a TypeError - and they bypass warehouse access control by design
+    # (see Database.create_for), so the direct-connection source is available to them.
     if (
-        user is not None
+        isinstance(user, User)
         and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
         and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
@@ -136,7 +145,7 @@ def get_direct_connection_source_none_or_raise(
     team: "Team",
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
     error_factory: Callable[[str], Exception],
     require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
@@ -150,7 +159,7 @@ def resolve_database_for_connection(
     team: "Team",
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
     modifiers: HogQLQueryModifiers | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
