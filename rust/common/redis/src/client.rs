@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use redis::aio::MultiplexedConnection;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::{AsyncCommands, RedisError};
 use std::time::Duration;
 use tracing::warn;
@@ -14,7 +14,7 @@ const ERR_RAWBYTES_SET: &str =
 
 #[derive(Clone)]
 pub struct RedisClient {
-    connection: MultiplexedConnection,
+    connection: ConnectionManager,
     compression: CompressionConfig,
     format: RedisValueFormat,
 }
@@ -130,9 +130,19 @@ impl RedisClient {
             }
         }
 
-        // Use Redis native timeout configuration
-        // None means no timeout (blocks indefinitely)
-        let mut config = redis::AsyncConnectionConfig::new();
+        // ConnectionManager replaces a dead multiplexed connection. The command
+        // that detects the dropped connection still returns its error, then later
+        // commands wait for and use the replacement connection. A bare
+        // MultiplexedConnection remains broken after Redis restarts or moves to a
+        // new pod, and every later command keeps failing.
+        //
+        // None means no timeout (blocks indefinitely).
+        // Keep construction compatible with the previous single connection
+        // attempt. The manager's retry policy applies to both initial connection
+        // and later reconnections, so zero retries avoids extending constructor
+        // latency by six timeout periods plus exponential backoff. A command after
+        // a failed reconnect can trigger another reconnect attempt.
+        let mut config = ConnectionManagerConfig::new().set_number_of_retries(0);
 
         if let Some(timeout) = response_timeout {
             config = config.set_response_timeout(timeout);
@@ -142,9 +152,7 @@ impl RedisClient {
             config = config.set_connection_timeout(timeout);
         }
 
-        let connection = client
-            .get_multiplexed_async_connection_with_config(&config)
-            .await?;
+        let connection = ConnectionManager::new_with_config(client, config).await?;
 
         Ok(RedisClient {
             connection,
@@ -774,6 +782,17 @@ mod tests {
             assert!(config.enabled);
             assert_eq!(config.threshold, 512);
             assert_eq!(config.level, 0);
+        }
+
+        #[test]
+        fn test_client_uses_connection_manager_for_automatic_reconnects() {
+            fn assert_connection_manager(_: &redis::aio::ConnectionManager) {}
+
+            let assert_client_connection_type = |client: &RedisClient| {
+                assert_connection_manager(&client.connection);
+            };
+
+            let _ = assert_client_connection_type;
         }
 
         #[tokio::test]
