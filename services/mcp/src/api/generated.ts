@@ -37466,6 +37466,8 @@ export namespace Schemas {
       updated_at: string;
       locked: boolean;
       state: string;
+      author_login?: string | null;
+      author_association?: string | null;
     }
 
     export interface GitlabIssueSignalExtra {

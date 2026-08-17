@@ -832,7 +832,6 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-alerting',
                 'logs-anomalies',
-                'logs-patterns-view',
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
@@ -861,7 +860,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-behavior-comparison',
             ])
         )
-        expect(flags).toHaveLength(29)
+        expect(flags).toHaveLength(28)
     })
 
     it('every loops tool is gated on the loops flag', () => {
