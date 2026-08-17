@@ -71,15 +71,14 @@ class QueryCache:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
-        storage_bytes = encode_stored_value(
-            team_id=self.team_id, cache_key=self.cache_key, payload=fresh_response_serialized
-        )
-
-        # Set cache with per-team size limit enforcement. The tracker budgets the bytes actually
-        # stored in Redis (compressed blob or pointer), while the write metrics below keep
-        # counting the uncompressed payload. Caching is an optimization: the query has already
-        # run, so a bookkeeping failure here must not fail the response.
+        # Encode and set cache with per-team size limit enforcement. The tracker budgets the
+        # bytes actually stored in Redis (compressed blob or pointer), while the write metrics
+        # below keep counting the uncompressed payload. Caching is an optimization: the query has
+        # already run, so an encoding or bookkeeping failure here must not fail the response.
         try:
+            storage_bytes = encode_stored_value(
+                team_id=self.team_id, cache_key=self.cache_key, payload=fresh_response_serialized
+            )
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, storage_bytes, len(storage_bytes), settings.CACHED_RESULTS_TTL)
         except Exception:
