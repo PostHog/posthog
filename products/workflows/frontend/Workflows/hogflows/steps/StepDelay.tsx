@@ -82,6 +82,8 @@ export function StepDelayConfiguration({
                                     <HogFlowDuration
                                         value={offset.duration}
                                         onChange={(duration) => setDelayOffset(action.id, { ...offset, duration })}
+                                        // The offset can be any size; the wait itself is capped by max_delay_duration.
+                                        allowUnbounded
                                     />
                                 </div>
                             ) : null}
