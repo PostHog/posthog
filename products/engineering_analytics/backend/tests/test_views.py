@@ -65,8 +65,7 @@ class TestListGithubSourcesAccessControl(BaseTest):
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     """The curated query builders, exercised as inline subqueries over real
-    warehouse tables. Skips when object storage is unreachable so the suite still
-    runs without the dev stack."""
+    warehouse tables."""
 
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         return create_github_warehouse_table(self, base_name, columns, rows)
