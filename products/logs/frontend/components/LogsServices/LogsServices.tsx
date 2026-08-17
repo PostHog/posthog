@@ -1,18 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconShare } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    Tooltip,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
@@ -24,6 +14,7 @@ import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsView
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsServicesLogic, SERVICES_PAGE_SIZE, ServiceRow } from './logsServicesLogic'
+import { copyServiceDeepLink } from './serviceViewerUrl'
 
 /** Collapsed Rules column shows this many rule chips before "+ N more". */
 const RULES_PREVIEW_COUNT = 3
@@ -145,18 +136,6 @@ function ServiceRulesCell({
                 </LemonButton>
             ) : null}
         </div>
-    )
-}
-
-function copyServiceDeepLink(serviceName: string): void {
-    const path = combineUrl(urls.currentProject(urls.logs()), {
-        activeTab: 'viewer',
-        serviceNames: serviceName,
-    }).url
-    const full = urls.absolute(path)
-    void navigator.clipboard.writeText(full).then(
-        () => lemonToast.success('Link copied'),
-        () => lemonToast.error('Could not copy link')
     )
 }
 
