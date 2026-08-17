@@ -10,5 +10,10 @@
             <a href="{% url 'admin:send-ai-observability-usage-report' %}">Send AI observability usage report</a>
         </li>
     {% endif %}
+    {% if show_bulk_deactivation_button %}
+        <li>
+            <a href="{% url 'admin:organization_bulk_deactivate' %}">Bulk deactivate organizations</a>
+        </li>
+    {% endif %}
     {{ block.super }}
 {% endblock %}
