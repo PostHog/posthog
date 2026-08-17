@@ -120,9 +120,11 @@ export function ReportSessionsView({
         return (
           <section key={key}>
             <div className="mb-3 flex items-center gap-2">
-              <Icon size={15} className="text-muted" />
+              <Icon size={15} className="text-muted-foreground" />
               <h2 className="font-semibold text-sm">{title}</h2>
-              <span className="text-muted text-xs">{reports.length}</span>
+              <span className="text-muted-foreground text-xs">
+                {reports.length}
+              </span>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
               {reports.map((report) => (

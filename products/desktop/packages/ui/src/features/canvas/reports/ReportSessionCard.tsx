@@ -47,14 +47,19 @@ export function ReportSessionCard({
               )}
             </div>
             {headline && (
-              <p className="line-clamp-2 text-muted text-sm">{headline}</p>
+              <p className="line-clamp-2 text-muted-foreground text-sm">
+                {headline}
+              </p>
             )}
-            <p className="mt-2 text-muted text-xs">
+            <p className="mt-2 text-muted-foreground text-xs">
               Updated{" "}
               {formatRelativeTimeLong(report.updated_at ?? report.created_at)}
             </p>
           </div>
-          <ArrowRightIcon className="mt-1 shrink-0 text-muted" size={14} />
+          <ArrowRightIcon
+            className="mt-1 shrink-0 text-muted-foreground"
+            size={14}
+          />
         </CardContent>
       </Link>
     </Card>
