@@ -4662,6 +4662,36 @@ export class PostHogAPIClient {
     return (await response.json()) as McpServerInstallation;
   }
 
+  /**
+   * Flip an installation between personal and project-shared. Scope is
+   * read-only on the update serializer, so it moves through these dedicated
+   * actions instead. Sharing is owner-only and admin-only server-side; the
+   * backend's 403 is surfaced to the caller rather than pre-checked here.
+   */
+  async setMcpServerInstallationShared(
+    installationId: string,
+    shared: boolean,
+  ): Promise<McpServerInstallation> {
+    const teamId = await this.getTeamId();
+    const action = shared ? "share" : "unshare";
+    const path = `/api/environments/${teamId}/mcp_server_installations/${installationId}/${action}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        (errorData as { detail?: string }).detail ??
+          `Failed to ${action} MCP server: ${response.statusText}`,
+      );
+    }
+
+    return (await response.json()) as McpServerInstallation;
+  }
+
   async uninstallMcpServer(installationId: string): Promise<void> {
     const teamId = await this.getTeamId();
     const url = new URL(

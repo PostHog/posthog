@@ -23,6 +23,7 @@ import {
   filterToolsByName,
   sortToolsForDisplay,
 } from "@posthog/core/mcp-servers/toolDerivation";
+import { Switch as QuillSwitch } from "@posthog/quill";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
 import {
   STATUS_COLORS,
@@ -54,6 +55,9 @@ interface ServerDetailViewProps {
   onConnect: () => void;
   onReauthorize: () => void;
   onToggleEnabled: (enabled: boolean) => void;
+  isShared: boolean;
+  isSharedPending: boolean;
+  onToggleShared: (shared: boolean) => void;
   onUninstall: () => void;
 }
 
@@ -67,6 +71,9 @@ export function ServerDetailView({
   onConnect,
   onReauthorize,
   onToggleEnabled,
+  isShared,
+  isSharedPending,
+  onToggleShared,
   onUninstall,
 }: ServerDetailViewProps) {
   const [showRemoved, setShowRemoved] = useState(false);
@@ -203,6 +210,29 @@ export function ServerDetailView({
           )}
         </Flex>
       </Flex>
+
+      {installation && status === "connected" && (
+        <>
+          <Separator size="4" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-0">
+              <span className="font-medium text-base">
+                Share with the project
+              </span>
+              <span className="text-(--gray-10) text-[12px]">
+                Personal servers are only yours. Shared servers can be used by
+                project members, and are the only ones a loop can use.
+              </span>
+            </div>
+            <QuillSwitch
+              checked={isShared}
+              disabled={isSharedPending}
+              aria-label="Share with the project"
+              onCheckedChange={onToggleShared}
+            />
+          </div>
+        </>
+      )}
 
       {installation && status === "connected" && (
         <>

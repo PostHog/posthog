@@ -63,6 +63,8 @@ function McpMarketplaceView() {
     installingId,
     uninstallMutation,
     toggleEnabled,
+    setShared,
+    setSharedPending,
     installTemplate,
     installCustom,
     installCustomPending,
@@ -237,6 +239,11 @@ function McpMarketplaceView() {
           }}
           onToggleEnabled={(enabled) => {
             if (install) toggleEnabled(install.id, enabled);
+          }}
+          isShared={install?.scope === "shared"}
+          isSharedPending={setSharedPending}
+          onToggleShared={(shared) => {
+            if (install) setShared(install.id, shared);
           }}
           onUninstall={() => {
             if (install) setUninstallTarget(install);

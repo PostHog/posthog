@@ -99,6 +99,31 @@ export function useMcpServers() {
     [toggleEnabledMutation],
   );
 
+  const setSharedMutation = useAuthenticatedMutation(
+    (client, vars: { id: string; shared: boolean }) =>
+      client.setMcpServerInstallationShared(vars.id, vars.shared),
+    {
+      onSuccess: (_data, vars) => {
+        toast.success(
+          vars.shared ? "Shared with the project" : "Made personal again",
+        );
+        invalidateInstallations();
+      },
+      onError: (error: Error) => {
+        toast.error(
+          error.message || "Failed to change who can use this server",
+        );
+      },
+    },
+  );
+
+  const setShared = useCallback(
+    (installationId: string, shared: boolean) => {
+      setSharedMutation.mutate({ id: installationId, shared });
+    },
+    [setSharedMutation],
+  );
+
   const installTemplateMutation = useAuthenticatedMutation(
     (client, vars: { template_id: string; api_key?: string }) =>
       installTemplateWithOAuth(client, oauth, vars),
@@ -197,6 +222,8 @@ export function useMcpServers() {
     installingId,
     uninstallMutation,
     toggleEnabled,
+    setShared,
+    setSharedPending: setSharedMutation.isPending,
     installTemplate,
     installCustom: installCustomMutation.mutate,
     installCustomPending: installCustomMutation.isPending,
