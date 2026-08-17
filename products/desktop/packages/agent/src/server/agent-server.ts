@@ -4922,12 +4922,19 @@ ${commonInstructions}
     // snapshot short of the entries the pending retry still owes, and the next
     // resume would trust that snapshot over the eventually-complete log. Skip the
     // snapshot when entries remain; the next resume falls back to replaying the log.
-    if (this.session.logWriter.hasPendingEntries(this.session.payload.run_id)) {
-      this.logger.warn(
-        "Skipping resume snapshot: session log not fully persisted",
-      );
-    } else {
-      await this.persistResumeSnapshot();
+    try {
+      if (
+        this.session.logWriter.hasPendingEntries(this.session.payload.run_id)
+      ) {
+        this.logger.warn(
+          "Skipping resume snapshot: session log not fully persisted",
+        );
+      } else {
+        await this.persistResumeSnapshot();
+      }
+    } catch (error) {
+      // The snapshot is a cache; never let it abort the rest of teardown.
+      this.logger.error("Failed to persist resume snapshot", error);
     }
 
     if (this.mcpRelayServer) {

@@ -677,7 +677,10 @@ describe("AgentServer HTTP Mode", () => {
       cleanupServer.session = {
         payload: { run_id: "run-1" },
         pendingHandoffGitState: undefined,
-        logWriter: { flush: vi.fn(async () => {}) },
+        logWriter: {
+          flush: vi.fn(async () => {}),
+          hasPendingEntries: vi.fn(() => false),
+        },
         acpConnection: { cleanup: vi.fn(async () => {}) },
         sseController: { close: vi.fn() },
       };
@@ -1085,7 +1088,10 @@ describe("AgentServer HTTP Mode", () => {
       }) as unknown as {
         session: {
           payload: { run_id: string };
-          logWriter: { flush: ReturnType<typeof vi.fn> };
+          logWriter: {
+            flush: ReturnType<typeof vi.fn>;
+            hasPendingEntries: ReturnType<typeof vi.fn>;
+          };
           telemetry: {
             append: ReturnType<typeof vi.fn>;
             shutdown: ReturnType<typeof vi.fn>;
@@ -1117,7 +1123,10 @@ describe("AgentServer HTTP Mode", () => {
       };
       testServer.session = {
         payload: { run_id: "run-1" },
-        logWriter: { flush: vi.fn(async () => {}) },
+        logWriter: {
+          flush: vi.fn(async () => {}),
+          hasPendingEntries: vi.fn(() => false),
+        },
         telemetry: {
           append: vi.fn(() => {
             order.push("append");
@@ -1218,7 +1227,11 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = {
         acpSessionId: "acp-1",
         payload: { run_id: "run-1" },
-        logWriter: { appendRawLine, flush: vi.fn(async () => {}) },
+        logWriter: {
+          appendRawLine,
+          flush: vi.fn(async () => {}),
+          hasPendingEntries: vi.fn(() => false),
+        },
       };
       return testServer;
     }
@@ -1305,7 +1318,11 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = {
         acpSessionId: "acp-1",
         payload: { run_id: "run-1" },
-        logWriter: { appendRawLine: vi.fn(), flush: vi.fn(async () => {}) },
+        logWriter: {
+          appendRawLine: vi.fn(),
+          flush: vi.fn(async () => {}),
+          hasPendingEntries: vi.fn(() => false),
+        },
         clientConnection: { prompt },
       };
       return testServer as unknown as {
@@ -2110,6 +2127,7 @@ describe("AgentServer HTTP Mode", () => {
           logWriter: {
             appendRawLine: vi.fn(),
             flush: vi.fn().mockResolvedValue(undefined),
+            hasPendingEntries: vi.fn(() => false),
           },
           permissionMode: "default",
           hasDesktopConnected: false,
