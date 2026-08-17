@@ -1177,16 +1177,20 @@ export class CdpApi {
             // UUID-shaped only: cancelJobs binds ids as ::uuid[], so a malformed id must be a 400
             // here rather than a Postgres cast error surfaced as a 500.
             const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+            // Same env-driven cap the Django cancel serializer validates against, so raising the
+            // env var lifts both sides together instead of leaving Django accepting ids this route
+            // then rejects with a 400 (which Django surfaces as a 500).
+            const maxInvocationIds = this.config.HOG_INVOCATION_RERUN_MAX_COUNT
             if (
                 invocationIds !== undefined &&
                 (!Array.isArray(invocationIds) ||
                     invocationIds.length === 0 ||
-                    invocationIds.length > 10000 ||
+                    invocationIds.length > maxInvocationIds ||
                     !invocationIds.every((i: unknown) => typeof i === 'string' && uuidRe.test(i)))
             ) {
-                return res
-                    .status(400)
-                    .json({ error: 'invocation_ids must be a non-empty array of up to 10000 invocation UUIDs' })
+                return res.status(400).json({
+                    error: `invocation_ids must be a non-empty array of up to ${maxInvocationIds} invocation UUIDs`,
+                })
             }
 
             const result = await this.batchResolverProducer.cancelJobs({
