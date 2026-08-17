@@ -41,8 +41,6 @@ export class CapturePage {
     // so the generic captureStopped handler can attribute the abort instead of guessing.
     fatalError: RasterizationError | null = null
 
-    private readonly beginFrameTimeoutMs = defaultConfig.beginFrameTimeoutMs
-
     private constructor(
         readonly page: Page,
         readonly playerUrl: string,
@@ -130,6 +128,7 @@ export class CapturePage {
         log: Logger = createLogger()
     ): void {
         const page = this.page
+        const beginFrameTimeoutMs = defaultConfig.beginFrameTimeoutMs
         const originalCreateCDPSession = page.createCDPSession.bind(page)
         ;(page as any).createCDPSession = async (): Promise<CDPSession> => {
             const session = await originalCreateCDPSession()
@@ -146,29 +145,31 @@ export class CapturePage {
 
                     await waitForRequestsSettled()
 
-                    // A frame can legitimately stall for tens of seconds: content that reveals many
-                    // huge images at once (e.g. resuming from an inactivity skip onto a gallery)
-                    // forces every software image decode to finish inside this one beginFrame under
-                    // --run-all-compositor-stages-before-draw. Warn at the soft threshold so slow
-                    // frames are visible, and only abort at the hard cap.
+                    // Frames that reveal many large images legitimately stall 30-60s on software
+                    // image decode under --run-all-compositor-stages-before-draw, so warn at the
+                    // soft threshold and only abort at the hard cap.
                     let timedOut = false
-                    let timeoutHandle: ReturnType<typeof setTimeout>
+                    let stalled = false
                     let warnHandle: ReturnType<typeof setTimeout>
-                    const sendStart = process.hrtime.bigint()
-                    const elapsedS = (): number => Number(process.hrtime.bigint() - sendStart) / 1e9
+                    let hardHandle: ReturnType<typeof setTimeout> | undefined
+                    const sendStart = Date.now()
                     const timeout = new Promise<never>((_, reject) => {
                         warnHandle = setTimeout(() => {
+                            stalled = true
                             log.warn({ params }, `beginFrame slow (>${BEGINFRAME_WARN_AFTER_MS / 1000}s), waiting`)
+                            hardHandle = setTimeout(
+                                () => {
+                                    timedOut = true
+                                    reject(new Error(`beginFrame timeout (${beginFrameTimeoutMs / 1000}s)`))
+                                },
+                                Math.max(0, beginFrameTimeoutMs - BEGINFRAME_WARN_AFTER_MS)
+                            )
                         }, BEGINFRAME_WARN_AFTER_MS)
-                        timeoutHandle = setTimeout(() => {
-                            timedOut = true
-                            reject(new Error(`beginFrame timeout (${this.beginFrameTimeoutMs / 1000}s)`))
-                        }, this.beginFrameTimeoutMs)
                     })
                     try {
                         const result = await Promise.race([originalSend(method as any, params), timeout])
-                        const stallS = elapsedS()
-                        if (stallS * 1000 >= BEGINFRAME_WARN_AFTER_MS) {
+                        if (stalled) {
+                            const stallS = (Date.now() - sendStart) / 1000
                             RasterizationMetrics.observeBeginFrameStall(stallS)
                             log.warn({ stall_s: +stallS.toFixed(1) }, 'beginFrame recovered after stall')
                         }
@@ -176,7 +177,7 @@ export class CapturePage {
                     } catch (err) {
                         if (timedOut) {
                             this.fatalError = new RasterizationError(
-                                `beginFrame timeout (${this.beginFrameTimeoutMs / 1000}s) — compositor deadlock`,
+                                `beginFrame timeout (${beginFrameTimeoutMs / 1000}s) — compositor deadlock`,
                                 true,
                                 'BEGINFRAME_DEADLOCK'
                             )
@@ -192,8 +193,8 @@ export class CapturePage {
                         }
                         throw err
                     } finally {
-                        clearTimeout(timeoutHandle!)
                         clearTimeout(warnHandle!)
+                        clearTimeout(hardHandle)
                     }
                 }
                 return originalSend(method as any, ...args)

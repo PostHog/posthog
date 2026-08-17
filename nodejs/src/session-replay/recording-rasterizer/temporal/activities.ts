@@ -7,6 +7,7 @@ import * as path from 'path'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { config } from '~/session-replay/recording-rasterizer/config'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
@@ -61,12 +62,25 @@ async function rasterizeRecordingActivity(
     // the latest phase and frame count. Temporal exposes this via
     // `pending_activities[].heartbeat_details` for the parent workflow to read.
     const progress: RasterizationProgress = { phase: 'setup', frame: 0, estimatedTotalFrames: 0 }
-    const onProgress = (): void => Context.current().heartbeat(progress)
+    let lastProgressAt = Date.now()
+    const onProgress = (): void => {
+        lastProgressAt = Date.now()
+        Context.current().heartbeat(progress)
+    }
 
-    // Progress-driven heartbeats stop while a beginFrame stalls (e.g. a frame waiting out a mass
-    // image decode), and the workflow's 30s heartbeat timeout would kill an otherwise healthy
-    // render. Beat on wall clock as well so stalls up to beginFrameTimeoutMs survive.
-    const heartbeatInterval = setInterval(onProgress, 10_000)
+    // Progress-driven heartbeats stop while a beginFrame stalls, so beat on wall clock too, but
+    // only up to the stall tolerance, so a hang anywhere else still trips the 30s heartbeat timeout.
+    const keepaliveCutoffMs = config.beginFrameTimeoutMs + 30_000
+    const heartbeatInterval = setInterval(() => {
+        if (Date.now() - lastProgressAt > keepaliveCutoffMs) {
+            return
+        }
+        try {
+            Context.current().heartbeat(progress)
+        } catch {
+            // The activity context is gone (worker shutdown); an uncaught throw here kills the process.
+        }
+    }, 10_000)
 
     try {
         const result = await rasterizeRecording(

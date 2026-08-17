@@ -21,7 +21,7 @@ export class RasterizationMetrics {
 
     private static readonly beginFrameStallDuration = new Summary({
         name: 'recording_rasterizer_beginframe_stall_duration_seconds',
-        help: 'Duration of beginFrame calls that exceeded the slow-frame warning threshold',
+        help: 'Duration of recovered beginFrame stalls; frames that hit the hard timeout are not recorded here',
         percentiles: QUANTILES,
         maxAgeSeconds: MAX_AGE_SECONDS,
         ageBuckets: AGE_BUCKETS,

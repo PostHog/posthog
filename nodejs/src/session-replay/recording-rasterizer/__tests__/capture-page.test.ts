@@ -4,6 +4,7 @@ import * as path from 'path'
 import { Page } from 'puppeteer'
 
 import { CapturePage, playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
 const mockLog = {
     info: jest.fn(),
@@ -208,6 +209,7 @@ describe('capture-page', () => {
 
         it('logs a warning but keeps waiting when beginFrame exceeds the soft threshold', async () => {
             jest.useFakeTimers()
+            const observeBeginFrameStall = jest.spyOn(RasterizationMetrics, 'observeBeginFrameStall')
             const { page, capturePage } = await preparePage()
             let resolveSend: (v: unknown) => void
             originalSend.mockReturnValue(new Promise((resolve) => (resolveSend = resolve)))
@@ -223,6 +225,11 @@ describe('capture-page', () => {
             resolveSend!({ data: 'late-frame' })
             await expect(sendPromise).resolves.toEqual({ data: 'late-frame' })
             expect(capturePage.fatalError).toBeNull()
+            expect(mockLog.warn).toHaveBeenCalledWith(
+                expect.objectContaining({ stall_s: expect.any(Number) }),
+                'beginFrame recovered after stall'
+            )
+            expect(observeBeginFrameStall).toHaveBeenCalledWith(expect.any(Number))
             jest.useRealTimers()
         })
 

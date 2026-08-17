@@ -22,10 +22,9 @@ export const config = {
     disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
     screenshotFormat: (process.env.SCREENSHOT_FORMAT || 'jpeg') as 'png' | 'jpeg',
-    // Hard cap on a single beginFrame. Frames stalled on mass image decode (a gallery of huge
-    // images revealed by one inactivity skip) legitimately take 30-60s, so this must stay well
-    // above that; it only exists to bound a truly wedged compositor.
-    beginFrameTimeoutMs: parseInt(process.env.BEGINFRAME_TIMEOUT_MS || '120000', 10),
+    // Hard cap on a single beginFrame; mass-image-decode stalls legitimately run 30-60s, so keep
+    // this well above that. It only exists to bound a truly wedged compositor.
+    beginFrameTimeoutMs: parseInt(process.env.BEGINFRAME_TIMEOUT_MS || '120000', 10) || 120_000,
     screenshotJpegQuality: parseInt(process.env.SCREENSHOT_JPEG_QUALITY || '80', 10),
     metricsPort: parseInt(process.env.METRICS_PORT || '6738', 10),
 
