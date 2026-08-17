@@ -2204,9 +2204,7 @@ class TestResolveHostaddrWithTimeout:
         ],
     )
     def test_hosts_that_need_no_lookup_short_circuit(self, host):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo"
-        ) as getaddrinfo_mock:
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo") as getaddrinfo_mock:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
@@ -2220,7 +2218,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
@@ -2233,7 +2231,7 @@ class TestResolveHostaddrWithTimeout:
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             return_value=addrinfo,
         ):
             assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["10.0.0.5"]
@@ -2242,16 +2240,38 @@ class TestResolveHostaddrWithTimeout:
         # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
         # its own "Name or service not known" error still reaches the non-retryable classifier.
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            "posthog.psycopg_helpers.socket.getaddrinfo",
             side_effect=socket.gaierror(-2, "Name or service not known"),
         ):
             assert _resolve_hostaddr_with_timeout("does-not-exist.example.com", 5432, 15) is None
+
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_strict_resolution_failure_raises(self, resolver_result):
+        patch_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException)
+            else {"return_value": resolver_result}
+        )
+        with patch("posthog.psycopg_helpers.socket.getaddrinfo", **patch_kwargs):
+            with pytest.raises(psycopg.OperationalError, match="Could not resolve database host name"):
+                _resolve_hostaddr_with_timeout(
+                    "does-not-exist.example.com",
+                    5432,
+                    15,
+                    fail_on_resolution_error=True,
+                )
 
     def test_stalled_resolver_raises_fast_retryable_error(self):
         release = threading.Event()
         try:
             with patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 side_effect=lambda *a, **k: release.wait(),
             ):
                 with pytest.raises(psycopg.OperationalError) as exc_info:
@@ -2264,6 +2284,23 @@ class TestResolveHostaddrWithTimeout:
         # Must stay retryable: it must not carry any of the non-retryable resolution fragments.
         assert "could not translate host name" not in message
         assert "Name or service not known" not in message
+
+    def test_abort_check_interrupts_stalled_resolution(self):
+        release = threading.Event()
+        try:
+            with patch(
+                "posthog.psycopg_helpers.socket.getaddrinfo",
+                side_effect=lambda *a, **k: release.wait(),
+            ):
+                with pytest.raises(RuntimeError, match="resolution canceled"):
+                    _resolve_hostaddr_with_timeout(
+                        "db.example.com",
+                        5432,
+                        15,
+                        abort_check=MagicMock(side_effect=RuntimeError("resolution canceled")),
+                    )
+        finally:
+            release.set()
 
 
 # A dual-stack host (e.g. Neon) can resolve to both an IPv6 and an IPv4 address. Passing psycopg a
@@ -2283,7 +2320,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(
@@ -2311,7 +2348,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
             ) as mock_settings,
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
             patch(

@@ -34628,6 +34628,8 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
       readonly supports_hogql: boolean;
+      /** Whether this option is the built-in PostHog managed warehouse connection. */
+      readonly is_builtin_managed_warehouse: boolean;
       /**
          * User-set description of the source, shown as its display name in the connection picker when set.
          * @nullable
