@@ -1640,7 +1640,6 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
         # Slack's own assistant container thread, not a reply to a user message that can be deleted.
-        # nosemgrep: slack-app-thread-replies-go-through-helper
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
     except Exception:
         logger.warning("assistant_thread_started_failed", exc_info=True)
@@ -1650,7 +1649,6 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
 def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
     try:
         # Slack's own assistant container thread, not a reply to a user message that can be deleted.
-        # nosemgrep: slack-app-thread-replies-go-through-helper
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
     except Exception:
         logger.warning("assistant_unavailable_post_failed", exc_info=True)
@@ -4171,7 +4169,6 @@ def _post_insight_alert_snooze_modal_confirmation(
     text = f"😴 Snoozed until {until.strftime('%Y-%m-%d %H:%M')} UTC by {actor}"
     try:
         # Insight-alert surface: anchored on the alert the bot posted, not on an @PostHog prompt.
-        # nosemgrep: slack-app-thread-replies-go-through-helper
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel, thread_ts=meta.get("message_ts"), text=text
         )
