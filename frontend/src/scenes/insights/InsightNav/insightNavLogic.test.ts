@@ -18,6 +18,8 @@ import {
     NodeKind,
     Node,
     ProductKey,
+    RetentionQuery,
+    StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -782,6 +784,96 @@ describe('insightNavLogic', () => {
                 expect((builtInsightDataLogic.values.query as InsightVizNode).source).not.toMatchObject({
                     retentionFilter: expect.objectContaining({ showValuesOnSeries: true }),
                 })
+            })
+
+            it('carries a funnel event into retention as a targetEntity in the right shape', async () => {
+                const funnelsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, name: 'signed_up', event: 'signed_up' },
+                            { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                const retentionSource = (builtInsightDataLogic.values.query as InsightVizNode).source as RetentionQuery
+                expect(retentionSource.retentionFilter?.targetEntity).toEqual({
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    id: 'signed_up',
+                    name: 'signed_up',
+                })
+                // A RetentionEntity forbids the EventsNode `event` key, which was a 400 before
+                expect(retentionSource.retentionFilter?.targetEntity).not.toHaveProperty('event')
+            })
+
+            it('carries a retention target entity back into a series on switch away', async () => {
+                const retentionQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.RetentionQuery,
+                        retentionFilter: {
+                            targetEntity: {
+                                kind: NodeKind.EventsNode,
+                                type: 'events',
+                                id: 'purchase',
+                                name: 'purchase',
+                            },
+                            returningEntity: {
+                                kind: NodeKind.EventsNode,
+                                type: 'events',
+                                id: 'purchase',
+                                name: 'purchase',
+                            },
+                        },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const trendsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsSource.series).toMatchObject([
+                    { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                ])
+            })
+
+            it('does not carry a trends-only display into stickiness', async () => {
+                const trendsPie: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                        trendsFilter: { display: ChartDisplayType.ActionsPie },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsPie)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                const stickinessSource = (builtInsightDataLogic.values.query as InsightVizNode)
+                    .source as StickinessQuery
+                expect(stickinessSource.stickinessFilter?.display).toBeUndefined()
             })
 
             it('preserves multiple breakdowns through round-trip via single-breakdown type', async () => {

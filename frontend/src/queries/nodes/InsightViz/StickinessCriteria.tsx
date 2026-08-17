@@ -41,9 +41,12 @@ export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Ele
                 defaultValue={currentValue}
                 min={1}
                 onChange={(newValue: number | undefined) => {
-                    if (newValue !== undefined) {
-                        updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value: newValue } })
+                    if (newValue === undefined) {
+                        return
                     }
+                    // The backend requires an integer of at least 1, so never post 0 or a negative value.
+                    const value = Math.max(1, Math.floor(newValue))
+                    updateInsightFilter({ stickinessCriteria: { operator: currentOperator, value } })
                 }}
             />
             <span className="@min-[0px]/editor-panel:whitespace-nowrap">time(s) per interval</span>
