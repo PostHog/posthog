@@ -659,6 +659,13 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardAddMenuOpened: (
+        source: 'header' | 'inline',
+        dashboardId: number
+    ) => {
+        dashboardId: number
+        source: 'header' | 'inline'
+    }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         manualCount: number,
@@ -887,13 +894,17 @@ export interface eventUsageLogicActions {
     }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
+        dashboardId: number,
+        tileId: number,
         column: number,
         row: number,
         fullWidth: boolean
     ) => {
         column: number
+        dashboardId: number
         fullWidth: boolean
         row: number
+        tileId: number
         tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
@@ -2474,12 +2485,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
         reportDashboardTileInsertedInline: (
             tileType: DashboardAddTileType,
+            dashboardId: number,
+            tileId: number,
             column: number,
             row: number,
             fullWidth: boolean
-        ) => ({ tileType, column, row, fullWidth }),
+        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3595,9 +3609,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
+            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
             posthog.capture('dashboard tile inserted inline', {
                 tile_type: tileType,
+                dashboard_id: dashboardId,
+                tile_id: tileId,
                 column,
                 row,
                 full_width: fullWidth,
