@@ -39,7 +39,10 @@ import type {
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
@@ -53,6 +56,18 @@ export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = 
 
 // While a review is running, the list refreshes on this cadence so the stage/progress row is live.
 const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
+
+// With nothing running the list still refreshes, just slower: reviews started outside this page
+// (the GitHub label, inbox auto-reviews, a teammate) have no other way to appear, and a finished
+// run's published state can land moments after its last in-progress response. Hidden tabs pause
+// the poll entirely, so the idle cadence only spends requests someone could actually see.
+const IDLE_POLL_INTERVAL_MS = 30_000
+
+/** What the poll remembers about a row between responses, to spot a run finishing. */
+interface ReviewRunMarker {
+    inProgress: boolean
+    runCount: number
+}
 
 // How long after triggering a review the list keeps polling for its report row to appear — the row
 // is created seconds after the 202 by the workflow's fetch step, but a run that dies before creating
@@ -318,6 +333,9 @@ export interface reviewHogSettingsLogicActions {
         validators: ReviewValidatorConfigApi[]
         payload?: any
     }
+    markInitialLoadFailed: () => {
+        value: true
+    }
     openPipelineDetail: () => {
         value: true
     }
@@ -377,8 +395,8 @@ export interface reviewHogSettingsLogicActions {
     stopTriggeredReviewWatch: () => {
         value: true
     }
-    submitTriggerReview: (runMode?: RunModeEnumApi) => {
-        runMode: RunModeEnumApi
+    submitTriggerReview: (runMode?: ReviewTriggerRequestRunModeEnumApi) => {
+        runMode: ReviewTriggerRequestRunModeEnumApi
     }
     submitTriggerReviewFinished: () => {
         value: true
@@ -483,13 +501,18 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // setting), a review without resolving, or a resolve-only run — the split button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
-        submitTriggerReview: (runMode: RunModeEnumApi = RunModeEnumApi.Review) => ({ runMode }),
+        submitTriggerReview: (
+            runMode: ReviewTriggerRequestRunModeEnumApi = ReviewTriggerRequestRunModeEnumApi.Review
+        ) => ({ runMode }),
         submitTriggerReviewStarted: true,
         submitTriggerReviewFinished: true,
-        // Keeps the recent-reviews poll alive until a just-triggered review's report row appears —
-        // without it the poll only arms when some other review is already visibly running.
+        // Keeps the recent-reviews poll on the tight cadence until a just-triggered review's report
+        // row appears; without it the poll only tightens when some review is already visibly running.
         startTriggeredReviewWatch: true,
         stopTriggeredReviewWatch: true,
+        // Flags a load failure as the page-level one. Dispatched by the failure listeners only when
+        // the failing surface has nothing loaded yet, so a background poll blip stays silent.
+        markInitialLoadFailed: true,
     }),
 
     loaders(({ values }) => ({
@@ -745,10 +768,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadBlindSpotsFailure: () => true,
                 loadValidatorsFailure: () => true,
                 loadResolutionSkillsFailure: () => true,
-                // recentReviews/perspectiveStats stay null on failure and their sections render
-                // skeletons while null — without these the skeletons are permanent, with no retry.
-                loadRecentReviewsFailure: () => true,
-                loadPerspectiveStatsFailure: () => true,
+                // recentReviews/perspectiveStats failures arrive via markInitialLoadFailed instead:
+                // their loaders also run on background polls, where a one-off failure just retries
+                // on the next tick, and only a failure with nothing loaded yet (sections stuck on
+                // skeletons, no retry path) is a page-level one.
+                markInitialLoadFailed: () => true,
             },
         ],
         creatingSkillKind: [
@@ -840,25 +864,48 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        // Poll while any review is running so the stage row moves — or while a just-triggered
-        // review's row hasn't appeared yet; the disposable auto-pauses on hidden tabs and is torn
-        // down on unmount.
+        // The poll never stops while the page is mounted (hidden tabs pause it); it only changes
+        // cadence: tight while a review is running or freshly triggered so the stage row moves,
+        // relaxed otherwise so externally-started reviews still appear. Re-adding under the same
+        // key replaces the previous timer, so every response re-arms the poll at the right speed.
         loadRecentReviewsSuccess: () => {
             const anyInProgress = values.recentReviews?.some((review) => review.in_progress) ?? false
             // The watch deliberately runs its full bounded window instead of stopping when an
             // in-progress row shows up: an unrelated already-running review would satisfy that check
-            // and could finish before the triggered row appears, killing the poll too early. The
-            // cost is at most the watch window of idle 10s polls after a fast run completes.
-            if (anyInProgress || values.awaitingTriggeredReview) {
-                cache.disposables.add(() => {
-                    const pollTimer = window.setInterval(
-                        () => actions.loadRecentReviews(),
-                        IN_PROGRESS_POLL_INTERVAL_MS
-                    )
-                    return () => clearInterval(pollTimer)
-                }, 'inProgressPoll')
-            } else {
-                cache.disposables.dispose('inProgressPoll')
+            // and could finish before the triggered row appears, relaxing the cadence too early. The
+            // cost is at most the watch window of tight 10s polls after a fast run completes.
+            const pollInterval =
+                anyInProgress || values.awaitingTriggeredReview ? IN_PROGRESS_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
+            cache.disposables.add(() => {
+                const pollTimer = window.setInterval(() => actions.loadRecentReviews(), pollInterval)
+                return () => clearInterval(pollTimer)
+            }, 'reviewsPoll')
+            // A run finishing moves numbers beyond the list: the stats cards aggregate completed
+            // turns, and an open drawer still shows the report's previous turn. A poll response is
+            // the only place a completion becomes visible, so fan the refresh out from here.
+            const previousRuns: Map<string, ReviewRunMarker> | undefined = cache.lastSeenRuns
+            const currentRuns = new Map<string, ReviewRunMarker>()
+            for (const review of values.recentReviews ?? []) {
+                currentRuns.set(review.id, { inProgress: review.in_progress, runCount: review.run_count })
+            }
+            cache.lastSeenRuns = currentRuns
+            if (previousRuns) {
+                const finishedIds = Array.from(currentRuns.entries())
+                    .filter(([id, run]) => {
+                        const before = previousRuns.get(id)
+                        return !!before && ((before.inProgress && !run.inProgress) || run.runCount > before.runCount)
+                    })
+                    .map(([id]) => id)
+                if (finishedIds.length) {
+                    actions.loadPerspectiveStats()
+                    if (
+                        values.reviewDrawerOpen &&
+                        values.openedReviewId &&
+                        finishedIds.includes(values.openedReviewId)
+                    ) {
+                        actions.loadReviewDetail(values.openedReviewId)
+                    }
+                }
             }
             // No reviews of the user's own PRs: default to the whole project so the block isn't
             // empty — only until the user picks a scope themselves.
@@ -885,10 +932,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             cache.disposables.dispose('triggeredReviewWatch')
         },
         setReviewsScope: () => {
+            // A different scope is a different list; start the finished-run comparison fresh.
+            cache.lastSeenRuns = undefined
             actions.loadRecentReviews()
             actions.loadPerspectiveStats()
         },
         applyDefaultReviewsScope: () => {
+            cache.lastSeenRuns = undefined
             actions.loadRecentReviews()
             actions.loadPerspectiveStats()
         },
@@ -906,6 +956,19 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         updateSettingsFailure: () => {
             // The global loaders toast already surfaced the error; just reconcile the optimistic state.
             actions.loadSettings()
+        },
+        // A background refresh failing is not a page-level failure: the poll retries on its next
+        // tick and the prior rows stay on screen. Only a failure with nothing loaded yet (the
+        // sections would sit on skeletons with no retry path) raises the error banner.
+        loadRecentReviewsFailure: () => {
+            if (values.recentReviewsPage === null) {
+                actions.markInitialLoadFailed()
+            }
+        },
+        loadPerspectiveStatsFailure: () => {
+            if (values.perspectiveStats === null) {
+                actions.markInitialLoadFailed()
+            }
         },
         togglePerspective: async ({ skillName, enabled }) => {
             // Min-1 floor, mirrored from the backend so the block is instant (the server still 400s).
@@ -1006,7 +1069,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     lemonToast.info(
                         'This pull request was already reviewed at its current commit. Find it under recent reviews.'
                     )
-                } else if (runMode === RunModeEnumApi.ResolveOnly) {
+                } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.
                     lemonToast.success(
@@ -1109,7 +1172,25 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadAll()
+        // One immediate list check on tab return. The poll's own interval is paused while hidden
+        // and resumes with a full interval still to wait, which reads as stale exactly when the
+        // user looks. Registered non-pausing: a paused listener is re-attached during the same
+        // visibilitychange dispatch it needs to observe, and listeners added mid-dispatch don't
+        // run for that event.
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (!document.hidden) {
+                        actions.loadRecentReviews()
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'visibilityRefresh',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

@@ -41,6 +41,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         run_cron_schedule: null,
         output_destinations: {},
         structured_output_schema: null,
+        mcp_gateway_server_ids: [],
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
@@ -103,6 +104,7 @@ describe('scoutCreateModalLogic', () => {
                 emit: false,
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
+                mcp_gateway_server_ids: [],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -124,6 +126,7 @@ describe('scoutCreateModalLogic', () => {
                 emit: false,
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
+                mcp_gateway_server_ids: [],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -163,6 +166,7 @@ describe('scoutCreateModalLogic', () => {
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
                     tags: [],
+                    mcp_gateway_server_ids: [],
                 },
             }),
         })
@@ -177,6 +181,7 @@ describe('scoutCreateModalLogic', () => {
                     run_interval_minutes: 1440,
                     run_cron_schedule: '45 14 * * *',
                     tags: [],
+                    mcp_gateway_server_ids: [],
                 },
             })
         )

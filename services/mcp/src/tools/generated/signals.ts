@@ -550,6 +550,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
         }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -650,6 +653,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1266,6 +1272,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
         }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1375,6 +1384,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

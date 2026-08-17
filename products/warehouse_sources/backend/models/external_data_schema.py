@@ -16,6 +16,7 @@ from django.utils import timezone
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -724,6 +725,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self._save_sync_type_config()
 
     @property
+    def column_type_widened(self) -> dict[str, Any] | None:
+        """Set by the v3 load consumer when a failed sync was classified as a safe numeric
+        column-type widening and `reset_pipeline` was stamped alongside it, so the next scheduled
+        sync resets and fully re-syncs the table (see `auto_widen_resync`). Read by the
+        external-data health check to mute a failure that is about to self-heal; consumed by
+        `update_sync_type_config_for_reset_pipeline` when any reset (automatic or manual) runs.
+        Shape: {"column": str, "stored_type": str, "incoming_type": str, "detected_at": iso8601 str}.
+        """
+        if self.sync_type_config:
+            marker = self.sync_type_config.get("column_type_widened", None)
+            if isinstance(marker, dict):
+                return marker
+        return None
+
+    @property
     def coarsen_requested(self) -> dict[str, Any] | None:
         """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
 
@@ -809,8 +825,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return str(value)
         return str(value)
 
-    def update_sync_type_config_for_reset_pipeline(self) -> None:
+    def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
+        # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
+        # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
+        # survives the reset it timestamps.
+        self.sync_type_config.pop("column_type_widened", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
         self.sync_type_config.pop("incremental_staged", None)
@@ -830,7 +850,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # repartition / change-partition-mode actions precisely so they survive this reset and win
         # the resync it triggers. They're consumed in set_partitioning_enabled.
 
-        self.initial_sync_complete = False
+        # Routine full-refresh syncs pass False: the flag is a "first sync ever completed" latch
+        # consumed by webhook gating and schema-state displays, and clearing it on every run left
+        # it false between runs whenever a sync wrote zero rows (no Delta table means post-load
+        # never re-set it). Explicit resets (reset_pipeline, corruption rebuild, sync-method
+        # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
+        if clear_initial_sync_complete:
+            self.initial_sync_complete = False
 
         self.save(skip_activity_log=True)
 
@@ -1202,7 +1228,7 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SchemaSyncResult:
     created: list[str]
     deleted: list[str]

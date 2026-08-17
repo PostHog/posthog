@@ -8973,7 +8973,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8996,9 +8996,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.23.2"
+version = "0.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7c7fd093837f946cda3065af9161713b14c7efec39582bdb35f86d20e83348d"
+checksum = "898ac9a6f7db8030b45431704eaf7a86d3f0575d8b6f13851fc99158e62d1e51"
 dependencies = [
  "backtrace",
  "brotli",

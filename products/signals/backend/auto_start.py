@@ -465,11 +465,21 @@ def _resolve_autostart_assignee(
         login = reviewer.get("github_login")
         if not login:
             continue
-        candidate = login_to_user.get(login.lower())
+        # strip + lower matches the resolver's key normalization, so a legacy padded login
+        # (stored before the schema stripped on write) still resolves.
+        candidate = login_to_user.get(str(login).strip().lower())
         if isinstance(candidate, User):
             candidate_users.append(candidate)
 
     if not candidate_users:
+        attempted_count = len({str(r["github_login"]).lower() for r in identity_candidates if r.get("github_login")})
+        if attempted_count:
+            # Count only: GitHub logins are member PII and must not reach logs.
+            logger.info(
+                "no autostart identity: no suggested reviewer login maps to an org member",
+                team_id=team_id,
+                login_count=attempted_count,
+            )
         return None
 
     # Personal autonomy configs are optional: load any that exist to honor a reviewer's own

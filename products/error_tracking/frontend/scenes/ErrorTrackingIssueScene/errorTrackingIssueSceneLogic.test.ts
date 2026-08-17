@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -63,6 +64,14 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('allows the event selection to close', () => {
+        const event = { uuid: 'event-1' } as ErrorEventType
+        logic.actions.selectEvent(event)
+        logic.actions.selectEvent(null)
+
+        expect(logic.values.selectedEvent).toBeNull()
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {
