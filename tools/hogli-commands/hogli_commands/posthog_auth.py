@@ -19,7 +19,9 @@ prints the URL as well as opening it, and accepts the redirect typed back in, so
 on a machine whose browser lives somewhere else.
 
 Credentials are cached per host at ``~/.config/posthog/oauth/<host>.json`` with mode 0600,
-alongside the registered client, so one login serves every hogli command on that host.
+alongside the registered client, so one login serves every hogli command on that host. Dropping a
+credential revokes it at the server first, since a deleted file leaves a refresh token that still
+mints access tokens for anyone holding a copy.
 
 Nothing here opens a browser off a tty. A piped or agent-driven caller with no cached credential
 gets ``AuthError`` carrying exit code 78 (sysexits ``EX_CONFIG``), so it can branch on the code
@@ -40,7 +42,7 @@ import threading
 import webbrowser
 import http.server
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -130,6 +132,23 @@ class Credential:
         }
 
 
+@dataclass(frozen=True, kw_only=True)
+class Logout:
+    """What a logout did. ``forgotten`` without ``revoked`` means the token still works."""
+
+    forgotten: bool
+    revoked: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class EnvironmentKey:
+    """A personal API key found in the environment, and the variable it came from."""
+
+    variable: str
+    key: str = field(repr=False)
+
+
 def _normalize_host(host: str) -> str:
     return host.rstrip("/")
 
@@ -198,22 +217,58 @@ def save(credential: Credential) -> None:
         temp.unlink(missing_ok=True)
 
 
-def forget(host: str = DEFAULT_HOST) -> bool:
-    """Drop a host's cached credential. True when there was one to drop.
+def logout(host: str = DEFAULT_HOST) -> Logout:
+    """Revoke a host's credential at the server, then drop it locally.
 
-    Local only: it does not revoke the grant server-side, which is done from Settings →
-    Connected apps. Callers should say so rather than implying the token is now dead.
+    Revocation goes first because the file is the only record of the token: dropping it first
+    strands a live refresh token nobody can name. A failed revocation still drops the file, and
+    reports that the grant is live so the caller can say where to finish it off.
     """
-    path = _cache_path(_normalize_host(host))
-    existed = path.exists()
+    host = _normalize_host(host)
+    credential = load(host)
+    path = _cache_path(host)
+    existed = credential is not None or path.exists()
+    failure: str | None = None
+    if credential is not None:
+        try:
+            revoke(credential)
+        except AuthError as exc:
+            failure = exc.message
     path.unlink(missing_ok=True)
-    return existed
+    return Logout(forgotten=existed, revoked=credential is not None and failure is None, error=failure)
 
 
-def key_in_env() -> tuple[str, str] | None:
-    """The variable holding a personal API key and the key itself, or None when neither is set.
+def _revoke_superseded(credential: Credential) -> None:
+    """Revoke a credential a fresh login replaced. Warns rather than raising: the login worked."""
+    try:
+        revoke(credential)
+    except AuthError as exc:
+        click.secho(
+            f"Could not revoke the previous credential for {credential.host}: {exc.message}", fg="yellow", err=True
+        )
+        click.secho("It is still live. Revoke it under Settings → Connected apps.", fg="yellow", err=True)
 
-    Returns both so `status` does not re-derive which variable won, since a second scan could
+
+def revoke(credential: Credential) -> None:
+    """Tell the server to drop the grant, so a copy of the token stops working.
+
+    The refresh token goes when there is one, since it outlives the access token and mints more,
+    and django-oauth-toolkit's `RefreshToken.revoke` takes the paired access token with it.
+    """
+    hint = "refresh_token" if credential.refresh_token else "access_token"
+    revoked = credential.refresh_token or credential.access_token
+    _send(
+        f"{credential.host}/oauth/revoke/",
+        # A public client authenticates on client_id alone, with no secret to present.
+        form_body={"token": revoked, "token_type_hint": hint, "client_id": credential.client_id},
+        action="Revoking the credential",
+    )
+
+
+def key_in_env() -> EnvironmentKey | None:
+    """The personal API key set in the environment, with its variable, or None when neither is set.
+
+    Carries both so `status` does not re-derive which variable won, since a second scan could
     disagree with this one about whether a whitespace-only value counts. ``POSTHOG_AUTH_HEADER``
     holds a whole ``Bearer <key>`` header value, so the scheme is stripped rather than sent twice.
     """
@@ -225,14 +280,14 @@ def key_in_env() -> tuple[str, str] | None:
         # its quotes attached and the `Bearer ` prefix no longer matches.
         if len(raw) > 1 and raw[0] == raw[-1] and raw[0] in "\"'":
             raw = raw[1:-1].strip()
-        return var, raw.removeprefix("Bearer ").strip()
+        return EnvironmentKey(variable=var, key=raw.removeprefix("Bearer ").strip())
     return None
 
 
 def key_from_env() -> str | None:
     """Just the key, for callers that do not care which variable carried it."""
     found = key_in_env()
-    return found[1] if found else None
+    return found.key if found else None
 
 
 def token(
@@ -293,6 +348,7 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
     # Compared against what was asked for, never against what came back. A scope the server strips
     # is absent from `registered` forever, so keying off that re-registers on every attempt and
     # leaves a dead OAuth client plus a live grant behind each time.
+    superseded: Credential | None = None
     if existing is not None and set(wanted) <= set(existing.requested):
         client_id, registered, requested = existing.client_id, existing.registered, existing.requested
     else:
@@ -300,6 +356,9 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         # silently narrow another command that was already working.
         requested = tuple(dict.fromkeys([*(existing.requested if existing else ()), *wanted]))
         client_id, registered = _register(host, requested)
+        # Revoked below, once the replacement exists: overwriting the file would otherwise leave
+        # its refresh token live and unnameable.
+        superseded = existing
 
     refused = [scope for scope in wanted if scope not in registered]
     if refused:
@@ -341,6 +400,8 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         asked=wanted,
     )
     save(credential)
+    if superseded is not None:
+        _revoke_superseded(superseded)
     if not credential.covers(wanted):
         # The ceiling check above cannot see a narrowing that happens at consent time, so this is
         # the backstop. Returning here would hand back a token quietly missing what was asked for,
@@ -479,7 +540,21 @@ def _post(
     json_body: dict[str, Any] | None = None,
     form_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One unauthenticated POST to an OAuth endpoint."""
+    """One unauthenticated POST to an OAuth endpoint whose answer is the object it returns."""
+    body = _send(url, action=action, json_body=json_body, form_body=form_body)
+    if not body:
+        raise AuthError(f"{action} returned no object.")
+    return body
+
+
+def _send(
+    url: str,
+    *,
+    action: str,
+    json_body: dict[str, Any] | None = None,
+    form_body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One unauthenticated POST to an OAuth endpoint. RFC 7009 revocation answers 200 with no body."""
     try:
         response = requests.post(url, json=json_body, data=form_body, timeout=_HTTP_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
@@ -499,8 +574,6 @@ def _post(
         # is set up wrong, so it carries the plain failure code rather than EX_CONFIG.
         code = 1 if response.status_code >= 500 else EXIT_NOT_CONFIGURED
         raise AuthError(f"{action} failed ({response.status_code}): {detail}", exit_code=code)
-    if not body:
-        raise AuthError(f"{action} returned no object.")
     return body
 
 
@@ -558,8 +631,8 @@ class _CallbackServer:
 
     def collect(self, url: str, *, state: str) -> str:
         """Serve until the redirect arrives, then return its authorization code."""
-        # Printed as well as opened, always. A devbox over ssh is indistinguishable from a laptop
-        # from in here, and there the open does nothing while the printed URL is the whole flow.
+        # Printed as well as opened, because a devbox over ssh is indistinguishable from a laptop
+        # here, and there the open does nothing.
         click.echo(f"Approve hogli in your browser:\n  {url}", err=True)
         # On a thread because `webbrowser.open` blocks until the browser exits for a terminal-mode
         # browser, or anything $BROWSER points at that doesn't detach. In the foreground it would
@@ -583,16 +656,14 @@ class _CallbackServer:
 def _pasted_redirects() -> queue.Queue[dict[str, list[str]]] | None:
     """Redirects typed back in, or None when there is no terminal to type at.
 
-    A browser on another machine cannot reach this listener, so the redirect fails there and the
-    code only ever exists in the address bar of a page that did not load. Reading it back is the
-    only way such a login finishes. It runs alongside the listener rather than instead of it,
-    because which of the two the redirect reaches is exactly what cannot be detected from here.
+    A browser on another machine cannot reach this listener, so its redirect fails and the code
+    exists only in the address bar of a page that never loaded. Read alongside the listener rather
+    than instead of it, because which one the redirect reaches cannot be detected from here.
     """
     if not sys.stdin.isatty():
         return None
     click.echo("If your browser is on another machine, paste the address it lands on:", err=True)
     queued: queue.Queue[dict[str, list[str]]] = queue.Queue()
-    # A daemon thread, so a login the listener wins does not leave the command waiting on a read.
     threading.Thread(target=_read_redirect, args=(queued,), daemon=True).start()
     return queued
 
@@ -601,8 +672,7 @@ def _read_redirect(queued: queue.Queue[dict[str, list[str]]]) -> None:
     """Read lines until one carries an authorization redirect, queueing its query."""
     while line := sys.stdin.readline():
         pasted = line.strip()
-        # The address may arrive whole or as the query alone, depending on what the failed page
-        # let the user select.
+        # The address may arrive whole or as the query alone, depending on what the user selected.
         query = parse_qs(urlparse(pasted).query or pasted)
         if query.get("code") or query.get("error"):
             queued.put(query)

@@ -5,7 +5,7 @@ command that just needs a token imports the module, not this surface.
 
     hogli auth:posthog:login     # opens a browser; no API key to mint
     hogli auth:posthog:status    # which host, which scopes, how long the token has left
-    hogli auth:posthog:logout    # drop the local credential
+    hogli auth:posthog:logout    # revoke the grant, then drop the local credential
 """
 
 from __future__ import annotations
@@ -70,8 +70,8 @@ def posthog_login(host: str, scopes: tuple[str, ...]) -> None:
     if found := posthog_auth.key_in_env():
         # Otherwise the login appears to have done nothing: every command reads the env var first.
         click.secho(
-            f"\nNote: {found[0]} is set in your environment, and it wins over this credential.\n"
-            f"Unset {found[0]} to use the browser login.",
+            f"\nNote: {found.variable} is set in your environment, and it wins over this credential.\n"
+            f"Unset {found.variable} to use the browser login.",
             fg="yellow",
         )
 
@@ -100,7 +100,7 @@ def posthog_status(host: str, as_json: bool) -> None:
         raise SystemExit(0 if configured else posthog_auth.EXIT_NOT_CONFIGURED)
 
     if found := posthog_auth.key_in_env():
-        click.echo(f"environment    {found[0]} is set, and it wins over any cached credential")
+        click.echo(f"environment    {found.variable} is set, and it wins over any cached credential")
     if credential is None:
         click.echo(f"credential     none cached for {host}. Run `hogli auth:posthog:login`")
         raise SystemExit(0 if env_key else posthog_auth.EXIT_NOT_CONFIGURED)
@@ -112,12 +112,18 @@ def posthog_status(host: str, as_json: bool) -> None:
     click.echo(f"access token   {lifetime}" + (", refreshable" if credential.refresh_token else ", not refreshable"))
 
 
-@click.command(name="auth:posthog:logout", help="Forget hogli's cached PostHog credential.")
+@click.command(name="auth:posthog:logout", help="Revoke and forget hogli's cached PostHog credential.")
 @_HOST_OPTION
 def posthog_logout(host: str) -> None:
     host = host.rstrip("/")
-    if posthog_auth.forget(host):
-        click.echo(f"Forgot the cached credential for {host}.")
-        click.echo("Revoke the grant itself under Settings → Connected apps.", err=True)
-    else:
+    result = posthog_auth.logout(host)
+    if not result.forgotten:
         click.echo(f"No cached credential for {host}.")
+        return
+    if result.revoked:
+        click.echo(f"Signed out of {host}. The token it held no longer works.")
+        return
+    click.echo(f"Forgot the cached credential for {host}.")
+    if result.error:
+        click.secho(result.error, fg="yellow", err=True)
+    click.secho("The token may still work. Revoke it under Settings → Connected apps.", fg="yellow", err=True)

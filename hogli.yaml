@@ -863,7 +863,7 @@ auth:
         description: Show hogli's cached PostHog credential (host, scopes, expiry)
     auth:posthog:logout:
         click: hogli_commands.posthog_auth_cli:posthog_logout
-        description: Forget hogli's cached PostHog credential
+        description: Revoke and forget hogli's cached PostHog credential
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie

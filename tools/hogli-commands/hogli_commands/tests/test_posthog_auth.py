@@ -52,7 +52,8 @@ def _credential(**overrides: Any) -> posthog_auth.Credential:
 
 
 def _endpoint_of(url: str) -> str:
-    return "register" if url.rstrip("/").endswith("register") else "token"
+    tail = url.rstrip("/").rsplit("/", 1)[-1]
+    return tail if tail in ("register", "revoke") else "token"
 
 
 def _port_from(uri: str) -> int:
@@ -60,11 +61,8 @@ def _port_from(uri: str) -> int:
 
 
 class _Stdin(io.StringIO):
-    """Stands in for the terminal a login offers to read a pasted redirect from.
-
-    Pinned per test rather than left to pytest, because `-s` hands the tests the real terminal and
-    a login reads from it only when it is a tty.
-    """
+    """Stands in for the terminal a login reads a pasted redirect from. Pinned because `-s` hands
+    the tests the real one."""
 
     def __init__(self, text: str = "", *, tty: bool = True) -> None:
         super().__init__(text)
@@ -161,7 +159,7 @@ def test_the_reported_environment_source_is_the_one_the_key_came_from(
     for var, value in env.items():
         monkeypatch.setenv(var, value)
     found = posthog_auth.key_in_env()
-    assert found is not None and found[0] == expected_source
+    assert found is not None and found.variable == expected_source
 
 
 def test_environment_key_wins_over_a_cached_credential(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -337,7 +335,36 @@ def test_a_login_reuses_the_registered_client_when_its_ceiling_already_covers_th
     with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
         credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
     assert not poster.reached("register")
+    assert not poster.reached("revoke")
     assert credential.client_id == "client-abc"
+
+
+def test_a_login_that_registers_a_new_client_revokes_the_credential_it_replaces() -> None:
+    # The replaced credential is overwritten on disk, so an unrevoked refresh token would go on
+    # minting access tokens with nothing left naming it.
+    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
+    poster = _Poster(
+        register=(200, {"client_id": "client-new", "scope": f"query:read {_SCOPE}"}),
+        token=(200, {"access_token": "pha_new", "refresh_token": "phr_new", "expires_in": 3600}),
+    )
+    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+        posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    revoked = poster.body_for("revoke")
+    assert revoked["token"] == "phr_cached" and revoked["client_id"] == "client-abc"
+
+
+def test_a_login_keeps_its_new_credential_when_revoking_the_old_one_fails() -> None:
+    # The user is signed in either way, so failing here would report a working login as an error.
+    posthog_auth.save(_credential(granted=("query:read",), registered=("query:read",)))
+    poster = _Poster(
+        register=(200, {"client_id": "client-new", "scope": f"query:read {_SCOPE}"}),
+        token=(200, {"access_token": "pha_new", "expires_in": 3600}),
+        revoke=(503, {"error": "service_unavailable"}),
+    )
+    with patch.object(posthog_auth.requests, "post", poster), _fake_browser():
+        credential = posthog_auth.login(scopes=[_SCOPE], host=_HOST)
+    assert credential.access_token == "pha_new"
+    assert posthog_auth.load(_HOST) is not None
 
 
 def test_a_scope_the_server_refuses_is_reported_before_the_browser_opens() -> None:
@@ -475,9 +502,8 @@ def test_a_browser_that_blocks_until_it_exits_does_not_deadlock_the_listener() -
 
 
 def test_a_login_prints_the_url_and_takes_the_redirect_back_by_hand(capsys: pytest.CaptureFixture[str]) -> None:
-    # A browser on another machine never reaches this listener, and nothing here can tell that
-    # machine apart from a laptop, so the URL goes out on every login and the redirect it lands on
-    # is accepted typed back in. Without both, a devbox login waits out its timeout.
+    # A browser on another machine never reaches this listener, so without the printed URL and the
+    # redirect typed back, a devbox login waits out its timeout with the code already on screen.
     with posthog_auth._CallbackServer() as server:
         pasted = f"{server.redirect_uri}?code=pasted&state=s"
         with patch.object(posthog_auth.webbrowser, "open", lambda url: False), _terminal(f"{pasted}\n"):
@@ -558,5 +584,42 @@ def test_status_warns_when_an_environment_key_outranks_the_cached_credential(
 
 def test_logout_reports_whether_there_was_anything_to_forget(runner: CliRunner) -> None:
     posthog_auth.save(_credential())
-    assert "Forgot" in runner.invoke(posthog_auth_cli.posthog_logout, []).output
+    with patch.object(posthog_auth.requests, "post", _Poster()):
+        assert "Signed out" in runner.invoke(posthog_auth_cli.posthog_logout, []).output
     assert "No cached credential" in runner.invoke(posthog_auth_cli.posthog_logout, []).output
+
+
+def test_logout_revokes_the_refresh_token_before_dropping_the_file() -> None:
+    # Deleting the file alone leaves the refresh token minting access tokens for anyone who copied
+    # it, with nothing local left to name it by.
+    posthog_auth.save(_credential())
+    poster = _Poster()
+    with patch.object(posthog_auth.requests, "post", poster):
+        result = posthog_auth.logout(_HOST)
+    revoked = poster.body_for("revoke")
+    assert revoked["token"] == "phr_cached"
+    assert revoked["token_type_hint"] == "refresh_token"
+    assert revoked["client_id"] == "client-abc"
+    assert result.revoked and result.forgotten
+    assert posthog_auth.load(_HOST) is None
+
+
+def test_logout_revokes_the_access_token_when_the_credential_has_no_refresh_token() -> None:
+    # Sending the absent refresh token would post token=None and leave the access token live.
+    posthog_auth.save(_credential(refresh_token=None))
+    poster = _Poster()
+    with patch.object(posthog_auth.requests, "post", poster):
+        posthog_auth.logout(_HOST)
+    revoked = poster.body_for("revoke")
+    assert revoked["token"] == "pha_cached" and revoked["token_type_hint"] == "access_token"
+
+
+def test_logout_still_drops_the_credential_when_revocation_fails(runner: CliRunner) -> None:
+    # A logout that leaves the token on disk because the server was unreachable is the worse
+    # outcome, so the file goes and the user is told the grant is still live.
+    posthog_auth.save(_credential())
+    with patch.object(posthog_auth.requests, "post", side_effect=requests.ConnectionError("no route")):
+        result = runner.invoke(posthog_auth_cli.posthog_logout, [])
+    assert result.exit_code == 0
+    assert "may still work" in result.output
+    assert posthog_auth.load(_HOST) is None
