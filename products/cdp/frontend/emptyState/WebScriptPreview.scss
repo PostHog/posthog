@@ -134,6 +134,7 @@
 
     &__invocations--live {
         font-weight: 600;
+
         @include preview-accent-text(var(--web-script-preview-accent));
     }
 
@@ -187,8 +188,6 @@
         border-bottom: 1px solid var(--color-border-primary);
     }
 
-    @include preview-chrome-dot;
-
     &__url {
         margin-left: 0.375rem;
         font-family: var(--font-mono);
@@ -209,11 +208,12 @@
         padding: 0.375rem 0.625rem;
         font-size: 0.6875rem;
         font-weight: 600;
-        @include preview-accent-text(var(--web-script-preview-accent));
         text-align: center;
         background: color-mix(in oklab, var(--web-script-preview-accent) 10%, transparent);
         border: 1px solid color-mix(in oklab, var(--web-script-preview-accent) 35%, transparent);
         border-radius: var(--radius);
+
+        @include preview-accent-text(var(--web-script-preview-accent));
     }
 
     &__skel {
@@ -242,8 +242,11 @@
 
     &__console-val--on {
         font-weight: 600;
+
         @include preview-accent-text(var(--web-script-preview-accent));
     }
+
+    @include preview-chrome-dot;
 }
 
 // Enabled state (user flipped the banner script's switch)

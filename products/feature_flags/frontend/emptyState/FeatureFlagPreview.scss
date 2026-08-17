@@ -175,8 +175,6 @@
         border-bottom: 1px solid var(--color-border-primary);
     }
 
-    @include preview-chrome-dot;
-
     &__url {
         margin-left: 0.375rem;
         font-family: var(--font-mono);
@@ -243,10 +241,11 @@
         padding: 0.375rem 0.625rem;
         font-size: 0.6875rem;
         font-weight: 600;
-        @include preview-accent-text(var(--flag-preview-accent));
         background: color-mix(in oklab, var(--flag-preview-accent) 10%, transparent);
         border: 1px solid color-mix(in oklab, var(--flag-preview-accent) 35%, transparent);
         border-radius: var(--radius);
+
+        @include preview-accent-text(var(--flag-preview-accent));
     }
 
     &__cta {
@@ -283,6 +282,7 @@
 
     &__console-val--on {
         font-weight: 600;
+
         @include preview-accent-text(var(--flag-preview-accent));
     }
 
@@ -291,8 +291,6 @@
     &__spark {
         padding: 0.75rem 0.875rem 0.875rem;
     }
-
-    @include preview-sparkline;
 
     &__spark-delta {
         font-size: 0.6875rem;
@@ -341,11 +339,15 @@
         padding: 0 0.25rem;
         font-size: 0.5625rem;
         font-weight: 600;
-        @include preview-accent-text(var(--flag-preview-accent));
         background: color-mix(in oklab, var(--flag-preview-accent) 12%, var(--color-bg-surface-primary));
         border-radius: 999px;
         transform: translateX(-104%);
+
+        @include preview-accent-text(var(--flag-preview-accent));
     }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
 }
 
 // Pinned-on state (user clicked the flag row)

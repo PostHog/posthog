@@ -93,8 +93,9 @@
     }
 
     &__stage--beta {
-        @include preview-accent-text(var(--eaf-preview-accent));
         background: color-mix(in oklab, var(--eaf-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--eaf-preview-accent));
     }
 
     &__optins {
@@ -118,8 +119,6 @@
         background: var(--color-bg-surface-secondary);
         border-bottom: 1px solid var(--color-border-primary);
     }
-
-    @include preview-chrome-dot;
 
     &__url {
         margin-left: 0.375rem;
@@ -234,9 +233,10 @@
         overflow: hidden;
         font-size: 0.6875rem;
         font-weight: 600;
-        @include preview-accent-text(var(--eaf-preview-accent));
         text-overflow: ellipsis;
         white-space: nowrap;
+
+        @include preview-accent-text(var(--eaf-preview-accent));
     }
 
     &__hint {
@@ -249,11 +249,10 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    @include preview-sparkline;
-
     &__spark-delta {
         font-size: 0.6875rem;
         font-weight: 600;
+
         @include preview-accent-text(var(--eaf-preview-accent));
     }
 
@@ -281,6 +280,9 @@
         stroke-width: 2;
         animation: EafPreview__trace 3.2s linear infinite;
     }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
 }
 
 // Opted-in state (user flipped the hero switch)

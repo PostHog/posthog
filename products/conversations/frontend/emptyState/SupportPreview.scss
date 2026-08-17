@@ -66,6 +66,7 @@
 
     &__count--live {
         font-weight: 600;
+
         @include preview-accent-text(var(--support-preview-accent));
     }
 
@@ -152,8 +153,9 @@
 
     &__status--new,
     &__status--open {
-        @include preview-accent-text(var(--support-preview-accent));
         background: color-mix(in oklab, var(--support-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--support-preview-accent));
     }
 
     &__status--solved {
@@ -171,6 +173,7 @@
 
     &__sla--due {
         font-weight: 600;
+
         @include preview-accent-text(var(--support-preview-accent));
     }
 
@@ -183,8 +186,6 @@
         background: var(--color-bg-surface-secondary);
         border-bottom: 1px solid var(--color-border-primary);
     }
-
-    @include preview-chrome-dot;
 
     &__url {
         margin-left: 0.375rem;
@@ -208,6 +209,7 @@
     &__widget-head {
         font-size: 0.6875rem;
         font-weight: 600;
+
         @include preview-accent-text(var(--support-preview-accent));
     }
 
@@ -292,8 +294,6 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    @include preview-sparkline;
-
     // Response time falling is the good direction.
     &__spark-delta {
         font-size: 0.6875rem;
@@ -325,6 +325,9 @@
         stroke-width: 2;
         animation: SupportPreview__trace 3.2s linear infinite;
     }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
 }
 
 // Sent state (user clicked Send in the widget)

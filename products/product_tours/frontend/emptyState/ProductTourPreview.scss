@@ -78,8 +78,9 @@
     }
 
     &__kind--tour {
-        @include preview-accent-text(var(--tour-preview-accent));
         background: color-mix(in oklab, var(--tour-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--tour-preview-accent));
     }
 
     &__steps {
@@ -101,6 +102,7 @@
 
     &__status--running {
         font-weight: 600;
+
         @include preview-accent-text(var(--tour-preview-accent));
     }
 
@@ -121,8 +123,6 @@
         background: var(--color-bg-surface-secondary);
         border-bottom: 1px solid var(--color-border-primary);
     }
-
-    @include preview-chrome-dot;
 
     &__url {
         margin-left: 0.375rem;
@@ -266,8 +266,6 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    @include preview-sparkline;
-
     &__spark-delta {
         font-size: 0.6875rem;
         font-weight: 600;
@@ -298,6 +296,9 @@
         stroke-width: 2;
         animation: TourPreview__trace 3.2s linear infinite;
     }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
 }
 
 // Per-step state: each radio lights up its own tooltip, beacon, and highlight ring.

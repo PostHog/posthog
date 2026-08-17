@@ -148,9 +148,10 @@
         font-family: var(--font-mono);
         font-size: 0.625rem;
         font-weight: 700;
-        @include preview-accent-text(var(--prompt-preview-accent));
         background: color-mix(in oklab, var(--prompt-preview-accent) 12%, transparent);
         border-radius: 999px;
+
+        @include preview-accent-text(var(--prompt-preview-accent));
     }
 
     &__hint {
@@ -246,8 +247,6 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    @include preview-sparkline;
-
     &__spark-label {
         font-family: var(--font-mono);
         font-size: 0.6875rem;
@@ -283,6 +282,8 @@
         stroke-width: 2;
         animation: PromptPreview__trace 3.2s linear infinite;
     }
+
+    @include preview-sparkline;
 }
 
 // Served-version state, driven purely by the hidden radios. v4 checked shows the

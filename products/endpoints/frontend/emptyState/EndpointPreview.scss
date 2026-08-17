@@ -171,8 +171,6 @@
         border-bottom: 1px solid var(--color-border-primary);
     }
 
-    @include preview-chrome-dot;
-
     &__chrome-title {
         margin-left: 0.375rem;
         font-family: var(--font-mono);
@@ -217,6 +215,7 @@
 
     &__timing--fast {
         font-weight: 700;
+
         @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
@@ -225,11 +224,10 @@
         padding: 0.75rem 0.875rem 0.875rem;
     }
 
-    @include preview-sparkline;
-
     &__spark-delta {
         font-size: 0.6875rem;
         font-weight: 600;
+
         @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
@@ -244,8 +242,9 @@
         left: 56%;
         font-size: 0.5625rem;
         font-weight: 700;
-        @include preview-accent-text(var(--endpoint-preview-accent));
         text-transform: uppercase;
+
+        @include preview-accent-text(var(--endpoint-preview-accent));
     }
 
     &__spark-g {
@@ -278,6 +277,9 @@
         stroke-width: 2;
         animation: EndpointPreview__trace 3.2s linear infinite;
     }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
 }
 
 // Materialized state (user flipped the hero switch)
