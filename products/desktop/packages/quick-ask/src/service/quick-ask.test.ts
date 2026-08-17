@@ -54,6 +54,14 @@ function agentText(text: string): string {
   });
 }
 
+/** The complete-snapshot frame ACP sends to close a run of chunks. */
+function agentMessage(text: string): string {
+  return sessionUpdate({
+    sessionUpdate: "agent_message",
+    content: { type: "text", text },
+  });
+}
+
 function promptEcho(text: string): string {
   return notification("session/prompt", {
     prompt: [{ type: "text", text }],
@@ -242,6 +250,30 @@ describe("QuickAskService", () => {
       },
       { type: "done" },
     ]);
+  });
+
+  it("a closing agent_message replaces its chunks instead of duplicating them", async () => {
+    const stream = sseResponse([
+      `id: 1-0\ndata: ${USER_ECHO}\n\n` +
+        `id: 2-0\ndata: ${agentText("Signups are ")}\n\n` +
+        `id: 3-0\ndata: ${agentText("up 12%.")}\n\n` +
+        // ACP closes the message with the full snapshot, not another delta.
+        `id: 4-0\ndata: ${agentMessage("Signups are up 12%.")}\n\n` +
+        `id: 5-0\ndata: ${TURN_COMPLETE}\n\n`,
+    ]);
+    const { service } = serviceWith({
+      createTask: [taskResponse()],
+      stream: [stream],
+    });
+    const texts = (await collect(service)).filter((e) => e.type === "text");
+    // The snapshot supersedes the chunks; the answer is a single copy, not
+    // "Signups are up 12%.Signups are up 12%.".
+    expect(texts.at(-1)).toEqual({
+      type: "text",
+      id: "turn-1",
+      content: "Signups are up 12%.",
+      complete: true,
+    });
   });
 
   it("creates the task with the question as description and warm-matching fields", async () => {
@@ -811,7 +843,16 @@ describe("QuickAskService", () => {
 
 describe("translateFrame", () => {
   it.each([
-    ["agent text", agentText("hi"), { kind: "agent-text", text: "hi" }],
+    [
+      "agent text chunk",
+      agentText("hi"),
+      { kind: "agent-text", text: "hi", final: false },
+    ],
+    [
+      "agent message snapshot",
+      agentMessage("hi"),
+      { kind: "agent-text", text: "hi", final: true },
+    ],
     ["prompt echo", promptEcho("hello"), { kind: "prompt", text: "hello" }],
     ["turn complete", TURN_COMPLETE, { kind: "turn-complete" }],
     [

@@ -159,7 +159,7 @@ interface QuickAskSession {
 /** What one stream frame means for the current turn. */
 export type TurnSignal =
   | { kind: "prompt"; text: string }
-  | { kind: "agent-text"; text: string }
+  | { kind: "agent-text"; text: string; final: boolean }
   | { kind: "reasoning"; text: string }
   | { kind: "tool"; label: string }
   | { kind: "status"; text: string }
@@ -225,8 +225,15 @@ export function translateFrame(parsed: unknown): TurnSignal {
   switch (update?.sessionUpdate) {
     case "agent_message_chunk":
     case "agent_message":
+      // `agent_message_chunk` frames are deltas; the `agent_message` that
+      // closes them carries the complete snapshot, so the consumer must
+      // replace rather than append (else the answer text lands twice).
       return update.content?.type === "text" && update.content.text
-        ? { kind: "agent-text", text: update.content.text }
+        ? {
+            kind: "agent-text",
+            text: update.content.text,
+            final: update.sessionUpdate === "agent_message",
+          }
         : { kind: "ignore" };
     case "agent_thought_chunk":
       return update.content?.type === "text" && update.content.text
@@ -982,7 +989,11 @@ export class QuickAskService {
                   segmentText = "";
                 }
                 toolSinceText = false;
-                segmentText += signal.text;
+                // A closing `agent_message` supersedes the chunks it followed;
+                // replace so the snapshot does not double its own text.
+                segmentText = signal.final
+                  ? signal.text
+                  : segmentText + signal.text;
                 yield {
                   type: "text",
                   id: segmentId(),
