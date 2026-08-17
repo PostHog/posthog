@@ -323,6 +323,18 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('inline tile insertion experiment', () => {
+        it.each([
+            ['control', false],
+            ['test', true],
+        ])('uses the %s variant', async (variant, expectedEnabled) => {
+            const experimentFlag = FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT
+            featureFlagLogic.actions.setFeatureFlags([experimentFlag], { [experimentFlag]: variant })
+
+            await expectLogic(logic).toMatchValues({ inlineTileInsertionEnabled: expectedEnabled })
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
