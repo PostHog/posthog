@@ -480,9 +480,7 @@ const RELATIONSHIP_CHANGE_TYPES = ['assigned', 'unassigned'] as const
 export type AccountRelationshipChangeType = (typeof RELATIONSHIP_CHANGE_TYPES)[number]
 
 function isAccountRelationshipChangeType(value: unknown): value is AccountRelationshipChangeType {
-    return (
-        typeof value === 'string' && RELATIONSHIP_CHANGE_TYPES.includes(value as AccountRelationshipChangeType)
-    )
+    return typeof value === 'string' && RELATIONSHIP_CHANGE_TYPES.includes(value as AccountRelationshipChangeType)
 }
 
 export function getAccountRelationshipChangeType(config: EventTriggerConfig): AccountRelationshipChangeType | null {
@@ -503,12 +501,8 @@ export function accountRelationshipChangedFilters(
         ...existingFilters,
         events: [{ id: ACCOUNT_RELATIONSHIP_CHANGED_EVENT, type: 'events', name: 'Account relationship changed' }],
         properties: [
-            ...(names.length > 0
-                ? [{ key: 'relationship_name', value: names, operator: 'exact', type: 'event' }]
-                : []),
-            ...(changeType
-                ? [{ key: 'change_type', value: changeType, operator: 'exact', type: 'event' }]
-                : []),
+            ...(names.length > 0 ? [{ key: 'relationship_name', value: names, operator: 'exact', type: 'event' }] : []),
+            ...(changeType ? [{ key: 'change_type', value: changeType, operator: 'exact', type: 'event' }] : []),
         ],
     }
 }
