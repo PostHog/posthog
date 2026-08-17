@@ -2776,8 +2776,7 @@ def clear_task_run_conversation(
         run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
         if not run.is_terminal:
             return "not_terminal", None
-        # Invalidate the snapshot before writing the marker: if the delete fails we
-        # never append the boundary, so a stale snapshot can't outlive its own clear.
+        # Delete first: a failure here skips the boundary, so no snapshot outlives its clear.
         object_storage.delete(run.resume_state_url)
         run.emit_conversation_cleared()
     return "cleared", _task_run_detail_to_dto(run)
@@ -2934,9 +2933,8 @@ def write_task_run_resume_state(
 ) -> Literal["written", "not_found", "superseded"]:
     """Store a run's teardown resume snapshot, unless a `/clear` has since retired it.
 
-    Takes the row lock `clear_task_run_conversation` holds across its delete-then-append,
-    so the two paths serialize instead of racing on the one fixed key: whichever arrives
-    second observes the other's result.
+    Shares the row lock `clear_task_run_conversation` holds, so whichever of the two
+    arrives second observes the other's result rather than racing it.
     """
     from posthog.storage import object_storage  # noqa: PLC0415
 
@@ -2950,8 +2948,7 @@ def write_task_run_resume_state(
         if run.conversation_is_cleared():
             return "superseded"
         object_storage.write(run.resume_state_url, content)
-    # The snapshot is a derived cache of the log, so it must not outlive the log's
-    # retention. Tagging outside the lock keeps the hold to the read and the write.
+    # A cache of the log must not outlive the log's own retention.
     try:
         object_storage.tag(
             run.resume_state_url,

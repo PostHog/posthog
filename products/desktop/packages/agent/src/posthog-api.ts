@@ -605,10 +605,7 @@ export class PostHogAPIClient {
     }
   }
 
-  /**
-   * Fetch the resume state a prior run persisted at teardown.
-   * @returns The parsed snapshot, or null when the run never wrote one.
-   */
+  /** @returns the snapshot a prior teardown stored, or null when it never wrote one. */
   async fetchTaskRunResumeState(
     taskId: string,
     runId: string,

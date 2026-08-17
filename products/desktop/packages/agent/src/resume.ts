@@ -56,8 +56,7 @@ export interface ResumeConfig {
   repositoryPath?: string;
   apiClient: PostHogAPIClient;
   logger?: Logger;
-  // Fold the log directly, ignoring any stored snapshot (used by the teardown
-  // write path so it refreshes the snapshot instead of rewriting a stale one).
+  /** Fold the log directly, so the teardown write refreshes rather than rewrites. */
   skipSnapshot?: boolean;
 }
 
@@ -142,13 +141,8 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
 
 const MAX_CONTENT_DATA_CHARS = 10_000;
 
-// An image/audio payload (base64) or an embedded document rides in a content
-// block's data/text field. selectRecentTurns never counts those bytes
-// (estimateTurnTokens reads only top-level text) and formatConversationForResume
-// never renders them (it keeps text blocks), so one attachment left whole can push
-// the stored snapshot past its size limit and skip it entirely. Replace an oversized
-// payload with a marker; the resume prompt reads only text blocks, so nothing it
-// shows is lost.
+// Attachment bytes are invisible to selectRecentTurns and unrendered by the resume
+// prompt, so one left whole can push the snapshot past its size limit for nothing.
 function capContentBlock(block: ContentBlock): ContentBlock {
   if (block.type === "image" || block.type === "audio") {
     return block.data.length > MAX_CONTENT_DATA_CHARS
@@ -181,13 +175,8 @@ function capContentBlock(block: ContentBlock): ContentBlock {
 
 /**
  * Reduce a rebuilt conversation to what a resume actually reads back.
- * The fold keeps tool payloads and attachment data whole, which runs a long task's
- * snapshot past the stored size limit, while the prompt below only renders a recent
- * window of text. Capping tool payloads and content-block data first keeps one
- * oversized turn from starving the window selection or overflowing the byte cap.
- * Dropping the synthetic resume preamble first matches formatConversationForResume:
- * that turn embeds the prior conversation summary, so leaving it in lets one giant
- * turn consume the budget and shed the real user turns the resume prompt needs.
+ * Order matters: filter then cap then select, so one oversized turn can neither starve
+ * the window selection nor overflow the byte cap.
  */
 export function trimConversationForSnapshot(
   conversation: ConversationTurn[],

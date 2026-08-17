@@ -890,10 +890,8 @@ export class AgentServer {
         repositoryPath: this.config.repositoryPath,
         apiClient: this.posthogAPI,
         logger: new Logger({ debug: true, prefix: "[ResumeSnapshot]" }),
-        // Always fold the current log. A run with more than one sandbox lifecycle
-        // (handoff resume reuses the same run id) reaches this a second time with a
-        // snapshot already stored; without this it would rewrite that stale snapshot
-        // and drop every turn appended since the first teardown.
+        // A handoff resume reuses the run id, so this runs twice; folding the stored
+        // snapshot would drop every turn since the first teardown.
         skipSnapshot: true,
       });
 
@@ -903,8 +901,8 @@ export class AgentServer {
       };
       if (snapshot.conversation.length === 0) return;
 
-      // The endpoint rejects an oversized body and the catch below swallows the
-      // rejection, so measure here to leave a trace when a snapshot is skipped.
+      // The catch below swallows the endpoint's rejection, so measure here to leave
+      // a trace rather than a silent skip.
       const serialized = JSON.stringify(snapshot);
       const bytes = Buffer.byteLength(serialized, "utf8");
       if (bytes > RESUME_STATE_MAX_BYTES) {
@@ -4942,11 +4940,8 @@ ${commonInstructions}
       this.logger.error("Failed to flush session logs", error);
     }
 
-    // A failed append is swallowed and re-queued for retry, so the flush above
-    // resolving does not mean the log is complete. Folding now would freeze the
-    // snapshot short of the entries the pending retry still owes, and the next
-    // resume would trust that snapshot over the eventually-complete log. Skip the
-    // snapshot when entries remain; the next resume falls back to replaying the log.
+    // The flush above resolving does not mean the log is complete, and a snapshot
+    // frozen short of a pending retry would outrank the eventually-complete log.
     try {
       if (
         this.session.logWriter.hasPendingEntries(this.session.payload.run_id)

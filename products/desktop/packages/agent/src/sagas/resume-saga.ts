@@ -32,9 +32,7 @@ export interface ResumeInput {
   repositoryPath?: string;
   apiClient: PostHogAPIClient;
   logger?: Logger;
-  // Fold the log directly, ignoring any stored snapshot. The teardown write
-  // path sets this so it refreshes the snapshot from the current log instead of
-  // reading the stale object it is about to overwrite.
+  /** Fold the log directly, so the teardown write refreshes rather than rewrites. */
   skipSnapshot?: boolean;
 }
 
@@ -49,10 +47,7 @@ export interface ResumeOutput {
   nativeGoal?: NativeGoalState | null;
 }
 
-/**
- * Validate a stored snapshot. Anything malformed or empty returns null so the
- * caller replays the log instead of resuming from a partial write.
- */
+/** Returns null on anything malformed, so a partial write replays the log instead. */
 export function parseResumeSnapshot(value: unknown): ResumeOutput | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<ResumeOutput>;
@@ -80,9 +75,7 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   protected async execute(input: ResumeInput): Promise<ResumeOutput> {
     const { taskId, runId, apiClient } = input;
 
-    // The prior run folded this at teardown; replaying its whole log is the
-    // fallback. Skipped on the teardown write path itself, which must fold the
-    // current log rather than re-read the snapshot it is refreshing.
+    // The prior run folded this at teardown; replaying its whole log is the fallback.
     if (!input.skipSnapshot) {
       const snapshot = await this.readOnlyStep(
         "fetch_resume_snapshot",

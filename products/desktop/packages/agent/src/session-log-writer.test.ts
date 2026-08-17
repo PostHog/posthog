@@ -122,9 +122,7 @@ describe("SessionLogWriter", () => {
     });
 
     it("reports leftover entries after a failed flush, cleared once it succeeds", async () => {
-      // Teardown reads this to decide whether folding a resume snapshot is safe:
-      // a swallowed append failure re-queues entries, so a resolved flush is not
-      // proof the log is complete.
+      // Teardown reads this to decide whether folding a resume snapshot is safe.
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 

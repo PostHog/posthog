@@ -2553,9 +2553,8 @@ class TaskRun(models.Model):
     def conversation_is_cleared(self) -> bool:
         """Whether a `/clear` boundary sits at the end of this run's log.
 
-        The tail rather than "ever cleared", because a run that was cleared and then
-        resumed appends past the boundary, which makes its conversation live again.
-        Reads the whole object because S3 offers no ranged read.
+        The tail rather than "ever cleared": a cleared-then-resumed run appends past the
+        boundary, which makes its conversation live again.
         """
         content = object_storage.read(self.log_url, missing_ok=True) or ""
         last_line = content.strip().rsplit("\n", 1)[-1]

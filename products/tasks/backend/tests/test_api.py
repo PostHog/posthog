@@ -5729,8 +5729,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(len(log_content.strip().split("\n")), 2)
 
     def test_clear_conversation_invalidates_the_resume_snapshot(self):
-        # The teardown snapshot is read before the log on resume, so a clear that left it
-        # in place would restore the conversation it just retired.
+        # Resume reads the snapshot before the log, so one left in place restores the
+        # conversation the clear just retired.
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
         object_storage.write(run.resume_state_url, json.dumps({"conversation": [{"role": "user"}]}))
@@ -10069,17 +10069,15 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # An untagged snapshot never auto-expires, so it outlives the 30-day window
-        # its own source log honors and leaks conversation content indefinitely.
+        # An untagged snapshot never expires, outliving the window its source log honors.
         mock_tag.assert_called_once_with(
             run.resume_state_url,
             {"ttl_days": str(TaskRun.DEFAULT_LOG_TTL_DAYS), "team_id": str(run.team_id)},
         )
 
     def test_resume_state_sync_declines_a_snapshot_a_clear_retired(self):
-        # A teardown fold that began before the clear would otherwise write the retired
-        # conversation back afterwards, and resume reads the snapshot before the log, so
-        # the clear would silently do nothing for the next run.
+        # A fold that began before the clear would write the retired conversation back
+        # afterwards, and resume trusts the snapshot over the log.
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
         self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")

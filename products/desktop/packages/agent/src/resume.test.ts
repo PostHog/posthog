@@ -24,8 +24,7 @@ describe("trimConversationForSnapshot", () => {
     Buffer.byteLength(JSON.stringify(value), "utf8");
 
   it("bounds a long conversation under the stored size limit", () => {
-    // Enough exchanges that capping payloads alone still overruns the limit, so
-    // this fails if the recent-window selection is dropped.
+    // Enough that capping alone still overruns, so dropping the window selection fails.
     const conversation = Array.from({ length: 400 }, (_, index) =>
       exchange(index, 50_000),
     ).flat();
@@ -44,16 +43,14 @@ describe("trimConversationForSnapshot", () => {
 
     const trimmed = trimConversationForSnapshot(conversation);
 
-    // Selecting before capping would send this turn down the oversized-tail
-    // fallback, which drops the tool call outright and loses the result.
+    // Selecting before capping drops the tool call outright via the oversized-tail path.
     expect(trimmed.at(-1)?.toolCalls?.[0]?.result).toBeDefined();
     expect(serializedBytes(trimmed)).toBeLessThan(RESUME_STATE_MAX_BYTES);
   });
 
   it("drops the resume preamble so it can't starve real user turns", () => {
-    // A resume preamble embeds the prior summary, so it is one huge user turn.
-    // Selecting before filtering it would spend the budget on it and shed the
-    // original task statement, which formatConversationForResume later strips.
+    // The preamble embeds the prior summary, so selecting before filtering spends the
+    // budget on a turn formatConversationForResume later strips anyway.
     const conversation: ConversationTurn[] = [
       {
         role: "user",
@@ -88,11 +85,8 @@ describe("trimConversationForSnapshot", () => {
   });
 
   it("caps oversized attachment data but leaves text blocks intact", () => {
-    // A single base64 image overruns the byte cap on its own. estimateTurnTokens
-    // scores its turn at zero and the tool-only cap never touches turn.content, so
-    // without capping here the whole snapshot is skipped for any attachment-carrying
-    // task. The resume prompt renders text blocks only, so shedding the image data
-    // loses nothing it shows.
+    // estimateTurnTokens scores an image turn at zero, so without capping content one
+    // attachment skips the whole snapshot.
     const hugeImage = "A".repeat(3 * 1024 * 1024);
     const conversation: ConversationTurn[] = [
       {
