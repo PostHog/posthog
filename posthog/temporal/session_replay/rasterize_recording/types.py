@@ -9,11 +9,16 @@ from pydantic import BaseModel, model_validator
 RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
 RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 
-# Minimum execution_timeout a caller starting RasterizeRecordingWorkflow should use: the full render
-# retry envelope plus the prep (5m) and finalize (2m) activities with headroom. A tighter caller
-# timeout silently converts the second render attempt into an untyped WorkflowExecutionTimeout,
-# bypassing every error-code-based failure classification downstream.
+# execution_timeout for a caller that wants the full render retry envelope: both attempts plus the
+# prep (5m) and finalize (2m) activities with headroom. A tighter caller timeout silently converts
+# the second render attempt into an untyped WorkflowExecutionTimeout, bypassing every
+# error-code-based failure classification downstream.
 RASTERIZE_WORKFLOW_EXECUTION_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=10)
+
+# execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
+# with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
+# start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
+RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
 
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):

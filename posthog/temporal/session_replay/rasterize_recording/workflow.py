@@ -84,17 +84,17 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         return max_attempts is not None and 0 < max_attempts <= wf.info().attempt
 
     async def _maybe_bump_stuck_counter(self) -> None:
+        info = wf.info()
         max_attempts = self._max_attempts()
         # Bump only on the final scheduled attempt; recoverable failures would otherwise over-count.
         if max_attempts is None or max_attempts <= 0:
             wf.logger.warning(
                 "rasterize.stuck_counter_skipped_no_max_attempts",
-                extra={"max_attempts": max_attempts, "attempt": wf.info().attempt},
+                extra={"max_attempts": max_attempts, "attempt": info.attempt},
             )
             return
-        if not self._is_final_attempt():
+        if info.attempt < max_attempts:
             return
-        info = wf.info()
         session_id = info.typed_search_attributes.get(POSTHOG_SESSION_RECORDING_ID_KEY)
         team_id = info.typed_search_attributes.get(POSTHOG_TEAM_ID_KEY)
         if session_id is None or team_id is None:

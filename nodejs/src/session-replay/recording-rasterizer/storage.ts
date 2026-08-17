@@ -90,13 +90,14 @@ export async function uploadToS3(
         const undecodable = undecodableResponse(err)
         if (!undecodable) {
             // Raw SDK errors would surface as UNKNOWN in the error metrics and as untyped
-            // ApplicationFailures to the workflow. 403 means credentials or bucket policy, which a
-            // retry cannot heal; everything else (network, throttle, 5xx) is worth the retry.
+            // ApplicationFailures to the workflow. Always retryable: a 403 can be a transient
+            // credential-refresh race, and a wasted retry is cheaper than discarding a finished
+            // render over a misclassified permanent failure.
             const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
             log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 upload failed')
             throw new RasterizationError(
                 `S3 upload failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
-                status !== 403,
+                true,
                 'S3_UPLOAD_FAILED',
                 err
             )

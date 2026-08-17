@@ -1,4 +1,4 @@
-import { isProdEnv } from '~/common/utils/env-utils'
+import { isProdEnv, stringToBoolean } from '~/common/utils/env-utils'
 
 import { createLogger } from './logger'
 
@@ -12,7 +12,7 @@ const log = createLogger()
 export function resolveEgressProxyUrl(): string | null {
     const upstream =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
-    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
+    const killed = stringToBoolean((process.env.RASTERIZER_USE_PROXY ?? '').trim(), true) === false
 
     if (killed) {
         log.warn(

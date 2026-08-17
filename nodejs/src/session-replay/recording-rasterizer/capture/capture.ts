@@ -98,23 +98,22 @@ export async function capturePlayback(
     // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
     // hangs forever. Listen for captureStopped to break out of the loop: settled with an error
     // on an unexpected stop, settled cleanly when ffmpeg exiting is the end of the render.
-    let captureAborted: Error | null = null
-    let captureStopped = false
+    // undefined = still capturing, null = stopped cleanly, Error = stopped with a failure.
+    let stopResult: Error | null | undefined = undefined
     let captureStopSettle: ((err: Error | null) => void) | null = null
     const onCaptureStopped = (): void => {
-        captureStopped = true
         // ffmpeg exits on its own once -t reaches the trim duration, and can do so before the
         // 250ms loop observes trimFrameLimit; that is a completed render, not an abort.
         if (captureDone || player.isEnded() || frameCount >= captureConfig.trimFrameLimit) {
             // Playback finished naturally — ffmpeg exiting is expected.
             log.info({ frames: frameCount }, 'capture stopped after playback ended')
-            captureStopSettle?.(null)
-            return
+            stopResult = null
+        } else {
+            log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
+            stopResult =
+                player.fatalError ?? new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         }
-        log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
-        const err = player.fatalError ?? new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
-        captureAborted = err
-        captureStopSettle?.(err)
+        captureStopSettle?.(stopResult)
     }
     recorder.on('captureStopped', onCaptureStopped)
 
@@ -136,10 +135,10 @@ export async function capturePlayback(
         const checkIntervalMs = 250
 
         while (virtualElapsed < captureConfig.maxVirtualTimeMs) {
-            if (captureAborted) {
-                throw captureAborted
-            }
-            if (captureStopped) {
+            if (stopResult !== undefined) {
+                if (stopResult) {
+                    throw stopResult
+                }
                 log.info({ frames: frameCount }, 'capture already stopped, ending loop')
                 break
             }

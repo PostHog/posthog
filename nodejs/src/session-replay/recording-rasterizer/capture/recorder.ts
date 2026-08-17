@@ -81,6 +81,9 @@ export async function rasterizeRecording(
     signal?.addEventListener('abort', onAbort, { once: true })
     let player: PlayerController | null = null
     try {
+        // An abort that fired while getPage was launching Chromium predates the listener above and
+        // would otherwise be silently missed; the finally below releases the page.
+        signal?.throwIfAborted()
         const viewport = {
             width: input.viewport_width || 1280,
             height: input.viewport_height || 720,

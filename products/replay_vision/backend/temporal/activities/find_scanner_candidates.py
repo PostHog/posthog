@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import RecordingsQuery
 
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids_sync
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
@@ -118,7 +118,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # compositor wedge) get quarantined for the counter's TTL window; each dispatch would otherwise
     # burn up to an hour of shared rasterizer capacity on a render that cannot finish. The watermark
     # still advances past them, so they are skipped, not retried forever.
-    stuck = read_stuck_session_ids_sync(inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates]])
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates]])
     if stuck:
         activity.logger.warning("replay_vision.stuck_sessions_skipped %d", len(stuck))
         record_sweep_outcome("stuck_sessions_skipped")

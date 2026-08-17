@@ -68,22 +68,22 @@ async function rasterizeRecordingActivity(
     // question the metrics need to answer.
     let phaseStartedAt = Date.now()
     let lastPhase: RasterizationProgress['phase'] = progress.phase
-    const onPhaseChange = (): void => {
-        if (progress.phase !== lastPhase) {
-            lastPhase = progress.phase
-            phaseStartedAt = Date.now()
+    // Heartbeats fire from puppeteer emitter callbacks and a timer; once the activity context is
+    // gone (worker shutdown, cancellation) an uncaught throw would kill the process.
+    const safeHeartbeat = (): void => {
+        try {
+            Context.current().heartbeat(progress)
+        } catch {
+            // Context gone; nothing to report to.
         }
     }
     const onProgress = (): void => {
         lastProgressAt = Date.now()
-        onPhaseChange()
-        try {
-            Context.current().heartbeat(progress)
-        } catch {
-            // Fires from puppeteer emitter callbacks; once the activity context is gone (worker
-            // shutdown, cancellation) an uncaught throw here would propagate through the emitter
-            // and kill the process.
+        if (progress.phase !== lastPhase) {
+            lastPhase = progress.phase
+            phaseStartedAt = Date.now()
         }
+        safeHeartbeat()
     }
 
     // Cancellation (workflow cancel, heartbeat-timeout detection) aborts the render by closing the
@@ -93,6 +93,9 @@ async function rasterizeRecordingActivity(
     const ctx = Context.current()
     const onCancel = (): void => abort.abort()
     ctx.cancellationSignal.addEventListener('abort', onCancel, { once: true })
+    if (ctx.cancellationSignal.aborted) {
+        abort.abort()
+    }
 
     // Progress-driven heartbeats stop while a beginFrame stalls, so beat on wall clock too, but
     // only up to the stall tolerance, so a hang anywhere else still trips the 30s heartbeat timeout.

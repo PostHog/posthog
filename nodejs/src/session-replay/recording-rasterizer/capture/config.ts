@@ -126,8 +126,9 @@ export function buildCaptureConfig(input: RasterizeRecordingInput): CaptureConfi
         // -2 ensures even height; lanczos gives sharp downscaling.
         ffmpegVideoFilters.push('scale=800:-2:flags=lanczos')
         // Per-frame palette (stats_mode=single) with Bayer dithering and rectangle diff mode
-        // produces better quality and smaller files than ffmpeg's defaults.
-        ffmpegVideoFilters.push(`fps=${outputFps}`)
+        // produces better quality and smaller files than ffmpeg's defaults. No fps filter here:
+        // the setpts branch already emits fps=outputFps for speeds above 1, and at speed 1 the
+        // capture rate equals the clamped output rate.
         ffmpegVideoFilters.push(
             'split[s0][s1];[s0]palettegen=stats_mode=single[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle'
         )

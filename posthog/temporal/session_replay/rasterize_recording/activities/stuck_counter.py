@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import structlog
-from redis.asyncio import Redis as AsyncRedis
 from temporalio import activity
 
 from posthog.redis import get_async_client, get_client
@@ -53,7 +52,15 @@ async def clear_stuck_counter_activity(inputs: BumpStuckCounterInput) -> None:
 STUCK_SESSION_THRESHOLD = 2
 
 
-def _filter_stuck(session_ids: list[str], values: list[bytes | str | None], threshold: int) -> set[str]:
+def read_stuck_session_ids(
+    team_id: int,
+    session_ids: list[str],
+    threshold: int = STUCK_SESSION_THRESHOLD,
+) -> set[str]:
+    """Which of `session_ids` are quarantined. Sync because every caller is a synchronous activity."""
+    if not session_ids:
+        return set()
+    values = get_client().mget([_stuck_key(team_id, sid) for sid in session_ids])
     stuck: set[str] = set()
     for sid, val in zip(session_ids, values):
         if val is None:
@@ -65,30 +72,3 @@ def _filter_stuck(session_ids: list[str], values: list[bytes | str | None], thre
         if count >= threshold:
             stuck.add(sid)
     return stuck
-
-
-async def read_stuck_session_ids(
-    redis_client: AsyncRedis,
-    team_id: int,
-    session_ids: list[str],
-    threshold: int = STUCK_SESSION_THRESHOLD,
-) -> set[str]:
-    if not session_ids:
-        return set()
-    keys = [_stuck_key(team_id, sid) for sid in session_ids]
-    values = await redis_client.mget(keys)
-    return _filter_stuck(session_ids, values, threshold)
-
-
-def read_stuck_session_ids_sync(
-    team_id: int,
-    session_ids: list[str],
-    threshold: int = STUCK_SESSION_THRESHOLD,
-) -> set[str]:
-    """Sync variant for callers inside synchronous activities (the replay_vision sweep)."""
-    if not session_ids:
-        return set()
-    redis_client = get_client()
-    keys = [_stuck_key(team_id, sid) for sid in session_ids]
-    values = redis_client.mget(keys)
-    return _filter_stuck(session_ids, values, threshold)
