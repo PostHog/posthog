@@ -25,9 +25,16 @@ class TeamProvisioningConfig(models.Model):
     stripe_project_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
     service_id = models.CharField(max_length=255, default="analytics")
 
+    # Null for rows that pre-date the field. Together with `application` this backs the
+    # durable daily ceiling on partner account creation: a Postgres count of rows the
+    # partner created in the last day, which stays correct when the Redis rate-limit
+    # buckets are evicted or unavailable.
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["application"], name="tpc_application_idx"),
+            models.Index(fields=["application", "created_at"], name="tpc_application_created_idx"),
         ]
 
 

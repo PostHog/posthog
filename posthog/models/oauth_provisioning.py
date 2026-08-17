@@ -17,9 +17,30 @@ to an operator as a capability that was granted.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class PartnerTier(StrEnum):
+    """Where a partner sits on the two trust axes, derived from the app row on every read.
+
+    Auth axis: a client that must prove itself (private_key_jwt against a published key
+    set, or a client secret) sits in the JWKS rows; a PKCE-public client, whose client_id
+    anyone can send, sits in the PUBLIC rows. Attested axis: the app presented a valid
+    ``posthog_verification_token`` at CIMD registration, so abuse is traceable to a real
+    PostHog organization.
+
+    Derived, never stored: a partner moves tier the moment it publishes a key set or
+    attests, with no admin involvement and no persisted value to go stale.
+    """
+
+    PUBLIC = "public"
+    PUBLIC_ATTESTED = "public_attested"
+    JWKS = "jwks"
+    JWKS_ATTESTED = "jwks_attested"
+
 
 # Records who set the account-request rate limit, so a verification flip doesn't overwrite an
 # explicit admin override. Empty for rows that pre-date the field.
