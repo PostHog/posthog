@@ -216,6 +216,7 @@ impl GlobalRateLimiter {
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
             max_write_batch_entries: config.global_rate_limit_max_write_batch_entries,
+            max_pending_sync_entries: config.global_rate_limit_max_pending_sync_entries,
             global_read_timeout: Duration::from_millis(config.global_rate_limit_read_timeout_ms),
             global_write_timeout: Duration::from_millis(config.global_rate_limit_write_timeout_ms),
             local_cache_ttl: Duration::from_secs(config.global_rate_limit_local_cache_ttl_secs),

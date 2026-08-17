@@ -136,6 +136,7 @@ mod tests {
             global_rate_limit_max_keys_per_command: 2_000,
             global_rate_limit_max_concurrent_commands: 4,
             global_rate_limit_max_write_batch_entries: 200_000,
+            global_rate_limit_max_pending_sync_entries: 200_000,
             global_rate_limit_local_cache_ttl_secs: 600,
             global_rate_limit_local_cache_idle_timeout_secs: 300,
             global_rate_limit_read_timeout_ms: 250,

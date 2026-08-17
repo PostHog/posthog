@@ -62,6 +62,7 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         max_keys_per_command: 2_000,
         max_concurrent_commands: 4,
         max_write_batch_entries: 200_000,
+        max_pending_sync_entries: 200_000,
     }
 }
 

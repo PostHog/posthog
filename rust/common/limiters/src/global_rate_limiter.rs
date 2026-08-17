@@ -224,6 +224,12 @@ pub struct GlobalRateLimiterConfig {
     /// bound -- the update channel's capacity does not help, because the
     /// receiver moves entries into this map as fast as they arrive.
     pub max_write_batch_entries: usize,
+    /// Maximum keys held in the pending-sync set. At the cap, new sync
+    /// requests are dropped and counted; the key's next request re-queues it
+    /// once the backlog drains. Mirrors `max_write_batch_entries`: without a
+    /// cap, keys clearing the sync floor faster than the per-tick drain grow
+    /// the set without bound.
+    pub max_pending_sync_entries: usize,
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
     ///
     /// Wrapped in `Arc<ArcSwap<_>>` so the map can be atomically replaced at
@@ -297,6 +303,7 @@ impl Default for GlobalRateLimiterConfig {
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
             max_write_batch_entries: 200_000,
+            max_pending_sync_entries: 200_000,
             custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             custom_key_resolver: None,
             custom_key_source: None,
@@ -649,7 +656,7 @@ impl GlobalRateLimiterImpl {
                         .unwrap_or_else(|| self.config.sync_interval.mul_f64(4.0));
 
                 if now_instant.duration_since(entry.synced_at) > tier_interval {
-                    self.pending_sync.insert(key.to_string());
+                    self.queue_sync(key);
                     metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
                         .increment(1);
                 } else {
@@ -677,7 +684,7 @@ impl GlobalRateLimiterImpl {
             };
             self.cache.insert(key.to_string(), entry);
             if !self.sync_floor_blocks(count as f64, threshold) {
-                self.pending_sync.insert(key.to_string());
+                self.queue_sync(key);
             }
 
             (count as f64, false)
@@ -731,6 +738,26 @@ impl GlobalRateLimiterImpl {
         )
         .increment(1);
         true
+    }
+
+    /// Queue a key for background Redis sync, bounded by
+    /// `max_pending_sync_entries`. A dropped request fails open for one round:
+    /// the key's next request re-queues it once the backlog drains, and its
+    /// counts keep flowing to Redis regardless -- only the read is delayed.
+    fn queue_sync(&self, key: &str) {
+        if self.pending_sync.len() >= self.config.max_pending_sync_entries
+            && !self.pending_sync.contains(key)
+        {
+            metrics::counter!(
+                GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                "scope" => self.scope,
+                "step" => "queue_sync",
+                "cause" => "pending_sync_full",
+            )
+            .increment(1);
+            return;
+        }
+        self.pending_sync.insert(key.to_string());
     }
 
     /// Queue an update to be batched and sent to Redis
@@ -1464,6 +1491,7 @@ mod tests {
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
             max_write_batch_entries: 200_000,
+            max_pending_sync_entries: 200_000,
         }
     }
 
@@ -1641,6 +1669,7 @@ mod tests {
         assert_eq!(config.max_keys_per_command, 2_000);
         assert_eq!(config.max_concurrent_commands, 4);
         assert_eq!(config.max_write_batch_entries, 200_000);
+        assert_eq!(config.max_pending_sync_entries, 200_000);
         assert!(config.custom_keys.load().is_empty());
         assert!(config.custom_key_resolver.is_none());
         assert_eq!(config.metrics_scope, "default");
@@ -2172,6 +2201,29 @@ mod tests {
             "writes must land before reads: the read result zeroes each synced \
              key's local_pending, so a read that predates this tick's writes \
              silently discards those counts until the next sync. calls={calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pending_sync_cap_drops_new_keys() {
+        // Keys clearing the sync floor faster than the per-tick drain must not
+        // grow pending_sync without bound; at the cap, new sync requests drop
+        // (the key re-queues on its next request) while known keys stay queued.
+        let client = Arc::new(MockRedisClient::new());
+        let config = GlobalRateLimiterConfig {
+            max_pending_sync_entries: 2,
+            ..config_with_floor(0)
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        for key in ["a", "b", "c", "d"] {
+            limiter.check_limit(key, 1, None).await;
+        }
+
+        assert_eq!(
+            limiter.pending_sync.len(),
+            2,
+            "pending_sync must stop growing at max_pending_sync_entries"
         );
     }
 

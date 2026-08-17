@@ -184,6 +184,12 @@ pub struct Config {
     #[envconfig(default = "200000")]
     pub global_rate_limit_max_write_batch_entries: usize,
 
+    /// Max keys held in the pending-sync set per limiter. At the cap, new sync
+    /// requests drop and re-queue on the key's next request (fail-open).
+    /// Bounds limiter memory alongside the write-batch cap.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_pending_sync_entries: usize,
+
     /// How long a local cache entry survives regardless of access (seconds).
     /// Bounds how stale a key's cached count can be before it is rebuilt.
     #[envconfig(default = "600")]
