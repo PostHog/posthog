@@ -21,6 +21,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -1044,7 +1045,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         return {str(row[0]) for row in rows}
 
-    def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
+    def remove_user_by_uuid(self, user_uuid: str, *, team_id: int, person: Optional[Person] = None) -> bool:
         """
         Remove a user from the cohort by their UUID.
 
@@ -1054,6 +1055,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Args:
             user_uuid: UUID of the user to be removed from the cohort.
             team_id: ID of the team to which the cohort belongs
+            person: Already-resolved person, if the caller looked it up. Skips a redundant
+                personhog lookup and closes the race between the caller's check and ours.
         Returns:
             True if the person exists (removal attempted), False if the person doesn't exist.
         Raises:
@@ -1067,9 +1070,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         try:
-            # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
-            with personhog_caller_tag("cohorts/static-remove"):
-                person = get_person_by_uuid(team_id, str(user_uuid), distinct_id_limit=0)
+            if person is None:
+                # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
+                with personhog_caller_tag("cohorts/static-remove"):
+                    person = get_person_by_uuid(team_id, str(user_uuid), distinct_id_limit=0)
             if person is None:
                 raise Person.DoesNotExist
 
@@ -1090,8 +1094,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 )
 
             # Always attempt CH delete - it's idempotent and handles cases where
-            # data exists in CH but not PG due to past sync issues
-            remove_person_from_static_cohort(person.uuid, self.pk, team_id=team_id)
+            # data exists in CH but not PG due to past sync issues. Retry transient
+            # capacity errors: this table's async mutations are fragile enough that a
+            # brief blip should retry rather than surface as a 500, matching the insert
+            # path's capacity-error handling.
+            self._remove_person_from_static_cohort_with_retry(remove_person_from_static_cohort, person.uuid, team_id)
 
             try:
                 count = get_static_cohort_size(
@@ -1116,6 +1123,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         except Person.DoesNotExist:
             return False
+        except CH_TRANSIENT_ERRORS:
+            # Exhausted the capacity retries: an expected transient outcome that surfaces as a 503,
+            # so re-raise for the caller to translate rather than capturing it as an error.
+            raise
         except Exception as err:
             logger.exception(
                 "Failed to remove user from cohort",
@@ -1132,6 +1143,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 },
             )
             raise
+
+    def _remove_person_from_static_cohort_with_retry(
+        self, remove_fn: Callable[..., None], person_uuid: UUID, team_id: int
+    ) -> None:
+        """Delete a person's row from the ClickHouse static-cohort table, retrying transient
+        capacity errors. On the final attempt the original error propagates (ClickHouseAtCapacity
+        surfaces as a 503), so the caller can translate it into a useful response."""
+        attempts = 3
+        for attempt in range(attempts):
+            try:
+                remove_fn(person_uuid, self.pk, team_id=team_id)
+                return
+            except CH_TRANSIENT_ERRORS:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
 
     def to_dict(self) -> dict:
         from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions

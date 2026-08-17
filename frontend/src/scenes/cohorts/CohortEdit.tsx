@@ -764,7 +764,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     query={effectiveQuery}
                                                     setQuery={setQuery}
                                                     context={{
-                                                        refresh: 'force_blocking',
+                                                        // Force fresh membership, but over the async
+                                                        // polling path: force_blocking rode one long
+                                                        // HTTP request that died wholesale if aborted.
+                                                        refresh: 'force_async',
                                                         fileNameForExport: cohort.name,
                                                         cohortId: cohortId,
                                                         dataNodeLogicKey: dataNodeLogicKey,
