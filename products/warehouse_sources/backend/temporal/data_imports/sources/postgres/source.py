@@ -515,6 +515,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
                 "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
             ),
+            # A custom "app.*" session GUC the connecting role doesn't set — raised (SQLSTATE 42704)
+            # by a row-level security policy, view, or connection pooler that reads a per-session
+            # setting the application is expected to set (e.g. `current_setting('app.client_id')`).
+            # PostHog only ever sets standard parameters (client_encoding, statement_timeout,
+            # DateStyle, idle_in_transaction_session_timeout), so an unrecognized `app.*` parameter is
+            # always the customer's own setup and is permanent until they change it — retrying just
+            # re-hits it. Match the stable "app." namespace prefix; the parameter name after it varies.
+            'unrecognized configuration parameter "app.': (
+                "Your database expects a session setting that PostHog doesn't provide (PostgreSQL "
+                'reported "unrecognized configuration parameter"). This usually comes from a row-level '
+                "security policy, view, or connection pooler that reads a custom setting (for example "
+                "app.current_tenant). Make that setting optional in your database (for example with "
+                "current_setting('setting_name', true)), or remove the affected tables from this sync, "
+                "then re-enable the sync."
+            ),
             # A row-level security policy on this table (or another table its policy queries) is
             # self-referential, so Postgres can't evaluate it and raises SQLSTATE 42P17 on every
             # read attempt. The raw psycopg message ("infinite recursion detected in policy for
