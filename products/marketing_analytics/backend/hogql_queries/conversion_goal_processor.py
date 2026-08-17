@@ -204,6 +204,17 @@ class SharedTouchpointsPrecompute:
             return self._result
 
 
+def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]) -> bool:
+    """Whether a goal's column holds a summed property value rather than a conversion count.
+
+    Everything that divides by a goal's column — the ROAS numerator, the CAC denominator, and the
+    processor-selection guards that decide which goals to build — needs the same answer, so they
+    all route through here rather than each re-deriving it from `math` and drifting apart.
+    """
+    math_type = goal.math
+    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+
+
 @dataclass
 class ConversionGoalProcessor:
     """
@@ -274,11 +285,10 @@ class ConversionGoalProcessor:
     def sums_a_property(self) -> bool:
         """Whether this goal's column holds a summed property value rather than a conversion count.
 
-        Anything dividing by a goal's column needs to tell the two apart, so this shares the branch
-        with `get_select_field` rather than re-deriving it from `math`.
+        Shares the branch with `get_select_field` via `goal_sums_a_property` rather than re-deriving
+        it from `math`.
         """
-        math_type = self.goal.math
-        return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+        return goal_sums_a_property(self.goal)
 
     def get_count_field(self) -> ast.Expr:
         """Conversions counted, whatever the goal's own math is.

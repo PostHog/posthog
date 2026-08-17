@@ -57,7 +57,7 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
-from .conversion_goal_processor import ConversionGoalProcessor
+from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects
@@ -868,8 +868,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
                 or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}" in self.query.select
-                or (roas_selected and conversion_goal.counts_as_revenue)
-                or (cac_selected and conversion_goal.counts_as_customer)
+                or (roas_selected and conversion_goal.counts_as_revenue and goal_sums_a_property(conversion_goal))
+                or (cac_selected and conversion_goal.counts_as_customer and not goal_sums_a_property(conversion_goal))
             )
             if should_create:
                 processor = ConversionGoalProcessor(

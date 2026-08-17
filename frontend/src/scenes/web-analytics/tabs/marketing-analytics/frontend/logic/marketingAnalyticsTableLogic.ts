@@ -21,7 +21,7 @@ import {
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
-import { createMarketingAnalyticsOrderBy, isDraftConversionGoalColumn } from './utils'
+import { createMarketingAnalyticsOrderBy, goalSumsAProperty, isDraftConversionGoalColumn } from './utils'
 
 export type ExternalTable = {
     name: string
@@ -163,12 +163,17 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                     !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
                     costAvailable &&
                     !config.excludesConversionGoals
+                // Match the backend's eligibility: ROAS sums a revenue goal's value, CAC counts a
+                // customer goal's conversions, so a summing customer goal (or a counting revenue
+                // goal) is excluded. Requesting a column the backend omits makes it vanish silently.
                 const roasColumn =
-                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_revenue)
+                    returnMetricsAvailable &&
+                    conversionGoals.some((goal) => goal.counts_as_revenue && goalSumsAProperty(goal))
                         ? [MarketingAnalyticsConstants.Roas]
                         : []
                 const cacColumn =
-                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_customer)
+                    returnMetricsAvailable &&
+                    conversionGoals.some((goal) => goal.counts_as_customer && !goalSumsAProperty(goal))
                         ? [`${MarketingAnalyticsConstants.CostPer} ${MarketingAnalyticsConstants.Customer}`]
                         : []
 
