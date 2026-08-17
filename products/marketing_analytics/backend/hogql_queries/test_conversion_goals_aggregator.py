@@ -402,15 +402,17 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(division.left, ast.Field)
         assert division.left.chain[-1] == self.config.total_cost_field
 
-    def test_cac_denominator_skips_customer_goals_that_sum_a_property(self):
+    def test_cac_divides_by_the_count_of_a_customer_goal_that_sums_money(self):
         goals = [
-            # Its column is money, so counting it as customers divides spend by revenue.
+            # A purchase goal flagged as both. Its own column holds revenue, so the
+            # denominator has to be its paired count or CAC becomes spend over revenue.
             self._create_test_conversion_goal(
                 "g0",
                 "Purchases",
                 math=PropertyMathType.SUM,
                 math_property="revenue",
                 counts_as_customer=True,
+                counts_as_revenue=True,
             ),
             self._create_test_conversion_goal("g1", "Signups", counts_as_customer=True),
         ]
@@ -420,8 +422,28 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
         cac = aggregator.get_conversion_goal_columns()[cac_alias].expr.to_hogql()
 
+        assert self.config.get_conversion_goal_count_column_name(0) in cac
+        # The counting goal is already its own denominator, so it gets no count column.
         assert self.config.get_conversion_goal_column_name(1) in cac
-        assert self.config.get_conversion_goal_column_name(0) not in cac
+        assert self.config.get_conversion_goal_count_column_name(1) not in cac
+
+    def test_cac_exists_when_every_customer_goal_sums_money(self):
+        # The default shape: the only customer goal is a purchase goal with sum math.
+        # This used to emit no column while the frontend still requested one.
+        goal = self._create_test_conversion_goal(
+            "g0",
+            "Purchases",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            counts_as_customer=True,
+            counts_as_revenue=True,
+        )
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        columns = aggregator.get_conversion_goal_columns()
+
+        assert f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}" in columns
+        assert ROAS_COLUMN in columns
 
     def test_roas_numerator_skips_revenue_goals_that_count_instead_of_summing(self):
         goals = [

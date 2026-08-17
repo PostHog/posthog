@@ -260,6 +260,10 @@ class MarketingAnalyticsConfig:
         """Get standardized conversion goal column name"""
         return f"{self.conversion_goal_prefix}{index}"
 
+    def get_conversion_goal_count_column_name(self, index: int) -> str:
+        """Conversions counted, for goals whose own column holds a summed amount instead."""
+        return f"{self.conversion_goal_prefix}{index}_count"
+
     def get_conversion_goal_alias(self, index: int) -> str:
         """Get conversion goal CTE alias"""
         return f"{self.conversion_goal_abbreviation}{index}"

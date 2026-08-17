@@ -280,6 +280,15 @@ class ConversionGoalProcessor:
         math_type = self.goal.math
         return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
 
+    def get_count_field(self) -> ast.Expr:
+        """Conversions counted, whatever the goal's own math is.
+
+        A summing goal's column holds money, so anything needing "how many" — cost per
+        customer, say — can't divide by it. Same expression as the counting branch of
+        `get_select_field`, over the same grouping.
+        """
+        return ast.Call(name="count", args=[ast.Constant(value="*")])
+
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
         math_type = self.goal.math
