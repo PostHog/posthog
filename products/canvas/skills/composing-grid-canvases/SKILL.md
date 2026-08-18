@@ -66,6 +66,7 @@ with three additions:
   vocabulary is an allowlist — `type`, `title`, `description`, `default`, `properties`, `required`,
   `additionalProperties`, `items`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`,
   `minItems`, `maxItems`, `format`. No `$ref`, no `pattern` — validation rejects them.
+
 - **Design for the size range.** A 2×1 placement is a glanceable tile; a 6×4 is a full app surface.
   Render usefully at `minW`×`minH`, and treat `config` as the only per-placement input.
 
@@ -86,7 +87,7 @@ Operations:
   extend past `grid.columns`.
 - `update_placement` — merge `changes` into the placement with `id`. Filling a drawn box is
   `{"op": "update_placement", "id": "p1", "changes": {"status": "live", "component": "<component
-  canvas id>", "config": {...}}}`.
+canvas id>", "config": {...}}}`.
 - `remove_placement`, `set_grid`.
 
 ## The placement lifecycle

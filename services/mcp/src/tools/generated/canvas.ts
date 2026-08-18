@@ -57,7 +57,7 @@ const CanvasCreateSchema = CanvasesCreateBody.extend({
         "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default)."
     ),
     kind: CanvasesCreateBody.shape['kind'].describe(
-        "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). Search the store (canvas-list kind=component) before creating a new component."
+        "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component."
     ),
     description: CanvasesCreateBody.shape['description'].describe(
         'Short prose describing the canvas. For components this is the store-search text — say what the widget shows and what its config controls, so future searches find it.'
