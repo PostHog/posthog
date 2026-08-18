@@ -7,6 +7,12 @@ import type {
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { type InfiniteData, QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const markTaskActivityRead = vi.hoisted(() => vi.fn());
+vi.mock("@posthog/ui/features/auth/authClientImperative", () => ({
+  getAuthenticatedClient: () => Promise.resolve({ markTaskActivityRead }),
+}));
+
 import { TaskActivityContribution } from "./taskActivity.contribution";
 
 let activityListener: ((signal: TaskActivitySignal) => void) | undefined;
@@ -61,6 +67,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "awaiting_input",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -75,6 +82,56 @@ describe("TaskActivityContribution", () => {
           channel_id: null,
           activity_kind: "awaiting_input",
           is_unread: true,
+        },
+      ],
+    });
+  });
+
+  it("replaces an unread row with read activity without increasing the count", () => {
+    queryClient.setQueryDefaults(["task-activity"], {
+      meta: AUTH_SCOPED_QUERY_META,
+    });
+    queryClient.setQueryData<InfiniteData<TaskActivityPage>>(
+      ["task-activity"],
+      {
+        pages: [
+          {
+            results: [
+              {
+                id: "activity-1",
+                task_id: "task-1",
+                task_title: "Channel task",
+                activity_at: "2026-07-27T09:00:00Z",
+                activity_kind: "awaiting_input",
+                snippet: "",
+                is_unread: true,
+              },
+            ],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      },
+    );
+
+    activityListener?.({
+      taskId: "task-1",
+      taskTitle: "Channel task",
+      activityKind: "completed",
+      activityAt: "2026-07-27T10:00:00Z",
+      isUnread: false,
+    });
+
+    const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
+      "task-activity",
+    ]);
+    expect(cached?.pages[0]).toMatchObject({
+      unread_count: 0,
+      results: [
+        {
+          task_id: "task-1",
+          activity_kind: "completed",
+          is_unread: false,
         },
       ],
     });
@@ -101,6 +158,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -149,6 +207,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -157,12 +216,34 @@ describe("TaskActivityContribution", () => {
     expect(cached?.pages[0]?.results[0]?.channel_id).toBeNull();
   });
 
+  it.each([
+    ["born-read activity advances the server read cursor", false, 1],
+    ["unread activity leaves the server cursor alone", true, 0],
+  ])("%s", async (_label, isUnread, persistCalls) => {
+    activityListener?.({
+      taskId: "task-1",
+      taskTitle: "Channel task",
+      activityKind: "completed",
+      activityAt: "2026-07-27T10:00:00Z",
+      isUnread,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(markTaskActivityRead).toHaveBeenCalledTimes(persistCalls);
+    if (persistCalls > 0) {
+      expect(markTaskActivityRead).toHaveBeenCalledWith([
+        { task_id: "task-1", seen_before: "2026-07-27T10:00:00Z" },
+      ]);
+    }
+  });
+
   it("does not recreate activity data after the authenticated query is removed", () => {
     activityListener?.({
       taskId: "task-1",
       taskTitle: "Previous user's task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     expect(queryClient.getQueryData(["task-activity"])).toBeUndefined();

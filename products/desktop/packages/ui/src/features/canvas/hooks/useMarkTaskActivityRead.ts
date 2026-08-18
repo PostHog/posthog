@@ -4,8 +4,11 @@ import type {
 } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { TASK_ACTIVITY_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { logger } from "@posthog/ui/shell/logger";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+const log = logger.scope("task-activity");
 
 /**
  * Clear the unread flag on specific tasks. Read state lives per task on the server,
@@ -20,6 +23,12 @@ export function useMarkTaskActivityRead() {
       if (!client) throw new Error("Not authenticated");
       if (activities.length === 0) return;
       return client.markTaskActivityRead(activities);
+    },
+    // No rollback or refetch: the optimistic "read" state is what the user
+    // asked for, and the server retries on the next open. Log so a failing
+    // background call leaves a trace.
+    onError: (error) => {
+      log.warn("Failed to mark task activity read", { error });
     },
     onMutate: async (activities: TaskActivityReadMarker[]) => {
       const markedTasks = new Map(

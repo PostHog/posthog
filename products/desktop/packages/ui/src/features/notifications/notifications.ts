@@ -20,7 +20,7 @@ import {
   type INotificationSettings,
   NOTIFICATION_SETTINGS_PROVIDER,
 } from "./identifiers";
-import { routeNotification } from "./routeNotification";
+import { routeNotification, targetsEqual } from "./routeNotification";
 
 const MAX_TITLE_LENGTH = 50;
 const log = logger.scope("notifications");
@@ -57,6 +57,10 @@ export interface TaskActivitySignal {
   taskTitle: string;
   activityKind: Extract<TaskActivityKind, "awaiting_input" | "completed">;
   activityAt: string;
+  // False when the user is watching the task happen (app focused and the task
+  // on screen, the same pair routeNotification uses to suppress delivery): the
+  // feed row should still update, but it must not light the unread badge.
+  isUnread: boolean;
 }
 
 // The single channel every app notification flows through. Reads focus + the
@@ -225,6 +229,10 @@ export class NotificationBus {
       taskTitle,
       activityKind,
       activityAt: new Date().toISOString(),
+      isUnread: !(
+        this.view.hasFocus() &&
+        targetsEqual(this.view.getActiveTarget(), { kind: "task", taskId })
+      ),
     };
     for (const listener of this.taskActivityListeners) {
       try {

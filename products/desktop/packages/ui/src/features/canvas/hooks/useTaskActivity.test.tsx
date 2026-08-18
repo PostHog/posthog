@@ -21,6 +21,7 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 }));
 
 import { useMarkTaskActivityRead } from "./useMarkTaskActivityRead";
+import { useMarkTaskActivityReadOnOpen } from "./useMarkTaskActivityReadOnOpen";
 import { TASK_ACTIVITY_QUERY_KEY, useTaskActivity } from "./useTaskActivity";
 
 function activity(overrides: Partial<TaskActivity>): TaskActivity {
@@ -256,5 +257,102 @@ describe("task activity hooks", () => {
       true,
     ]);
     expect(cached?.pages[0]?.unread_count).toBe(2);
+  });
+
+  it("marks a task's activity read once per opened task", async () => {
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 0,
+    });
+
+    const hook = renderHook(
+      ({ taskId }: { taskId: string }) => useMarkTaskActivityReadOnOpen(taskId),
+      { wrapper, initialProps: { taskId: "task-1" } },
+    );
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+    expect(mockClient.markTaskActivityRead).toHaveBeenCalledWith([
+      { task_id: "task-1", seen_before: expect.any(String) },
+    ]);
+
+    hook.rerender({ taskId: "task-1" });
+    expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce();
+
+    hook.rerender({ taskId: "task-2" });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledTimes(2),
+    );
+    expect(mockClient.markTaskActivityRead).toHaveBeenLastCalledWith([
+      { task_id: "task-2", seen_before: expect.any(String) },
+    ]);
+  });
+
+  it("clears unread activity that lands while the task is open, stamping the row's own timestamp", async () => {
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 0,
+    });
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+
+    renderHook(() => useMarkTaskActivityReadOnOpen("task-1"), { wrapper });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+
+    act(() => {
+      queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+        pages: [
+          {
+            results: [activity({ activity_at: "2099-01-01T00:00:00.000Z" })],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      });
+    });
+
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledTimes(2),
+    );
+    expect(mockClient.markTaskActivityRead).toHaveBeenLastCalledWith([
+      { task_id: "task-1", seen_before: "2099-01-01T00:00:00.000Z" },
+    ]);
+    hasFocus.mockRestore();
+  });
+
+  it("defers clearing unread activity to window focus while the app is unfocused", async () => {
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 0,
+    });
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+
+    renderHook(() => useMarkTaskActivityReadOnOpen("task-1"), { wrapper });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+
+    act(() => {
+      queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+        pages: [
+          {
+            results: [activity({ activity_at: "2099-01-01T00:00:00.000Z" })],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      });
+    });
+    expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce();
+
+    hasFocus.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledTimes(2),
+    );
+    hasFocus.mockRestore();
   });
 });
