@@ -896,6 +896,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
+    // Slash-form settings URLs (e.g. `/settings/user/api-keys`) are rewritten to the canonical
+    // single-segment form by settingsSceneLogic; this route lets the scene mount so that runs.
+    '/settings/:section/:subsection': [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],

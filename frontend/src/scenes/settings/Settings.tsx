@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -414,7 +414,13 @@ export function Settings({
 }
 
 function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSectionId,
+        selectedSetting,
+        settingsContentStatus,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
@@ -460,6 +466,12 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : settingsContentStatus === 'loading' ? (
+                <div className="flex justify-center py-12">
+                    <Spinner className="text-2xl" />
+                </div>
+            ) : settingsContentStatus === 'gated' ? (
+                <AccessDenied reason="You do not have access to this setting." />
             ) : (
                 <NotFound object="setting" />
             )}

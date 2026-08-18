@@ -197,6 +197,22 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('members')
     })
 
+    it.each([
+        ['/settings/user/api-keys', 'user-api-keys'],
+        ['/settings/account/api-keys', 'user-api-keys'],
+        ['/settings/user/personal-api-keys', 'user-api-keys'],
+        ['/settings/organization/billing', 'organization-billing'],
+    ])('rewrites slash-form settings URL %s to a hyphenated section', async (path, expectedSectionId) => {
+        // Two-segment URLs arrive from bookmarks, docs, and assistant answers. The single-segment
+        // route never matched them, so they used to fall through to the page-level 404.
+        router.actions.push(path)
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: expectedSectionId,
+        })
+        expect(router.values.location.pathname).toContain(`/settings/${expectedSectionId}`)
+    })
+
     it('leaves an unmapped section id on the not-found path', async () => {
         // Aliases are added one at a time on purpose. A catch-all redirect for anything unrecognized
         // would shadow the app-level redirects in scenes.ts and would drop the `not_found_shown`

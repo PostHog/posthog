@@ -24,6 +24,15 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, S
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
 const FUSE_THRESHOLD = 0.2
 
+// Every section id the map declares, in both its environment and project form. Used to tell a
+// section that exists but is gated off (show an access notice) from one that never existed (a real
+// 404). The `sections` selector can't answer this: gating removes both kinds before it runs.
+const KNOWN_SETTING_SECTION_IDS = new Set<string>(
+    SETTINGS_MAP.flatMap((section) => [section.id, section.id.replace(/^environment-/, 'project-')])
+)
+
+export type SettingsContentStatus = 'gated' | 'loading' | 'not-found'
+
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface SettingsFuse extends FuseClass<Setting & { searchValue: string }> {}
 export interface SectionsFuse extends FuseClass<
@@ -87,6 +96,7 @@ export interface settingsLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     preflight: PreflightStatus | null // preflightLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamLoading: boolean // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     collapsedGroups: Record<string, boolean>
     collapsedLevels: Record<SettingLevelId, boolean>
@@ -110,6 +120,7 @@ export interface settingsLogicValues {
     selectedSetting: Setting | null
     selectedSettingId: SettingId | null
     settings: Setting[]
+    settingsContentStatus: SettingsContentStatus
     settingsFuse: SettingsFuse
     settingsSnapshot: Record<string, any> | null
     settingsSnapshotLoading: boolean
@@ -224,6 +235,11 @@ export interface settingsLogicMeta {
             currentTeam: TeamPublicType | TeamType | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
+        settingsContentStatus: (
+            selectedSectionId: SettingSectionId | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            currentTeamLoading: boolean
+        ) => SettingsContentStatus
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
         settingsFuse: (settings: Setting[]) => SettingsFuse
         sectionsFuse: (sections: SettingSection[]) => SectionsFuse
@@ -268,7 +284,7 @@ export const settingsLogic = kea<settingsLogicType>([
             preflightLogic,
             ['preflight', 'isCloudOrDev'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'currentTeamLoading'],
             organizationLogic,
             ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
@@ -628,6 +644,30 @@ export const settingsLogic = kea<settingsLogicType>([
             (s) => [s.settings, s.selectedSettingId],
             (settings: Setting[], selectedSettingId: SettingId | null): Setting | null => {
                 return settings.find((s) => s.id === selectedSettingId) ?? null
+            },
+        ],
+        // Why the selected section resolved to no settings, so the scene can tell three states apart:
+        // still loading team config, gated off, or a genuinely unknown section (a real 404).
+        settingsContentStatus: [
+            (s) => [s.selectedSectionId, s.currentTeam, s.currentTeamLoading],
+            (
+                selectedSectionId: SettingSectionId | null,
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                currentTeamLoading: boolean
+            ): SettingsContentStatus => {
+                if (!selectedSectionId) {
+                    return 'not-found'
+                }
+                // Project and environment sections are dropped until the team loads, so a null team
+                // that is still loading is "wait", not "gone".
+                const isProjectScoped = /^(project|environment)-/.test(selectedSectionId)
+                if (isProjectScoped && !currentTeam && currentTeamLoading) {
+                    return 'loading'
+                }
+                if (KNOWN_SETTING_SECTION_IDS.has(selectedSectionId)) {
+                    return 'gated'
+                }
+                return 'not-found'
             },
         ],
         doesMatchFlags: [

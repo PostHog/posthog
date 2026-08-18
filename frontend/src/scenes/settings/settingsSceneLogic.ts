@@ -37,6 +37,11 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
     // if members ever become project-scoped.
     'project-members': 'organization-members',
+    // Personal API keys live under `user-api-keys`. These are the two guesses the slash-form
+    // rewrite below cannot reach on its own: `account` is the level's display name, not its id, and
+    // `personal-api-keys` names the setting rather than the section.
+    'account-api-keys': 'user-api-keys',
+    'user-personal-api-keys': 'user-api-keys',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -227,8 +232,8 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
-        '/settings/:section': ({ section }) => {
+    urlToAction(({ actions, values }) => {
+        const handleSectionUrl = (section: string | undefined): void => {
             if (!section) {
                 return
             }
@@ -279,8 +284,29 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                     values.sections.find((x) => x.id === section)?.level || 'user'
                 )
             }
-        },
-    })),
+        }
+
+        return {
+            '/settings/:section': ({ section }) => handleSectionUrl(section),
+            // Slash-form URLs like `/settings/user/api-keys` reach us from bookmarks, docs, and
+            // assistant answers. The single-segment route never matched them, so they fell through
+            // to the page-level 404. Hyphen-join the segments into a section id and rewrite to the
+            // canonical single-segment URL, which then resolves through the handler above.
+            '/settings/:section/:subsection': ({ section, subsection }) => {
+                if (!section || !subsection) {
+                    return
+                }
+                const canonicalSection = canonicalSettingsSection(`${section}-${subsection}`)
+                const [hashParams] = canonicalSettingsHashParams(router.values.hashParams)
+                const targetSection = sectionForMovedSetting(canonicalSection, hashParams) ?? canonicalSection
+                router.actions.replace(
+                    urls.settings(targetSection as SettingSectionId),
+                    router.values.searchParams,
+                    hashParams
+                )
+            },
+        }
+    }),
 
     actionToUrl(({ values }) => ({
         // Replace history for level changes, so the environments<>project redirect doesn't leave dead history entries.
