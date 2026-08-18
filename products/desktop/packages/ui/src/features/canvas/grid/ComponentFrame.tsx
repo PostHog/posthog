@@ -20,6 +20,12 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
   const { lifecycle, isError, dataUpdatedAt, refetch } = useCanvasBuilds(
     componentId || undefined,
   );
+  // TODO(grid version-pin): placement.version can pin a placement to a specific
+  // component source version, but this memo always selects the currently
+  // published build, so a pinned placement silently renders the latest artifact
+  // instead of the pinned one. Honoring the pin means mirroring the freeform
+  // historical-build path (see usePinnedArtifact) rather than reading
+  // publishedBuildId here.
   const publishedBuild = useMemo(
     () =>
       lifecycle?.builds.find(
