@@ -434,14 +434,24 @@ fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
     let mut found = None;
 
     while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
         if let Some(active_quote) = quote {
-            if escaped {
-                escaped = false;
-            } else if bytes[index] == b'\\' {
+            if bytes[index] == b'\\' {
                 escaped = true;
             } else if bytes[index] == active_quote {
                 quote = None;
             }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            escaped = true;
             index += 1;
             continue;
         }
@@ -766,6 +776,16 @@ mod tests {
     #[test]
     fn remove_sourcemap_reference_ignores_css_string_contents() {
         let original = ".example::after{content:\"/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_css_string_after_escaped_quote() {
+        let original = ".foo\\'bar{content:\"x'/*# sourceMappingURL=victim.map*/\"}\n";
         let mut source = stylesheet_source(original);
 
         assert_eq!(source.get_sourcemap_reference().unwrap(), None);
