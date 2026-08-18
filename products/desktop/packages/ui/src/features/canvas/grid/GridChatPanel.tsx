@@ -1,4 +1,4 @@
-import { XIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { Button, Input, Spinner, Text } from "@posthog/quill";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
@@ -6,47 +6,77 @@ import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-/** What the panel talks about: a widget's fill task, or the whole canvas. */
+/** A widget conversation the panel is temporarily focused on. */
 export interface GridChatTarget {
-  /** Existing conversation to open; null offers a composer to start one. */
   taskId: string | null;
   title: string;
 }
 
 /**
- * Right-hand conversation panel for a grid canvas: opens a widget's fill task
- * (steer it, approve its permission requests, ask for fixes) or a canvas-wide
- * task that can edit the whole layout. Kept separate from the freeform
- * CanvasSidePanel, whose versions/comments/self-repair don't apply to grids.
+ * The grid canvas's right-hand dock, mirroring the freeform canvas panel:
+ * edit mode opens it on the canvas's own conversation (with the version the
+ * grid is on), and a widget's chat affordances refocus it on that widget's
+ * fill task — follow-ups, steering, and permission approvals all in place.
  */
 export function GridChatPanel({
   target,
+  canvasTaskId,
+  versionLabel,
   canvasId,
   canvasName,
   channelId,
-  onClose,
+  onBack,
+  onMinimize,
   onStarted,
 }: {
-  target: GridChatTarget;
+  /** Widget focus, or null for the canvas's own conversation. */
+  target: GridChatTarget | null;
+  /** The recorded canvas-wide conversation, if one has been started. */
+  canvasTaskId: string | null;
+  /** Label of the layout version currently shown (e.g. "V4"). */
+  versionLabel: string | null;
   canvasId: string;
   canvasName: string;
   channelId: string;
-  onClose: () => void;
+  /** Return from a widget's conversation to the canvas's. */
+  onBack: () => void;
+  onMinimize: () => void;
   /** A canvas-wide task was started from the panel's composer. */
   onStarted: (taskId: string) => void;
 }) {
+  const taskId = target ? target.taskId : canvasTaskId;
   return (
-    <div className="flex h-full w-[380px] shrink-0 flex-col border-(--gray-5) border-l">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-(--gray-5) border-b px-3">
-        <Text size="sm" weight="medium" className="truncate">
-          {target.title}
+    <div className="flex h-full flex-col border-(--gray-5) border-l">
+      <div className="flex h-10 shrink-0 items-center gap-1 border-(--gray-5) border-b px-2">
+        {target ? (
+          <Button
+            variant="default"
+            size="icon"
+            aria-label="Back to canvas chat"
+            onClick={onBack}
+          >
+            <CaretLeftIcon size={14} />
+          </Button>
+        ) : null}
+        <Text size="sm" weight="medium" className="min-w-0 flex-1 truncate">
+          {target ? target.title : "Canvas chat"}
         </Text>
-        <Button variant="default" size="icon" onClick={onClose}>
-          <XIcon size={14} />
+        {versionLabel ? (
+          <Text size="sm" className="shrink-0 opacity-70">
+            {versionLabel}
+          </Text>
+        ) : null}
+        <Button
+          variant="default"
+          size="icon"
+          aria-label="Hide panel"
+          onClick={onMinimize}
+        >
+          <SidebarSimpleIcon size={14} />
         </Button>
       </div>
-      {target.taskId ? (
-        <TaskChat taskId={target.taskId} />
+      {taskId ? (
+        <TaskChat taskId={taskId} />
       ) : (
         <CanvasChatComposer
           canvasId={canvasId}

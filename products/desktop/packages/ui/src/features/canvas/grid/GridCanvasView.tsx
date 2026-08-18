@@ -1,4 +1,8 @@
-import { ChatCircleIcon, SquaresFourIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleIcon,
+  SidebarSimpleIcon,
+  SquaresFourIcon,
+} from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
@@ -10,9 +14,14 @@ import {
   EmptyTitle,
   Spinner,
 } from "@posthog/quill";
-import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import {
+  useCanvasVersions,
+  useDashboard,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
 import {
   GridPlacementTile,
@@ -91,8 +100,30 @@ export function GridCanvasView({
   }, []);
   const surfaceWidth = useMeasuredWidth(surfaceEl);
   const placements = layout?.placements;
-  // The right-hand conversation: a widget's fill task, or the whole canvas.
-  const [chat, setChat] = useState<GridChatTarget | null>(null);
+
+  // The right-hand dock, sharing the freeform panel's persisted collapse and
+  // width so the two canvas kinds feel like one surface. Edit mode opens it
+  // on the canvas's own conversation; a widget's chat affordances refocus it.
+  const collapsed = useCanvasChatPanelStore((s) => s.collapsed);
+  const setCollapsed = useCanvasChatPanelStore((s) => s.setCollapsed);
+  const panelWidth = useCanvasChatPanelStore((s) => s.width);
+  const setPanelWidth = useCanvasChatPanelStore((s) => s.setWidth);
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const [widgetTarget, setWidgetTarget] = useState<GridChatTarget | null>(null);
+  // Canvas-wide task started this session, until the record catches up.
+  const [startedCanvasTaskId, setStartedCanvasTaskId] = useState<string | null>(
+    null,
+  );
+
+  // The layout version the grid is on, in the freeform panel's vocabulary.
+  const { versions } = useCanvasVersions(canvasId);
+  const versionLabel = useMemo(() => {
+    if (!currentVersionId) return null;
+    const index = versions.findIndex(
+      (version) => version.id === currentVersionId,
+    );
+    return index === -1 ? null : `V${versions.length - index}`;
+  }, [versions, currentVersionId]);
 
   const onDragComplete = useCallback(
     (outcome: GridDragOutcome) => {
@@ -236,12 +267,16 @@ export function GridCanvasView({
     [patch, currentVersionId],
   );
 
-  const discuss = useCallback((placement: GridPlacement) => {
-    setChat({
-      taskId: placement.generationTaskId ?? null,
-      title: placement.prompt ?? "Widget",
-    });
-  }, []);
+  const discuss = useCallback(
+    (placement: GridPlacement) => {
+      setWidgetTarget({
+        taskId: placement.generationTaskId ?? null,
+        title: placement.prompt ?? "Widget",
+      });
+      setCollapsed(false);
+    },
+    [setCollapsed],
+  );
 
   const actions: PlacementTileActions = {
     describe,
@@ -267,20 +302,15 @@ export function GridCanvasView({
   return (
     <div className="flex h-full">
       <div className="relative min-w-0 flex-1">
-        {interactive ? (
+        {interactive && collapsed ? (
           <Button
-            variant="outline"
-            size="sm"
+            variant="default"
+            size="icon"
+            aria-label="Show panel"
             className="absolute top-3 right-3 z-20"
-            onClick={() =>
-              setChat({
-                taskId: dashboard.generationTaskId ?? null,
-                title: "Canvas chat",
-              })
-            }
+            onClick={() => setCollapsed(false)}
           >
-            <ChatCircleIcon size={14} />
-            Canvas chat
+            <SidebarSimpleIcon size={16} />
           </Button>
         ) : null}
         <div className="h-full overflow-y-auto p-4">
@@ -401,15 +431,30 @@ export function GridCanvasView({
           </div>
         </div>
       </div>
-      {chat ? (
-        <GridChatPanel
-          target={chat}
-          canvasId={canvasId}
-          canvasName={dashboard.name}
-          channelId={dashboard.channelId}
-          onClose={() => setChat(null)}
-          onStarted={(taskId) => setChat({ taskId, title: "Canvas chat" })}
-        />
+      {interactive || widgetTarget ? (
+        <ResizableSidebar
+          open={!collapsed || !!widgetTarget}
+          width={panelWidth}
+          setWidth={setPanelWidth}
+          isResizing={isResizingPanel}
+          setIsResizing={setIsResizingPanel}
+          side="right"
+        >
+          <GridChatPanel
+            target={widgetTarget}
+            canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
+            versionLabel={versionLabel}
+            canvasId={canvasId}
+            canvasName={dashboard.name}
+            channelId={dashboard.channelId}
+            onBack={() => setWidgetTarget(null)}
+            onMinimize={() => {
+              setCollapsed(true);
+              setWidgetTarget(null);
+            }}
+            onStarted={setStartedCanvasTaskId}
+          />
+        </ResizableSidebar>
       ) : null}
     </div>
   );
