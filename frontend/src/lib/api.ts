@@ -355,6 +355,16 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
+/**
+ * True when a request never reached the server: the device is offline, the connection dropped, or a
+ * proxy refused it. `fetch` reports these as a bare `TypeError`, and the classified `NetworkError`
+ * carries the same meaning. Stream callers treat this as an ordinary disconnect to reconnect from,
+ * not an application fault to report.
+ */
+export function isNetworkError(error: unknown): boolean {
+    return error instanceof NetworkError || error instanceof TypeError
+}
+
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()

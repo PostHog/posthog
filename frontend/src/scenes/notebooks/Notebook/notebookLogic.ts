@@ -22,7 +22,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { isNetworkError } from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import {
@@ -205,6 +205,11 @@ const PRESENCE_PRUNE_INTERVAL_MS = 5_000
 const PRESENCE_HEARTBEAT_MS = 10_000
 /** Client-side debounce for caret pings, the floor for caret latency. */
 const PRESENCE_PUBLISH_DEBOUNCE_MS = 250
+
+/** First reconnect delay for the collab stream. Doubles each failed attempt up to the max. */
+const MARKDOWN_STREAM_INITIAL_RETRY_DELAY_MS = 1_000
+/** Ceiling for the collab stream reconnect backoff, so a broken network settles into slow polls. */
+const MARKDOWN_STREAM_MAX_RETRY_DELAY_MS = 30_000
 
 function apiCursorToCaretPosition(cursor: NotebookCollabCursorApi): MarkdownNotebookCaretPosition | null {
     if (typeof cursor.node_index !== 'number') {
@@ -1462,8 +1467,30 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    let reconnectTimeout: number | null = null
+
+                    // One failure schedules one reconnect. The delay grows each attempt until a
+                    // message arrives, so a stream that keeps failing backs off instead of hammering
+                    // the same broken connection. Guarding on an already-set timeout collapses the
+                    // onClose and promise-rejection paths into a single attempt.
+                    const scheduleReconnect = (): void => {
+                        if (controller.signal.aborted || reconnectTimeout !== null) {
+                            return
+                        }
+                        const delay = cache.markdownStreamRetryDelay ?? MARKDOWN_STREAM_INITIAL_RETRY_DELAY_MS
+                        cache.markdownStreamRetryDelay = Math.min(delay * 2, MARKDOWN_STREAM_MAX_RETRY_DELAY_MS)
+                        reconnectTimeout = window.setTimeout(() => {
+                            reconnectTimeout = null
+                            if (!controller.signal.aborted) {
+                                actions.connectMarkdownUpdateStream()
+                            }
+                        }, delay)
+                    }
 
                     const onMessage = (msg: EventSourceMessage): void => {
+                        // A message means the connection is healthy, so restart the backoff.
+                        cache.markdownStreamRetryDelay = MARKDOWN_STREAM_INITIAL_RETRY_DELAY_MS
+
                         if (msg.id) {
                             cache.markdownUpdateStreamLastEventId = msg.id
                         }
@@ -1526,17 +1553,25 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (controller.signal.aborted) {
                             return
                         }
-                        const message = error instanceof Error ? error.message : String(error)
-                        posthog.captureException(error instanceof Error ? error : new Error(message), {
-                            action: 'notebook markdown stream',
-                        })
+                        // A dropped connection surfaces as a network error on flaky networks. That
+                        // is an expected disconnect to reconnect from, not an application fault, so
+                        // only report anything else. Throwing stops fetch-event-source's own retry
+                        // and hands reconnection to the backoff below.
+                        if (!isNetworkError(error)) {
+                            const message = error instanceof Error ? error.message : String(error)
+                            posthog.captureException(error instanceof Error ? error : new Error(message), {
+                                action: 'notebook markdown stream',
+                            })
+                        }
+                        scheduleReconnect()
+                        throw error
                     }
 
                     const onClose = (): void => {
                         if (controller.signal.aborted) {
                             return
                         }
-                        actions.connectMarkdownUpdateStream()
+                        scheduleReconnect()
                     }
 
                     void api.notebooks
@@ -1547,15 +1582,18 @@ export const notebookLogic = kea<notebookLogicType>([
                             signal: controller.signal,
                             lastEventId: cache.markdownUpdateStreamLastEventId,
                         })
-                        .catch((error) => {
-                            if (controller.signal.aborted) {
-                                return
-                            }
-                            onError(error)
-                            actions.connectMarkdownUpdateStream()
+                        .catch(() => {
+                            // onError already classified the failure and scheduled the reconnect
+                            // before rethrowing; this guard only stops the rejection from floating.
+                            scheduleReconnect()
                         })
 
-                    return () => controller.abort()
+                    return () => {
+                        if (reconnectTimeout !== null) {
+                            window.clearTimeout(reconnectTimeout)
+                        }
+                        controller.abort()
+                    }
                 },
                 'markdownUpdateStream',
                 { pauseOnPageHidden: false }
@@ -1582,6 +1620,7 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.disposables.dispose('markdownPresencePrune')
             cache.disposables.dispose('markdownPresenceHeartbeat')
             cache.markdownUpdateStreamLastEventId = undefined
+            cache.markdownStreamRetryDelay = MARKDOWN_STREAM_INITIAL_RETRY_DELAY_MS
             cache.pendingMarkdownStreamEvents = []
         },
         publishMarkdownCaret: async ({ position }, breakpoint) => {

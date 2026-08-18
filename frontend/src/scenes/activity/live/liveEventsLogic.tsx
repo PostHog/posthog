@@ -256,38 +256,46 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.add(() => {
                 cache.batch = []
                 const controller = new AbortController()
-                void api.stream(url.toString(), {
-                    headers: {
-                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
-                    },
-                    signal: controller.signal,
-                    onMessage: (event) => {
-                        lemonToast.dismiss(ERROR_TOAST_ID)
-                        let eventData: LiveEvent
-                        try {
-                            eventData = JSON.parse(event.data)
-                        } catch {
-                            // Drop malformed stream payloads rather than throwing inside the listener
-                            return
-                        }
-                        cache.batch.push(eventData)
-                        if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
-                            actions.addEvents(cache.batch)
-                            cache.batch.length = 0
-                        }
-                    },
-                    onError: (error) => {
-                        if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
-                            console.error('Failed to poll events. You likely have no events coming in.', error)
-                            lemonToast.error(`No live events found. Continuing to retry in the background…`, {
-                                icon: <Spinner />,
-                                toastId: ERROR_TOAST_ID,
-                                autoClose: false,
-                            })
-                            cache.hasShownLiveStreamErrorToast = true
-                        }
-                    },
-                })
+                void api
+                    .stream(url.toString(), {
+                        headers: {
+                            Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                        },
+                        signal: controller.signal,
+                        onMessage: (event) => {
+                            lemonToast.dismiss(ERROR_TOAST_ID)
+                            let eventData: LiveEvent
+                            try {
+                                eventData = JSON.parse(event.data)
+                            } catch {
+                                // Drop malformed stream payloads rather than throwing inside the listener
+                                return
+                            }
+                            cache.batch.push(eventData)
+                            if (
+                                cache.batch.length >= 10 ||
+                                performance.now() - (values.lastBatchTimestamp || 0) > 300
+                            ) {
+                                actions.addEvents(cache.batch)
+                                cache.batch.length = 0
+                            }
+                        },
+                        onError: (error) => {
+                            if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                                console.error('Failed to poll events. You likely have no events coming in.', error)
+                                lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                                    icon: <Spinner />,
+                                    toastId: ERROR_TOAST_ID,
+                                    autoClose: false,
+                                })
+                                cache.hasShownLiveStreamErrorToast = true
+                            }
+                        },
+                    })
+                    .catch(() => {
+                        // onError already surfaced the failure; swallow the rejection so a dropped
+                        // connection does not float as an unhandled promise rejection.
+                    })
                 return () => controller.abort()
             }, 'eventsConnection')
         },
