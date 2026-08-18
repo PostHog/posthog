@@ -13,7 +13,7 @@ import { extractEventOps } from './person-update'
 export class PersonPropertyService {
     private personCreateService: PersonCreateService
     constructor(private context: PersonContext) {
-        this.personCreateService = new PersonCreateService(context)
+        this.personCreateService = new PersonCreateService(context.personStore, context.outputs)
     }
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {

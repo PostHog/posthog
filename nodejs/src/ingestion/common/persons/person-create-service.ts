@@ -6,11 +6,14 @@ import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 
-import { PersonContext } from './person-context'
-import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
+import { PersonOutputs } from './person-context'
+import { PersonsStoreForBatch, PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 
 export class PersonCreateService {
-    constructor(private context: PersonContext) {}
+    constructor(
+        private store: PersonsStoreForBatch,
+        private outputs: PersonOutputs
+    ) {}
 
     /**
      * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
@@ -42,7 +45,7 @@ export class PersonCreateService {
         })
 
         try {
-            const result = await (tx || this.context.personStore).createPerson(
+            const result = await (tx || this.store).createPerson(
                 createdAt,
                 props,
                 propertiesLastUpdatedAt,
@@ -56,7 +59,11 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await this.context.produceMessages(result.messages)
+                await Promise.all(
+                    result.messages.map((msg) =>
+                        this.outputs.produce(msg.output, { value: msg.value, key: null, teamId })
+                    )
+                )
                 return [result.person, result.created]
             }
 
@@ -65,10 +72,7 @@ export class PersonCreateService {
                 // Try to fetch the person that was created concurrently
                 const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
                 for (const distinctIdInfo of allDistinctIds) {
-                    const existingPerson = await this.context.personStore.fetchForUpdate(
-                        teamId,
-                        distinctIdInfo.distinctId
-                    )
+                    const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
                         return [existingPerson, false]
                     }
@@ -86,7 +90,7 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await emitIngestionWarning(this.context.outputs, teamId, {
+                await emitIngestionWarning(this.outputs, teamId, {
                     type: 'person_properties_size_violation',
                     details: {
                         // uuid of the person we tried to create; error.personId is a DB row id
