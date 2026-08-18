@@ -122,12 +122,26 @@ def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
     return int((dt1 - dt2).total_seconds())
 
 
-def should_skip_task(existing_value: dict[str, Any], playlist_filters: Any) -> bool:
-    # playlist.filters is a JSONField, so it can hold a JSON string, not only a dict.
+def normalize_playlist_filters(playlist_filters: Any) -> dict[str, Any] | None:
+    if isinstance(playlist_filters, dict):
+        return playlist_filters
+
+    if not isinstance(playlist_filters, str):
+        return None
+
+    try:
+        parsed_filters = json.loads(playlist_filters)
+    except json.JSONDecodeError:
+        return None
+
+    return parsed_filters if isinstance(parsed_filters, dict) else None
+
+
+def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
     # The exposure filter refuses userless callers because cached counts reach playlist
     # viewers without an access check, and this task has no principal to offer. Skip rather
     # than error into the park/retry cycle; counting these needs a principal-scoped recount.
-    if isinstance(playlist_filters, dict) and playlist_filters.get("experiment_exposure"):
+    if playlist_filters.get("experiment_exposure"):
         REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="experiment_exposure").inc()
         return True
 
@@ -209,7 +223,16 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             else:
                 existing_value = {}
 
-            if should_skip_task(existing_value, playlist.filters):
+            playlist_filters = normalize_playlist_filters(playlist.filters)
+            if playlist_filters is None:
+                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="invalid_filters").inc()
+                return
+
+            if playlist_filters != playlist.filters:
+                playlist.filters = playlist_filters
+                playlist.save(update_fields=["filters"])
+
+            if should_skip_task(existing_value, playlist_filters):
                 return
 
             query = convert_playlist_to_recordings_query(playlist)

@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
-from parameterized import parameterized
-
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyOperator,
@@ -30,7 +28,6 @@ from posthog.temporal.session_replay.count_playlist_items.counting_logic import 
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
     fetch_playlists_to_count,
-    should_skip_task,
 )
 
 
@@ -43,6 +40,27 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
     def test_no_exception_for_unmatched_playlist(self, mock_capture_exception: MagicMock):
         count_recordings_that_match_playlist_filters(12345)
         assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}there_is_no_short_id") is None
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
+    def test_count_recovers_serialized_filter_object(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ) -> None:
+        mock_list_recordings_from_query.return_value = RecordingsListingResult(
+            recordings=[], more_recordings_available=False, timings_header="", next_cursor=None
+        )
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="serialized filters",
+            filters=json.dumps({"date_from": "-21d"}),
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        playlist.refresh_from_db()
+        assert playlist.filters["date_from"] == "-21d"
+        assert self._get_counts_from_redis(playlist)["session_ids"] == []
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
@@ -560,17 +578,3 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
         playlist_ids = fetch_playlists_to_count()
         assert playlist.id not in playlist_ids
-
-
-class TestShouldSkipTask:
-    @parameterized.expand(
-        [
-            ("non_empty_string", "some legacy string"),
-            ("empty_string", ""),
-            ("none", None),
-        ]
-    )
-    def test_tolerates_non_dict_filters(self, _name: str, filters: object):
-        # filters is a JSONField, so some rows hold a JSON string rather than a dict. The
-        # experiment_exposure guard used to call .get() on it directly and raised AttributeError.
-        assert should_skip_task({}, filters) is False
