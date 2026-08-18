@@ -323,12 +323,47 @@ def partition_flow_secrets(
     return stripped, encrypted
 
 
+def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # The secret inputs still sitting in plaintext inside an actions blob, as an {action_id: {key:
+    # value}} map. Non-empty only for legacy rows written before encryption shipped - the recovery
+    # base that lets a masked re-save migrate their secrets instead of wiping them.
+    if not isinstance(actions, list):
+        return {}
+    return partition_flow_secrets(actions, template_cache)[1]
+
+
+def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # Every stored secret a masked re-save may need to recover, later sources winning: legacy
+    # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
+    result = plaintext_secret_map(instance.actions, template_cache)
+    result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
+    result = merge_secret_maps(result, instance.encrypted_inputs)
+    return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
 def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str, dict]:
     # Per-action, per-key merge of two {action_id: {key: value}} maps; overlay wins on conflicts.
     result: dict[str, dict] = {action_id: dict(values) for action_id, values in (base or {}).items()}
     for action_id, values in (overlay or {}).items():
         result[action_id] = {**result.get(action_id, {}), **values}
     return result
+
+
+def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
+    # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
+    # read-back marker in that raw payload must never persist as a stored value - the worker would
+    # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
+    # reject every request). Swap it for the stored secret, or drop the key when there is none.
+    if not isinstance(inputs, dict):
+        return
+    for key in secret_keys:
+        value = inputs.get(key)
+        if isinstance(value, dict) and value.get("secret") and "value" not in value:
+            stored = existing.get(key)
+            if stored:
+                inputs[key] = stored
+            else:
+                inputs.pop(key, None)
 
 
 def mask_secret_action_inputs(
@@ -1209,6 +1244,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    else:
+                        recover_or_drop_masked_inputs(
+                            inputs,
+                            {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
+                            (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                        )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
@@ -1932,13 +1973,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             self.context["is_draft"] = True
 
         # Existing decrypted secrets, keyed by action id, so child action validation can recover a
-        # resent {"secret": true} marker. Merge live over draft (draft wins) so an in-progress draft
-        # edit recovers the value the client actually saw. Must be set before super() runs, since the
-        # nested action serializers validate inside it.
+        # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
+        # (rows written before encryption shipped) as the base, then the encrypted live and draft
+        # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            self.context["existing_encrypted_inputs"] = merge_secret_maps(
-                instance.encrypted_inputs, instance.draft_encrypted_inputs
-            )
+            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
