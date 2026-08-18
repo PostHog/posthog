@@ -254,12 +254,22 @@ def _single_page(client: PowerBiAdminClient, endpoint: str) -> Iterator[list[dic
         yield rows
 
 
+@dataclasses.dataclass(frozen=True)
+class _ActivityEventWindow:
+    """Result of resolving the activity-events sync window: which UTC days to
+    walk and, if resuming mid-day, the continuation token to restart from."""
+
+    start_day: date
+    end_day: date
+    resume_token: Optional[str]
+
+
 def _activity_event_window(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     resume: Optional[PowerBiAdminResumeConfig],
     logger: FilteringBoundLogger,
-) -> tuple[date, date, Optional[str]]:
+) -> _ActivityEventWindow:
     today = datetime.now(UTC).date()
     earliest = today - timedelta(days=ACTIVITY_EVENTS_RETENTION_DAYS - 1)
     start = earliest
@@ -282,7 +292,7 @@ def _activity_event_window(
                 resume_token = resume.continuation_token
             logger.debug(f"Power BI admin: resuming activity events from {start.isoformat()}")
 
-    return start, today, resume_token
+    return _ActivityEventWindow(start_day=start, end_day=today, resume_token=resume_token)
 
 
 def _get_rows(
@@ -300,10 +310,12 @@ def _get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if endpoint == ACTIVITY_EVENTS_ENDPOINT:
-        start_day, end_day, resume_token = _activity_event_window(
+        window = _activity_event_window(
             should_use_incremental_field, db_incremental_field_last_value, resume, logger
         )
-        yield from _activity_event_pages(client, logger, resumable_source_manager, start_day, end_day, resume_token)
+        yield from _activity_event_pages(
+            client, logger, resumable_source_manager, window.start_day, window.end_day, window.resume_token
+        )
         return
 
     if not config.supports_odata_paging:
