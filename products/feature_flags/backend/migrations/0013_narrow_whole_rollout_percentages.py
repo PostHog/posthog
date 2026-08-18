@@ -8,11 +8,10 @@ BATCH_SIZE = 500
 
 
 def _narrow(value: object) -> tuple[object, bool]:
-    """Whole floats become ints. Fractional values, strings, None and junk pass through.
-
-    `is_integer()` is False for NaN and Infinity, so those never reach `int()`.
-    """
-    if isinstance(value, bool) or not isinstance(value, float) or not value.is_integer():
+    """Whole floats become ints. Everything else passes through, bools included: they are a
+    subclass of int, not float. `is_integer()` is False for NaN and Infinity, so neither reaches
+    `int()`."""
+    if not isinstance(value, float) or not value.is_integer():
         return value, False
     return int(value), True
 
