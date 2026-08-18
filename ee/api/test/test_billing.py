@@ -23,7 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from ee.api.billing import BillingUsageRequestSerializer
+from ee.api.billing import BillingUsageRequestSerializer, BillingViewset
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.billing.quota_limiting import QuotaResource
@@ -1163,6 +1163,62 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         )
         self.client.logout()
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_scope_actions_are_read_only(self):
+        self.assertEqual(BillingViewset.scope_object, "billing")
+        self.assertEqual(BillingViewset.scope_object_read_actions, ["list", "usage", "spend"])
+        self.assertEqual(BillingViewset.scope_object_write_actions, [])
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    def test_billing_write_scope_does_not_allow_patch_personal_api_key(self, mock_update_billing):
+        headers = self._personal_api_key_headers(["billing:write"], scoped_teams=[self.team.pk])
+
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_update_billing.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("list", "get", "/api/billing/", None, "ee.billing.billing_manager.BillingManager.get_billing"),
+            (
+                "usage",
+                "get",
+                "/api/billing/usage/",
+                {"start_date": "2025-01-01"},
+                "ee.billing.billing_manager.BillingManager.get_usage_data",
+            ),
+            (
+                "spend",
+                "get",
+                "/api/billing/spend/",
+                {"start_date": "2025-01-01"},
+                "ee.billing.billing_manager.BillingManager.get_spend_data",
+            ),
+        ]
+    )
+    def test_billing_read_scope_actions_still_require_billing_access(
+        self, action_name, method_name, url, data, manager_method_path
+    ):
+        self.assertIn(action_name, BillingViewset.scope_object_read_actions)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        with patch(manager_method_path) as mock_manager_method:
+            response = getattr(self.client, method_name)(
+                url,
+                data=data,
+                HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_manager_method.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_get_usage_success(self, mock_get_usage_data):
