@@ -153,6 +153,8 @@ export interface CanvasApi {
     readonly context: string
     /** @nullable */
     readonly generation_task_id: string | null
+    /** @nullable */
+    readonly discussion_task_id: string | null
     /** Whether the canvas is pinned to its channel. */
     readonly pinned: boolean
     /** @nullable */
