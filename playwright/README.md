@@ -27,6 +27,8 @@ hogli test:e2e
 
 This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
 
+The reset downloads a compatible pre-migrated PostgreSQL schema from CI, then applies newer migrations. Authenticate `gh` or set `GH_TOKEN` to enable the download. If the download is unavailable, the reset applies the full migration history instead. ClickHouse and persons database migrations run separately.
+
 To run tests against an already-running PostHog instance:
 
 ```bash

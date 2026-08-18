@@ -62,7 +62,7 @@ procs:
             done && \
             echo "=== Running migrations ===" && \
             bin/wait-for-docker && \
-            python manage.py migrate && \
+            bin/migrate --scope=postgres --scope=persons && \
             python manage.py migrate_clickhouse && \
             echo "=== Setting up demo data ===" && \
             python manage.py setup_dev && \
