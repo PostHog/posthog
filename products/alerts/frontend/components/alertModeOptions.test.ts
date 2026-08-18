@@ -26,4 +26,14 @@ describe('alertModeOptions', () => {
 
         expect(describe_(true)).not.toEqual(describe_(false))
     })
+    it('describes forecast without naming only one of its conditions', () => {
+        const forecast = alertModeOptions({
+            supportsAnomalyDetection: false,
+            supportsForecast: true,
+            showAnomalyGuidance: false,
+        }).find((option) => option.value === 'forecast')
+        // The mode covers a predicted breach, an expected range and a target, so a description that
+        // mentions only a threshold is wrong for two of the three.
+        expect(forecast?.description).not.toContain('threshold')
+    })
 })

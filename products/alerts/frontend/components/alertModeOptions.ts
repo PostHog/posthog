@@ -44,7 +44,7 @@ export function alertModeOptions({
         options.push({
             value: 'forecast',
             label: 'Forecast',
-            description: 'Alert on where this metric is heading, before it crosses your threshold.',
+            description: 'Alert on where this metric is heading, using its trend and weekly pattern.',
             'data-attr': 'alertForm-mode-forecast',
         })
     }

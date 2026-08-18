@@ -35,3 +35,43 @@ export function forecastTargetDateError(targetDate: string | undefined, today: d
     }
     return null
 }
+
+/** Mirrors min_forecast_points in products/alerts/backend/forecasting/engine.py. Roughly two
+ *  seasonal cycles: hourly needs two days to see a daily cycle, everything else two weeks. */
+export function minForecastPoints(interval: IntervalType | null | undefined, condition: string | undefined): number {
+    const base = interval === 'hour' ? 48 : 14
+    // Band deviation holds the latest point out as the actual, so it fits on one fewer than it gets.
+    return condition === 'band_deviation' ? base + 1 : base
+}
+
+/** How many insight buckets a simulation range covers. The range is a duration and the buckets are
+ *  the insight's, so "-30d" is 30 points daily but about 4 weekly. */
+export function pointsInSimulationRange(range: string, interval: IntervalType | null | undefined): number {
+    const match = /^-(\d+)([mhdwM])$/.exec(range)
+    if (!match) {
+        return Number.POSITIVE_INFINITY
+    }
+    const [, amount, unit] = match
+    const rangeMinutes = Number(amount) * (UNIT_MINUTES[unit] ?? 1)
+    return Math.floor(rangeMinutes / INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day'])
+}
+
+const UNIT_MINUTES: Record<string, number> = {
+    m: 1,
+    h: 60,
+    d: 60 * 24,
+    w: 60 * 24 * 7,
+    M: 60 * 24 * 30,
+}
+
+/** Simulation ranges that can actually produce a forecast, so the picker cannot offer one the
+ *  backend will reject with "Not enough history". Falls back to the longest if none qualify. */
+export function usableSimulationRanges<T extends { value: string }>(
+    options: T[],
+    interval: IntervalType | null | undefined,
+    condition: string | undefined
+): T[] {
+    const required = minForecastPoints(interval, condition)
+    const usable = options.filter((o) => pointsInSimulationRange(o.value, interval) >= required)
+    return usable.length > 0 ? usable : options.slice(-1)
+}

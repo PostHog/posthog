@@ -116,7 +116,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                             'Alert when the latest value falls outside the forecasted range. This is a seasonality-aware anomaly check.',
                     },
                     {
-                        label: 'On track for a target',
+                        label: 'Off track for a target',
                         value: ForecastConditionType.TARGET_BY_DATE,
                         tooltip: 'Alert when the value forecast for a date you set misses a number you set.',
                     },
@@ -166,7 +166,10 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         max={maxHorizon}
                         value={Math.min(config.horizon ?? DEFAULT_HORIZON, maxHorizon)}
                         onChange={(horizon) =>
-                            onChange({ ...config, horizon: Math.min(horizon ?? DEFAULT_HORIZON, maxHorizon) })
+                            onChange({
+                                ...config,
+                                horizon: Math.min(Math.max(horizon ?? DEFAULT_HORIZON, 1), maxHorizon),
+                            })
                         }
                     />
                     <span>{unit}</span>
@@ -200,7 +203,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
             ) : (
                 /* The band width does not decide when these two fire; which line they read does. */
                 <div className="flex items-center gap-2">
-                    <span className="text-secondary whitespace-nowrap">Alert when</span>
+                    <span className="text-secondary whitespace-nowrap">Alert once</span>
                     <SettingHelp text="How certain to be before alerting. Best case waits until the outcome can no longer be avoided, so it fires less often." />
                     <LemonSegmentedButton
                         size="small"
@@ -210,12 +213,12 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         options={[
                             {
                                 value: ForecastSensitivity.FORECAST,
-                                label: 'Forecast',
+                                label: 'The forecast misses',
                                 tooltip: 'Warns earlier, and can change its mind while the forecast is uncertain.',
                             },
                             {
                                 value: ForecastSensitivity.BEST_CASE,
-                                label: 'Best case',
+                                label: 'Even the best case misses',
                                 tooltip: 'Quieter. Waits until the outcome is no longer avoidable.',
                             },
                         ]}

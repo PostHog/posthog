@@ -188,7 +188,9 @@ export function AlertDefinitionSection({
                 <div className="space-y-3">
                     {definitionFields}
 
-                    {(supportsAnomalyDetection || supportsForecast) && (
+                    {/* An existing forecast alert must keep its option even once the flag is off,
+                        or the radio renders with nothing selected and the mode looks unset. */}
+                    {(supportsAnomalyDetection || supportsForecast || alertMode === 'forecast') && (
                         <LemonRadio
                             radioPosition="top"
                             value={alertMode}
@@ -223,7 +225,7 @@ export function AlertDefinitionSection({
                             }}
                             options={alertModeOptions({
                                 supportsAnomalyDetection,
-                                supportsForecast,
+                                supportsForecast: supportsForecast || alertMode === 'forecast',
                                 showAnomalyGuidance,
                             })}
                         />
@@ -279,6 +281,7 @@ export function AlertDefinitionSection({
                     {alertMode === 'forecast' && alertForm.forecast_config && (
                         <ForecastSimulationSection
                             alertForm={alertForm}
+                            insightInterval={insightInterval}
                             forecastSimulationResultLoading={forecastSimulationResultLoading}
                             simulationDateFrom={simulationDateFrom}
                             onSimulateForecast={onSimulateForecast}

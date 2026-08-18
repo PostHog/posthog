@@ -3,14 +3,18 @@ import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import { IntervalType } from '~/types'
+
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
-import { forecastTargetDateError } from 'products/alerts/frontend/logic/forecastReach'
+import { forecastTargetDateError, usableSimulationRanges } from 'products/alerts/frontend/logic/forecastReach'
 
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 interface ForecastSimulationSectionProps {
     alertForm: AlertFormType
+    /** The insight's grouping interval, which decides how many points a range actually yields. */
+    insightInterval: IntervalType | null | undefined
     forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
     onSimulateForecast: () => void
@@ -21,6 +25,7 @@ interface ForecastSimulationSectionProps {
  *  than here, so the user sees one chart instead of a second one under the controls. */
 export function ForecastSimulationSection({
     alertForm,
+    insightInterval,
     forecastSimulationResultLoading,
     simulationDateFrom,
     onSimulateForecast,
@@ -29,6 +34,14 @@ export function ForecastSimulationSection({
     // The endpoint rejects an out-of-range target, so block the request rather than spending a round
     // trip to surface an error the editor already knows about.
     const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, dayjs())
+    // Offering a range too short to fit is offering a guaranteed "Not enough history" error.
+    const rangeOptions = usableSimulationRanges(
+        getSimulationRangeOptions(alertForm.calculation_interval),
+        insightInterval,
+        alertForm.forecast_config?.condition
+    )
+    const selectedRange = simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
+    const range = rangeOptions.some((o) => o.value === selectedRange) ? selectedRange : rangeOptions[0].value
     return (
         <div className="flex gap-2 items-center">
             <div className="flex items-center gap-1.5">
@@ -43,9 +56,9 @@ export function ForecastSimulationSection({
             <LemonSelect
                 size="small"
                 data-attr="alertForm-simulate-forecast-range"
-                value={simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)}
+                value={range}
                 onChange={onSetSimulationDateFrom}
-                options={getSimulationRangeOptions(alertForm.calculation_interval)}
+                options={rangeOptions}
             />
             <LemonButton
                 type="secondary"

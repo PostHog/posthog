@@ -3,10 +3,16 @@ import annotationPlugin from 'chartjs-plugin-annotation'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Chart } from 'lib/Chart'
+import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import { ForecastConfig, InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import {
+    ForecastConditionType,
+    ForecastConfig,
+    ForecastSensitivity,
+    InsightsThresholdBounds,
+} from '~/queries/schema/schema-general'
 
 import {
     ForecastSimulateResponseApi,
@@ -202,7 +208,15 @@ export function ForecastPreview({
     forecastConfig: ForecastConfig | null
 }): JSX.Element {
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
-    const crossingIndex = hasBounds ? findFirstCrossing(result.forecast_yhat, thresholdBounds) : null
+    // The evaluator compares the optimistic edge under best_case, so a marker drawn from the point
+    // forecast would sit on a different day than the alert actually fires.
+    const bestCase = forecastConfig?.sensitivity === ForecastSensitivity.BEST_CASE
+    const crossingSeries = !bestCase
+        ? result.forecast_yhat
+        : thresholdBounds?.upper != null
+          ? result.forecast_upper
+          : result.forecast_lower
+    const crossingIndex = hasBounds ? findFirstCrossing(crossingSeries, thresholdBounds) : null
     const deviation = result.latest_deviation
     const projection = result.target_projection
 
@@ -218,8 +232,9 @@ export function ForecastPreview({
                 {projection ? (
                     <span>
                         {targetSummary(projection, forecastConfig?.target_direction)}. Projected{' '}
-                        {humanFriendlyNumber(projection.predicted)} on {formatSimDate(projection.target_date)} against a
-                        target of {humanFriendlyNumber(projection.target)}.
+                        {humanFriendlyNumber(projection.predicted)} on{' '}
+                        {dayjs(projection.target_date).format('MMM D, YYYY')} against a target of{' '}
+                        {humanFriendlyNumber(projection.target)}.
                     </span>
                 ) : hasBounds ? (
                     crossingIndex != null ? (
@@ -230,7 +245,11 @@ export function ForecastPreview({
                         <span>No breach predicted within the forecast window</span>
                     )
                 ) : deviation == null ? (
-                    <span>Not enough data to assess the expected range</span>
+                    <span>
+                        {forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
+                            ? 'Set a target and a date to see whether this metric reaches it'
+                            : 'Not enough data to assess the expected range'}
+                    </span>
                 ) : (
                     <span>
                         Latest value {humanFriendlyNumber(deviation.value)} is{' '}
