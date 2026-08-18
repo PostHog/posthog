@@ -1,4 +1,3 @@
-// @ts-expect-error jsdom ships no bundled types; only the test harness needs it
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
@@ -248,7 +247,7 @@ describe("artifactHtmlCommentBridge", () => {
           channel: CHANNEL,
           type: "selection-dismissed",
         },
-        source: dom.window,
+        source: dom.window as unknown as MessageEventSource,
       }),
     );
     top = 10;
@@ -268,7 +267,7 @@ describe("artifactHtmlCommentBridge", () => {
       dom.window.dispatchEvent(
         new dom.window.MessageEvent("message", {
           data: { marker: BRIDGE_MARKER, channel: CHANNEL, ...data },
-          source: dom.window,
+          source: dom.window as unknown as MessageEventSource,
         }),
       );
 
@@ -329,7 +328,7 @@ describe("artifactHtmlCommentBridge", () => {
             type: "theme",
             theme,
           },
-          source: dom.window,
+          source: dom.window as unknown as MessageEventSource,
         }),
       );
     };
