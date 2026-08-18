@@ -6082,6 +6082,22 @@ export enum ForecastConditionType {
     FUTURE_BREACH = 'future_breach',
     /** Fire when the latest completed actual value falls outside the forecast's uncertainty band. */
     BAND_DEVIATION = 'band_deviation',
+    /** Fire when the value forecast for `target_date` misses `target` on the wrong side. */
+    TARGET_BY_DATE = 'target_by_date',
+}
+
+export enum ForecastTargetDirection {
+    /** The metric must reach at least `target`, for example revenue or signups. */
+    AT_LEAST = 'at_least',
+    /** The metric must stay at or under `target`, for example churn or latency. */
+    AT_MOST = 'at_most',
+}
+
+export enum ForecastSensitivity {
+    /** Compare the point forecast, which warns earlier at the cost of flapping while uncertain. */
+    FORECAST = 'forecast',
+    /** Compare the optimistic edge of the band, so the alert fires once a miss is unavoidable. */
+    BEST_CASE = 'best_case',
 }
 
 /** Configuration for forecast alerts. Requires a time-series trends insight without breakdowns. */
@@ -6093,6 +6109,14 @@ export interface ForecastConfig {
     horizon?: integer
     /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
     interval_width?: number
+    /** Value the metric must reach or stay under (target_by_date only). */
+    target?: number
+    /** Which side of `target` is acceptable (target_by_date only). */
+    target_direction?: ForecastTargetDirection
+    /** ISO date the target must be met by (target_by_date only). */
+    target_date?: string
+    /** Which line the comparison reads. Defaults to best_case. Ignored by band_deviation. */
+    sensitivity?: ForecastSensitivity
 }
 
 // Detector types for anomaly detection alerts

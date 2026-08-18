@@ -112,6 +112,8 @@ from posthog.schema_enums import (
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
     ForecastConditionType as ForecastConditionType,
+    ForecastSensitivity as ForecastSensitivity,
+    ForecastTargetDirection as ForecastTargetDirection,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -5199,6 +5201,22 @@ class ForecastConfig(BaseModel):
     interval_width: float | None = Field(
         default=None,
         description=("Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95)."),
+    )
+    sensitivity: ForecastSensitivity | None = Field(
+        default=None,
+        description=("Which line the comparison reads. Defaults to best_case. Ignored by band_deviation."),
+    )
+    target: float | None = Field(
+        default=None,
+        description="Value the metric must reach or stay under (target_by_date only).",
+    )
+    target_date: str | None = Field(
+        default=None,
+        description="ISO date the target must be met by (target_by_date only).",
+    )
+    target_direction: ForecastTargetDirection | None = Field(
+        default=None,
+        description="Which side of `target` is acceptable (target_by_date only).",
     )
     type: Literal["ForecastConfig"] = "ForecastConfig"
 

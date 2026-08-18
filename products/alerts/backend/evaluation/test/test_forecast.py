@@ -5,7 +5,16 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import InsightsThresholdBounds, InsightThreshold, InsightThresholdType, IntervalType
+from posthog.schema import (
+    ForecastConditionType,
+    ForecastConfig,
+    ForecastSensitivity,
+    ForecastTargetDirection,
+    InsightsThresholdBounds,
+    InsightThreshold,
+    InsightThresholdType,
+    IntervalType,
+)
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -151,3 +160,23 @@ class TestLatestDeviation:
         assert result["outside"] is outside
         assert result["value"] == latest
         assert engine.calls[0]["values"] == [100.0]
+
+
+def test_target_config_parses_with_defaults() -> None:
+    parsed = ForecastConfig.model_validate(
+        {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 10000,
+            "target_direction": "at_least",
+            "target_date": "2026-12-31",
+        }
+    )
+    assert parsed.condition == ForecastConditionType.TARGET_BY_DATE
+    assert parsed.target == 10000
+    assert parsed.target_direction == ForecastTargetDirection.AT_LEAST
+    # Unset rather than defaulted in the schema: the evaluator resolves it to best_case, so a
+    # saved alert never carries a sensitivity it did not choose.
+    assert parsed.sensitivity is None
+    assert ForecastSensitivity.BEST_CASE.value == "best_case"
