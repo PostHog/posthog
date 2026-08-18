@@ -12,6 +12,7 @@ from django.conf import settings
 
 import psycopg
 import pyarrow as pa
+import aioboto3
 import botocore.exceptions
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
@@ -20,7 +21,18 @@ from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.models.integration import TLS, Authority, Credentials
+from posthog.models.integration import (
+    TLS,
+    Authority,
+    AWSRedshiftIntegration,
+    AWSRedshiftRoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
+    Credentials,
+    Integration,
+    IntegrationError,
+    RedshiftIntegration,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -32,6 +44,7 @@ from products.batch_exports.backend.service import (
     BatchExportModel,
     BatchExportSchema,
     IAMRole,
+    IntegrationID,
     RedshiftBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -45,6 +58,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     Fields,
     PostgreSQLClient,
     PostgreSQLField,
+    _PostgreSQLClientInputsProtocol,
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
@@ -71,8 +85,10 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
 
-
 NON_RETRYABLE_ERROR_TYPES = (
+    # The integration backing this export is missing, of the wrong kind, or
+    # misconfigured. Retrying can never recover it.
+    "IntegrationError",
     # Raised on errors that are related to database operation.
     # For example: unexpected disconnect, database or other object not found.
     "OperationalError",
@@ -632,18 +648,18 @@ def get_redshift_fields_from_record_schema(
     return pg_schema
 
 
-@dataclasses.dataclass
+@frozen
 class S3StageBucketParameters:
     name: str
     region_name: str
-    credentials: IAMRole | AWSCredentials
+    credentials: IAMRole | AWSCredentials | IntegrationID
 
 
-@dataclasses.dataclass
+@frozen
 class CopyParameters:
     s3_bucket: S3StageBucketParameters
     s3_key_prefix: str
-    authorization: IAMRole | AWSCredentials
+    authorization: IAMRole | AWSCredentials | IntegrationID
 
 
 @frozen
@@ -669,6 +685,18 @@ class ConnectionParameters:
         return TLS(ssl_mode="prefer" if settings.TEST else "require")
 
 
+@frozen
+class ServerConnectionParameters:
+    """Location of a Redshift server for exports whose credentials live in an integration.
+
+    `host` is None when a plain Redshift integration carries the host itself.
+    """
+
+    database: str
+    port: int
+    host: str | None = None
+
+
 @dataclasses.dataclass
 class TableParameters:
     schema_name: str
@@ -676,23 +704,25 @@ class TableParameters:
     properties_data_type: str = "varchar"
 
 
-@dataclasses.dataclass
+@frozen
 class RedshiftCopyActivityInputs:
     """Inputs for Redshift copy activity."""
 
     batch_export: BatchExportInsertInputs
-    connection: ConnectionParameters
+    connection: ConnectionParameters | ServerConnectionParameters
     table: TableParameters
     copy: CopyParameters
+    integration_id: IntegrationID | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class RedshiftInsertInputs:
     """Inputs for Redshift insert activity."""
 
     batch_export: BatchExportInsertInputs
-    connection: ConnectionParameters
+    connection: ConnectionParameters | ServerConnectionParameters
     table: TableParameters
+    integration_id: IntegrationID | None = None
 
 
 class RedshiftConsumer(Consumer):
@@ -877,6 +907,318 @@ def _get_merge_settings(
         return NotRequiredMergeSettings(requires_merge=False)
 
 
+async def _get_redshift_integration(
+    integration_id: int, team_id: int
+) -> AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration:
+    """Fetch a Redshift integration from the database."""
+    try:
+        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+    except Integration.DoesNotExist:
+        raise IntegrationError(f"Redshift integration with ID '{integration_id}' not found for team '{team_id}'")
+
+    if integration.kind != Integration.IntegrationKind.AWS_REDSHIFT:
+        raise IntegrationError(
+            f"Integration with ID '{integration_id}' for team '{team_id}' is not a Redshift integration "
+            f"(kind='{integration.kind}')"
+        )
+    if "aws_role_arn" in integration.config:
+        return AWSRedshiftRoleBasedIntegration(integration)
+    elif "aws_access_key_id" in integration.sensitive_config:
+        return AWSRedshiftIntegration(integration)
+    else:
+        return RedshiftIntegration(integration)
+
+
+async def _get_aws_s3_integration(integration_id: int, team_id: int) -> AWSS3RoleBasedIntegration | AWSS3Integration:
+    """Fetch an AWS S3 integration from the database."""
+    try:
+        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+    except Integration.DoesNotExist:
+        raise IntegrationError(f"AWS S3 integration with ID '{integration_id}' not found for team '{team_id}'")
+
+    if integration.kind != Integration.IntegrationKind.AWS_S3:
+        raise IntegrationError(
+            f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
+            f"(kind='{integration.kind}')"
+        )
+    if "aws_role_arn" in integration.config:
+        return AWSS3RoleBasedIntegration(integration)
+    else:
+        return AWSS3Integration(integration)
+
+
+@frozen
+class RedshiftCredentials:
+    user: str
+    password: str
+
+
+@frozen
+class ProvisionedCluster:
+    """A provisioned Redshift cluster parsed from its endpoint hostname."""
+
+    cluster_identifier: str
+    region: str
+
+
+@frozen
+class ServerlessWorkgroup:
+    """A Redshift Serverless workgroup parsed from its endpoint hostname."""
+
+    workgroup: str
+    account_id: str
+    region: str
+
+
+def _parse_redshift_host(host: str) -> ProvisionedCluster | ServerlessWorkgroup:
+    """Parse a Redshift endpoint hostname into its cluster or workgroup location."""
+    match host.split("."):
+        case [cluster_identifier, _, region, "redshift", "amazonaws", *_]:
+            return ProvisionedCluster(cluster_identifier=cluster_identifier, region=region)
+        case [workgroup, account_id, region, "redshift-serverless", "amazonaws", *_]:
+            return ServerlessWorkgroup(workgroup=workgroup, account_id=account_id, region=region)
+        case _:
+            raise IntegrationError(
+                f"Redshift host '{host}' is not a recognized AWS Redshift endpoint. Expected "
+                "'<cluster>.<id>.<region>.redshift.amazonaws.com' or "
+                "'<workgroup>.<account>.<region>.redshift-serverless.amazonaws.com'"
+            )
+
+
+def _get_host_from_connection(connection: ConnectionParameters | ServerConnectionParameters) -> str:
+    if connection.host is None:
+        raise IntegrationError(
+            "An AWS Redshift integration requires the cluster endpoint to be set as 'host' in the "
+            "batch export configuration"
+        )
+    return connection.host
+
+
+async def _get_temporary_redshift_credentials(
+    aws_credentials: AWSCredentials,
+    *,
+    server: ProvisionedCluster | ServerlessWorkgroup,
+    user: str,
+    database: str,
+    auto_create: bool | None = None,
+    groups: list[str] | None = None,
+) -> RedshiftCredentials:
+    """Use AWS APIs to obtain temporary Redshift credentials.
+
+    This will return a username and password to be used to authenticate to
+    Redshift. Note that the returned user will be the same as user but it will
+    include the prefix IAM: or IAMA: (depending on the value of `auto_create`).
+    This prefix must be preserved when authenticating.
+
+    If auto_create is True, then the user or role given by aws_credentials must
+    also be allowed to redshift:CreateClusterUser on the dbuser resource. If the
+    user already exists then no new users will be created, even if
+    auto_create=True.
+
+    Automatically created users do not have any permissions. Thus, usually
+    groups should be set when auto_create=True. This parameter indicates which
+    groups is the user meant to join on creation, which is usually needed when
+    the user is automatically created. However, this is not a strict
+    requirement.
+
+    The AWS role or user requires redshift:JoinGroup on each dbgroup resource
+    whenever groups is set.
+
+    Serverless workgroups use `redshift-serverless:GetCredentials` instead of
+    `redshift:GetClusterCredentials`. There, the database user is derived from
+    the IAM identity, so `user`, `auto_create`, and `groups` do not apply.
+    """
+    session = aioboto3.Session(
+        aws_access_key_id=aws_credentials.aws_access_key_id,
+        aws_secret_access_key=aws_credentials.aws_secret_access_key,
+        aws_session_token=aws_credentials.aws_session_token,
+    )
+
+    match server:
+        case ProvisionedCluster():
+            optional: dict[str, typing.Any] = {}
+            if auto_create is not None:
+                optional["AutoCreate"] = auto_create
+            if groups is not None:
+                optional["DbGroups"] = groups
+
+            async with session.client("redshift", region_name=server.region) as redshift:
+                response = await redshift.get_cluster_credentials(
+                    DbUser=user,
+                    DbName=database,
+                    ClusterIdentifier=server.cluster_identifier,
+                    # TODO: Refreshable credentials
+                    DurationSeconds=3600,
+                    **optional,
+                )
+
+            return RedshiftCredentials(user=response["DbUser"], password=response["DbPassword"])
+
+        case ServerlessWorkgroup():
+            async with session.client("redshift-serverless", region_name=server.region) as redshift_serverless:
+                response = await redshift_serverless.get_credentials(
+                    workgroupName=server.workgroup,
+                    dbName=database,
+                    durationSeconds=3600,
+                )
+
+            return RedshiftCredentials(user=response["dbUser"], password=response["dbPassword"])
+
+        case _:
+            typing.assert_never(server)
+
+
+async def _get_redshift_client_inputs(
+    inputs: RedshiftInsertInputs | RedshiftCopyActivityInputs,
+) -> _PostgreSQLClientInputsProtocol:
+    if inputs.integration_id is not None:
+        integration = await _get_redshift_integration(inputs.integration_id, inputs.batch_export.team_id)
+        return await _get_redshift_client_inputs_from_integration(integration, inputs)
+
+    if not isinstance(inputs.connection, ConnectionParameters):
+        raise IntegrationError(
+            "Redshift connection credentials are missing: the batch export has no linked integration "
+            "and no inline user and password configured"
+        )
+
+    return inputs.connection
+
+
+def _get_redshift_credentials_policy_statements(
+    integration: AWSRedshiftRoleBasedIntegration,
+    server: ProvisionedCluster | ServerlessWorkgroup,
+    database: str,
+) -> list[PolicyStatement]:
+    """Build policy statements scoping an assumed role to obtaining Redshift credentials."""
+    match server:
+        case ProvisionedCluster():
+            account_id = integration.aws_account_id
+            get_cluster_credentials_policy = PolicyStatement(
+                Effect="Allow",
+                Action=["redshift:GetClusterCredentials"],
+                Resource=[
+                    f"arn:aws:redshift:{server.region}:{account_id}:dbuser:{server.cluster_identifier}/{integration.user}",
+                    f"arn:aws:redshift:{server.region}:{account_id}:dbname:{server.cluster_identifier}/{database}",
+                ],
+            )
+            if integration.auto_create is True:
+                get_cluster_credentials_policy["Action"].append("redshift:CreateClusterUser")
+
+            policy_statements = [get_cluster_credentials_policy]
+            if integration.groups is not None:
+                policy_statements.append(
+                    PolicyStatement(
+                        Effect="Allow",
+                        Action=["redshift:JoinGroup"],
+                        Resource=[
+                            f"arn:aws:redshift:{server.region}:{account_id}:dbgroup:{server.cluster_identifier}/{group}"
+                            for group in integration.groups
+                        ],
+                    )
+                )
+            return policy_statements
+
+        case ServerlessWorkgroup():
+            # Workgroup ARNs contain a UUID that cannot be derived from the endpoint hostname,
+            # so Serverless requires the ARN on the integration to scope the policy exactly.
+            workgroup_arn = integration.workgroup_arn
+            if workgroup_arn is None:
+                raise IntegrationError(
+                    "A Redshift Serverless workgroup requires 'workgroup_arn' to be set on the integration"
+                )
+
+            _, _, _, arn_region, arn_account_id, _ = workgroup_arn.split(":", maxsplit=5)
+            if arn_region != server.region or arn_account_id != server.account_id:
+                raise IntegrationError(
+                    f"The integration's workgroup ARN '{workgroup_arn}' does not match the region or account "
+                    f"of the Redshift Serverless host (region '{server.region}', account '{server.account_id}')"
+                )
+
+            return [
+                PolicyStatement(
+                    Effect="Allow",
+                    Action=["redshift-serverless:GetCredentials"],
+                    Resource=[workgroup_arn],
+                )
+            ]
+
+        case _:
+            typing.assert_never(server)
+
+
+async def _get_redshift_client_inputs_from_integration(
+    integration: AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration,
+    inputs: RedshiftInsertInputs | RedshiftCopyActivityInputs,
+) -> _PostgreSQLClientInputsProtocol:
+    client_inputs: _PostgreSQLClientInputsProtocol
+
+    match integration:
+        case AWSRedshiftRoleBasedIntegration():
+            host = _get_host_from_connection(inputs.connection)
+            server = _parse_redshift_host(host)
+
+            team = await Team.objects.aget(id=inputs.batch_export.team_id)
+            external_id = f"posthog-{team.organization_id}"
+
+            policy_statements = _get_redshift_credentials_policy_statements(
+                integration, server, inputs.connection.database
+            )
+
+            credentials = await get_credentials_using_user_aws_role(
+                integration.aws_role_arn,
+                external_id,
+                session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
+                policy_statements=policy_statements,
+            )
+
+            redshift_credentials = await _get_temporary_redshift_credentials(
+                credentials,
+                server=server,
+                user=integration.user,
+                database=inputs.connection.database,
+                groups=integration.groups,
+                auto_create=integration.auto_create,
+            )
+            client_inputs = ConnectionParameters(
+                user=redshift_credentials.user,
+                password=redshift_credentials.password,
+                host=host,
+                port=inputs.connection.port,
+                database=inputs.connection.database,
+            )
+
+        case AWSRedshiftIntegration():
+            host = _get_host_from_connection(inputs.connection)
+            server = _parse_redshift_host(host)
+
+            redshift_credentials = await _get_temporary_redshift_credentials(
+                AWSCredentials(
+                    aws_access_key_id=integration.aws_access_key_id,
+                    aws_secret_access_key=integration.aws_secret_access_key,
+                ),
+                server=server,
+                user=integration.user,
+                database=inputs.connection.database,
+                groups=integration.groups,
+                auto_create=integration.auto_create,
+            )
+            client_inputs = ConnectionParameters(
+                user=redshift_credentials.user,
+                password=redshift_credentials.password,
+                host=host,
+                port=inputs.connection.port,
+                database=inputs.connection.database,
+            )
+
+        case RedshiftIntegration():
+            client_inputs = integration
+
+        case _:
+            typing.assert_never(integration)
+
+    return client_inputs
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs) -> BatchExportResult:
@@ -906,6 +1248,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",
+        integration_id=inputs.integration_id,
         data_interval_start=inputs.batch_export.data_interval_start,
         data_interval_end=inputs.batch_export.data_interval_end,
         database=inputs.connection.database,
@@ -969,8 +1312,10 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             else inputs.table.name
         )
 
+        client_inputs = await _get_redshift_client_inputs(inputs)
+
         async with RedshiftClient.from_inputs(
-            inputs.connection, database=inputs.connection.database
+            client_inputs, database=inputs.connection.database
         ).connect() as redshift_client:
             remove_duplicates = True
             # filter out fields that are not in the destination table
@@ -1243,6 +1588,104 @@ async def check_and_raise_redshift_copy_error(
         raise RedshiftS3CopyError(bucket) from err
 
 
+async def _resolve_aws_s3_integration(integration_id: IntegrationID, team_id: int) -> IAMRole | AWSCredentials:
+    """Resolve an AWS S3 integration into its role ARN or stored credentials."""
+    integration = await _get_aws_s3_integration(integration_id, team_id=team_id)
+
+    match integration:
+        case AWSS3RoleBasedIntegration():
+            return integration.aws_role_arn
+        case AWSS3Integration():
+            return AWSCredentials(
+                aws_access_key_id=integration.aws_access_key_id,
+                aws_secret_access_key=integration.aws_secret_access_key,
+            )
+        case _:
+            typing.assert_never(integration)
+
+
+async def _assume_role_for_stage_bucket(
+    aws_role_arn: IAMRole, inputs: RedshiftCopyActivityInputs, policy_statements: list[PolicyStatement]
+) -> AWSCredentials:
+    team = await Team.objects.aget(id=inputs.batch_export.team_id)
+    external_id = f"posthog-{team.organization_id}"
+
+    return await get_credentials_using_user_aws_role(
+        aws_role_arn,
+        external_id,
+        session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
+        policy_statements=policy_statements,
+    )
+
+
+async def _get_s3_bucket_aws_credentials(inputs: RedshiftCopyActivityInputs) -> AWSCredentials:
+    """Resolve the credentials used to stage files in the user's S3 bucket."""
+    credentials = inputs.copy.s3_bucket.credentials
+    if isinstance(credentials, IntegrationID):
+        credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
+
+    if isinstance(credentials, AWSCredentials):
+        return credentials
+
+    bucket_name = inputs.copy.s3_bucket.name
+    key_prefix = get_absolute_key_prefix(
+        inputs.copy.s3_key_prefix,
+        inputs.batch_export.data_interval_start,
+        inputs.batch_export.data_interval_end,
+        inputs.batch_export.batch_export_model,
+    )
+    policy_statements = [
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+            Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
+        ),
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:ListBucket"],
+            Resource=f"arn:aws:s3:::{bucket_name}",
+        ),
+    ]
+    return await _assume_role_for_stage_bucket(credentials, inputs, policy_statements)
+
+
+async def _resolve_copy_authorization(inputs: RedshiftCopyActivityInputs) -> IAMRole | AWSCredentials:
+    """Resolve the authorization Redshift uses to read staged files during COPY.
+
+    An integration id resolves to temporary AWS credentials scoped to reading the
+    staged files: a customer role ARN from an integration cannot be passed as
+    `IAM_ROLE` in the COPY statement, since it is not attached to the cluster.
+    """
+    authorization = inputs.copy.authorization
+    if not isinstance(authorization, IntegrationID):
+        return authorization
+
+    resolved = await _resolve_aws_s3_integration(authorization, inputs.batch_export.team_id)
+    if isinstance(resolved, AWSCredentials):
+        return resolved
+
+    bucket_name = inputs.copy.s3_bucket.name
+    key_prefix = get_absolute_key_prefix(
+        inputs.copy.s3_key_prefix,
+        inputs.batch_export.data_interval_start,
+        inputs.batch_export.data_interval_end,
+        inputs.batch_export.batch_export_model,
+    )
+    policy_statements = [
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:GetObject"],
+            Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
+        ),
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:ListBucket", "s3:GetBucketLocation"],
+            Resource=f"arn:aws:s3:::{bucket_name}",
+        ),
+    ]
+    return await _assume_role_for_stage_bucket(resolved, inputs, policy_statements)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInputs) -> BatchExportResult:
@@ -1282,6 +1725,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
         destination="Redshift",
+        integration_id=inputs.integration_id,
         data_interval_start=inputs.batch_export.data_interval_start,
         data_interval_end=inputs.batch_export.data_interval_end,
         database=inputs.connection.database,
@@ -1338,39 +1782,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         # TODO: Maybe derive this from user's input?
         max_file_size_mb = 100
 
-        if isinstance(inputs.copy.s3_bucket.credentials, IAMRole):
-            team = await Team.objects.aget(id=inputs.batch_export.team_id)
-            organization_id = str(team.organization_id)
-
-            bucket_name = inputs.copy.s3_bucket.name
-            key_prefix = get_absolute_key_prefix(
-                inputs.copy.s3_key_prefix,
-                inputs.batch_export.data_interval_start,
-                inputs.batch_export.data_interval_end,
-                inputs.batch_export.batch_export_model,
-            )
-            policy_statements = [
-                PolicyStatement(
-                    Effect="Allow",
-                    Action=["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
-                    Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
-                ),
-                PolicyStatement(
-                    Effect="Allow",
-                    Action=["s3:ListBucket"],
-                    Resource=f"arn:aws:s3:::{bucket_name}",
-                ),
-            ]
-
-            credentials = await get_credentials_using_user_aws_role(
-                inputs.copy.s3_bucket.credentials,
-                organization_id,
-                session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
-                policy_statements=policy_statements,
-            )
-        else:
-            credentials = inputs.copy.s3_bucket.credentials
-
         table_schemas = _get_table_schemas(
             model=model,
             record_batch_schema=record_batch_schema,
@@ -1395,6 +1806,8 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             else inputs.table.name
         )
 
+        client_inputs = await _get_redshift_client_inputs(inputs)
+
         if not merge_settings.requires_merge:
             # Without a stage table, Parquet files are copied directly into the final
             # table, and the COPY column list names every column in the files. Pre-set
@@ -1402,7 +1815,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             # as COPY would otherwise fail on them.
             try:
                 async with RedshiftClient.from_inputs(
-                    inputs.connection, database=inputs.connection.database
+                    client_inputs, database=inputs.connection.database
                 ).connect() as redshift_client:
                     existing_columns = set(
                         await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
@@ -1416,6 +1829,8 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     transformer.schema = cast_record_batch_schema_json_columns(
                         pa.schema(filtered_fields), json_columns=table_schemas.super_columns
                     )
+
+        credentials = await _get_s3_bucket_aws_credentials(inputs)
 
         async with s3_client(
             credentials,
@@ -1450,8 +1865,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         if result.error is not None:
             return result
 
+        # Re-resolved after uploads finish: temporary credentials from an integration
+        # are valid for one hour, which a long upload could outlive.
+        client_inputs = await _get_redshift_client_inputs(inputs)
+
         async with RedshiftClient.from_inputs(
-            inputs.connection, database=inputs.connection.database
+            client_inputs, database=inputs.connection.database
         ).connect() as redshift_client:
             remove_duplicates = True
 
@@ -1509,6 +1928,10 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     manifest_key=manifest_key,
                 )
 
+                # Resolved after uploads finish: temporary credentials from an assumed
+                # role last one hour, which a long upload could outlive.
+                copy_authorization = await _resolve_copy_authorization(inputs)
+
                 try:
                     external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
@@ -1519,12 +1942,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             schema_name=inputs.table.schema_name,
                             s3_bucket=inputs.copy.s3_bucket.name,
                             manifest_key=manifest_key,
-                            authorization=inputs.copy.authorization,
+                            authorization=copy_authorization,
                         )
                     except psycopg.errors.InternalError_ as err:
                         await check_and_raise_redshift_copy_error(
                             err,
-                            authorization=inputs.copy.authorization,
+                            authorization=copy_authorization,
                             bucket=inputs.copy.s3_bucket.name,
                             region_name=inputs.copy.s3_bucket.region_name,
                             manifest_key=manifest_key,
@@ -1625,13 +2048,24 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=redshift_default_fields(),
         )
-        connection_parameters = ConnectionParameters(
-            user=inputs.user,
-            password=inputs.password,
-            host=inputs.host,
-            port=inputs.port,
-            database=inputs.database,
-        )
+        connection_parameters: ConnectionParameters | ServerConnectionParameters
+        if inputs.user is not None and inputs.password is not None and inputs.host is not None:
+            connection_parameters = ConnectionParameters(
+                user=inputs.user,
+                password=inputs.password,
+                host=inputs.host,
+                port=inputs.port,
+                database=inputs.database,
+            )
+        else:
+            # Credentials live in the linked integration. The activity raises a clear,
+            # non-retryable error if there is no integration either; raising here would
+            # retry the workflow task forever.
+            connection_parameters = ServerConnectionParameters(
+                database=inputs.database,
+                port=inputs.port,
+                host=inputs.host,
+            )
         table_parameters = TableParameters(
             schema_name=inputs.schema,
             name=inputs.table_name,
@@ -1654,6 +2088,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                         s3_key_prefix=inputs.copy_inputs.s3_key_prefix,
                         authorization=inputs.copy_inputs.authorization,
                     ),
+                    integration_id=inputs.integration_id,
                 ),
                 interval=inputs.interval,
                 maximum_retry_interval_seconds=240,
@@ -1665,6 +2100,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
                     batch_export=batch_export_inputs,
                     connection=connection_parameters,
                     table=table_parameters,
+                    integration_id=inputs.integration_id,
                 ),
                 interval=inputs.interval,
                 # TODO: Temporarily bump start to close timeout until we speed up
