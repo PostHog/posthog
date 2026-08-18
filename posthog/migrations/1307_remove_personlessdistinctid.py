@@ -4,9 +4,7 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1305_alter_identityproviderconfig_saml_relay_state_and_more"),
-    ]
+    dependencies = [("posthog", "1306_add_youtube_analytics_integration_kind")]
 
     operations = [
         # State-only: the table lives in the persons database, whose schema is owned by

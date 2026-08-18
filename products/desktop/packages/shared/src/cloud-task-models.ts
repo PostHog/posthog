@@ -182,6 +182,10 @@ export function isGlmModelId(modelId: string): boolean {
   return modelId.toLowerCase().includes("glm");
 }
 
+export function isGlm53ModelId(modelId: string): boolean {
+  return modelId.toLowerCase() === "zai-org/glm-5.3";
+}
+
 export function isCloudflareModel(model: GatewayModel): boolean {
   return isCloudflareModelId(model.id) || model.owned_by === "cloudflare";
 }
