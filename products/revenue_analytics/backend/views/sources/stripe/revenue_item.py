@@ -1,5 +1,3 @@
-from typing import cast
-
 from posthog.hogql import ast
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION, convert_currency_call
 from posthog.hogql.parser import parse_expr
@@ -13,7 +11,7 @@ from products.revenue_analytics.backend.views.sources.helpers import (
     extract_json_uint,
     is_zero_decimal_in_stripe,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.contracts import RevenueSourceTable
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -106,7 +104,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
-    schemas = source.schemas.all()
+    schemas = source.schemas
     invoice_schema = next((schema for schema in schemas if schema.name == STRIPE_INVOICE_RESOURCE_NAME), None)
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
 
@@ -118,20 +116,16 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_schema",
         )
 
-    invoice_table: DataWarehouseTable | None = None
-    charge_table: DataWarehouseTable | None = None
+    invoice_table: RevenueSourceTable | None = None
+    charge_table: RevenueSourceTable | None = None
 
     if invoice_schema is not None and invoice_schema.table is not None:
-        invoice_table = cast(DataWarehouseTable, invoice_schema.table)
+        invoice_table = invoice_schema.table
 
     if charge_schema is not None and charge_schema.table is not None:
-        charge_table = cast(DataWarehouseTable, charge_schema.table)
+        charge_table = charge_schema.table
 
-    if invoice_table is not None:
-        team = invoice_table.team
-    elif charge_table is not None:
-        team = charge_table.team
-    else:
+    if invoice_table is None and charge_table is None:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
@@ -238,7 +232,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=handle.team.base_currency)),
                 # Convert the adjusted original amount to the base currency and split by period_months
                 ast.Alias(
                     alias="amount",
@@ -384,7 +378,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     # Include charges that don't have an invoice unless explictly disabled
     invoiceless_charges_query: ast.SelectQuery | None = None
-    if charge_table is not None and source.revenue_analytics_config_safe.include_invoiceless_charges:
+    if charge_table is not None and source.include_invoiceless_charges:
         invoiceless_charges_query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
@@ -436,7 +430,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=team.base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=handle.team.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",
