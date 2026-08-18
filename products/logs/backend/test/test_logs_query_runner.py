@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -664,6 +665,50 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+    @parameterized.expand(
+        [
+            ("malformed_base64", "not-valid-base64!!!"),
+            ("valid_base64_bad_json", base64.b64encode(b"not json").decode()),
+        ]
+    )
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_invalid_after_cursor_returns_400(self, _name, after_cursor):
+        # A malformed cursor used to raise a bare ValueError from LogsFilterBuilder.where(),
+        # which propagated past the view's `except QueryError` handler as an unhandled 500.
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "after": after_cursor,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+        response = self._make_logs_api_request(query_params, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_invalid_live_logs_checkpoint_returns_400(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "liveLogsCheckpoint": "not-a-timestamp",
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+        response = self._make_logs_api_request(query_params, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_invalid_severity_level_returns_400_not_500(self):
+        # LogsQuery(**params) used to be constructed outside any try/except in the view,
+        # so a bad severity string (e.g. from a case-variant like "WARN") raised an
+        # unhandled pydantic ValidationError instead of a clean 400.
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "severityLevels": ["WARN"],
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+        response = self._make_logs_api_request(query_params, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.json())
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_filters(self):
