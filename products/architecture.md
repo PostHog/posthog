@@ -132,7 +132,8 @@ myproduct/
     __init__.py
     apps.py
     models.py          # Django ORM only
-    logic.py           # Business logic (a logic/ package once it outgrows one file)
+    logic.py           # Business logic
+    logic/             # ...or a package, once logic.py outgrows one file
 
     tasks/
       __init__.py
