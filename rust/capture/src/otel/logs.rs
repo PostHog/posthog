@@ -31,6 +31,16 @@ pub fn count_records(request: &ExportLogsServiceRequest) -> usize {
         .sum()
 }
 
+pub fn count_evaluation_records(request: &ExportLogsServiceRequest) -> usize {
+    request
+        .resource_logs
+        .iter()
+        .flat_map(|resource_logs| &resource_logs.scope_logs)
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .filter(|record| record.event_name == EVALUATION_EVENT_NAME)
+        .count()
+}
+
 pub fn expand_into_events(
     request: &ExportLogsServiceRequest,
     request_fallback_distinct_id: &str,

@@ -10,13 +10,19 @@ mod providers;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header::CONTENT_TYPE, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use axum_client_ip::InsecureClientIp;
 use chrono::Utc;
 use metrics::{counter, histogram};
-use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
-use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::collector::logs::v1::{
+    ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
+};
+use opentelemetry_proto::tonic::collector::trace::v1::{
+    ExportTracePartialSuccess, ExportTraceServiceRequest, ExportTraceServiceResponse,
+};
+use prost::Message;
+use serde::Serialize;
 use serde_json::json;
 use tracing::{debug, instrument, warn, Span};
 
@@ -74,13 +80,52 @@ fn non_retryable_rejection(message: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
 }
 
+fn encode_otlp_response<T>(format: &str, response: T) -> Response
+where
+    T: Message + Serialize,
+{
+    if format == "protobuf" {
+        return (
+            StatusCode::OK,
+            [(CONTENT_TYPE, "application/x-protobuf")],
+            response.encode_to_vec(),
+        )
+            .into_response();
+    }
+
+    Json(response).into_response()
+}
+
+fn trace_response(format: &str, rejected_spans: usize) -> Response {
+    let partial_success = (rejected_spans > 0).then(|| ExportTracePartialSuccess {
+        rejected_spans: rejected_spans as i64,
+        error_message: "Some AI spans exceeded quota or matched event restrictions. Check your project limits and event restriction settings."
+            .to_string(),
+    });
+    encode_otlp_response(format, ExportTraceServiceResponse { partial_success })
+}
+
+fn logs_response(format: &str, rejected_log_records: usize) -> Response {
+    let partial_success = (rejected_log_records > 0).then(|| ExportLogsPartialSuccess {
+        rejected_log_records: rejected_log_records as i64,
+        error_message: "Some evaluation records were invalid, exceeded quota, or matched event restrictions. Check required evaluation attributes, project limits, and event restriction settings."
+            .to_string(),
+    });
+    encode_otlp_response(format, ExportLogsServiceResponse { partial_success })
+}
+
+struct ProcessEventsOutcome {
+    ingested_count: usize,
+    rejected_count: usize,
+}
+
 #[instrument(skip_all, fields(span_count, body_size))]
 pub async fn otel_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
     headers: HeaderMap,
     body: Body,
-) -> Result<Json<serde_json::Value>, Response> {
+) -> Result<Response, Response> {
     let body = extract_body_with_timeout(
         body,
         OTEL_BODY_SIZE,
@@ -148,7 +193,7 @@ pub async fn otel_handler(
 
     if state.token_dropper.should_drop(token, "") {
         report_dropped_events("token_dropper", 1);
-        return Ok(Json(json!({})));
+        return Ok(trace_response(format, 0));
     }
 
     let gateway_provenance = provenance::verify(
@@ -181,7 +226,7 @@ pub async fn otel_handler(
 
     if raw_span_count == 0 {
         counter!("capture_ai_otel_requests_success").increment(1);
-        return Ok(Json(json!({})));
+        return Ok(trace_response(format, 0));
     }
 
     // Cap raw spans before doing any expensive attribute conversion. The body
@@ -234,7 +279,7 @@ pub async fn otel_handler(
             raw_span_count,
         );
         counter!("capture_ai_otel_requests_success").increment(1);
-        return Ok(Json(json!({})));
+        return Ok(trace_response(format, 0));
     }
     if span_count > MAX_AI_EVENTS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
@@ -254,9 +299,9 @@ pub async fn otel_handler(
     counter!("capture_ai_otel_spans_accepted").increment(span_count as u64);
     histogram!("capture_ai_otel_spans_per_request").record(span_count as f64);
 
-    process_events(&state, ip, token.to_string(), span_events, received_at).await?;
+    let outcome = process_events(&state, ip, token.to_string(), span_events, received_at).await?;
 
-    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
+    counter!("capture_ai_otel_events_ingested").increment(outcome.ingested_count as u64);
     counter!("capture_ai_otel_requests_success").increment(1);
 
     debug!(
@@ -264,7 +309,7 @@ pub async fn otel_handler(
         span_count
     );
 
-    Ok(Json(json!({})))
+    Ok(trace_response(format, outcome.rejected_count))
 }
 
 #[instrument(skip_all, fields(record_count, body_size))]
@@ -273,7 +318,7 @@ pub async fn logs_handler(
     ip: Option<InsecureClientIp>,
     headers: HeaderMap,
     body: Body,
-) -> Result<Json<serde_json::Value>, Response> {
+) -> Result<Response, Response> {
     let body = extract_body_with_timeout(
         body,
         OTEL_BODY_SIZE,
@@ -340,7 +385,7 @@ pub async fn logs_handler(
 
     if state.token_dropper.should_drop(token, "") {
         report_dropped_events("token_dropper", 1);
-        return Ok(Json(json!({})));
+        return Ok(logs_response(format, 0));
     }
 
     let gateway_provenance = provenance::verify(
@@ -369,7 +414,7 @@ pub async fn logs_handler(
     let raw_record_count = logs::count_records(&request);
     if raw_record_count == 0 {
         counter!("capture_ai_otel_logs_requests_success").increment(1);
-        return Ok(Json(json!({})));
+        return Ok(logs_response(format, 0));
     }
     if raw_record_count > MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
@@ -379,6 +424,7 @@ pub async fn logs_handler(
         return Err(err.into_response());
     }
     let received_at = Utc::now();
+    let evaluation_record_count = logs::count_evaluation_records(&request);
     let request_fallback_distinct_id = identity::request_fallback_distinct_id();
     let mut events =
         logs::expand_into_events(&request, &request_fallback_distinct_id).map_err(|err| {
@@ -395,6 +441,7 @@ pub async fn logs_handler(
         true,
     );
     let event_count = events.len();
+    let invalid_evaluation_count = evaluation_record_count.saturating_sub(event_count);
     Span::current().record("record_count", event_count);
 
     let dropped_record_count = raw_record_count.saturating_sub(event_count);
@@ -403,19 +450,22 @@ pub async fn logs_handler(
     }
     if event_count == 0 {
         counter!("capture_ai_otel_logs_requests_success").increment(1);
-        return Ok(Json(json!({})));
+        return Ok(logs_response(format, invalid_evaluation_count));
     }
-    process_events(&state, ip, token.to_string(), events, received_at).await?;
+    let outcome = process_events(&state, ip, token.to_string(), events, received_at).await?;
 
     counter!("capture_ai_otel_log_records_accepted").increment(event_count as u64);
-    counter!("capture_ai_otel_logs_events_ingested").increment(event_count as u64);
+    counter!("capture_ai_otel_logs_events_ingested").increment(outcome.ingested_count as u64);
     counter!("capture_ai_otel_logs_requests_success").increment(1);
     debug!(
         "OTEL logs request processed successfully: {} records",
         event_count
     );
 
-    Ok(Json(json!({})))
+    Ok(logs_response(
+        format,
+        invalid_evaluation_count + outcome.rejected_count,
+    ))
 }
 
 async fn process_events(
@@ -424,7 +474,8 @@ async fn process_events(
     token: String,
     span_events: Vec<fan_out::SpanEvent>,
     received_at: chrono::DateTime<Utc>,
-) -> Result<(), Response> {
+) -> Result<ProcessEventsOutcome, Response> {
+    let candidate_count = span_events.len();
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
@@ -463,6 +514,7 @@ async fn process_events(
             report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
             e.into_response()
         })?;
+    let ingested_count = processed_events.len();
 
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain
     // span in the batch before handing off to the sink. OTEL bypasses
@@ -483,7 +535,10 @@ async fn process_events(
         e.into_response()
     })?;
 
-    Ok(())
+    Ok(ProcessEventsOutcome {
+        ingested_count,
+        rejected_count: candidate_count.saturating_sub(ingested_count),
+    })
 }
 
 pub async fn options() -> Result<CaptureResponse, CaptureError> {

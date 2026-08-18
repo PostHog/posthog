@@ -2,7 +2,7 @@
 mod integration_utils;
 
 use async_trait::async_trait;
-use axum_test_helper::TestClient;
+use axum_test_helper::{TestClient, TestResponse};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
@@ -23,8 +23,12 @@ use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
-use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
-use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::collector::logs::v1::{
+    ExportLogsServiceRequest, ExportLogsServiceResponse,
+};
+use opentelemetry_proto::tonic::collector::trace::v1::{
+    ExportTraceServiceRequest, ExportTraceServiceResponse,
+};
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
 use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
 use opentelemetry_proto::tonic::resource::v1::Resource;
@@ -238,17 +242,36 @@ async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest)
 }
 
 async fn send_request_with_client(client: &TestClient, request: &ExportTraceServiceRequest) -> u16 {
+    send_request_response_with_client(client, request)
+        .await
+        .status()
+        .as_u16()
+}
+
+async fn send_request_response_with_client(
+    client: &TestClient,
+    request: &ExportTraceServiceRequest,
+) -> TestResponse {
     let body = request.encode_to_vec();
 
-    let resp = client
+    client
         .post(ENDPOINT)
         .header("Content-Type", "application/x-protobuf")
         .header("Authorization", format!("Bearer {}", TOKEN))
         .body(body)
         .send()
-        .await;
+        .await
+}
 
-    resp.status().as_u16()
+async fn decode_protobuf_response<T>(response: TestResponse) -> T
+where
+    T: Message + Default,
+{
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/x-protobuf"
+    );
+    T::decode(response.bytes().await).unwrap()
 }
 
 async fn send_signed_request_with_client(
@@ -665,6 +688,12 @@ async fn test_verified_gateway_logs_batch_produces_evaluation_for_each_wire_form
         let response = request.body(body).send().await;
 
         assert_eq!(response.status().as_u16(), 200);
+        let response_body: ExportLogsServiceResponse = if content_type == "application/json" {
+            response.json().await
+        } else {
+            decode_protobuf_response(response).await
+        };
+        assert!(response_body.partial_success.is_none());
         let events = sink.get_events().await;
         assert_eq!(events.len(), 1);
         let data = parse_event_data(&events[0]);
@@ -727,6 +756,11 @@ async fn test_mixed_gateway_logs_quota_retains_verified_evaluation() {
         .await;
 
     assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportLogsServiceResponse = decode_protobuf_response(response).await;
+    assert_eq!(
+        response_body.partial_success.unwrap().rejected_log_records,
+        1
+    );
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
     let data = parse_event_data(&events[0]);
@@ -756,6 +790,8 @@ async fn test_logs_batch_accepts_mixed_records_within_raw_limit() {
         .await;
 
     assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportLogsServiceResponse = decode_protobuf_response(response).await;
+    assert!(response_body.partial_success.is_none());
     assert_eq!(sink.get_events().await.len(), 1);
 }
 
@@ -894,6 +930,11 @@ async fn test_logs_batch_filters_non_finite_numeric_evaluation() {
         .await;
 
     assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportLogsServiceResponse = decode_protobuf_response(response).await;
+    assert_eq!(
+        response_body.partial_success.unwrap().rejected_log_records,
+        1
+    );
     assert!(sink.get_events().await.is_empty());
 }
 
@@ -1234,11 +1275,8 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
     assert_eq!(events[0].event.event, "$ai_generation");
 }
 
-// The warning is the only feedback channel for this outcome: the OTLP contract
-// has no way to say "accepted, ingested nothing", so the exporter sees a 200.
-// Also proves the emit site is wired and that SDK attribution survives the trip
-// from resource attributes into the warning, neither of which a unit test on the
-// helper can catch.
+// Non-AI spans are outside this endpoint's ingestion scope rather than rejected, so the exporter
+// receives full success while the warning preserves SDK attribution for troubleshooting.
 #[tokio::test]
 async fn all_spans_filtered_warns_and_still_returns_200() {
     let sink = CapturingSink::new();
@@ -1270,8 +1308,10 @@ async fn all_spans_filtered_warns_and_still_returns_200() {
         }],
     };
 
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
+    let response = send_request_response_with_client(&client, &request).await;
+    assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportTraceServiceResponse = decode_protobuf_response(response).await;
+    assert!(response_body.partial_success.is_none());
     assert!(sink.get_events().await.is_empty());
 
     let emitted = emitter.emitted();
@@ -1835,8 +1875,16 @@ async fn test_partial_quota_drop_retains_unaffected_event() {
 
     // Send two spans: one $ai_generation, one $ai_embedding
     let request = make_two_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
+    let response = client
+        .post(ENDPOINT)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", TOKEN))
+        .body(serde_json::to_vec(&request).unwrap())
+        .send()
+        .await;
+    assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportTraceServiceResponse = response.json().await;
+    assert_eq!(response_body.partial_success.unwrap().rejected_spans, 1);
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
@@ -1949,8 +1997,10 @@ async fn test_filtered_drop_restriction_retains_unaffected_event() {
     );
 
     let request = make_two_span_request();
-    let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 200);
+    let response = send_request_response_with_client(&client, &request).await;
+    assert_eq!(response.status().as_u16(), 200);
+    let response_body: ExportTraceServiceResponse = decode_protobuf_response(response).await;
+    assert_eq!(response_body.partial_success.unwrap().rejected_spans, 1);
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
