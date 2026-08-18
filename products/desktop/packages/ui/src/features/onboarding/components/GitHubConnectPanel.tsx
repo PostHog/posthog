@@ -329,7 +329,9 @@ export function GitHubConnectPanel() {
                     Waiting for a GitHub org owner to approve
                   </div>
                   <span className="text-(--gray-11) text-sm">
-                    Tasks run on your machine until then. You can keep going.
+                    Cloud runs will not be available until your integration is
+                    approved. In the meantime, you can run tasks on your local
+                    machine.
                   </span>
                 </div>
               ) : isApprovedNotLinked ? (
