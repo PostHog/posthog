@@ -307,6 +307,12 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
     if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Meta Graph nests its error as an object (`{"error": {"code": 190, ...}}`) and never
+    # sends the `invalid_grant` string. Code 190 means the access token is dead (password
+    # change, checkpoint, expiry, revocation). Without this mapping, a revoked Meta token
+    # classifies as `other`. Meta rate limits use codes 4, 17, and 32, which do not match.
+    if kind in ("meta-ads", "instagram") and status_code < 500 and isinstance(error, dict) and error.get("code") == 190:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
     # Transient throttling, not a credential problem: the backoff cap synchronises failed
     # integrations into retry herds that can trip a provider's per-second limit and take
     # healthy refreshes in the same second down with them.
@@ -599,6 +605,7 @@ class Integration(models.Model):
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
         VERCEL = "vercel"
+        YOUTUBE_ANALYTICS = "youtube-analytics"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -881,6 +888,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "youtube-analytics",
     ]
     integration: Integration
 
@@ -1103,6 +1111,30 @@ class OauthIntegration:
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "youtube-analytics":
+            if not settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID or not settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET:
+                raise NotImplementedError("YouTube Analytics app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID,
+                client_secret=settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET,
+                # `yt-analytics.readonly` reads the reports; `youtube.readonly` lists the account's
+                # channels so the user picks one instead of hunting for its ID. Channel reports carry
+                # no revenue metrics, so `yt-analytics-monetary.readonly` is deliberately not asked for.
+                scope=(
+                    "https://www.googleapis.com/auth/yt-analytics.readonly "
+                    "https://www.googleapis.com/auth/youtube.readonly "
+                    "https://www.googleapis.com/auth/userinfo.email"
+                ),
                 id_path="sub",
                 name_path="email",
             )
@@ -4926,25 +4958,16 @@ class S3CompatibleIntegration:
 class StripeIntegration:
     integration: Integration
 
-    # These are the scopes we'll give Stripe when creating a local OAuth App
-    # and sending them access
+    # Every endpoint services/stripe-app/src/posthog/client.ts calls, and nothing else.
+    # This token is readable by every member of the customer's Stripe account, so anything
+    # granted here is granted to all of them. Read-only by design; do not add a write scope.
     SCOPES: str = " ".join(
         [
             "customer_journey:read",
-            "query:read",
-            "conversation:read",
-            "conversation:write",
             "experiment:read",
             "feature_flag:read",
             "insight:read",
-            "organization:read",
-            "person:read",
-            "project:read",
-            "ticket:read",
-            "ticket:write",
-            "user:read",
-            "hog_flow:read",
-            "hog_flow:write",
+            "query:read",
         ]
     )
 

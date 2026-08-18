@@ -6284,6 +6284,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -10375,6 +10376,8 @@ export namespace Schemas {
       kind: AutocompleteCompletionItemKind;
       /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
       label: string;
+      /** Overrides the editor's default ordering for this item. Set when the backend can rank a suggestion, for example a function whose return type fits the comparison being written. */
+      sortText?: string | null;
     }
 
     /**
@@ -16152,6 +16155,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_null` - not_null
+     * * `unique` - unique
+     * * `accepted_values` - accepted_values
+     * * `relationships` - relationships
+     * * `row_count` - row_count
+     * * `freshness` - freshness
+     * * `custom_sql` - custom_sql
+     */
+    export type CheckTypeEnum = typeof CheckTypeEnum[keyof typeof CheckTypeEnum];
+
+
+    export const CheckTypeEnum = {
+      NotNull: 'not_null',
+      Unique: 'unique',
+      AcceptedValues: 'accepted_values',
+      Relationships: 'relationships',
+      RowCount: 'row_count',
+      Freshness: 'freshness',
+      CustomSql: 'custom_sql',
+    } as const;
+
+    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -19962,6 +19987,248 @@ export namespace Schemas {
       readonly rows_expected: number | null;
     }
 
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type DataQualityCheckConfig = { [key: string]: unknown };
+
+    /**
+     * * `table` - table
+     * * `view` - view
+     */
+    export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
+
+
+    export const SubjectTypeEnum = {
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    /**
+     * * `error` - error
+     * * `warn` - warn
+     */
+    export type DataQualityCheckSeverityEnum = typeof DataQualityCheckSeverityEnum[keyof typeof DataQualityCheckSeverityEnum];
+
+
+    export const DataQualityCheckSeverityEnum = {
+      Error: 'error',
+      Warn: 'warn',
+    } as const;
+
+    /**
+     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     */
+    export interface DataQualityCheck {
+      readonly id: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: DataQualityCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status: string;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface DataQualityCheckRun {
+      readonly id: string;
+      /**
+         * The definition executed. Nulled rather than cascaded so history outlives hard deletes.
+         * @nullable
+         */
+      readonly quality_check: string | null;
+      readonly suite_run: string;
+      readonly subject_type: SubjectTypeEnum;
+      readonly subject_uuid: string;
+      readonly subject_name: string;
+      /** Which assertion this run made.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      readonly check_type: CheckTypeEnum;
+      readonly column_name: string;
+      /** passed, failed, errored, or skipped. */
+      readonly status: string;
+      /**
+         * Rows violating the assertion. Null for bounds checks like row_count.
+         * @nullable
+         */
+      readonly failed_row_count: number | null;
+      /**
+         * The check's headline number, recorded on passes too.
+         * @nullable
+         */
+      readonly observed_value: number | null;
+      /** The HogQL that ran. Re-run it to see the offending rows. */
+      readonly compiled_query: string;
+      /** Compilation or execution failure, when status is 'errored'. */
+      readonly error: string;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      readonly created_at: string;
+    }
+
+    /**
+     * JSON schema the config object is validated against.
+     */
+    export type DataQualityCheckTypeConfigSchema = { [key: string]: unknown };
+
+    /**
+     * One entry of the check-type catalog, so an agent can author config without guessing.
+     */
+    export interface DataQualityCheckType {
+      /** Value to pass as check_type. */
+      check_type: string;
+      /** What the check asserts and what counts as a failure. */
+      description: string;
+      /** Whether column_name must be set for this type. */
+      requires_column: boolean;
+      /** JSON schema the config object is validated against. */
+      config_schema: DataQualityCheckTypeConfigSchema;
+    }
+
+    /**
+     * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+     */
+    export interface DataQualityGateConfig {
+      /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+      gate_materialization_on_checks: boolean;
+    }
+
+    /**
+     * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
+     */
+    export interface DataQualitySubjectHealth {
+      /** 'table' or 'view'. */
+      subject_type: string;
+      /** Id of the table or view. */
+      subject_uuid: string;
+      /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
+      health: string;
+      /** How many enabled, non-deleted checks cover this subject. */
+      checks_total: number;
+      /** How many of those checks last reported a failure. */
+      checks_failing: number;
+    }
+
+    export interface DataQualitySuiteRun {
+      readonly id: string;
+      /** manual, materialization, or source_sync. */
+      readonly trigger: string;
+      /** running, completed, failed, or empty (nothing matched the trigger). */
+      readonly status: string;
+      /**
+         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * @nullable
+         */
+      readonly subject_type: string | null;
+      /**
+         * Set when the run targets exactly one subject.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      readonly workflow_id: string;
+      readonly checks_passed: number;
+      readonly checks_failed: number;
+      readonly checks_errored: number;
+      readonly checks_skipped: number;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      /** Why the suite itself failed, as opposed to an individual check. */
+      readonly error: string;
+      readonly created_at: string;
+    }
+
     export interface RequiredTableStatus {
       /** Name of the required source table (e.g. 'campaign', 'campaign_stats') */
       table_name: string;
@@ -22191,6 +22458,7 @@ export namespace Schemas {
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -23493,6 +23761,7 @@ export namespace Schemas {
       Dokploy: 'Dokploy',
       Hootsuite: 'Hootsuite',
       WisprFlow: 'WisprFlow',
+      SamCart: 'SamCart',
     } as const;
 
     /**
@@ -24808,7 +25077,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26818,7 +27088,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -27060,7 +27331,7 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
-      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
     }
 
@@ -34630,7 +34901,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -34649,7 +34921,7 @@ export namespace Schemas {
     }
 
     /**
-     * Connection credentials and a 'schemas' array. Keys depend on source_type.
+     * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
@@ -35966,9 +36238,10 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+      /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
       /**
          * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
@@ -38861,6 +39134,29 @@ export namespace Schemas {
     }
 
     /**
+     * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+     * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+     * them shortly after. Messages already sent are not recalled.
+     */
+    export interface HogFlowBatchJobCancelResponse {
+      /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      status: HogFlowBatchJobStatusEnum;
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+      remaining: number;
+      /** True when no in-flight runs of this batch remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `update_action` - update_action
      * * `add_action` - add_action
      * * `remove_action` - remove_action
@@ -39576,9 +39872,38 @@ export namespace Schemas {
     }
 
     /**
+     * Cancel in-flight invocations of a workflow. Provide exactly one selector.
+     */
+    export interface HogInvocationCancelRequest {
+      /**
+         * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.
+         * @minItems 1
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+      /** Cancel every in-flight invocation of this workflow, including parked delays and waits. */
+      all?: boolean;
+    }
+
+    /**
+     * Response from the cancel endpoint. Cancellation is asynchronous: this call flags runs, and
+     * the workflow workers terminate them shortly after (immediately for parked runs, at the next
+     * step boundary for runs mid-execution). A run stays 'running' in listings until that happens.
+     */
+    export interface HogInvocationCancelResponse {
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** Matching in-flight runs not yet flagged. Non-zero on very large workflows; call again. */
+      remaining: number;
+      /** True when no matching in-flight runs remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `running` - running
      * * `succeeded` - succeeded
      * * `failed` - failed
+     * * `canceled` - canceled
      */
     export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
 
@@ -39587,6 +39912,7 @@ export namespace Schemas {
       Running: 'running',
       Succeeded: 'succeeded',
       Failed: 'failed',
+      Canceled: 'canceled',
     } as const;
 
     /**
@@ -42483,6 +42809,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
@@ -42534,6 +42861,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface IntegrationAccessRequest {
@@ -42584,7 +42912,8 @@ export namespace Schemas {
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
-       * * `vercel` - Vercel */
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /**
          * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -49428,6 +49757,24 @@ export namespace Schemas {
       results: DataModelingJob[];
     }
 
+    export interface PaginatedDataQualityCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualityCheck[];
+    }
+
+    export interface PaginatedDataQualitySuiteRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualitySuiteRun[];
+    }
+
     export interface PaginatedDataWarehouseExpressionList {
       count: number;
       /** @nullable */
@@ -51292,6 +51639,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `self_driving` - SELF_DRIVING
+     * * `label` - LABEL
+     * * `all` - ALL
+     */
+    export type ReviewRunTriggerEnum = typeof ReviewRunTriggerEnum[keyof typeof ReviewRunTriggerEnum];
+
+
+    export const ReviewRunTriggerEnum = {
+      SelfDriving: 'self_driving',
+      Label: 'label',
+      All: 'all',
+    } as const;
+
+    /**
      * * `queued` - QUEUED
      * * `gated` - GATED
      * * `reviewing` - REVIEWING
@@ -51370,6 +51731,10 @@ export namespace Schemas {
       readonly pr_number: number;
       /** Full URL to the pull request on GitHub. */
       readonly pr_url: string;
+      /** Pull request title as of the last webhook delivery applied. */
+      readonly title: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
       /** Commit SHA of the PR head at the time this run started. */
       readonly head_sha: string;
       /** Branch name of the PR head. */
@@ -51379,6 +51744,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly delivery_id: string | null;
+      /** What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.
+       *
+       * * `self_driving` - SELF_DRIVING
+       * * `label` - LABEL
+       * * `all` - ALL */
+      readonly trigger: ReviewRunTriggerEnum;
       /** Current stage of the review run's lifecycle.
        *
        * * `queued` - QUEUED
@@ -51403,6 +51774,21 @@ export namespace Schemas {
       readonly output: _ReviewOutputSummary;
       /** Error message if the run failed, blank otherwise. */
       readonly error: string;
+      /**
+         * ID of the GitHub review this run posted, null if it never posted one.
+         * @nullable
+         */
+      readonly posted_review_id: number | null;
+      /**
+         * When this run's verdict reached GitHub, null if it never did.
+         * @nullable
+         */
+      readonly verdict_posted_at: string | null;
+      /**
+         * When this run's GitHub approval was retracted because the head moved, null if it wasn't.
+         * @nullable
+         */
+      readonly approval_dismissed_at: string | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -53407,6 +53793,8 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       ci_prompt: string | null;
@@ -56050,6 +56438,112 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type PatchedDataQualityCheckConfig = { [key: string]: unknown };
+
+    /**
+     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     */
+    export interface PatchedDataQualityCheck {
+      readonly id?: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type?: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid?: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name?: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status?: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type?: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: PatchedDataQualityCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status?: string;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint?: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    /**
+     * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+     */
+    export interface PatchedDataQualityGateConfig {
+      /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+      gate_materialization_on_checks?: boolean;
     }
 
     export interface PatchedDataWarehouseExpression {
@@ -70385,6 +70879,20 @@ export namespace Schemas {
     }
 
     /**
+     * Response of GET /vision/scanners/:id/self_driving_stats/.
+     */
+    export interface ScannerSelfDrivingStats {
+      /** Signals this scanner has pushed into the Signals inbox, all time. */
+      signals_emitted: number;
+      /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+      reports_contributed: number;
+      /** Implementation PRs opened by self-driving on those reports. */
+      prs_opened: number;
+      /** Of the opened PRs, how many have merged. */
+      prs_merged: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
@@ -73343,7 +73851,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -74687,7 +75196,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -76021,7 +76531,8 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
-       * * `WisprFlow` - WisprFlow */
+       * * `WisprFlow` - WisprFlow
+       * * `SamCart` - SamCart */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -78806,6 +79317,15 @@ export namespace Schemas {
     export interface TaskThreadMessageWrite {
       /** Message text. */
       content: string;
+    }
+
+    export interface TaskUsageResponse {
+      /** Estimated model cost attributed to this task in US dollars. */
+      token_cost_usd: number;
+      /** Estimated cloud compute cost attributed to this task in US dollars. */
+      compute_cost_usd: number;
+      /** Estimated total cost attributed to this task in US dollars. */
+      total_cost_usd: number;
     }
 
     /**
@@ -88421,6 +88941,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind;
     /**
@@ -88483,6 +89004,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export type IntegrationsChannelsRetrieveParams = {
@@ -90996,7 +91518,20 @@ export namespace Schemas {
      * Filter by review run status.
      */
     status?: string;
+    /**
+     * Filter by what caused the run: self_driving, label, or all.
+     */
+    trigger?: StamphogReviewRunsListTrigger;
     };
+
+    export type StamphogReviewRunsListTrigger = typeof StamphogReviewRunsListTrigger[keyof typeof StamphogReviewRunsListTrigger];
+
+
+    export const StamphogReviewRunsListTrigger = {
+      All: 'all',
+      Label: 'label',
+      SelfDriving: 'self_driving',
+    } as const;
 
     export type StreamlitAppsListParams = {
     /**
@@ -91369,6 +91904,14 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering;
+    /**
      * Filter by repository organization
      * @minLength 1
      */
@@ -91422,6 +91965,14 @@ export namespace Schemas {
       True: 'true',
       False: 'false',
       All: 'all',
+    } as const;
+
+    export type TasksListOrdering = typeof TasksListOrdering[keyof typeof TasksListOrdering];
+
+
+    export const TasksListOrdering = {
+      CreatedAt: '-created_at',
+      LastActivityAt: '-last_activity_at',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
@@ -92319,6 +92870,28 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type WarehouseSavedQueriesCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseSavedQueriesChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
@@ -92343,6 +92916,28 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseTablesCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseTablesChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     /**
