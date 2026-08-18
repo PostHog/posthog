@@ -394,11 +394,37 @@ class GitHubState:
     settings_url: str | None = None
 
 
+@dataclass(frozen=True)
+class RunDefaultsState:
+    """The PostHog-side default a Slack run falls back to once nothing in Slack applies.
+
+    Slack's own rows sit above this; below it sits Slack's hardcoded floor. The card reads
+    it so what it names is what a mention would actually launch on, rather than a constant
+    that stopped being the answer once project and personal defaults existed.
+    """
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+    runtime_adapter: str | None = None
+    #: Which level supplied it — "user", "team", or "none".
+    source: str = "none"
+    settings_url: str | None = None
+
+    @property
+    def applies(self) -> bool:
+        return bool(self.model)
+
+    @property
+    def source_label(self) -> str:
+        return "Your PostHog default" if self.source == "user" else "The project default"
+
+
 def render_home_view(
     *,
     effective: AIPreferences,
     user_row: SlackSettings | None,
     is_admin: bool,
+    run_defaults: RunDefaultsState | None = None,
     account_state: AccountState | None = None,
     github_state: GitHubState | None = None,
     project_state: ProjectState | None = None,
@@ -440,7 +466,7 @@ def render_home_view(
     # picker underneath. Purely a per-user preference — there's no workspace-wide
     # model default to inherit from.
     blocks.append({"type": "divider"})
-    blocks.extend(_active_model_blocks(effective, source))
+    blocks.extend(_active_model_blocks(effective, source, run_defaults or RunDefaultsState()))
     blocks.extend(_personal_section_blocks(user_row))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
@@ -575,51 +601,58 @@ def _no_project_access_blocks() -> list[dict]:
     return blocks
 
 
-def _active_model_blocks(effective: AIPreferences, source: PreferenceSource) -> list[dict]:
+def _active_model_blocks(
+    effective: AIPreferences, source: PreferenceSource, run_defaults: RunDefaultsState
+) -> list[dict]:
     """Headline that shows which model is actually running, and why.
 
-    With nothing set the run falls back to the Slack default, named here from the
-    same constant the run resolves against so the card can't drift from it.
+    Three rungs, named in the order the run resolves them: a Slack row, else the PostHog
+    project/personal default, else Slack's own floor. Naming the floor unconditionally
+    would describe a run that isn't going to happen wherever a PostHog default is set.
     """
     header = _section_title(
         "🤖 AI model",
         "Which Claude / Codex configuration handles your @PostHog mentions. "
-        "Applies to Slack only. Runs you start in PostHog use the defaults set there.",
+        "Set one here to override what your PostHog defaults would pick.",
     )
-    source_blurb = {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source.label}"}]}
 
-    if effective.is_empty:
-        return [
-            header,
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
-                    ),
-                },
-            },
-            source_blurb,
-        ]
+    if not effective.is_empty:
+        headline = (
+            # Same phrasing as the notice a mention override posts, so the card and the
+            # thread describe a run the same way.
+            f"Currently running {describe_run_model(effective.model, effective.reasoning_effort)}"
+            f" · {label_for(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}"
+        )
+        source_label = source.label
+    elif run_defaults.applies:
+        headline = (
+            f"Currently running {describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}"
+            f" · {label_for(run_defaults.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}"
+        )
+        source_label = f"{run_defaults.source_label} in PostHog"
+    else:
+        headline = f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
+        source_label = source.label
 
-    runtime_label = label_for(effective.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
-    return [
+    blocks: list[dict] = [
         header,
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                # Same phrasing as the notice a mention override posts, so the card and
-                # the thread describe a run the same way.
-                "text": (
-                    f"Currently running "
-                    f"{describe_run_model(effective.model, effective.reasoning_effort)} · {runtime_label}"
-                ),
-            },
-        },
-        source_blurb,
+        {"type": "section", "text": {"type": "mrkdwn", "text": headline}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source_label}"}]},
     ]
+    if run_defaults.settings_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{run_defaults.settings_url}|Task agent defaults in PostHog> apply everywhere — "
+                        "the task composer, PostHog Desktop, and Slack when nothing is set here.",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict]:
@@ -1490,6 +1523,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         effective=effective,
         user_row=user_row,
         is_admin=is_admin,
+        run_defaults=_resolve_run_defaults_state(integration, slack_user_id),
         account_state=account_state,
         github_state=github_state,
         project_state=project_state,
@@ -1877,6 +1911,7 @@ def _republish_home(
         effective=effective,
         user_row=user_row,
         is_admin=is_admin,
+        run_defaults=_resolve_run_defaults_state(integration, slack_user_id),
         account_state=account_state,
         github_state=github_state,
         project_state=project_state,
@@ -2062,6 +2097,40 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     if seconds < 7 * 86400:
         return f"{seconds // 86400}d ago"
     return when.strftime("%b %d")
+
+
+def _resolve_run_defaults_state(integration: Integration, slack_user_id: str) -> RunDefaultsState:
+    """The PostHog default this person's Slack runs fall back to, plus where to change it.
+
+    Resolved against the linked PostHog user so a personal default is reflected; an
+    unlinked Slack identity still sees the project default, which is what their runs get.
+    """
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    settings_url = f"{site_url}/project/{integration.team_id}/settings/environment-task-agents" if site_url else None
+
+    linked_user = find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=integration.integration_id,
+        candidate_org_ids=_workspace_org_ids(integration.integration_id),
+    )
+    try:
+        resolved = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, linked_user.id if linked_user else None)
+    except Exception:
+        # The card is informational; a lookup failure must not cost the whole Home tab.
+        logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
+        return RunDefaultsState(settings_url=settings_url)
+
+    return RunDefaultsState(
+        model=resolved.model,
+        reasoning_effort=resolved.reasoning_effort,
+        runtime_adapter=resolved.runtime_adapter,
+        source=resolved.source,
+        settings_url=settings_url,
+    )
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
