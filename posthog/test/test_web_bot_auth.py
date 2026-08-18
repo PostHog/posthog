@@ -8,12 +8,29 @@ from django.test import Client, override_settings
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from posthog.web_bot_auth import CONTENT_TYPE, jwk_thumbprint, public_jwk, signature_base, signed_directory
+from posthog.web_bot_auth import (
+    CONTENT_TYPE,
+    _private_keys,
+    jwk_thumbprint,
+    public_jwk,
+    signature_base,
+    signed_directory,
+)
 
 PEM = (
     Ed25519PrivateKey.generate()
+    .private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    .decode()
+)
+NON_ED25519_PEM = (
+    ec.generate_private_key(ec.SECP256R1())
     .private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -141,6 +158,19 @@ def test_the_route_ignores_the_host_it_was_asked_on():
 def test_the_route_is_absent_where_no_key_is_configured():
     # Self-hosted holds no key. A 500 there would read as a broken deployment.
     assert Client().get("/.well-known/http-message-signatures-directory").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "configured_keys,expected_error",
+    [
+        pytest.param(["not a PEM"], ValueError, id="malformed-pem"),
+        pytest.param([NON_ED25519_PEM], TypeError, id="non-ed25519-key"),
+        pytest.param([PEM, "not a PEM"], ValueError, id="mixed-valid-and-invalid-keys"),
+    ],
+)
+def test_invalid_key_configuration_is_rejected(configured_keys: list[str], expected_error: type[Exception]) -> None:
+    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=configured_keys), pytest.raises(expected_error):
+        _private_keys()
 
 
 @pytest.mark.parametrize("region", ["EU", "DEV", None])
