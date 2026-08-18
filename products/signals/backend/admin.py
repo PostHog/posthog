@@ -2,6 +2,8 @@ import re
 
 from django import forms
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -124,6 +126,11 @@ class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[SignalReportCanvasGeneration]:
+        queryset = super().get_queryset(request)
+        url_name = getattr(request.resolver_match, "url_name", "")
+        return queryset if url_name.endswith("_change") else queryset.defer("output_source")
 
 
 @admin.register(SignalScoutConfig)

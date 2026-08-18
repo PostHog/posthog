@@ -384,16 +384,19 @@ def finalize_report_canvas_generation(
     succeeded = canvas_state.status == "ready"
     source = None
     source_failure = False
-    if succeeded:
+    if succeeded and canvas_state.source_version_id is not None:
         try:
             source = canvas_api.canvas_generation_source(
                 team_id=team_id,
                 canvas_id=generation.canvas_id,
-                task_id=generation.generation_task_id,
+                source_version_id=canvas_state.source_version_id,
             )
         except canvas_api.CanvasGenerationSourceUnavailable:
             succeeded = False
             source_failure = True
+    elif succeeded:
+        succeeded = False
+        source_failure = True
     session = SignalReportCanvas.objects.for_team(team_id).get(report_id=report_id)
     session.generation_status = (
         SignalReportCanvas.GenerationStatus.READY if succeeded else SignalReportCanvas.GenerationStatus.FAILED

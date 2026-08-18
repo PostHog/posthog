@@ -251,6 +251,7 @@ class TestReportCanvasGeneration(APIBaseTest):
         report = self._report()
         generation_task_id = uuid.uuid4()
         generation_run_id = uuid.uuid4()
+        source_version_id = uuid.uuid4()
         with team_scope(self.team.id):
             channel = self.channel_model.objects.create(team=self.team, name="general")
             discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
@@ -286,7 +287,7 @@ class TestReportCanvasGeneration(APIBaseTest):
             patch("products.signals.backend.report_canvas.tasks_facade.task_run_is_terminal", return_value=True),
             patch(
                 "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
-                return_value=CanvasGenerationState(status="ready"),
+                return_value=CanvasGenerationState(status="ready", source_version_id=source_version_id),
             ),
             patch(
                 "products.signals.backend.report_canvas.canvas_api.canvas_generation_source",
@@ -295,7 +296,7 @@ class TestReportCanvasGeneration(APIBaseTest):
                     storage_key="canvas_source/test.json.gz",
                     source_hash="a" * 64,
                 ),
-            ),
+            ) as read_source,
             patch(
                 "products.signals.backend.report_canvas.report_canvas_publishing_enabled",
                 return_value=publishing_enabled,
@@ -317,6 +318,11 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert attempt.validation_status == SignalReportCanvasGeneration.ValidationStatus.VALID
         assert attempt.output_storage_key == "canvas_source/test.json.gz"
         assert attempt.canvas_id == (canvas.id if publishing_enabled else None)
+        read_source.assert_called_once_with(
+            team_id=self.team.id,
+            canvas_id=canvas.id,
+            source_version_id=source_version_id,
+        )
         if publishing_enabled:
             notify.assert_called_once_with(
                 team_id=self.team.id,
@@ -388,6 +394,7 @@ class TestReportCanvasGeneration(APIBaseTest):
         report = self._report()
         generation_task_id = uuid.uuid4()
         generation_run_id = uuid.uuid4()
+        source_version_id = uuid.uuid4()
         with team_scope(self.team.id):
             channel = self.channel_model.objects.create(team=self.team, name="general")
             discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
@@ -422,7 +429,7 @@ class TestReportCanvasGeneration(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
-                return_value=CanvasGenerationState(status="ready"),
+                return_value=CanvasGenerationState(status="ready", source_version_id=source_version_id),
             ),
             patch(
                 "products.signals.backend.report_canvas.canvas_api.canvas_generation_source",

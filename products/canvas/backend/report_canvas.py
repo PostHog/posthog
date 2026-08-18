@@ -16,6 +16,7 @@ from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVers
 class CanvasGenerationState:
     status: Literal["waiting_for_source", "building", "ready", "failed"]
     failure_reason: str = ""
+    source_version_id: UUID | None = None
 
 
 @frozen
@@ -70,7 +71,7 @@ def canvas_generation_result(*, team_id: int, canvas_id: str | UUID, task_id: st
     if build is None or build.status in CanvasBuild.ACTIVE_STATUSES:
         return CanvasGenerationState(status="building")
     if build.status == CanvasBuild.STATUS_READY:
-        return CanvasGenerationState(status="ready")
+        return CanvasGenerationState(status="ready", source_version_id=source_version.id)
 
     messages = [
         str(diagnostic.get("message"))
@@ -81,16 +82,14 @@ def canvas_generation_result(*, team_id: int, canvas_id: str | UUID, task_id: st
     return CanvasGenerationState(status="failed", failure_reason=reason)
 
 
-def canvas_generation_source(*, team_id: int, canvas_id: str | UUID, task_id: str | UUID) -> CanvasGenerationSource:
+def canvas_generation_source(
+    *, team_id: int, canvas_id: str | UUID, source_version_id: str | UUID
+) -> CanvasGenerationSource:
     try:
-        version = (
-            CanvasSourceVersion.objects.for_team(team_id)
-            .filter(canvas_id=canvas_id, task_id=task_id)
-            .order_by("-created_at")
-            .first()
+        version = CanvasSourceVersion.objects.for_team(team_id).get(
+            id=source_version_id,
+            canvas_id=canvas_id,
         )
-        if version is None:
-            raise CanvasSourceVersion.DoesNotExist(task_id)
         return CanvasGenerationSource(
             project=read_source_project(version),
             storage_key=version.source_object_key,
