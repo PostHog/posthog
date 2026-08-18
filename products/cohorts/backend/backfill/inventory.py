@@ -14,7 +14,7 @@ will stamp, and a "stale" bucket would swallow old runs out of every other bucke
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from django.conf import settings
@@ -26,12 +26,22 @@ from posthog.dataclasses import frozen
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
+    CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunStatus,
     CohortBackfillScope,
 )
+
+# The chunk tallies a run needs when it has no chunk rows yet: the grouped chunk query below only
+# emits a row per run that has chunks, so runs missing from it fall back to these zeros.
+_EMPTY_CHUNK_TALLY: dict[str, Any] = {
+    "chunks_total": 0,
+    "chunks_confirmed": 0,
+    "chunks_failed_exhausted": 0,
+    "chunk_last_progress_at": None,
+}
 
 RunClassification = Literal[
     "orphaned",
@@ -219,30 +229,46 @@ def collect_run_inventory(
         queryset = queryset.filter(created_at__lt=now - older_than)
 
     # Annotate the per-run tallies rather than walking the relations: the prod active set is
-    # dominated by blocked runs, and an N+1 here makes the command unusable mid-cleanup.
-    rows = queryset.annotate(
-        participations_total=Count("run_cohorts", distinct=True),
-        participations_stamped=Count("run_cohorts", filter=Q(run_cohorts__stamped_at__isnull=False), distinct=True),
-        participations_superseded=Count(
-            "run_cohorts", filter=Q(run_cohorts__superseded_at__isnull=False), distinct=True
-        ),
-        live_participation_cohorts=Count("run_cohorts", filter=Q(run_cohorts__cohort__deleted=False), distinct=True),
-        chunks_total=Count("chunks", distinct=True),
-        chunks_confirmed=Count("chunks", filter=Q(chunks__status=CohortBackfillChunkStatus.CONFIRMED), distinct=True),
-        chunks_failed_exhausted=Count(
-            "chunks",
-            filter=Q(
-                chunks__status=CohortBackfillChunkStatus.FAILED,
-                chunks__attempts__gte=max_chunk_attempts,
-            )
-            & (Q(chunks__lease_expires_at__isnull=True) | Q(chunks__lease_expires_at__lt=now)),
-            distinct=True,
-        ),
-        chunk_last_progress_at=Max("chunks__updated_at"),
-    ).order_by("created_at")
+    # dominated by blocked runs, and an N+1 here makes the command unusable mid-cleanup. Only the
+    # participation aggregates are joined here; the chunk aggregates come from a separate grouped
+    # query below, because joining both `run_cohorts` and `chunks` in one SELECT multiplies into
+    # one intermediate row per participation-chunk pair, which a large team run turns into a heavy
+    # sort even though `distinct=True` keeps the counts right.
+    runs = list(
+        queryset.annotate(
+            participations_total=Count("run_cohorts", distinct=True),
+            participations_stamped=Count("run_cohorts", filter=Q(run_cohorts__stamped_at__isnull=False), distinct=True),
+            participations_superseded=Count(
+                "run_cohorts", filter=Q(run_cohorts__superseded_at__isnull=False), distinct=True
+            ),
+            live_participation_cohorts=Count(
+                "run_cohorts", filter=Q(run_cohorts__cohort__deleted=False), distinct=True
+            ),
+        ).order_by("created_at")
+    )
+
+    # One relation per query, so each aggregate stays linear in the chunk count. Keyed by run id and
+    # merged back below; runs with no chunks are simply absent and fall back to `_EMPTY_CHUNK_TALLY`.
+    chunk_tallies = (
+        CohortBackfillChunk.objects.unscoped()
+        .filter(run_id__in=[run.id for run in runs])
+        .values("run_id")
+        .annotate(
+            chunks_total=Count("id"),
+            chunks_confirmed=Count("id", filter=Q(status=CohortBackfillChunkStatus.CONFIRMED)),
+            chunks_failed_exhausted=Count(
+                "id",
+                filter=Q(status=CohortBackfillChunkStatus.FAILED, attempts__gte=max_chunk_attempts)
+                & (Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lt=now)),
+            ),
+            chunk_last_progress_at=Max("updated_at"),
+        )
+    )
+    chunks_by_run = {tally["run_id"]: tally for tally in chunk_tallies}
 
     inventory: list[RunInventoryRow] = []
-    for run in rows:
+    for run in runs:
+        chunks = chunks_by_run.get(run.id, _EMPTY_CHUNK_TALLY)
         facts = RunFacts(
             status=run.status,
             scope=run.scope,
@@ -253,10 +279,10 @@ def collect_run_inventory(
             reconcile_observed_at=run.reconcile_observed_at,
             boundary_established_at=run.boundary_established_at,
             chunks_planned_at=run.chunks_planned_at,
-            chunks_total=run.chunks_total,
-            chunks_unconfirmed=run.chunks_total - run.chunks_confirmed,
-            chunks_failed_exhausted=run.chunks_failed_exhausted,
-            chunk_last_progress_at=run.chunk_last_progress_at,
+            chunks_total=chunks["chunks_total"],
+            chunks_unconfirmed=chunks["chunks_total"] - chunks["chunks_confirmed"],
+            chunks_failed_exhausted=chunks["chunks_failed_exhausted"],
+            chunk_last_progress_at=chunks["chunk_last_progress_at"],
             now=now,
             stalled_after=stalled_after,
         )
@@ -283,7 +309,7 @@ def collect_run_inventory(
                 participations_stamped=run.participations_stamped,
                 participations_superseded=run.participations_superseded,
                 chunks_total=facts.chunks_total,
-                chunks_confirmed=run.chunks_confirmed,
+                chunks_confirmed=chunks["chunks_confirmed"],
                 chunks_failed_exhausted=facts.chunks_failed_exhausted,
                 chunk_last_progress_at=facts.chunk_last_progress_at,
                 evidence=classification_evidence(facts),
