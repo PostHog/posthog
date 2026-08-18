@@ -415,10 +415,42 @@ impl MinifiedSourceFile {
 const CSS_SOURCEMAP_REFERENCE_PREFIX: &str = "/*# sourceMappingURL=";
 
 fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
-    let comment_start = line.rfind(CSS_SOURCEMAP_REFERENCE_PREFIX)?;
-    let reference_start = comment_start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
-    let comment_end = reference_start + line[reference_start..].find("*/")? + 2;
-    Some(comment_start..comment_end)
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut found = None;
+
+    while index < bytes.len() {
+        if let Some(active_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if bytes[index] == b'\\' {
+                escaped = true;
+            } else if bytes[index] == active_quote {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'\'' | b'"' => {
+                quote = Some(bytes[index]);
+                index += 1;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                let comment_end = line[index + 2..].find("*/").map(|end| index + end + 4)?;
+                if line[index..].starts_with(CSS_SOURCEMAP_REFERENCE_PREFIX) {
+                    found = Some(index..comment_end);
+                }
+                index = comment_end;
+            }
+            _ => index += 1,
+        }
+    }
+
+    found
 }
 
 fn css_sourcemap_reference(line: &str) -> Option<&str> {
@@ -688,14 +720,29 @@ mod tests {
 
     #[test]
     fn remove_sourcemap_reference_strips_inline_css_comment() {
-        let mut source = minified_source(".app{color:black}/*# sourceMappingURL=app.css.map */\n");
+        let mut source = minified_source(
+            ".app{content:\"/* not a comment */\"}/*# sourceMappingURL=app.css.map */\n",
+        );
 
         assert_eq!(
             source.get_sourcemap_reference().unwrap(),
             Some("app.css.map".to_string())
         );
         assert!(source.remove_sourcemap_reference());
-        assert_eq!(source.inner.content, ".app{color:black}\n");
+        assert_eq!(
+            source.inner.content,
+            ".app{content:\"/* not a comment */\"}\n"
+        );
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_css_string_contents() {
+        let original = ".example::after{content:\"/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = minified_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
     }
 
     #[test]
