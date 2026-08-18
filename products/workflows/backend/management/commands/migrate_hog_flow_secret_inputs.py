@@ -91,7 +91,10 @@ class Command(BaseCommand):
             if not live_plaintext and not draft_plaintext:
                 return False
 
-            update_fields = ["updated_at"]
+            # Only rewrite the secret columns, not updated_at: this is a backend storage migration, not a
+            # user-facing edit. Bumping the stamp would fail the optimistic-concurrency check on any open
+            # editor's next save and re-sort untouched flows to the top of the updated_at-ordered list.
+            update_fields: list[str] = []
             if live_plaintext:
                 content = {"actions": flow.actions, "trigger": flow.trigger}
                 stripped = strip_secrets_from_content(content, template_cache)
