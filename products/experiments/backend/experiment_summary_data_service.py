@@ -29,6 +29,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
@@ -52,6 +53,14 @@ class ExposureQueryResult:
     exposures: dict[str, float] | None
     refresh_time: datetime | None
     pending: bool
+
+
+@frozen
+class ExperimentSummaryData:
+    context: MaxExperimentSummaryContext
+    last_refresh: datetime | None
+    pending_calculation: bool
+    omitted_metric_count: int
 
 
 MAX_METRICS_TO_SUMMARIZE = 50
@@ -143,14 +152,8 @@ class ExperimentSummaryDataService:
         self._team = team
         self._user = user
 
-    async def fetch_experiment_data(
-        self, experiment_id: int
-    ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool, int]:
-        """
-        Fetch experiment data from the database and run cached queries concurrently.
-        Returns the context data, the last refresh timestamp, whether any calculation is
-        pending, and how many configured metrics were omitted by the summary cap.
-        """
+    async def fetch_experiment_data(self, experiment_id: int) -> ExperimentSummaryData:
+        """Fetch experiment data from the database and run cached queries concurrently."""
         team_id = self._team.id
 
         # First, fetch the experiment (required to build queries)
@@ -370,8 +373,8 @@ class ExperimentSummaryDataService:
             ):
                 latest_refresh = exposure_query_result.refresh_time
 
-        return (
-            MaxExperimentSummaryContext(
+        return ExperimentSummaryData(
+            context=MaxExperimentSummaryContext(
                 experiment_id=experiment_id,
                 experiment_name=experiment.name or "Unnamed experiment",
                 description=experiment.description or None,
@@ -381,9 +384,9 @@ class ExperimentSummaryDataService:
                 secondary_metrics_results=secondary_results,
                 stats_method=stats_method,
             ),
-            latest_refresh,
-            pending_calculation,
-            omitted_metric_count,
+            last_refresh=latest_refresh,
+            pending_calculation=pending_calculation,
+            omitted_metric_count=omitted_metric_count,
         )
 
     def check_data_freshness(

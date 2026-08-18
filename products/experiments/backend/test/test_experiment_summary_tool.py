@@ -348,7 +348,12 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, last_refresh, pending_calculation, _ = await data_service.fetch_experiment_data(experiment.id)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, last_refresh, pending_calculation = (
+                summary_data.context,
+                summary_data.last_refresh,
+                summary_data.pending_calculation,
+            )
 
         self.assertEqual(context.experiment_id, experiment.id)
         self.assertEqual(context.experiment_name, "query-runner-test")
@@ -387,10 +392,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         await experiment.asave(update_fields=["metrics"])
 
         data_service = ExperimentSummaryDataService(self.team, self.user)
-        context, last_refresh, pending_calculation, _ = await data_service.fetch_experiment_data(experiment.id)
+        summary_data = await data_service.fetch_experiment_data(experiment.id)
 
-        self.assertFalse(pending_calculation)
-        self.assertIsNotNone(last_refresh)
+        self.assertFalse(summary_data.pending_calculation)
+        self.assertIsNotNone(summary_data.last_refresh)
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_includes_saved_metrics(self):
@@ -465,7 +470,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
@@ -560,7 +565,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _, _ = await data_service.fetch_experiment_data(experiment.id)
+            context = (await data_service.fetch_experiment_data(experiment.id)).context
 
         # 1 inline primary + 1 saved primary = 2
         self.assertEqual(len(context.primary_metrics_results), 2)
@@ -618,7 +623,8 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            context, _, _, omitted_count = await data_service.fetch_experiment_data(experiment.id)
+            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            context, omitted_count = summary_data.context, summary_data.omitted_metric_count
 
         self.assertEqual(len(context.primary_metrics_results), 50)
         self.assertEqual(omitted_count, 2)

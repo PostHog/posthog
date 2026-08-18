@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -638,7 +639,11 @@ class TestExperimentSummaryTool(APIBaseTest):
 
         with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False, 2))
+            mock_service.fetch_experiment_data = AsyncMock(
+                return_value=ExperimentSummaryData(
+                    context=mock_context, last_refresh=None, pending_calculation=False, omitted_metric_count=2
+                )
+            )
 
             result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
