@@ -2164,6 +2164,8 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_flow:write`.
  */
+export const hogFlowsRerunCreateBodyFilterOneErrorMessageContainsMax = 200
+
 export const hogFlowsRerunCreateBodyFilterOneMaxAttemptsMax = 255
 
 export const hogFlowsRerunCreateBodyFilterOneMaxCountMax = 10000
@@ -2195,6 +2197,13 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                error_message_contains: zod
+                    .string()
+                    .max(hogFlowsRerunCreateBodyFilterOneErrorMessageContainsMax)
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error message contains this substring, matched case-insensitively. Use this to target one failure mode when `error_kind` cannot: every error that is not a timeout, HTTP status or OOM is classified as 'hog_error'."
                     ),
                 max_attempts: zod
                     .number()

@@ -24,6 +24,10 @@ HOG_INVOCATION_RERUN_MAX_COUNT = get_from_env("HOG_INVOCATION_RERUN_MAX_COUNT", 
 # window any longer would point at partitions that have already been dropped.
 RERUN_MAX_WINDOW_DAYS = 30
 
+# Cap on `error_message_contains`. Mirrors RERUN_MAX_ERROR_MESSAGE_CONTAINS on the
+# Node side, where the substring scan runs per row inside the page query's HAVING.
+RERUN_MAX_ERROR_MESSAGE_CONTAINS = 200
+
 
 class HogInvocationRerunFilterSerializer(serializers.Serializer):
     """Filter shape for the rerun endpoint. `window_start`/`window_end` are required."""
@@ -39,6 +43,17 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout').",
+    )
+    error_message_contains = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=RERUN_MAX_ERROR_MESSAGE_CONTAINS,
+        trim_whitespace=True,
+        help_text=(
+            "Restrict to invocations whose error message contains this substring, matched "
+            "case-insensitively. Use this to target one failure mode when `error_kind` cannot: "
+            "every error that is not a timeout, HTTP status or OOM is classified as 'hog_error'."
+        ),
     )
     max_attempts = serializers.IntegerField(
         required=False,

@@ -122,6 +122,23 @@ describe('RerunJobManager', () => {
         expect(state.progress.done).toBe(false)
     })
 
+    it('drops an all-whitespace error_message_contains instead of matching every row', async () => {
+        const jobId = await manager.enqueue(1, 'hog_function', uuidv7(), {
+            filter: { ...baseFilter, error_message_contains: '   ' },
+        })
+
+        const state = fetchState(await queryJob(jobId))
+        expect(state.request.filter.error_message_contains).toBeUndefined()
+    })
+
+    it('rejects an error_message_contains longer than the cap', async () => {
+        await expect(
+            manager.enqueue(1, 'hog_function', uuidv7(), {
+                filter: { ...baseFilter, error_message_contains: 'x'.repeat(201) },
+            })
+        ).rejects.toThrow(/error_message_contains cannot exceed 200 characters/i)
+    })
+
     it('rejects a window longer than the TTL (30 days)', async () => {
         await expect(
             manager.enqueue(1, 'hog_function', uuidv7(), {

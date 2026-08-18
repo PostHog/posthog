@@ -1954,6 +1954,53 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert mock_rerun.call_count == 1
 
+    def test_rerun_forwards_error_message_contains(self):
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event")
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            mock_rerun.return_value = MagicMock(status_code=200, json=lambda: {"rerun_job_id": "job-1"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                        "error_message_contains": "  is not on the verified domain  ",
+                    }
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            payload = mock_rerun.call_args.kwargs["payload"]
+            assert payload["filter"]["error_message_contains"] == "is not on the verified domain"
+
+    @parameterized.expand(
+        [
+            ("too_long", "x" * 201),
+            ("blank", ""),
+        ]
+    )
+    def test_rerun_rejects_invalid_error_message_contains(self, _name, value):
+        # A blank or oversized value reaching the worker would widen the rerun to the whole
+        # window rather than narrowing it, so it has to fail before the enqueue.
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event")
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                        "error_message_contains": value,
+                    }
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            mock_rerun.assert_not_called()
+
     @parameterized.expand(
         [
             (

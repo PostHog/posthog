@@ -45,6 +45,10 @@ export type RerunStatusValue = 'running' | 'succeeded' | 'failed' | 'canceled'
  * than that). The window also caps rerun to data that's still resident in the
  * table — older rows are gone via TTL anyway.
  *
+ * `error_message_contains` is an OPTIONAL additional restriction, capped at
+ * `RERUN_MAX_ERROR_MESSAGE_CONTAINS` characters so the per-row substring scan
+ * inside `HAVING` stays cheap.
+ *
  * `invocation_ids` is an OPTIONAL additional restriction. When set, the
  * paginator pulls only those ids within the window — a UI "rerun these
  * specific failed runs" affordance. Server-side cap on the list size is
@@ -55,6 +59,13 @@ export interface RerunFilter {
     window_end: string
     status?: RerunStatusValue[]
     error_kind?: string[]
+    /**
+     * Case-insensitive substring match on the invocation's error message. Narrows a
+     * rerun to one failure mode when `error_kind` cannot: the classifier buckets
+     * anything that is not a timeout, HTTP status or OOM into `hog_error`, so a
+     * single incident is not addressable by kind alone.
+     */
+    error_message_contains?: string
     max_attempts?: number
     max_count?: number
     invocation_ids?: string[]
@@ -69,6 +80,9 @@ export interface RerunRequest {
  * `hog_invocation_results`. Older rows are already gone via part drop.
  */
 export const RERUN_MAX_WINDOW_DAYS = 30
+
+/** Mirror of the Django serializer's `error_message_contains` max_length. */
+export const RERUN_MAX_ERROR_MESSAGE_CONTAINS = 200
 
 export interface RerunCursor {
     scheduled_at: string

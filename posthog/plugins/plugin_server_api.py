@@ -294,6 +294,10 @@ def rerun_hog_invocations(
       - {"invocation_ids": ["uuid", ...]}                   -> rerun these specific runs
       - {"filter": {"window_start": "...", "window_end": "...", "status": [...], ...}}
 
+    Narrow a filter-mode rerun to one failure mode with `error_message_contains`:
+    the error classifier buckets everything that is not a timeout, HTTP status or
+    OOM into `hog_error`, so `error_kind` alone cannot isolate a single incident.
+
     The Node side (`nodejs/src/cdp/rerun`) reads the matching rows from
     `hog_invocation_results`, rehydrates the invocation from the stored
     `invocation_globals`, and re-enqueues onto cyclotron with `is_retry=1`.

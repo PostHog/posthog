@@ -4,6 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import {
+    RERUN_MAX_ERROR_MESSAGE_CONTAINS,
     RERUN_MAX_WINDOW_DAYS,
     RERUN_QUEUE_NAME,
     RerunFunctionKind,
@@ -77,8 +78,19 @@ export class RerunJobManager {
             throw new Error(`rerun window cannot exceed ${RERUN_MAX_WINDOW_DAYS} days (TTL on hog_invocation_results)`)
         }
 
+        const contains = request.filter.error_message_contains?.trim()
+        if (contains && contains.length > RERUN_MAX_ERROR_MESSAGE_CONTAINS) {
+            throw new Error(`error_message_contains cannot exceed ${RERUN_MAX_ERROR_MESSAGE_CONTAINS} characters`)
+        }
+
         const trimmedIds = request.filter.invocation_ids?.slice(0, this.config.maxCount)
-        const filter = { ...request.filter, invocation_ids: trimmedIds }
+        // An all-whitespace value would otherwise match every row, quietly turning a
+        // narrowed rerun into a full-window one.
+        const filter = {
+            ...request.filter,
+            invocation_ids: trimmedIds,
+            error_message_contains: contains || undefined,
+        }
 
         const state: RerunJobState = {
             function_kind: functionKind,

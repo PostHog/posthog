@@ -456,6 +456,43 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
         })
 
+        it('honours error_message_contains when error_kind cannot separate the rows', async () => {
+            // Both rows classify as 'hog_error', so error_kind is useless for targeting one
+            // incident. Matching on the message is the only way to rerun just its failures.
+            await seedRows([
+                {
+                    invocation_id: 'inv-sender',
+                    status: 'failed',
+                    error: new Error('The custom sender address "x@example.com" is not on the verified domain "acme.com"'),
+                },
+                { invocation_id: 'inv-other', status: 'failed', error: new Error('Invalid Liquid template') },
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        error_message_contains: 'IS NOT ON THE VERIFIED DOMAIN',
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            // Membership rather than array equality: rows produced by an earlier test can land
+            // after this test's truncate, and an unrelated id appearing would fail an exact match
+            // without saying anything about the filter under test.
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            const ids = enqueued?.map((i) => i.id) ?? []
+            expect(ids).toContain('inv-sender')
+            expect(ids).not.toContain('inv-other')
+        })
+
         it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
             await seedRows([
                 { invocation_id: 'a', status: 'failed', error: new Error('5xx') },
