@@ -436,6 +436,13 @@ export interface CloudTaskEngineDependencies {
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
   streamFetch?: CloudTaskFetch;
+  /**
+   * Forward SSE keepalives as `heartbeat` updates so subscribers can run a
+   * liveness watchdog. Off by default: consumers that listen on the emitter
+   * directly (mobile) have their own foreground reconnect handling and no
+   * use for the extra events.
+   */
+  emitHeartbeats?: boolean;
 }
 
 export type CloudTaskFetch = (
@@ -456,6 +463,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly streamFetch: CloudTaskFetch;
+  private readonly emitHeartbeats: boolean;
 
   constructor({
     auth,
@@ -463,12 +471,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     logger,
     mcpRelayExecutor = null,
     streamFetch = globalThis.fetch.bind(globalThis),
+    emitHeartbeats = false,
   }: CloudTaskEngineDependencies) {
     super();
     this.auth = auth;
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
     this.streamFetch = streamFetch;
+    this.emitHeartbeats = emitHeartbeats;
     this.log = logger.scope("cloud-task");
   }
 
@@ -738,6 +748,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         subscribers: existing.subscriberCount,
       });
       void this.emitCurrentSnapshot(key);
+      // A re-watch is a recovery signal (renderer reload, rebuilt
+      // subscription): the snapshot catches the subscriber up, and this
+      // revives the SSE leg if it died without scheduling a reconnect.
+      // Failed watchers are excluded — they need retry()'s full re-bootstrap.
+      if (!existing.failed) {
+        this.reconnectIfDisconnected(input.taskId, input.runId);
+      }
       return;
     }
 
@@ -1674,6 +1691,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher.reconnectAttempts = 0;
 
     if (isKeepaliveEvent(event)) {
+      if (this.emitHeartbeats) {
+        this.emit(CloudTaskEvent.Update, {
+          taskId: watcher.taskId,
+          runId: watcher.runId,
+          kind: "heartbeat",
+        });
+      }
       return null;
     }
 

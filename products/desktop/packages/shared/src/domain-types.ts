@@ -469,6 +469,15 @@ export interface CloudTaskErrorUpdate extends CloudTaskUpdateBase {
   retryable: boolean;
 }
 
+/**
+ * Liveness signal forwarded from the SSE keepalive so subscribers can tell a
+ * quiet-but-healthy stream from a dead one. Carries no data; consumers that
+ * don't track liveness ignore it.
+ */
+export interface CloudTaskHeartbeatUpdate extends CloudTaskUpdateBase {
+  kind: "heartbeat";
+}
+
 export interface CloudPermissionOption {
   kind: string;
   optionId: string;
@@ -495,6 +504,7 @@ export type CloudTaskUpdatePayload =
   | CloudTaskStatusUpdate
   | CloudTaskSnapshotUpdate
   | CloudTaskErrorUpdate
+  | CloudTaskHeartbeatUpdate
   | CloudTaskPermissionRequestUpdate;
 
 // Mention types for editors

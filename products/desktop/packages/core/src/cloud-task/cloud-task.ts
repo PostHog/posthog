@@ -25,7 +25,7 @@ export class CloudTaskService extends CloudTaskEngine {
     @optional()
     mcpRelayExecutor: McpRelayExecutor | null = null,
   ) {
-    super({ auth, analytics, logger, mcpRelayExecutor });
+    super({ auth, analytics, logger, mcpRelayExecutor, emitHeartbeats: true });
   }
 
   @preDestroy()

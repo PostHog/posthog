@@ -41,7 +41,12 @@ describe("cloud task contract exports", () => {
       name: string;
     }>();
     expectTypeOf<CloudTaskUpdatePayload["kind"]>().toEqualTypeOf<
-      "logs" | "status" | "snapshot" | "error" | "permission_request"
+      | "logs"
+      | "status"
+      | "snapshot"
+      | "error"
+      | "heartbeat"
+      | "permission_request"
     >();
   });
 

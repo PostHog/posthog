@@ -150,6 +150,128 @@ describe("CloudTaskEngine", () => {
     vi.unstubAllGlobals();
   });
 
+  it("forwards keepalives as heartbeat updates when enabled", async () => {
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const heartbeatEngine = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: analyticsMock as never,
+      logger: { ...scopedLog, scope: vi.fn(() => scopedLog) },
+      streamFetch: fetchRouter,
+      emitHeartbeats: true,
+    });
+    const updates: Array<{ kind?: string }> = [];
+    heartbeatEngine.on(CloudTaskEvent.Update, (payload) =>
+      updates.push(payload as { kind?: string }),
+    );
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: null,
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValue(
+        createJsonResponse([], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse("event: keepalive\ndata: {}\n\n"),
+    );
+
+    heartbeatEngine.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() => updates.some((u) => u.kind === "heartbeat"));
+    heartbeatEngine.unwatchAll();
+  });
+
+  it("does not emit heartbeat updates by default", async () => {
+    const updates: Array<{ kind?: string }> = [];
+    service.on(CloudTaskEvent.Update, (payload) =>
+      updates.push(payload as { kind?: string }),
+    );
+
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: null,
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValue(
+        createJsonResponse([], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse("event: keepalive\ndata: {}\n\n"),
+    );
+
+    service.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() => updates.some((u) => u.kind === "snapshot"));
+    expect(updates.some((u) => u.kind === "heartbeat")).toBe(false);
+  });
+
+  it("revives the SSE leg when an existing watcher is re-watched", async () => {
+    const updates: Array<{ kind?: string }> = [];
+    service.on(CloudTaskEvent.Update, (payload) =>
+      updates.push(payload as { kind?: string }),
+    );
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: null,
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValue(
+        createJsonResponse([], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+    const input = {
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    };
+    service.watch(input);
+    await waitFor(() => updates.some((u) => u.kind === "snapshot"));
+
+    const reconnectSpy = vi.spyOn(service, "reconnectIfDisconnected");
+    service.watch(input);
+
+    expect(reconnectSpy).toHaveBeenCalledWith("task-1", "run-1");
+  });
+
   it("emits a replayed permission_request frame only once", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
