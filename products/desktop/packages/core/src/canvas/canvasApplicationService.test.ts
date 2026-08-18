@@ -68,10 +68,12 @@ describe("CanvasApplicationService", () => {
     const result = await service.generateCanvas(input(), gateway);
 
     expect(result).toEqual({ ok: true, taskId: "task-1" });
+    // No caller pick: prefer Sonnet over the gateway's default tier, validated
+    // by the resolver against the gateway's model list.
     expect(resolveDefaultModel).toHaveBeenCalledWith(
       "https://us.posthog.com",
       "claude",
-      undefined,
+      "claude-sonnet-5",
     );
     const [taskInput] = createTask.mock.calls[0];
     expect(taskInput.content).toContain("`building-canvases` skill");

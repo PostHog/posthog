@@ -65,6 +65,12 @@ export interface CanvasGenerationGateway {
   onAutoNamed?(taskId: string, title: string): void;
 }
 
+// Unattended canvas runs default to Sonnet (mirrors LOOP_DEFAULT_MODELS for
+// loops): the gateway's own default can be a pricier Opus tier. The resolver
+// validates this against the gateway's model list, so when it's absent the
+// run falls back to the server default instead of failing.
+const CANVAS_PREFERRED_MODEL = "claude-sonnet-5";
+
 const TASK_TITLE_MAX = 80;
 
 function truncateForTitle(text: string): string {
@@ -137,7 +143,8 @@ export class CanvasApplicationService {
         ? await this.modelResolver.resolveDefaultModel(
             getCloudUrlFromRegion(input.cloudRegion),
             adapter,
-            input.model,
+            input.model ??
+              (adapter === "claude" ? CANVAS_PREFERRED_MODEL : null),
           )
         : undefined;
       if (!model) {
