@@ -157,7 +157,7 @@ describe('buildEmailMetricRows', () => {
         const rows = buildEmailMetricRows([{ id: 'a1', name: 'Welcome email' }], {
             a1: {
                 email_sent: 100,
-                email_delivered: 85, // reported value wins over the derived sent - bounced - complaints (= 90)
+                email_delivered: 85, // reported value wins over the derived sent - bounced (= 94)
                 email_opened: 40,
                 email_link_clicked: 12,
                 email_bounced: 6,
@@ -190,9 +190,10 @@ describe('buildEmailMetricRows', () => {
         expect(row.trackedSends).toBe(10)
     })
 
-    // delivered falls back to sent - bounced - complaints (clamped at 0) when it wasn't collected.
+    // delivered falls back to sent - bounced (clamped at 0) when it wasn't collected. Spam
+    // complaints (email_blocked) are post-delivery reports, so they must not reduce delivered.
     it.each<{ totals: Partial<Record<EmailMetric, number>>; delivered: number }>([
-        { totals: { email_sent: 10, email_bounced: 3, email_blocked: 2 }, delivered: 5 },
+        { totals: { email_sent: 10, email_bounced: 3, email_blocked: 2 }, delivered: 7 },
         { totals: { email_sent: 1, email_bounced: 5 }, delivered: 0 },
         { totals: {}, delivered: 0 },
     ])('derives delivered=$delivered when email_delivered is absent', ({ totals, delivered }) => {

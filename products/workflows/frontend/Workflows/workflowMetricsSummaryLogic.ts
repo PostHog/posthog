@@ -1464,8 +1464,9 @@ export function buildEmailMetricRows(
         return {
             id: action.id,
             email: action.name,
-            // Fallback to calculating delivered as sent - bounced - complaints if email_delivered metric is not available, since we were not always collecting this metric
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced - markedAsSpam),
+            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
             sent,
             opened: totals.email_opened ?? 0,
             linkClicked: totals.email_link_clicked ?? 0,
