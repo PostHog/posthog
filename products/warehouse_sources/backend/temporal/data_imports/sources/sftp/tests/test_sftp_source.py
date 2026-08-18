@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp 
     AUTH_FAILED_ERROR,
     DELIMITER_ERROR,
     DIRECTORY_ERROR,
+    SFTPAuth,
     SFTPCredentialsError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source import SFTPSource
@@ -332,9 +333,7 @@ class TestSourceForPipeline:
             self.source.source_for_pipeline(config, make_inputs("orders"))
 
         kwargs = source_fn.call_args.kwargs
-        assert kwargs["private_key"] == "key"
-        assert kwargs["passphrase"] == "phrase"
-        assert kwargs["password"] is None
+        assert kwargs["auth"] == SFTPAuth(private_key="key", passphrase="phrase")
         assert kwargs["configured_format"] == "csv"
         assert kwargs["delimiter"] == "\\t"
         assert kwargs["file_pattern"] == r"\.tsv$"

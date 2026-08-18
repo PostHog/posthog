@@ -17,6 +17,8 @@ import re2
 import paramiko
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import (
@@ -118,17 +120,27 @@ def load_private_key(private_key: str, passphrase: str | None = None) -> paramik
         ) from e
 
 
+@frozen
+class SFTPAuth:
+    """How to authenticate as the configured user: a password, or an SSH key with optional passphrase."""
+
+    password: str | None = dataclasses.field(default=None, repr=False)
+    private_key: str | None = dataclasses.field(default=None, repr=False)
+    passphrase: str | None = dataclasses.field(default=None, repr=False)
+
+    def pkey(self) -> paramiko.PKey | None:
+        return load_private_key(self.private_key, self.passphrase) if self.private_key else None
+
+
 @contextmanager
 def sftp_connection(
     host: str,
     port: int,
     user: str,
-    password: str | None = None,
-    private_key: str | None = None,
-    passphrase: str | None = None,
+    auth: SFTPAuth,
     timeout: int = CONNECT_TIMEOUT_SECONDS,
 ) -> Generator[paramiko.SFTPClient]:
-    pkey = load_private_key(private_key, passphrase) if private_key else None
+    pkey = auth.pkey()
 
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
@@ -146,7 +158,7 @@ def sftp_connection(
 
     try:
         try:
-            transport.connect(username=user, password=password or None, pkey=pkey)
+            transport.connect(username=user, password=auth.password or None, pkey=pkey)
         except paramiko.AuthenticationException as e:
             raise SFTPCredentialsError(
                 f"{AUTH_FAILED_ERROR} for user '{user}'. Check the username and password or SSH key."
@@ -510,9 +522,7 @@ def get_rows(
     port: int,
     user: str,
     schema_name: str,
-    password: str | None = None,
-    private_key: str | None = None,
-    passphrase: str | None = None,
+    auth: SFTPAuth,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -520,14 +530,7 @@ def get_rows(
     combined_table_name: str | None = None,
     logger: FilteringBoundLogger | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    with sftp_connection(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        private_key=private_key,
-        passphrase=passphrase,
-    ) as client:
+    with sftp_connection(host=host, port=port, user=user, auth=auth) as client:
         files = parseable_files(list_remote_files(client, path, file_pattern, logger=logger), configured_format)
         grouped = group_files_by_table(files, combined_table_name)
         target = grouped.get(schema_name)
@@ -543,9 +546,7 @@ def validate_credentials(
     host: str,
     port: int,
     user: str,
-    password: str | None = None,
-    private_key: str | None = None,
-    passphrase: str | None = None,
+    auth: SFTPAuth,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -559,14 +560,7 @@ def validate_credentials(
     _compile_pattern(file_pattern)
     # Catch a bad delimiter here rather than on every sync — it's a permanent misconfiguration.
     normalize_delimiter(delimiter)
-    with sftp_connection(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        private_key=private_key,
-        passphrase=passphrase,
-    ) as client:
+    with sftp_connection(host=host, port=port, user=user, auth=auth) as client:
         files = parseable_files(list_remote_files(client, path, file_pattern), configured_format)
 
     if not files:
@@ -583,9 +577,7 @@ def sftp_source(
     port: int,
     user: str,
     schema_name: str,
-    password: str | None = None,
-    private_key: str | None = None,
-    passphrase: str | None = None,
+    auth: SFTPAuth,
     path: str = "/",
     file_pattern: str | None = None,
     configured_format: ConfiguredFileFormat | str | None = "infer",
@@ -600,9 +592,7 @@ def sftp_source(
             port=port,
             user=user,
             schema_name=schema_name,
-            password=password,
-            private_key=private_key,
-            passphrase=passphrase,
+            auth=auth,
             path=path,
             file_pattern=file_pattern,
             configured_format=configured_format,

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp 
     NO_FILES_ERROR,
     PATTERN_ERROR,
     PRIVATE_KEY_ERROR,
+    SFTPAuth,
     SFTPCredentialsError,
     group_files_by_table,
     list_remote_files,
@@ -245,12 +246,12 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             ),
         )
 
-    def _auth(self, config: SFTPSourceConfig) -> tuple[str | None, str | None, str | None]:
-        """Return `(password, private_key, passphrase)` for the selected authentication type."""
+    def _auth(self, config: SFTPSourceConfig) -> SFTPAuth:
+        """Keep the unselected authentication type's stored secrets out of the connection."""
         auth = config.auth_type
         if auth.selection == "ssh_key":
-            return None, auth.private_key, auth.passphrase
-        return auth.password, None, None
+            return SFTPAuth(private_key=auth.private_key, passphrase=auth.passphrase)
+        return SFTPAuth(password=auth.password)
 
     def _combined_table_name(self, config: SFTPSourceConfig) -> str | None:
         combine = config.combine_files
@@ -278,8 +279,8 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         if not 0 < config.port < 65536:
             return False, "The port must be between 1 and 65535. SFTP servers usually listen on port 22."
 
-        password, private_key, passphrase = self._auth(config)
-        if not password and not private_key:
+        auth = self._auth(config)
+        if not auth.password and not auth.private_key:
             return False, "Enter either a password or an SSH private key for this user."
 
         try:
@@ -287,9 +288,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                 host=config.host,
                 port=config.port,
                 user=config.user,
-                password=password,
-                private_key=private_key,
-                passphrase=passphrase,
+                auth=auth,
                 path=config.path,
                 file_pattern=config.file_pattern,
                 configured_format=config.file_format,
@@ -310,15 +309,12 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         self._ensure_host_allowed(config, team_id)
-        password, private_key, passphrase = self._auth(config)
 
         with sftp_connection(
             host=config.host,
             port=config.port,
             user=config.user,
-            password=password,
-            private_key=private_key,
-            passphrase=passphrase,
+            auth=self._auth(config),
         ) as client:
             files = parseable_files(list_remote_files(client, config.path, config.file_pattern), config.file_format)
 
@@ -334,16 +330,13 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
 
     def source_for_pipeline(self, config: SFTPSourceConfig, inputs: SourceInputs) -> SourceResponse:
         self._ensure_host_allowed(config, inputs.team_id)
-        password, private_key, passphrase = self._auth(config)
 
         return sftp_source(
             host=config.host,
             port=config.port,
             user=config.user,
             schema_name=inputs.schema_name,
-            password=password,
-            private_key=private_key,
-            passphrase=passphrase,
+            auth=self._auth(config),
             path=config.path,
             file_pattern=config.file_pattern,
             configured_format=config.file_format,

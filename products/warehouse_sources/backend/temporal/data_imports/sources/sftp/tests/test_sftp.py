@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp 
     PRIVATE_KEY_ERROR,
     RemoteFile,
     ResolvedFormat,
+    SFTPAuth,
     SFTPCredentialsError,
     SFTPFileFormatError,
     get_rows,
@@ -459,7 +460,9 @@ class TestSFTPConnection:
     def test_unreachable_host_is_a_credentials_error(self) -> None:
         with patch("socket.create_connection", side_effect=OSError("connection refused")):
             with pytest.raises(SFTPCredentialsError, match=CONNECTION_FAILED_ERROR):
-                with sftp_connection(host="sftp.example.com", port=22, user="posthog", password="hunter2"):
+                with sftp_connection(
+                    host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(password="hunter2")
+                ):
                     pass
 
     def test_rejected_credentials_are_a_credentials_error(self) -> None:
@@ -471,7 +474,7 @@ class TestSFTPConnection:
             patch("paramiko.Transport", return_value=transport),
         ):
             with pytest.raises(SFTPCredentialsError, match=AUTH_FAILED_ERROR):
-                with sftp_connection(host="sftp.example.com", port=22, user="posthog", password="wrong"):
+                with sftp_connection(host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(password="wrong")):
                     pass
 
         transport.close.assert_called_once()
@@ -485,7 +488,9 @@ class TestSFTPConnection:
             patch("paramiko.Transport", return_value=transport),
         ):
             with pytest.raises(SFTPCredentialsError, match=CONNECTION_FAILED_ERROR):
-                with sftp_connection(host="sftp.example.com", port=22, user="posthog", password="hunter2"):
+                with sftp_connection(
+                    host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(password="hunter2")
+                ):
                     pass
 
     def test_missing_sftp_subsystem_is_a_credentials_error(self) -> None:
@@ -495,7 +500,9 @@ class TestSFTPConnection:
             patch("paramiko.SFTPClient.from_transport", return_value=None),
         ):
             with pytest.raises(SFTPCredentialsError, match="SFTP subsystem"):
-                with sftp_connection(host="sftp.example.com", port=22, user="posthog", password="hunter2"):
+                with sftp_connection(
+                    host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(password="hunter2")
+                ):
                     pass
 
     def test_closes_the_client_and_transport_on_success(self) -> None:
@@ -507,7 +514,9 @@ class TestSFTPConnection:
             patch("paramiko.Transport", return_value=transport),
             patch("paramiko.SFTPClient.from_transport", return_value=client),
         ):
-            with sftp_connection(host="sftp.example.com", port=22, user="posthog", password="hunter2") as opened:
+            with sftp_connection(
+                host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(password="hunter2")
+            ) as opened:
                 assert opened is client
 
         client.close.assert_called_once()
@@ -521,7 +530,9 @@ class TestSFTPConnection:
             patch("paramiko.Transport", return_value=transport),
             patch("paramiko.SFTPClient.from_transport", return_value=MagicMock()),
         ):
-            with sftp_connection(host="sftp.example.com", port=22, user="posthog", private_key=_generate_private_key()):
+            with sftp_connection(
+                host="sftp.example.com", port=22, user="posthog", auth=SFTPAuth(private_key=_generate_private_key())
+            ):
                 pass
 
         assert transport.connect.call_args.kwargs["pkey"] is not None
@@ -567,7 +578,9 @@ class TestGetRows:
         with _patched_connection(self._client()):
             rows = [
                 row
-                for chunk in get_rows(host="h", port=22, user="u", schema_name="orders", password="p", path="/data")
+                for chunk in get_rows(
+                    host="h", port=22, user="u", schema_name="orders", auth=SFTPAuth(password="p"), path="/data"
+                )
                 for row in chunk
             ]
 
@@ -583,7 +596,7 @@ class TestGetRows:
                     port=22,
                     user="u",
                     schema_name="all_orders",
-                    password="p",
+                    auth=SFTPAuth(password="p"),
                     path="/data",
                     combined_table_name="all_orders",
                 )
@@ -595,7 +608,9 @@ class TestGetRows:
     def test_missing_table_is_a_credentials_error(self) -> None:
         with _patched_connection(self._client()):
             with pytest.raises(SFTPCredentialsError, match=NO_FILES_ERROR):
-                list(get_rows(host="h", port=22, user="u", schema_name="gone", password="p", path="/data"))
+                list(
+                    get_rows(host="h", port=22, user="u", schema_name="gone", auth=SFTPAuth(password="p"), path="/data")
+                )
 
 
 class TestValidateCredentials:
@@ -603,7 +618,7 @@ class TestValidateCredentials:
         client = FakeClient({"/data": [FakeAttributes("orders.csv")]})
 
         with _patched_connection(client):
-            assert validate_credentials(host="h", port=22, user="u", password="p", path="/data") is True
+            assert validate_credentials(host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data") is True
 
     @pytest.mark.parametrize(
         ("entries", "file_pattern"),
@@ -620,14 +635,18 @@ class TestValidateCredentials:
 
         with _patched_connection(client):
             with pytest.raises(SFTPCredentialsError, match=NO_MATCHING_FILES_ERROR):
-                validate_credentials(host="h", port=22, user="u", password="p", path="/data", file_pattern=file_pattern)
+                validate_credentials(
+                    host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", file_pattern=file_pattern
+                )
 
     def test_an_explicit_format_accepts_files_without_a_known_extension(self) -> None:
         client = FakeClient({"/data": [FakeAttributes("export")]})
 
         with _patched_connection(client):
             assert (
-                validate_credentials(host="h", port=22, user="u", password="p", path="/data", configured_format="csv")
+                validate_credentials(
+                    host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", configured_format="csv"
+                )
                 is True
             )
 
@@ -636,7 +655,9 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
         ) as connection:
             with pytest.raises(SFTPCredentialsError, match=PATTERN_ERROR):
-                validate_credentials(host="h", port=22, user="u", password="p", path="/data", file_pattern="([")
+                validate_credentials(
+                    host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", file_pattern="(["
+                )
 
         connection.assert_not_called()
 
@@ -645,7 +666,9 @@ class TestValidateCredentials:
             "products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp.sftp_connection"
         ) as connection:
             with pytest.raises(SFTPCredentialsError, match=DELIMITER_ERROR):
-                validate_credentials(host="h", port=22, user="u", password="p", path="/data", delimiter="||")
+                validate_credentials(
+                    host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data", delimiter="||"
+                )
 
         connection.assert_not_called()
 
@@ -654,7 +677,7 @@ class TestValidateCredentials:
 
         with _patched_connection(client):
             with pytest.raises(SFTPCredentialsError, match=DIRECTORY_ERROR):
-                validate_credentials(host="h", port=22, user="u", password="p", path="/data")
+                validate_credentials(host="h", port=22, user="u", auth=SFTPAuth(password="p"), path="/data")
 
 
 class TestSFTPSource:
@@ -664,7 +687,9 @@ class TestSFTPSource:
             contents={"/data/orders.csv": b"id\n1\n"},
         )
 
-        response = sftp_source(host="h", port=22, user="u", schema_name="orders", password="p", path="/data")
+        response = sftp_source(
+            host="h", port=22, user="u", schema_name="orders", auth=SFTPAuth(password="p"), path="/data"
+        )
 
         assert response.name == "orders"
         assert response.primary_keys is None
