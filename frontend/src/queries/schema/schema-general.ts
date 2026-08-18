@@ -9013,6 +9013,8 @@ export const externalDataSources = [
     'Hootsuite',
     'WisprFlow',
     'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
