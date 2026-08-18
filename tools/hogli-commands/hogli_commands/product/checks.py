@@ -543,42 +543,12 @@ class MisplacedFilesCheck(ProductCheck):
     label = "misplaced backend files"
     for_lenient = False
 
-    # Directories allowed in backend/ for strict products.
-    # Anything else won't be covered by import-linter's wildcard contracts.
-    # `templates` is allowed because Django's app_directories loader requires
-    # the folder to live at <app>/templates/, and templates aren't Python
-    # imports so import-linter contracts don't apply.
-    # `admin` is allowed because Django's autodiscover_modules("admin") requires
-    # the admin module at <app>.admin — and that module can be a flat `admin.py`
-    # or an `admin/` package (both resolve to the same import). The file form is
-    # already accepted, so the package form has to be too.
-    # `hogql_queries` is the established home for HogQL query runners across
-    # products (web_analytics, revenue_analytics, product_analytics), so it is
-    # allowed in isolated products too rather than forcing query code into logic/.
-    # `temporal` is the established home for Temporal workflow + activity code
-    # across products (batch_exports, data_warehouse, tasks, experiments, and
-    # others), so it is allowed in isolated products on the same grounds.
-    # `sandbox` holds Docker build context (Dockerfiles + helper scripts) for
-    # sandboxed execution, not importable Python — its path is referenced by
-    # image-build workflows and COPY directives, so it can't follow the
-    # Python-package convention and is allowed at backend root.
-    _KNOWN_DIRS = {
-        "facade",
-        "presentation",
-        "tasks",
-        "tests",
-        "test",
-        "migrations",
-        "management",
-        "models",
-        "logic",
-        "hogql_queries",
-        "temporal",
-        "sandbox",
-        "templates",
-        "admin",
-        "__pycache__",
-    }
+    # Only the root-level files in `backend_known_files` are checked here. Directory
+    # names are deliberately not: which internal packages a product has (`logic/`,
+    # `services/`, `reviewer/`) is its own business, and the thing that must not
+    # drift — presentation code outside presentation/ — is enforced by shape in
+    # pyproject.toml: routes.py may only import presentation, and presentation may
+    # only import facade, so a view anywhere else cannot be routed.
 
     def run(self, ctx: CheckContext) -> CheckResult:
         if not ctx.backend_dir.exists():
@@ -593,16 +563,6 @@ class MisplacedFilesCheck(ProductCheck):
                     misplaced.append(f"'{filename}' at backend/ root conflicts with correct location '{correct_path}'")
                 else:
                     misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
-
-        # Flag directories not in the canonical structure — these bypass
-        # import-linter's wildcard enforcement (presentation/facade/etc.)
-        for child in sorted(ctx.backend_dir.iterdir()):
-            if child.is_dir() and child.name not in self._KNOWN_DIRS:
-                misplaced.append(
-                    f"backend/{child.name}/ is not a recognized directory — "
-                    "import-linter only enforces canonical paths (presentation, facade, logic, models). "
-                    "Move code into an existing directory or update the product structure"
-                )
 
         if misplaced:
             return CheckResult(

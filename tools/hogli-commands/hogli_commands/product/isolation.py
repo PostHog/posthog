@@ -223,11 +223,14 @@ def permanent_interface_modules(tach_content: str, module_path: str) -> set[str]
 
 
 def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
-    """import-linter ignore_imports entries that still let this product's presentation
-    reach its own internals directly — the deferred presentation-wave worklist.
+    """import-linter ignore_imports entries that still let this product's HTTP surface
+    reach past the facade — the deferred presentation-wave worklist.
 
-    Each entry is one view -> internal edge to remove before the product is internally
-    sealed (see the isolating-product-facade-contracts skill).
+    Two contracts feed it: presentation reaching internals directly (one view -> internal
+    edge per entry), and routes.py registering views that live outside presentation/ (one
+    routes -> view-module edge per entry). Both mean presentation code the contract cannot
+    see, so both block the internal seal until removed (see the
+    isolating-product-facade-contracts skill).
     """
     if pyproject_text is None:
         pyproject = REPO_ROOT / "pyproject.toml"
@@ -238,8 +241,10 @@ def presentation_bypass_entries(name: str, pyproject_text: str | None = None) ->
         contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
     except (tomllib.TOMLDecodeError, KeyError):
         return []
-    prefix = f"products.{name}.backend.presentation"
-    return [entry for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefix)]
+    prefixes = (f"products.{name}.backend.presentation", f"products.{name}.backend.routes ->")
+    return [
+        entry for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefixes)
+    ]
 
 
 def has_contract_check_script(product_dir: Path) -> bool:

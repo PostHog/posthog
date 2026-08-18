@@ -1477,6 +1477,16 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
 ]
+
+[[tool.importlinter.contracts]]
+name = "routes must only import presentation"
+type = "forbidden"
+source_modules = ["products.*.backend.routes"]
+forbidden_modules = ["products.*.backend"]
+ignore_imports = [
+    "products.**.backend.routes -> products.**.backend.presentation.**",
+    "products.tracing.backend.routes -> products.tracing.backend.api",
+]
 """
 
 
@@ -1484,7 +1494,7 @@ ignore_imports = [
     "name,expected",
     [
         ("logs", 2),
-        ("tracing", 1),
+        ("tracing", 2),  # one presentation bypass + one routes -> backend/api/ deferral
         ("wizard", 0),
     ],
 )
