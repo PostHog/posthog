@@ -49,7 +49,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     extract_organization,
 )
-from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
+from posthog.rate_limit import PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, visible_teams_for_user
@@ -666,7 +666,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="request_ai_access",
-        throttle_classes=[PostHogAIAccessRequestUserThrottle, PostHogAIAccessRequestIPThrottle],
+        throttle_classes=[PostHogAIAccessRequestUserThrottle],
     )
     def request_ai_access(self, request: Request, **kwargs) -> Response:
         """Notify organization admins that a member is requesting PostHog AI be enabled."""

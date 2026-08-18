@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { LOOKAHEAD_EXPIRY_SECONDS } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -154,17 +156,39 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
             const organization = values.currentOrganization
             if (!organization) {
                 actions.requestAiAccessError()
+                lemonToast.error('We could not tell which organization to notify. Reload the page and try again.')
+                posthog.capture('ai access requested', { outcome: 'no_organization' })
                 return
             }
+            posthog.capture('ai access requested', { outcome: 'attempt', organization_id: organization.id })
             try {
-                // Backend notifies the org admins/owners via a customer.io email — keeps the
-                // recipient resolution server-side so it can't be tampered with from the client.
+                // Backend notifies the org admins/owners via a customer.io email. Recipient resolution
+                // stays server-side so it can't be tampered with from the client.
                 await requestAiAccessCreate(organization.id)
                 actions.markAiAccessRequested(organization.id)
                 lemonToast.success('Request sent to your organization admins')
-            } catch {
-                actions.requestAiAccessError()
-                lemonToast.error('Could not send your request. Please try again.')
+                posthog.capture('ai access requested', { outcome: 'sent', organization_id: organization.id })
+                return
+            } catch (error) {
+                const status = error instanceof ApiError ? error.status : undefined
+                // A request already went through today (per-user daily limit). It reached the admins,
+                // so treat it as sent and stop the button inviting a retry that would fail too.
+                if (status === 429) {
+                    actions.markAiAccessRequested(organization.id)
+                    lemonToast.success('You already sent a request today. Your admins have it.')
+                } else if (status === 400) {
+                    // PostHog AI is already enabled for the org, so there is nothing left to request.
+                    actions.markAiAccessRequested(organization.id)
+                    lemonToast.info('PostHog AI is already enabled for your organization.')
+                } else {
+                    actions.requestAiAccessError()
+                    lemonToast.error('Could not send your request. Reload the page and try again.')
+                }
+                posthog.capture('ai access requested', {
+                    outcome: 'error',
+                    status,
+                    organization_id: organization.id,
+                })
             }
         },
     })),

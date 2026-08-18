@@ -1450,6 +1450,21 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         # Only the first request reached the task.
         mock_task.delay.assert_called_once()
 
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_two_members_sharing_an_ip_can_each_request(self, mock_task):
+        # The test client reuses one source IP, so this guards against re-adding a per-IP
+        # cap that would reject the second coworker's first click.
+        other = User.objects.create_and_join(self.organization, "second@posthog.com", None)
+
+        first = self.client.post(self._url())
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        self.client.force_login(other)
+        second = self.client.post(self._url())
+        assert second.status_code == status.HTTP_200_OK, second.content
+
+        assert mock_task.delay.call_count == 2
+
 
 class TestOrganizationDataFreshnessAPI(APIBaseTest):
     def setUp(self):

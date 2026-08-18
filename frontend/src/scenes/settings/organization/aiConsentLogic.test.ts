@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -20,7 +21,7 @@ jest.mock('products/platform_features/frontend/generated/api', () => ({
 }))
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
-    lemonToast: { success: jest.fn(), error: jest.fn() },
+    lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn() },
 }))
 
 describe('aiConsentLogic', () => {
@@ -248,6 +249,27 @@ describe('aiConsentLogic', () => {
             expect(logic.values.aiAccessRequested).toBe(false)
             expect(logic.values.requestingAiAccess).toBe(false)
             expect(lemonToast.error).toHaveBeenCalled()
+        })
+
+        // A daily-limit 429 and an already-enabled 400 both mean the request need not be retried,
+        // so the button must settle into its sent state instead of inviting a doomed second click.
+        it.each([
+            { status: 429, toast: 'success' as const },
+            { status: 400, toast: 'info' as const },
+        ])('marks the request sent on a terminal $status response', async ({ status, toast }) => {
+            ;(requestAiAccessCreate as jest.Mock).mockRejectedValue(new ApiError('nope', status))
+            initKeaTests()
+            logic = aiConsentLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.requestAiAccess()
+            }).toFinishAllListeners()
+
+            expect(logic.values.aiAccessRequested).toBe(true)
+            expect(logic.values.requestingAiAccess).toBe(false)
+            expect(lemonToast[toast]).toHaveBeenCalled()
+            expect(lemonToast.error).not.toHaveBeenCalled()
         })
     })
 })
