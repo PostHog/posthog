@@ -979,7 +979,9 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
   if (b.currentTurn && !b.currentTurn.isComplete) return;
 
   b.currentTurnStartIndex = b.items.length;
-  const turnId = `turn-${ts}-implicit`;
+  // Entries with a missing or unparseable timestamp all share one `ts`, so the
+  // item index is what keeps two implicit turns from emitting the same item ids.
+  const turnId = `turn-${ts}-implicit-${b.currentTurnStartIndex}`;
   const toolCalls = new Map<string, ToolCall>();
   const childItems = new Map<string, ConversationItem[]>();
   const context: TurnContext = {
