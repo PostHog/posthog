@@ -25,6 +25,13 @@ function logFailure(kind: "query" | "mutation", key: string, error: unknown) {
   const message = describeError(error);
   const throttleKey = `${kind}:${key}:${message}`;
   const now = Date.now();
+  // Error messages can carry unique detail (ids, timestamps), so keys are
+  // unbounded; drop the ones whose window has passed rather than keep them.
+  for (const [storedKey, loggedAt] of lastFailureLogAt) {
+    if (now - loggedAt >= FAILURE_LOG_INTERVAL_MS) {
+      lastFailureLogAt.delete(storedKey);
+    }
+  }
   const last = lastFailureLogAt.get(throttleKey) ?? 0;
   if (now - last < FAILURE_LOG_INTERVAL_MS) return;
   lastFailureLogAt.set(throttleKey, now);
