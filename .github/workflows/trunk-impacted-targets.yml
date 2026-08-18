@@ -133,6 +133,8 @@ jobs:
         # Talks only to Trunk. It never checks out the repo, so it needs no
         # GitHub permissions whatsoever.
         permissions: {}
+        outputs:
+            uploaded: ${{ steps.upload.outputs.uploaded }}
         env:
             IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
             RUN_ID: ${{ github.run_id }}
@@ -145,6 +147,7 @@ jobs:
             TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
         steps:
             - name: Upload impacted targets to Trunk
+              id: upload
               # Not continue-on-error: a silent failure here is exactly what keeps
               # fork PRs out of the queue, so surface upload problems loudly.
               # --retry rides out transient Trunk/network blips.
@@ -191,6 +194,7 @@ jobs:
                       -H "$auth_header" \
                       --data "$payload" \
                       --output "$RUNNER_TEMP/trunk-response.json"
+                  echo 'uploaded=true' >> "$GITHUB_OUTPUT"
 
             # Lane-cost telemetry. Runs here rather than in `compute` because
             # `compute` executes PR-controlled code and is deliberately kept free
@@ -252,7 +256,16 @@ jobs:
     comment:
         name: Update Trunk lane in CI report
         needs: [compute, upload]
-        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        if: >-
+            ${{
+                !cancelled() &&
+                needs.upload.outputs.uploaded == 'true' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                !startsWith(github.head_ref, 'trunk-merge/')
+            }}
+        concurrency:
+            group: trunk-lane-report-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -272,6 +285,7 @@ jobs:
             - name: Post Trunk lane to CI report
               env:
                   GITHUB_TOKEN: ${{ github.token }}
+                  EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
                   LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
               run: |

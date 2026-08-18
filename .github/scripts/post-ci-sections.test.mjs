@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
-import { buildTrunkLaneSection } from './post-trunk-lane-section.mjs'
+import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -13,6 +13,33 @@ const commonHobby = {
 }
 
 describe('CI report section builders', () => {
+    for (const testCase of [
+        {
+            name: 'does not post a stale lane assignment',
+            expectedHeadSha: 'old-sha',
+            currentHeadSha: 'new-sha',
+            expectedPosts: 0,
+        },
+        {
+            name: 'posts the current lane assignment',
+            expectedHeadSha: 'current-sha',
+            currentHeadSha: 'current-sha',
+            expectedPosts: 1,
+        },
+    ]) {
+        it(testCase.name, async () => {
+            const postedSections = []
+            await postTrunkLaneSection({
+                impactedTargets: ['fe:core'],
+                isUniversal: false,
+                expectedHeadSha: testCase.expectedHeadSha,
+                getCurrentHeadSha: async () => testCase.currentHeadSha,
+                post: async (section) => postedSections.push(section),
+            })
+            assert.equal(postedSections.length, testCase.expectedPosts)
+        })
+    }
+
     for (const testCase of [
         {
             name: 'marks the universal lane red',
