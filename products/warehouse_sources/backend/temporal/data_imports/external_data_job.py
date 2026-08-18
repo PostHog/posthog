@@ -9,6 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -193,6 +194,23 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
+def _fail_stale_running_schema(
+    schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
+) -> None:
+    """Repaint a schema stuck on Running when a run failed without leaving a job to finalize.
+
+    Mirrors `update_external_job_status`: CDC halted markers absorb status updates, so a halted
+    schema is left alone.
+    """
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).first()
+    if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
+        return
+    schema.status = ExternalDataSchema.Status.FAILED
+    schema.latest_error = latest_error
+    schema.save(update_fields=["status", "latest_error", "updated_at"])
+    logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
+
+
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     team_id: int
@@ -257,11 +275,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
             # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
-            # failed before a row was committed — nothing is stranded and that failure is already
-            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
-            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            # failed before a row was committed. That failure is already reported on its own, so
+            # don't double-alarm. But the schema may have been painted Running by whatever triggered
+            # this run, and with no job there is no later finalization to repaint it, so reset it
+            # here or it stays stuck on Running forever. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it): surface it.
             logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
-            if inputs.status != ExternalDataJob.Status.FAILED:
+            if inputs.status == ExternalDataJob.Status.FAILED:
+                await database_sync_to_async_pool(_fail_stale_running_schema)(
+                    inputs.schema_id, inputs.team_id, inputs.latest_error, logger
+                )
+            else:
                 capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 

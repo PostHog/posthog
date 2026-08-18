@@ -3107,6 +3107,95 @@ class TestCancelExternalDataSchema(APIBaseTest):
         assert response.json()["detail"] == "No running sync to cancel."
         mock_cancel.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # A trigger that never started a run leaves Running with no job at all.
+            ("no_job", None, ExternalDataSchema.Status.FAILED, None),
+            # A failed run whose schema repaint was lost leaves Running over a Failed job.
+            ("failed_job", "Failed", ExternalDataSchema.Status.FAILED, "the source broke"),
+            ("completed_job", "Completed", ExternalDataSchema.Status.COMPLETED, None),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    )
+    def test_cancel_corrects_stale_running_schema(
+        self, _case, job_status, expected_schema_status, job_error, mock_cancel
+    ):
+        # A schema stuck reporting Running with no running job used to 400 on cancel, leaving the
+        # user no way to clear the stale status. Cancel must correct it instead.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.RUNNING,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        if job_status is not None:
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                schema=schema,
+                status=job_status,
+                latest_error=job_error,
+                workflow_id="test-workflow-id",
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_not_called()
+
+        schema.refresh_from_db()
+        assert schema.status == expected_schema_status
+        if job_error is not None:
+            assert schema.latest_error == job_error
+
+
+class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
+    def _create_schema(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        return ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_schema_not_marked_running_when_trigger_fails(self, endpoint, mock_trigger):
+        # Painting Running when no workflow started leaves the schema stuck on Running forever
+        # (nothing finalizes it) and blocks cancel with "No running sync to cancel."
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 400
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
