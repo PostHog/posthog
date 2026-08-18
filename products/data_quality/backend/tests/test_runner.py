@@ -240,3 +240,15 @@ class TestCheckRunner(BaseTest):
         assert outcome.became_failing is expected
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
+
+    def test_an_overlapping_run_does_not_claim_the_same_failing_transition(self) -> None:
+        # Stands in for a manual run racing the scheduled one: this run still holds the passing
+        # status it loaded, but the row already moved to failing, so it must not notify a second time.
+        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_status=CheckRunStatus.FAILED)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            outcome = run_check(check, self.suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.FAILED
+        assert outcome.became_failing is False

@@ -65,7 +65,6 @@ def run_check(
     """
     started_at = datetime.now(UTC)
     monotonic_start = time.monotonic()
-    previous_status = check.last_status
 
     try:
         outcome = _execute(check, suite_run, team, staged, staged_database_cache)
@@ -75,13 +74,13 @@ def run_check(
     duration_ms = int((time.monotonic() - monotonic_start) * 1000)
     with team_scope(team.id):
         _record_run(check, suite_run, outcome, started_at, duration_ms)
+        became_failing = (
+            outcome.status is CheckRunStatus.FAILED
+            and check.severity == CheckSeverity.ERROR
+            and _claim_failing_transition(check)
+        )
         _update_check(check, outcome)
 
-    became_failing = (
-        outcome.status is CheckRunStatus.FAILED
-        and previous_status != CheckRunStatus.FAILED
-        and check.severity == CheckSeverity.ERROR
-    )
     if became_failing:
         notify_check_started_failing(check, outcome.failed_row_count)
     return replace(outcome, became_failing=became_failing)
@@ -99,6 +98,23 @@ def record_unrunnable_check(
         _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)
         _update_check(check, outcome)
     return outcome
+
+
+def _claim_failing_transition(check: DataQualityCheck) -> bool:
+    """Whether this run is the one that moved the check into failing.
+
+    Runs of the same check can overlap -- a manual run alongside the scheduled one -- and comparing
+    against a status read in Python lets both of them see the same passing value and notify. The
+    conditional update lets exactly one flip the row, so the pass-to-fail edge notifies once. Must
+    run before ``_update_check`` writes the new status, or there is nothing left to claim.
+    """
+    return (
+        DataQualityCheck.objects.for_team(check.team_id)
+        .filter(id=check.id)
+        .exclude(last_status=CheckRunStatus.FAILED)
+        .update(last_status=CheckRunStatus.FAILED)
+        == 1
+    )
 
 
 @dataclass(frozen=True)
