@@ -30,12 +30,15 @@ from ..logic.metrics import (
     upsert_metric,
 )
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
-from ..logic.validation import validate_metric_definition
+from ..logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
+from ..models import METRIC_NAME_MAX_LENGTH
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
     "BULK_SKIP_NOT_FOUND",
+    "MAX_DESCRIPTION_LENGTH",
     "METRIC_BULK_MAX",
+    "METRIC_NAME_MAX_LENGTH",
     "Metric",
     "MetricBulkSkip",
     "RelationshipProposal",

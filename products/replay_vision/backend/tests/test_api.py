@@ -1100,7 +1100,7 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
         digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
-        self.assertEqual(digest.name, "Daily digest: checkout-monitor")
+        self.assertEqual(digest.name, "Featured digest: checkout-monitor")
         self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
         self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
         self.assertEqual(digest.delivery_config, [])

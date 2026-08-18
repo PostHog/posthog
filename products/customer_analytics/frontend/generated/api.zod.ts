@@ -980,9 +980,14 @@ export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.o
 
 export const featureRequestsCreateBodyTitleMax = 400
 
+export const featureRequestsCreateBodyDescriptionDefault = ``
+
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
-    description: zod.string().describe('Required customer-facing request description in Markdown.'),
+    description: zod
+        .string()
+        .default(featureRequestsCreateBodyDescriptionDefault)
+        .describe('Optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().describe('ID of the affected Customer Analytics account.'),
     product_area_ids: zod.array(zod.uuid()).describe('One or more active product area IDs. Duplicate IDs are ignored.'),
     idempotency_key: zod
@@ -1004,7 +1009,7 @@ export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsUpdateBodyTitleMax)
         .optional()
         .describe('Updated customer-facing request title.'),
-    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
     product_area_ids: zod
         .array(zod.uuid())
@@ -1043,7 +1048,7 @@ export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsPartialUpdateBodyTitleMax)
         .optional()
         .describe('Updated customer-facing request title.'),
-    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    description: zod.string().optional().describe('Updated optional customer-facing request description in Markdown.'),
     account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
     product_area_ids: zod
         .array(zod.uuid())

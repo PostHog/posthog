@@ -562,8 +562,8 @@ def _compute_system_table_access_decision(
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
         access_scope = cast(APIScopeObject, table.access_scope)
-        access_level = user_access_control.access_level_for_resource(access_scope)
-        if access_level and access_level != NO_ACCESS_LEVEL:
+        access = user_access_control.access_level_for_resource(access_scope)
+        if access and access.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         # Keep the table only when the guard can actually narrow its rows to the grant, so a table
         # whose ids don't key those grants (resource_level_access_only) still fails closed.
@@ -1321,6 +1321,7 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1371,6 +1372,7 @@ class Database(BaseModel):
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
             direct_connection_metadata: dict[str, Any] | None = None
+            is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
             virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
@@ -1389,6 +1391,13 @@ class Database(BaseModel):
                     direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
+                    if direct_source.has_managed_warehouse_prefix:
+                        managed_warehouse_sql_mode = direct_source.managed_warehouse_sql_mode
+                        if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                            raise QueryError(
+                                "This managed warehouse connection isn't available. Select another connection and try again."
+                            )
+                        is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
@@ -1601,11 +1610,13 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_catalog_enabled=data_catalog_enabled,
+            # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
             # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
+            or is_managed_warehouse_connection
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
