@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -12,6 +13,55 @@ const commonHobby = {
 }
 
 describe('CI report section builders', () => {
+    for (const testCase of [
+        {
+            name: 'does not post a stale lane assignment',
+            expectedHeadSha: 'old-sha',
+            currentHeadSha: 'new-sha',
+            expectedPosts: 0,
+        },
+        {
+            name: 'posts the current lane assignment',
+            expectedHeadSha: 'current-sha',
+            currentHeadSha: 'current-sha',
+            expectedPosts: 1,
+        },
+    ]) {
+        it(testCase.name, async () => {
+            const postedSections = []
+            await postTrunkLaneSection({
+                impactedTargets: ['fe:core'],
+                isUniversal: false,
+                expectedHeadSha: testCase.expectedHeadSha,
+                getCurrentHeadSha: async () => testCase.currentHeadSha,
+                post: async (section) => postedSections.push(section),
+            })
+            assert.equal(postedSections.length, testCase.expectedPosts)
+        })
+    }
+
+    for (const testCase of [
+        {
+            name: 'marks the universal lane red',
+            input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
+            expectedStatus: 'fail',
+        },
+        {
+            name: 'marks a backend Python lane yellow',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expectedStatus: 'warn',
+        },
+        {
+            name: 'marks other lanes green',
+            input: { impactedTargets: ['fe:core'], isUniversal: false },
+            expectedStatus: 'ok',
+        },
+    ]) {
+        it(testCase.name, () => {
+            assert.equal(buildTrunkLaneSection(testCase.input).status, testCase.expectedStatus)
+        })
+    }
+
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',
