@@ -19,14 +19,16 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
+from products.canvas.backend.models import CanvasSourceVersion
 from products.signals.backend.implementation_pr import PrCloseReason
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
 from products.signals.backend.report_embeddings import (
     emit_report_embedding,
     emit_report_tombstone,
     render_report_document,
 )
 from products.signals.backend.tasks import close_dismissed_report_pr
+from products.tasks.backend.models import TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +37,31 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
+
+@receiver(post_save, sender=TaskThreadMessage)
+def mark_report_canvas_collaborative_from_message(
+    sender: type[TaskThreadMessage], instance: TaskThreadMessage, created: bool, **kwargs: Any
+) -> None:
+    if created:
+        SignalReportCanvas.objects.for_team(instance.team_id).filter(discussion_task_id=instance.task_id).update(
+            collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
+            updated_at=timezone.now(),
+        )
+
+
+@receiver(post_save, sender=CanvasSourceVersion)
+def mark_report_canvas_collaborative_from_version(
+    sender: type[CanvasSourceVersion], instance: CanvasSourceVersion, created: bool, **kwargs: Any
+) -> None:
+    if not created or instance.task_id is None:
+        return
+    SignalReportCanvas.objects.for_team(instance.team_id).filter(canvas_id=instance.canvas_id).exclude(
+        generation_task_id=instance.task_id
+    ).update(
+        collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
+        updated_at=timezone.now(),
+    )
 
 
 def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:

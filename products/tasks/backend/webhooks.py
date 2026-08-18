@@ -307,6 +307,14 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     )
 
     _refresh_self_driving_quota_for_pr(task_run, None)
+    try:
+        from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps Signals workers off webhook startup
+            refresh_report_canvases_for_task,
+        )
+
+        refresh_report_canvases_for_task.delay(str(task_run.task_id))
+    except Exception:
+        logger.warning("github_pr_webhook_report_canvas_refresh_failed", task_id=str(task_run.task_id), exc_info=True)
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
