@@ -310,9 +310,7 @@ def _get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if endpoint == ACTIVITY_EVENTS_ENDPOINT:
-        window = _activity_event_window(
-            should_use_incremental_field, db_incremental_field_last_value, resume, logger
-        )
+        window = _activity_event_window(should_use_incremental_field, db_incremental_field_last_value, resume, logger)
         yield from _activity_event_pages(
             client, logger, resumable_source_manager, window.start_day, window.end_day, window.resume_token
         )
