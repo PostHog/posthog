@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from typing import cast
 
 import pytest
 from unittest import mock
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.source import AsaasSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -68,7 +70,9 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        params = resource["endpoint"]["params"]
+        endpoint_config = cast(Endpoint, resource["endpoint"])
+        params = endpoint_config["params"]
+        assert params is not None
         assert "dateCreated[ge]" in params
         assert params["dateCreated[ge]"]["type"] == "incremental"
 
@@ -77,7 +81,8 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=False)
 
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["params"] == {}
+        endpoint_config = cast(Endpoint, resource["endpoint"])
+        assert endpoint_config["params"] == {}
 
     @parameterized.expand(sorted(_FULL_REFRESH_ENDPOINTS))
     def test_full_refresh_endpoint_never_adds_date_filter(self, endpoint: str) -> None:
@@ -86,13 +91,17 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=True)
 
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["params"] == {}
+        endpoint_config = cast(Endpoint, resource["endpoint"])
+        assert endpoint_config["params"] == {}
 
     def test_path_and_selector_match_every_endpoint(self) -> None:
         for endpoint in ENDPOINTS:
             resource = get_resource(endpoint, should_use_incremental_field=False)
-            assert resource["endpoint"]["data_selector"] == "data[*]"
-            assert resource["endpoint"]["path"].startswith("/v3/")
+            endpoint_config = cast(Endpoint, resource["endpoint"])
+            assert endpoint_config["data_selector"] == "data[*]"
+            path = endpoint_config["path"]
+            assert path is not None
+            assert path.startswith("/v3/")
             assert resource["table_format"] == "delta"
 
 
