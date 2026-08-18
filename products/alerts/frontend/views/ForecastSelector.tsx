@@ -7,6 +7,8 @@ import {
     ForecastEngineType,
 } from '~/queries/schema/schema-general'
 
+import { maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
+
 const HORIZON_UNIT: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.REAL_TIME]: 'intervals',
     [AlertCalculationInterval.EVERY_15_MINUTES]: 'intervals',
@@ -40,6 +42,9 @@ interface ForecastSelectorProps {
 export function ForecastSelector({ value, onChange, calculationInterval }: ForecastSelectorProps): JSX.Element {
     const config = value ?? getDefaultForecastConfig()
     const unit = HORIZON_UNIT[calculationInterval] ?? 'intervals'
+    // The backend caps how far a forecast reaches as a duration, so this ceiling moves with the
+    // insight's interval. Clamping on change stops a horizon surviving a switch to a coarser one.
+    const maxHorizon = maxHorizonForInterval(calculationInterval)
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LemonSelect
@@ -68,9 +73,11 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         className="w-20"
                         data-attr="alertForm-forecast-horizon"
                         min={1}
-                        max={30}
-                        value={config.horizon ?? DEFAULT_HORIZON}
-                        onChange={(horizon) => onChange({ ...config, horizon: horizon ?? DEFAULT_HORIZON })}
+                        max={maxHorizon}
+                        value={Math.min(config.horizon ?? DEFAULT_HORIZON, maxHorizon)}
+                        onChange={(horizon) =>
+                            onChange({ ...config, horizon: Math.min(horizon ?? DEFAULT_HORIZON, maxHorizon) })
+                        }
                     />
                     <span>{unit}</span>
                 </div>
