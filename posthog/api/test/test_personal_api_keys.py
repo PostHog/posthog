@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
@@ -368,6 +368,42 @@ class TestPersonalAPIKeysAPIValidation(APIBaseTest):
         )
         response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"scopes": []})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestPersonalAPIKeyScopeSuggestions(APIBaseTest):
+    @staticmethod
+    def _client_returning(content: str) -> MagicMock:
+        client = MagicMock()
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+        return client
+
+    @patch("posthog.scope_suggestions.build_openai_client")
+    @patch("posthoganalytics.get_feature_flag", return_value="control")
+    def test_control_variant_cannot_suggest_scopes(self, _mock_flag, mock_build_client):
+        response = self.client.post("/api/personal_api_keys/suggest_scopes/", {"description": "read insights"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert mock_build_client.call_count == 0
+
+    @patch("posthog.scope_suggestions.build_openai_client")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_suggestion_drops_scopes_the_user_cannot_be_granted(self, _mock_flag, mock_build_client):
+        mock_build_client.return_value = self._client_returning(
+            '{"scopes": ["insight:read", "*", "llm_gateway:write", "bogus:read"], "summary": "Reads insights."}'
+        )
+
+        response = self.client.post("/api/personal_api_keys/suggest_scopes/", {"description": "read insights"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"scopes": ["insight:read"], "summary": "Reads insights."}
+
+    @patch("posthog.scope_suggestions.build_openai_client")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_missing_description_is_rejected(self, _mock_flag, mock_build_client):
+        response = self.client.post("/api/personal_api_keys/suggest_scopes/", {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert mock_build_client.call_count == 0
 
 
 class PersonalAPIKeysBaseTest(APIBaseTest):

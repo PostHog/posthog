@@ -5,7 +5,7 @@ import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -65,6 +65,22 @@ export const SettingsUserProfile: Story = {
 
 export const SettingsUserApiKeys: Story = {
     args: { sectionId: 'user-api-keys' },
+}
+
+// The `test` arm of the AI scope picker experiment: description box first, scope list in a drawer.
+export const SettingsUserApiKeysAiScopePicker: Story = {
+    args: { sectionId: 'user-api-keys' },
+    parameters: {
+        // A story's featureFlags parameter replaces the meta's, so the baseline is re-listed here.
+        featureFlags: {
+            ...Object.fromEntries(STORYBOOK_FEATURE_FLAGS.map((flag) => [flag, true])),
+            [FEATURE_FLAGS.AI_SCOPE_PICKER_EXPERIMENT]: 'test',
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Create personal API key'))
+    },
 }
 
 export const SettingsUserNotifications: Story = {

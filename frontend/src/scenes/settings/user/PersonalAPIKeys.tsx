@@ -21,6 +21,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
@@ -30,6 +31,7 @@ import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { ScopeDescriptionField } from './ScopeDescriptionField'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
 interface EditKeyModalProps {
@@ -50,6 +52,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         filteredScopes,
         searchTerm,
         isDescriptionFieldVisible,
+        aiScopePickerEnabled,
     } = useValues(personalAPIKeysLogic)
     const {
         setEditingKeyId,
@@ -77,6 +80,84 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                 : editingKey.access_type === 'teams' && !editingKey.scoped_teams?.length
                   ? 'Select at least one project'
                   : undefined
+
+    const presetField = (
+        <LemonField name="preset">
+            <LemonSelect
+                size="small"
+                placeholder="Select preset"
+                options={API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)}
+                dropdownMatchSelectWidth={false}
+                dropdownPlacement="bottom-end"
+            />
+        </LemonField>
+    )
+
+    const scopeList = allAccessSelected ? (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Reset',
+                onClick: () => resetScopes(),
+            }}
+        >
+            <b>This personal API key has full access to all supported endpoints!</b> We highly recommend scoping this to
+            only what it needs.
+        </LemonBanner>
+    ) : (
+        <div>
+            <LemonInput
+                type="search"
+                placeholder="Search scopes..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+                className="mb-2"
+                size="small"
+            />
+            <div className="max-h-[50vh] overflow-y-auto">
+                {filteredScopes.length === 0 ? (
+                    <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
+                ) : (
+                    filteredScopes.map(
+                        ({ key, objectName, disabledActions, warnings, disabledWhenProjectScoped, info }) => {
+                            const disabledDueToProjectScope =
+                                disabledWhenProjectScoped && editingKey.access_type === 'teams'
+                            const selectedScopeAction = formScopeRadioValues[key]
+                            const warningScopeAction =
+                                selectedScopeAction === 'read' || selectedScopeAction === 'write'
+                                    ? selectedScopeAction
+                                    : null
+                            return (
+                                <ScopeAccessRow
+                                    key={key}
+                                    label={objectName}
+                                    info={info}
+                                    muted={disabledDueToProjectScope}
+                                    value={formScopeRadioValues[key] ?? 'none'}
+                                    onChange={(value) => setScopeRadioValue(key, value)}
+                                    readDisabledReason={
+                                        disabledActions?.includes('read')
+                                            ? 'Does not apply to this resource'
+                                            : disabledDueToProjectScope
+                                              ? 'Not available for project scoped keys'
+                                              : undefined
+                                    }
+                                    writeDisabledReason={
+                                        disabledActions?.includes('write')
+                                            ? 'Does not apply to this resource'
+                                            : disabledDueToProjectScope
+                                              ? 'Not available for project scoped keys'
+                                              : undefined
+                                    }
+                                    warning={warningScopeAction ? warnings?.[warningScopeAction] : undefined}
+                                />
+                            )
+                        }
+                    )
+                )}
+            </div>
+        </div>
+    )
 
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
@@ -173,120 +254,64 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                         organizations={allOrganizations}
                         teams={allTeams ?? undefined}
                     />
-                    <div className="flex items-center justify-between mt-4 mb-2">
-                        <LemonLabel>Scopes</LemonLabel>
-                        <LemonField name="preset">
-                            <LemonSelect
-                                size="small"
-                                placeholder="Select preset"
-                                options={API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)}
-                                dropdownMatchSelectWidth={false}
-                                dropdownPlacement="bottom-end"
-                            />
-                        </LemonField>
-                    </div>
+                    {!aiScopePickerEnabled && (
+                        <div className="flex items-center justify-between mt-4 mb-2">
+                            <LemonLabel>Scopes</LemonLabel>
+                            {presetField}
+                        </div>
+                    )}
 
                     <LemonField name="scopes">
-                        {({ error }) => (
-                            <>
-                                <p className="mb-0">
-                                    Personal API keys are scoped to limit what actions they are able to do. We highly
-                                    recommend you only give the key the permissions it needs to do its job. You can add
-                                    or revoke scopes later.
-                                </p>
-                                <p className="m-0">
-                                    Your personal API key can never take actions for which your account is missing
-                                    permissions.
-                                </p>
+                        {({ error }) => {
+                            const errorLine = error ? (
+                                <div className="text-danger flex items-center gap-1 text-sm">
+                                    <IconErrorOutline className="text-xl" /> {error}
+                                </div>
+                            ) : null
 
-                                {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
-                                        <IconErrorOutline className="text-xl" /> {error}
-                                    </div>
-                                )}
-
-                                {allAccessSelected ? (
-                                    <LemonBanner
-                                        type="warning"
-                                        action={{
-                                            children: 'Reset',
-                                            onClick: () => resetScopes(),
-                                        }}
-                                    >
-                                        <b>This personal API key has full access to all supported endpoints!</b> We
-                                        highly recommend scoping this to only what it needs.
-                                    </LemonBanner>
-                                ) : (
-                                    <div>
-                                        <LemonInput
-                                            type="search"
-                                            placeholder="Search scopes..."
-                                            value={searchTerm}
-                                            onChange={setSearchTerm}
-                                            className="mb-2"
+                            if (aiScopePickerEnabled) {
+                                return (
+                                    <div className="flex flex-col gap-2 mt-4">
+                                        <ScopeDescriptionField />
+                                        {errorLine}
+                                        <LemonCollapse
                                             size="small"
+                                            panels={[
+                                                {
+                                                    key: 'scopes',
+                                                    header: editingKey.scopes?.length
+                                                        ? `Scopes (${editingKey.scopes.length} selected)`
+                                                        : 'Scopes',
+                                                    dataAttr: 'personal-api-key-scope-drawer',
+                                                    content: (
+                                                        <div className="flex flex-col gap-2">
+                                                            <div className="flex justify-end">{presetField}</div>
+                                                            {scopeList}
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
                                         />
-                                        <div className="max-h-[50vh] overflow-y-auto">
-                                            {filteredScopes.length === 0 ? (
-                                                <div className="text-muted text-sm py-2">
-                                                    No scopes match "{searchTerm}"
-                                                </div>
-                                            ) : (
-                                                filteredScopes.map(
-                                                    ({
-                                                        key,
-                                                        objectName,
-                                                        disabledActions,
-                                                        warnings,
-                                                        disabledWhenProjectScoped,
-                                                        info,
-                                                    }) => {
-                                                        const disabledDueToProjectScope =
-                                                            disabledWhenProjectScoped &&
-                                                            editingKey.access_type === 'teams'
-                                                        const selectedScopeAction = formScopeRadioValues[key]
-                                                        const warningScopeAction =
-                                                            selectedScopeAction === 'read' ||
-                                                            selectedScopeAction === 'write'
-                                                                ? selectedScopeAction
-                                                                : null
-                                                        return (
-                                                            <ScopeAccessRow
-                                                                key={key}
-                                                                label={objectName}
-                                                                info={info}
-                                                                muted={disabledDueToProjectScope}
-                                                                value={formScopeRadioValues[key] ?? 'none'}
-                                                                onChange={(value) => setScopeRadioValue(key, value)}
-                                                                readDisabledReason={
-                                                                    disabledActions?.includes('read')
-                                                                        ? 'Does not apply to this resource'
-                                                                        : disabledDueToProjectScope
-                                                                          ? 'Not available for project scoped keys'
-                                                                          : undefined
-                                                                }
-                                                                writeDisabledReason={
-                                                                    disabledActions?.includes('write')
-                                                                        ? 'Does not apply to this resource'
-                                                                        : disabledDueToProjectScope
-                                                                          ? 'Not available for project scoped keys'
-                                                                          : undefined
-                                                                }
-                                                                warning={
-                                                                    warningScopeAction
-                                                                        ? warnings?.[warningScopeAction]
-                                                                        : undefined
-                                                                }
-                                                            />
-                                                        )
-                                                    }
-                                                )
-                                            )}
-                                        </div>
                                     </div>
-                                )}
-                            </>
-                        )}
+                                )
+                            }
+
+                            return (
+                                <>
+                                    <p className="mb-0">
+                                        Personal API keys are scoped to limit what actions they are able to do. We
+                                        highly recommend you only give the key the permissions it needs to do its job.
+                                        You can add or revoke scopes later.
+                                    </p>
+                                    <p className="m-0">
+                                        Your personal API key can never take actions for which your account is missing
+                                        permissions.
+                                    </p>
+                                    {errorLine}
+                                    {scopeList}
+                                </>
+                            )
+                        }}
                     </LemonField>
                 </>
             </LemonModal>
