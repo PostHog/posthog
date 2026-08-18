@@ -102,7 +102,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
         <>
           {/* The draft dot needs saying out loud, and the button is where
               the create shortcut is worth advertising. */}
-          {hasDraft ? "Create — you have a draft" : "Create"}
+          {hasDraft ? "Create. You have a draft" : "Create"}
           <Kbd className="ml-1.5">{formatHotkey(SHORTCUTS.NEW_TASK)}</Kbd>
         </>
       ) : (

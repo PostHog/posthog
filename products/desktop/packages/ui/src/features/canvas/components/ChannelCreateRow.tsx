@@ -48,8 +48,8 @@ export function NewSessionRow({
           params: { channelId },
         });
       }}
-      // An unsent draft is the reason to come back to this row, and it is the
-      // only thing left saying you have one now the floating button is gone.
+      // An unsent draft is the reason to come back to this row, and this row is
+      // the only place a space says you have one.
       endContent={
         hasDraft ? (
           <Badge variant="default" title="You have unsubmitted changes">
