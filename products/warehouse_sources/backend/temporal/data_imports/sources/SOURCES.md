@@ -1287,6 +1287,7 @@ doesn't conflict with concurrent PRs.
 - sailthru
 - salesforce_marketing_cloud
 - salestrics
+- samcart
 - sanity
 - sap_concur
 - sap_erp
