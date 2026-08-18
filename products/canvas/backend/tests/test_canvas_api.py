@@ -257,7 +257,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         # The rejection names the task's channel so the agent can recover in one step.
         assert str(self.channel.id) in wrong_channel.json()["detail"]
 
-    def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
+    def test_task_bound_sandbox_can_write_its_linked_canvas_and_canvases_created_by_the_actor(self):
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -314,7 +314,8 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
-        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
+        assert linked_update.status_code == status.HTTP_200_OK
+        assert linked_update.json()["name"] == "Linked but unowned"
 
     def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
         actor = self._create_user("rebound-sandbox-actor@example.com")
