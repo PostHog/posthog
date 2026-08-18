@@ -20,6 +20,7 @@ from products.signals.backend.report_canvas import (
     ensure_and_start_report_canvas_generation,
     finalize_report_canvas_generation,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class TestReportCanvasGeneration(APIBaseTest):
@@ -54,7 +55,9 @@ class TestReportCanvasGeneration(APIBaseTest):
             patch("products.signals.backend.report_canvas._fetch_report_signals", return_value=[]),
             patch("products.signals.backend.report_canvas.fetch_implementation_pr_urls_for_reports", return_value={}),
             patch("products.signals.backend.report_canvas.resolve_acting_user_id_for_team", return_value=self.user.id),
-            patch("products.signals.backend.report_canvas.get_or_create_signals_sandbox_env", return_value="env"),
+            patch(
+                "products.signals.backend.report_canvas.get_or_create_signals_sandbox_env", return_value="env"
+            ) as get_sandbox_environment,
             patch(
                 "products.signals.backend.report_canvas.tasks_facade.create_and_run_task",
                 return_value=self._generation_result(generation_task_id, generation_run_id),
@@ -72,6 +75,13 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert first.canvas_id == second.canvas_id
         assert first.discussion_task_id == second.discussion_task_id
         assert create_generation.call_count == 1
+        get_sandbox_environment.assert_called_once_with(
+            self.team.id,
+            "SIGNALS_REPORT_CANVAS",
+            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            allowed_domains=[],
+            include_default_domains=False,
+        )
         with team_scope(self.team.id):
             session = SignalReportCanvas.objects.get(report=report)
             canvas = self.canvas_model.objects.get(id=session.canvas_id)

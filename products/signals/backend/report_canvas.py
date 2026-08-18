@@ -21,7 +21,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.sandbox import (
-    SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    SIGNALS_REPORT_CANVAS_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_acting_user_id_for_team,
 )
@@ -269,8 +269,10 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             raise RuntimeError("No active organization member can run the report canvas agent")
         sandbox_environment_id = get_or_create_signals_sandbox_env(
             team_id,
-            SIGNALS_REPORT_RESEARCH_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            SIGNALS_REPORT_CANVAS_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            allowed_domains=[],
+            include_default_domains=False,
         )
         prompt = _generation_prompt(
             report,
