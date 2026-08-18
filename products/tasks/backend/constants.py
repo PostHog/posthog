@@ -16,6 +16,26 @@ PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 
+# Models a caller may only select while the paired flag is enabled for them. The Desktop
+# pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
+# but a picker is a convenience rather than a gate: a stored per-task model preference, an
+# older client, or a direct API call all reach the write paths without consulting a flag, so
+# entitlement is re-checked server-side. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: dict[str, str] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
+
 
 def _decode_vm_sandbox_payload(payload: object) -> object:
     """Flag payloads may arrive JSON-encoded; decode strings, mapping bad JSON to None."""
@@ -126,7 +146,6 @@ MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
@@ -223,6 +242,7 @@ POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "cdp-functions-create",
     "workflows-create",
     "workflows-create-email-template",
+    "llma-parser-recipe-create",
 )
 
 POSTHOG_EXEC_PERMISSION_REGEX = (

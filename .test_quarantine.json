@@ -2,13 +2,32 @@
     "version": 1,
     "entries": [
         {
-            "id": "ee/clickhouse/queries/test/test_cohort_query.py::TestCohortQuery::test_cohort_filter_with_extra",
-            "runner": "pytest",
-            "reason": "ClickHouse 26.3.x drops UNION DISTINCT dedup when every branch has ORDER BY; fails until prod US upgrades to CH 26.6",
-            "owner": "@team-feature-flags",
-            "issue": "https://github.com/PostHog/posthog/pull/72896",
-            "added": "2026-07-24",
-            "expires": "2026-08-07",
+            "id": "playwright/e2e/product-analytics/dashboards.spec.ts::Dashboards Deleting an insight from dashboard redirects back",
+            "runner": "playwright",
+            "reason": "A sticky bottom-right 'support widget unavailable' toast (autoClose: false, always present in E2E) intercepts clicks on the insight panel's lowest actions; fails on master and gates every PR, unrelated to data warehouse sources",
+            "owner": "@team-product-analytics",
+            "issue": "https://github.com/PostHog/posthog/pull/82398",
+            "added": "2026-08-13",
+            "expires": "2026-08-20",
+            "mode": "run"
+        },
+        {
+            "id": "playwright/e2e/product-analytics/insights/insight-side-panel.spec.ts::Insight side panel actions View source toggle enters edit mode and shows query editor",
+            "runner": "playwright",
+            "reason": "A sticky bottom-right 'support widget unavailable' toast (autoClose: false, always present in E2E) intercepts clicks on the insight panel's lowest actions; fails on master and gates every PR, unrelated to data warehouse sources",
+            "owner": "@team-product-analytics",
+            "issue": "https://github.com/PostHog/posthog/pull/82398",
+            "added": "2026-08-13",
+            "expires": "2026-08-20",
+            "mode": "run"
+        },
+        {
+            "id": "products/ai_observability/frontend/e2e/multimodal-trace.spec.ts",
+            "runner": "playwright",
+            "reason": "Ingested screenshot does not reach a phaiblob:// pointer before the poll window ends, so the assertion sees the raw value; fails on master and gates every PR",
+            "owner": "@team-ai-observability",
+            "added": "2026-08-10",
+            "expires": "2026-08-17",
             "mode": "run"
         }
     ]

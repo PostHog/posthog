@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
+import { LogsServicesV2 } from 'products/logs/frontend/components/LogsServices/LogsServicesV2'
 import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsTransformations } from 'products/logs/frontend/components/LogsTransformations/LogsTransformations'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
@@ -94,8 +95,9 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showServicesV2 = useFeatureFlag('LOGS_SERVICES_VIEW_V2')
+    const showServices = activeTab === 'services' && showServicesView
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
-    const showSqlView = useFeatureFlag('LOGS_SQL_VIEW')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
     const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
 
@@ -104,7 +106,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
         ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
         ...(showAnomalies ? [{ key: 'anomalies' as const, label: 'Anomalies' }] : []),
-        ...(showSqlView ? [{ key: 'sql' as const, label: 'SQL' }] : []),
+        { key: 'sql', label: 'SQL' },
         ...(showTransformations ? [{ key: 'transformations' as const, label: 'Transformations' }] : []),
         { key: 'configuration', label: 'Configuration' },
     ]
@@ -152,7 +154,8 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     </div>
                 </LogsSetupPrompt>
             </div>
-            {activeTab === 'services' && showServicesView && (
+            {showServices && showServicesV2 && <LogsServicesV2 />}
+            {showServices && !showServicesV2 && (
                 <>
                     <LogsServices />
                     <LogsViewerModal />
@@ -160,7 +163,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
             )}
             {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
             {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
-            {activeTab === 'sql' && showSqlView && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
+            {activeTab === 'sql' && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'transformations' && showTransformations && <LogsTransformations />}
             {activeTab === 'configuration' && (
                 <Settings logicKey={LOGS_LOGIC_KEY} sectionId="environment-logs" settingId="logs" handleLocally />

@@ -379,10 +379,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.jwks_uri and not self.jwks_uri.startswith("https://"):
             raise ValidationError("jwks_uri must be an https URL")
 
-        # A public client cannot authenticate, so a key set would never be consulted
-        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
-        if self.jwks_uri and not self.requires_client_authentication:
-            raise ValidationError("jwks_uri is only meaningful for a confidential client")
+        # A stored key set on a public client enables optional assertion authentication
+        # (verify_client_assertion) without requiring it: token_endpoint_auth_method reads
+        # requires_client_authentication first, so a public client derives NONE regardless
+        # of jwks_uri.
 
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(
@@ -655,7 +655,15 @@ def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
 def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
-    """Revoke all OAuth artifacts related to a session (access token, refresh token, and grant)."""
+    """Revoke all OAuth artifacts for the token's (user, application) pair - every access
+    token, every refresh token, and every grant, not just the given one.
+
+    Use this where the user or client explicitly asked to disconnect the whole app
+    (connected_apps.py, RFC 7009 revoke_token) - there, sweeping every session for that
+    (user, application) is the correct, intentional scope. For a report that ONE specific
+    credential leaked, use revoke_oauth_token_session instead: a leaked token is evidence
+    about that one token, not about the user's other sessions with the app.
+    """
     from django.utils import timezone
 
     now = timezone.now()
@@ -679,14 +687,90 @@ def revoke_oauth_session(
             refresh_token.revoked = now
             refresh_token.save(update_fields=["revoked"])
     else:
-        # Delete all access tokens for this user+application
-        OAuthAccessToken.objects.filter(user=user, application=application).delete()
+        # Same ordering as revoke_application_sessions below, for the same two reasons:
+        # grants deleted first so this blocks on a racing code exchange's grant-row lock
+        # instead of missing tokens it mints; refresh revoked before access deleted so a
+        # mid-way failure can't leave a refresh token live after its access token is gone.
+        with transaction.atomic():
+            # Delete all grants for this user+application
+            OAuthGrant.objects.filter(user=user, application=application).delete()
 
-        # Revoke all refresh tokens for this user+application
-        OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
+            # Revoke all refresh tokens for this user+application
+            OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(
+                revoked=now
+            )
 
-        # Delete all grants for this user+application
-        OAuthGrant.objects.filter(user=user, application=application).delete()
+            # Delete all access tokens for this user+application
+            OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+
+def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
+    """True for a non-rotating refresh token (DCR/CIMD clients - see
+    OAuthTokenView._save_bearer_token in posthog/api/oauth/views.py), which inserts a new,
+    unlinked OAuthAccessToken row on every refresh instead of updating one access token in
+    place. Those rows carry no queryable link back to the refresh token that minted them
+    (source_refresh_token is left None specifically so sibling rows stay addressable), so
+    there's no way to enumerate every access token a given non-rotating refresh token could
+    have produced.
+    """
+    application = refresh_token.application
+    if application.is_dcr_client or application.is_cimd_client:
+        return True
+    return not oauth2_settings.ROTATE_REFRESH_TOKEN
+
+
+def revoke_oauth_token_session(
+    access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
+) -> None:
+    """Revoke only the one access/refresh token pair the given token belongs to, not
+    every session the user has with the application.
+
+    Use this for a report that identifies ONE specific leaked credential (github.py, the
+    public leaked-key endpoint) - see revoke_oauth_session for where the broader sweep is
+    the correct, intentional scope instead.
+
+    Doesn't touch OAuthGrant: a grant is a single-use authorization code consumed at
+    token exchange, not part of an ongoing session, so there's no "this token's grant" to
+    revoke alongside it.
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    if access_token:
+        # Neither direction of the access_token <-> refresh_token OneToOne is reliably
+        # populated on its own (our non-rotating _save_bearer_token branch leaves
+        # source_refresh_token None - see revoke_token's docstring in
+        # posthog/api/oauth/views.py - and callers that create a refresh token before
+        # its access token don't always back-fill refresh_token.access_token either), so
+        # check both directions instead of trusting one.
+        #
+        # Revoke the refresh token before deleting the access token, in one transaction,
+        # so a mid-way failure can't leave the refresh token live after its access token
+        # is already gone (same reasoning as revoke_application_sessions below).
+        with transaction.atomic():
+            OAuthRefreshToken.objects.filter(
+                Q(access_token=access_token) | Q(pk=access_token.source_refresh_token_id), revoked__isnull=True
+            ).update(revoked=now)
+            access_token.delete()
+    elif refresh_token:
+        if _refresh_token_may_have_untracked_access_tokens(refresh_token):
+            # A leaked non-rotating refresh token can have minted any number of access
+            # tokens with no durable link back to it (see
+            # _refresh_token_may_have_untracked_access_tokens), so a per-token revoke can't
+            # guarantee all of them are caught. Fall back to the same (user, application)
+            # sweep revoke_token already uses for this exact case via RFC 7009.
+            revoke_oauth_session(refresh_token=refresh_token)
+            return
+        # Revoke before deleting the linked access token(s), in one transaction, so a
+        # mid-way failure can't leave this refresh token live (and able to mint a new
+        # access token) after its access token is already gone.
+        with transaction.atomic():
+            refresh_token.revoked = now
+            refresh_token.save(update_fields=["revoked"])
+            OAuthAccessToken.objects.filter(
+                Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
+            ).delete()
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:

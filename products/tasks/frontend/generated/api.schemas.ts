@@ -47,6 +47,29 @@ export interface TaskRunErrorResponseApi {
     is_pro?: boolean
 }
 
+export interface ComputeRateCardApi {
+    /** Stable identifier for this rate card. */
+    version: string
+    /** Time when this rate card became effective. */
+    effective_at: string
+    /**
+     * Time when this rate card stopped applying, or null while it remains current.
+     * @nullable
+     */
+    expires_at: string | null
+    /** USD charged per CPU core-second as an exact decimal string. */
+    cpu_core_second_usd: string
+    /** USD charged per GiB-second of memory as an exact decimal string. */
+    memory_gib_second_usd: string
+}
+
+export interface SandboxComputePricingApi {
+    /** Currently effective sandbox compute rate card, or null before pricing is published. */
+    current: ComputeRateCardApi | null
+    /** Expired sandbox compute rate cards, newest first. */
+    history: ComputeRateCardApi[]
+}
+
 export interface LoopRepositoryEntryDTOApi {
     github_integration_id: number
     full_name: string
@@ -850,6 +873,7 @@ export interface SandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -888,6 +912,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -1171,6 +1196,8 @@ export interface ChannelWriteApi {
      * @maxLength 128
      */
     name: string
+    /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
+    star?: boolean
 }
 
 export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
@@ -1241,6 +1268,11 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+}
+
+export interface ChannelDeleteConflictApi {
+    /** Why the space cannot be deleted. */
+    detail: string
 }
 
 /**
@@ -1528,6 +1560,13 @@ export interface TaskRunDetailDTOApi {
     completed_at?: string | null
 }
 
+export interface SlackThreadReferenceDTOApi {
+    url: string
+    channel: string
+    /** @nullable */
+    created_at?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1553,7 +1592,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    readonly runtime: RuntimeEnumApi
+    runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1580,6 +1619,7 @@ export interface TaskDetailDTOApi {
     ci_prompt: string | null
     /** @nullable */
     channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -1610,6 +1650,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `image_builder` - Image Builder
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
+ * * `signals_chat` - Signals Chat
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1632,6 +1673,7 @@ export const OriginProductEnumApi = {
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
 } as const
 
 /**
@@ -1670,7 +1712,8 @@ export interface TaskCreateApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1813,7 +1856,8 @@ export interface TaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1941,7 +1985,8 @@ export interface PatchedTaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3660,6 +3705,30 @@ export interface WizardCloudRunDTOApi {
     started_at?: string | null
 }
 
+/**
+ * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+ *
+ * Both enums are declared with the same choices the run-detail response uses, so clients get the
+ * generated adapter/effort types here rather than bare strings.
+ */
+export interface ModelChoiceApi {
+    /** Runtime that drives this model, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
+    model: string
+    /** Display name for the model, such as 'Claude Opus 4.8'. */
+    display_name: string
+    /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
+    supported_efforts: ReasoningEffortEnumApi[]
+}
+
+export interface ModelCatalogueResponseApi {
+    /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+    models: ModelChoiceApi[]
+}
+
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
@@ -3752,6 +3821,54 @@ export interface RepositoryReadinessResponseApi {
     cacheAgeSeconds: number
     /** Scan evidence details */
     scan?: ScanEvidenceApi
+}
+
+/**
+ * * `task` - task
+ * * `pull_request` - pull_request
+ * * `artifact` - artifact
+ * * `channel` - channel
+ */
+export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
+
+export const TaskSearchResultKindEnumApi = {
+    Task: 'task',
+    PullRequest: 'pull_request',
+    Artifact: 'artifact',
+    Channel: 'channel',
+} as const
+
+export interface TaskSearchResultApi {
+    /** Search document identifier. */
+    id: string
+    /** Type of matched resource.
+     *
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel */
+    kind: TaskSearchResultKindEnumApi
+    /** Primary result label. */
+    title: string
+    /** Secondary result context. */
+    subtitle: string
+    /**
+     * Containing task identifier, when applicable.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Containing task run identifier, when applicable.
+     * @nullable
+     */
+    task_run_id: string | null
+    /**
+     * Containing space identifier, when applicable.
+     * @nullable
+     */
+    channel_id: string | null
+    /** Resource-specific navigation metadata. */
+    metadata: unknown
 }
 
 /**
@@ -4168,7 +4285,7 @@ export type TaskMentionsListParams = {
 
 export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean
     /**
@@ -4394,6 +4511,21 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string
 }
 
 export type TasksSlackThreadContextRetrieveParams = {

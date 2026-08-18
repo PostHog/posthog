@@ -159,21 +159,67 @@ export interface DeriveTaskDataContext {
   slackThreadUrlByTaskId: ReadonlyMap<string, string>;
 }
 
+/**
+ * When a task last moved: the backend's `updated_at`, or local activity where
+ * that has run ahead of it (the renderer sees a session change before the next
+ * poll reports it).
+ */
+export function taskLastActivityAt(
+  updatedAt: string,
+  timestamp: TaskTimestamp | undefined,
+): number {
+  const apiUpdatedAt = new Date(updatedAt).getTime();
+  const localActivity = timestamp?.lastActivityAt;
+  return localActivity ? Math.max(apiUpdatedAt, localActivity) : apiUpdatedAt;
+}
+
+/**
+ * Is there activity on this task the viewer hasn't seen — the rule behind the
+ * yellow dot on a task row. A task never opened is NOT unread: everything in a
+ * fresh list would be, which says nothing.
+ *
+ * Exported because the sidebar's rows and any list that counts them have to
+ * agree. Two implementations of this rule would show a count that doesn't match
+ * the rows it counts.
+ */
+export function isTaskUnread(
+  updatedAt: string,
+  timestamp: TaskTimestamp | undefined,
+): boolean {
+  const lastViewedAt = timestamp?.lastViewedAt;
+  return (
+    lastViewedAt != null &&
+    taskLastActivityAt(updatedAt, timestamp) > lastViewedAt
+  );
+}
+
+/**
+ * Whether a session is running, and where. Split out because a surface can need
+ * this without the workspace and pin lookups the rest of `TaskData` costs.
+ */
+export function deriveTaskRunState(
+  task: Pick<SidebarTask, "id" | "latest_run">,
+  session: TaskSession | undefined,
+): Pick<
+  TaskData,
+  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
+> {
+  return {
+    id: task.id,
+    isGenerating: session?.isPromptPending ?? false,
+    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
+    taskRunEnvironment: task.latest_run?.environment ?? undefined,
+  };
+}
+
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
 ): TaskData {
   const { session, workspace, timestamp } = ctx;
-  const apiUpdatedAt = new Date(task.updated_at).getTime();
-  const localActivity = timestamp?.lastActivityAt;
-  const lastActivityAt = localActivity
-    ? Math.max(apiUpdatedAt, localActivity)
-    : apiUpdatedAt;
+  const lastActivityAt = taskLastActivityAt(task.updated_at, timestamp);
   const createdAt = new Date(task.created_at).getTime();
-
-  const taskLastViewedAt = timestamp?.lastViewedAt;
-  const isUnread =
-    taskLastViewedAt != null && lastActivityAt > taskLastViewedAt;
+  const isUnread = isTaskUnread(task.updated_at, timestamp);
 
   const cloudPrUrl =
     readPrUrls(task.latest_run?.output)[0] ??
@@ -187,19 +233,16 @@ export function deriveTaskData(
     task.slack_thread_url ?? ctx.slackThreadUrlByTaskId.get(task.id);
 
   return {
-    id: task.id,
+    ...deriveTaskRunState(task, session),
     title: task.title,
     createdAt,
     lastActivityAt,
-    isGenerating: session?.isPromptPending ?? false,
     isUnread,
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
     needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
-    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
-    taskRunEnvironment: task.latest_run?.environment ?? undefined,
     runMode: task.latest_run?.mode ?? undefined,
     // The `latest_run` fallback only matters in the `showAllUsers` view: the
     // default view's `filterVisibleTasks` already restricts to tasks with a
