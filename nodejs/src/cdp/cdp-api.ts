@@ -1256,20 +1256,10 @@ export class CdpApi {
 
             const { team_id, id, batch_job_id } = req.params
 
-            const authHeader = req.headers['authorization']
-            const token =
-                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            let claims: { team_id?: number; hog_flow_id?: string } | undefined
-            try {
-                claims = token ? (this.cancelBatchJwt.verify(token) as typeof claims) : undefined
-            } catch {
-                claims = undefined
-            }
-            // The claims pin the token to one team + workflow. The batch job id needs no
-            // claim of its own: cancelJobs filters on (team_id, function_id, parent_run_id),
-            // so an id from another workflow matches nothing.
-            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid cancel token' })
+            // The batch job id needs no claim of its own: cancelJobs filters on
+            // (team_id, function_id, parent_run_id), so an id from another workflow matches nothing.
+            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel')) {
+                return
             }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
