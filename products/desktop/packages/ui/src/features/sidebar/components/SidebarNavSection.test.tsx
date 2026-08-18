@@ -15,6 +15,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 const {
   track,
   useAppView,
+  navigateToInbox,
   navigateToAgents,
   navigateToSkills,
   navigateToMcpServers,
@@ -24,6 +25,7 @@ const {
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useAppView: vi.fn(),
+  navigateToInbox: vi.fn(),
   navigateToAgents: vi.fn(),
   navigateToSkills: vi.fn(),
   navigateToMcpServers: vi.fn(),
@@ -46,6 +48,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
   navigateToAgents,
   navigateToCommandCenter,
+  navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
@@ -62,6 +65,9 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
   useCommandCenterStore: (
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
+  useInboxAllReports: () => ({ counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
   useTasks: () => ({ data: [] }),
@@ -105,6 +111,7 @@ describe("SidebarNavSection", () => {
   });
 
   it.each([
+    ["inbox", "Inbox"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
     ["configure", "Settings"],
@@ -116,7 +123,7 @@ describe("SidebarNavSection", () => {
     expect(screen.queryByText(label)).not.toBeInTheDocument();
   });
 
-  it("renders Activity before Loops by default", () => {
+  it("renders Activity directly under Inbox by default", () => {
     renderNav();
 
     const labels = screen
@@ -125,20 +132,22 @@ describe("SidebarNavSection", () => {
     const position = (label: string) =>
       labels.findIndex((text) => text.includes(label));
 
+    expect(position("Inbox")).toBeLessThan(position("Activity"));
     expect(position("Activity")).toBeLessThan(position("Loops"));
+    expect(position("Inbox")).toBeLessThan(position("Loops"));
   });
 
   it("tracks top-level clicks with in_more false", async () => {
     const user = userEvent.setup();
     renderNav();
 
-    await user.click(screen.getByRole("button", { name: /Activity/ }));
+    await user.click(screen.getByRole("button", { name: /Inbox/ }));
 
-    expect(navigateToActivity).toHaveBeenCalledTimes(1);
+    expect(navigateToInbox).toHaveBeenCalledTimes(1);
     // `layout` separates these from ChannelNav's identically-named clicks.
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
-      { item: "activity", in_more: false, layout: "code" },
+      { item: "inbox", in_more: false, layout: "code" },
     );
   });
 

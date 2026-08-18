@@ -36,3 +36,17 @@ export class AnalyticsBootContribution implements Contribution {
     })();
   }
 }
+
+@injectable()
+export class InboxDemoDevContribution implements Contribution {
+  start(): void {
+    if (import.meta.env.PROD) {
+      return;
+    }
+    void import("@posthog/ui/features/inbox/devtools/inboxDemoConsole").then(
+      ({ registerInboxDemoConsoleCommand }) => {
+        registerInboxDemoConsoleCommand();
+      },
+    );
+  }
+}

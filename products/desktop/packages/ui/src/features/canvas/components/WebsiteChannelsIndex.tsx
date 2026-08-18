@@ -8,7 +8,6 @@ import {
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { Flex, Text } from "@radix-ui/themes";
 import { Navigate, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
@@ -17,8 +16,7 @@ import { useState } from "react";
 // create one when none exist yet.
 export function WebsiteChannelsIndex() {
   const spacesLayout = useChannelsLayout();
-  const { channels } = useChannels();
-  const { reportSpaceId, isLoading: isLoadingReportSpace } = useReportSpace();
+  const { channels, isLoading } = useChannels();
   const [modalOpen, setModalOpen] = useState(false);
   // A blank "+" tab parks at /website; RootLayout renders the placeholder for
   // it. Never redirect to the first channel while it's active.
@@ -37,20 +35,9 @@ export function WebsiteChannelsIndex() {
     select: (s) => s.location.pathname === "/website",
   });
 
-  if (isLoadingReportSpace) return null;
+  if (isLoading) return null;
 
   if (!onIndexPath || activeTabIsBlank) return null;
-
-  if (reportSpaceId) {
-    if (hasNoTabs) return <BlankTabView />;
-    return (
-      <Navigate
-        to="/website/$channelId"
-        params={{ channelId: reportSpaceId }}
-        replace
-      />
-    );
-  }
 
   if (channels.length > 0) {
     // Empty tab strip → the new-tab screen, not a redirect that re-opens a tab.

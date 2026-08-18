@@ -90,14 +90,6 @@ export function activityHeadline(
   item: TaskActivityItem,
   currentUserEmail?: string | null,
 ): ReactNode {
-  if (item.targetScope === "desktop_canvas") {
-    return (
-      <>
-        A report canvas is ready
-        <ChannelSuffix channelName={item.channelName} />
-      </>
-    );
-  }
   switch (item.activityKind) {
     case "awaiting_input":
       return (
@@ -220,10 +212,6 @@ export function ActivityRow({
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
-    if (channelId && item.targetScope === "desktop_canvas" && item.targetId) {
-      navigateToChannelDashboard(channelId, item.targetId);
-      return;
-    }
     if (channelId && item.commentTarget?.scope === "desktop_canvas") {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);
