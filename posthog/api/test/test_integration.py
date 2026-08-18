@@ -2753,6 +2753,30 @@ class TestGitHubTeamIntegrationComplete:
         assert install_request.github_login == "testuser"
         assert install_request.status == GitHubInstallRequest.Status.PENDING
 
+    def test_abandoned_install_records_no_install_request(self, client: HttpClient):
+        # Backing out of the install screen (no setup_action=request) reaches the same
+        # missing-installation_id branch, but must not leave a durable pending row: nothing
+        # would ever clear it, so the client would poll a wait that never started.
+        client.force_login(self.user)
+        state_token = "abandoned-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": "", "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert not GitHubInstallRequest.objects.filter(user=self.user).exists()
+
     @patch("posthog.api.github_callback.team_services.report_user_action")
     def test_pending_without_callback_state_is_not_reported(self, mock_report):
         # No stored authorize state: anyone logged in can hit this URL directly. It still redirects,

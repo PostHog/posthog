@@ -730,7 +730,11 @@ def finish_team_setup(http_request) -> FinishResult:
 
     if not installation_id:
         _report_install_pending(user, team_id, setup_action)
-        record_install_request(user, code)
+        # Only an actual approval request records a durable row, mirroring the personal flow. An
+        # abandoned install (no `setup_action=request`) reaches this branch too, and recording it
+        # would leave a permanent "pending" the client polls forever with no webhook to clear it.
+        if setup_action == "request":
+            record_install_request(user, code)
         return FinishResult(
             redirect_kind="team_setup",
             next_url=next_url,
