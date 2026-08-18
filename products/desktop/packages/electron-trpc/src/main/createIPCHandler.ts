@@ -15,8 +15,19 @@ const getInternalId = (event: IpcMainEvent, request: ETRPCRequest) => {
   return `${event.sender.id}-${event.senderFrame?.routingId ?? 0}:${messageId}`;
 };
 
+export interface AttachWindowOptions {
+  /**
+   * Restricts the window to a subset of procedure paths (e.g. a narrow
+   * bridge for an auxiliary window). Requests outside the set are dropped
+   * before they reach the router. Subscription stops and operation cancels
+   * always pass: they only touch the sender's own operations.
+   */
+  allowedPaths?: (path: string) => boolean;
+}
+
 class IPCHandler<TRouter extends AnyTRPCRouter> {
   #windows: BrowserWindow[] = [];
+  #pathFilters: Map<number, (path: string) => boolean> = new Map();
   #operations: Map<string, AbortController> = new Map();
   #listener: (event: IpcMainEvent, request: ETRPCRequest) => void;
 
@@ -38,6 +49,18 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     }
 
     this.#listener = (event: IpcMainEvent, request: ETRPCRequest) => {
+      // Only attached windows get answers: the channel is a global ipcMain
+      // listener, so without this any webContents in the app could reach
+      // the full router.
+      if (!this.#allows(event, request)) {
+        console.warn(
+          "electron-trpc: dropped request from unauthorized sender",
+          request.method === "request"
+            ? request.operation.path
+            : request.method,
+        );
+        return;
+      }
       handleIPCMessage({
         router,
         createContext,
@@ -51,6 +74,18 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     ipcMain.on(ELECTRON_TRPC_CHANNEL, this.#listener);
   }
 
+  #allows(event: IpcMainEvent, request: ETRPCRequest): boolean {
+    const attached = this.#windows.some(
+      (win) => !win.isDestroyed() && win.webContents === event.sender,
+    );
+    if (!attached) return false;
+    // Stops and cancels are keyed by the sender's own internal id, so they
+    // can only ever abort that sender's operations.
+    if (request.method !== "request") return true;
+    const filter = this.#pathFilters.get(event.sender.id);
+    return filter ? filter(request.operation.path) : true;
+  }
+
   destroy() {
     ipcMain.removeListener(ELECTRON_TRPC_CHANNEL, this.#listener);
     for (const sub of this.#operations.values()) {
@@ -59,7 +94,10 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     this.#operations.clear();
   }
 
-  attachWindow(win: BrowserWindow) {
+  attachWindow(win: BrowserWindow, options?: AttachWindowOptions) {
+    if (options?.allowedPaths) {
+      this.#pathFilters.set(win.webContents.id, options.allowedPaths);
+    }
     if (this.#windows.includes(win)) {
       return;
     }
@@ -77,8 +115,10 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
       );
     }
 
+    const senderId = webContentsId ?? win.webContents.id;
+    this.#pathFilters.delete(senderId);
     this.#cleanUpSubscriptions({
-      webContentsId: webContentsId ?? win.webContents.id,
+      webContentsId: senderId,
     });
   }
 

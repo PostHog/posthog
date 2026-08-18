@@ -5,11 +5,13 @@ import {
   DEV_LOGS_SERVICE,
   DEV_METRICS_SERVICE,
   DEV_NETWORK_SERVICE,
+  MISSION_CONTROL_SERVICE,
 } from "@main/di/tokens";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import type { MissionControlService } from "../../platform-adapters/electron-mission-control";
 import {
   DevActionsEvent,
   type DevActionsEvents,
@@ -43,6 +45,10 @@ import {
   networkSnapshotSchema,
 } from "../../services/dev-network/schemas";
 import type { DevNetworkService } from "../../services/dev-network/service";
+import {
+  missionControlProbeSchema,
+  missionControlStateSchema,
+} from "../../services/mission-control/schemas";
 import { middleware, publicProcedure, router } from "../trpc";
 
 const getFlagsService = () => container.get<DevFlagsService>(DEV_FLAGS_SERVICE);
@@ -54,6 +60,8 @@ const getLogsService = () => container.get<DevLogsService>(DEV_LOGS_SERVICE);
 const getActionsService = () =>
   container.get<DevActionsService>(DEV_ACTIONS_SERVICE);
 const getAgentService = () => container.get<AgentService>(AGENT_SERVICE);
+const getMissionControlService = () =>
+  container.get<MissionControlService>(MISSION_CONTROL_SERVICE);
 
 // Server-side gate: the toolbar UI only renders when devMode is on, but that
 // does not protect the IPC layer. Any renderer-side code with access to the
@@ -172,6 +180,21 @@ export const devRouter = router({
     .output(devToastSchema)
     .mutation(({ input }) =>
       getActionsService().triggerToast(input.variant, input.message),
+    ),
+
+  // Manual checks for a macOS-only feature no automated test can drive.
+  setForceMissionControlOverlay: devProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .output(missionControlStateSchema)
+    .mutation(({ input }) =>
+      getMissionControlService().setForced(input.enabled),
+    ),
+
+  probeMissionControl: devProcedure
+    .input(z.object({ durationMs: z.number().int().min(1000).max(30_000) }))
+    .output(missionControlProbeSchema)
+    .mutation(({ input }) =>
+      getMissionControlService().probe(input.durationMs),
     ),
 
   onFlagsChanged: publicProcedure.subscription(async function* (opts) {

@@ -229,7 +229,7 @@ async function resolveBranchName(
   if (baseBranch && branch === baseBranch) {
     throw new Error(
       `Refusing to commit directly to base branch '${baseBranch}'. ` +
-        `Pass a 'branch' name prefixed with posthog-code/.`,
+        `Pass a 'branch' name prefixed with posthog/.`,
     );
   }
   return branch;
@@ -239,7 +239,7 @@ async function resolveCurrentBranch(ctx: SignedCommitCtx): Promise<string> {
   const current = await gitText(["rev-parse", "--abbrev-ref", "HEAD"], ctx.cwd);
   if (!current || current === "HEAD") {
     throw new Error(
-      "Detached HEAD — pass a `branch` to git_signed_commit (e.g. posthog-code/...).",
+      "Detached HEAD — pass a `branch` to git_signed_commit (e.g. posthog/...).",
     );
   }
   return current;
@@ -802,7 +802,7 @@ async function publishChangesAtomic(
     return publishChunks(ctx, repo, branch, baseOid, headline, body, chunks);
   }
 
-  const scratch = `posthog-code/commit-tmp/${crypto.randomUUID()}`;
+  const scratch = `posthog/commit-tmp/${crypto.randomUUID()}`;
   await createRef(ctx, repo, scratch, baseOid);
   try {
     const published = await publishChunks(
@@ -996,7 +996,7 @@ export async function createSignedRewrite(
     throw new Error(`No commits between ${onto} and HEAD to publish.`);
   }
 
-  const scratch = `posthog-code/rewrite-tmp/${crypto.randomUUID()}`;
+  const scratch = `posthog/rewrite-tmp/${crypto.randomUUID()}`;
   await createRef(ctx, repo, scratch, onto);
 
   const commits: { sha: string; url: string }[] = [];

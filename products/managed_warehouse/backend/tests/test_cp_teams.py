@@ -22,6 +22,7 @@ def _row(**overrides) -> dict:
         "persons_table_name": None,
         "schema_data_imports_name": None,
         "earliest_event_date": None,
+        "data_imports_table_naming_version": "copy_v1",
     }
     row.update(overrides)
     return row
@@ -81,7 +82,17 @@ class TestTeamFromRow:
             persons_table_name=None,
             schema_data_imports_name=None,
             earliest_event_date=date(2020, 6, 15),
+            data_imports_table_naming_version="copy_v1",
         )
+
+    def test_missing_naming_version_defaults_to_legacy_batch_during_rolling_deploy(self) -> None:
+        row = _row()
+        row.pop("data_imports_table_naming_version")
+
+        team = team_from_row(row)
+
+        assert team is not None
+        assert team.data_imports_table_naming_version == "legacy_batch_v1"
 
     @parameterized.expand(
         [
@@ -189,12 +200,19 @@ class TestTTLCache:
             cp_teams.list_org_teams("org-1")
         assert mock_fetch.call_count == 2
 
-    def test_list_enabled_backfills_filters_disabled_rows(self) -> None:
+    def test_list_enabled_backfills_filters_disabled_and_non_ready_rows(self) -> None:
         rows = [
             _row(team_id=1, backfill_enabled=True),
             _row(team_id=2, schema_name="two", backfill_enabled=False),
+            _row(org_id="org-2", team_id=3, schema_name="three", backfill_enabled=True),
         ]
-        with patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=rows):
+        with (
+            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=rows),
+            patch(
+                "products.managed_warehouse.backend.cp_teams._fetch_ready_warehouse_rows",
+                return_value=[{"org_id": "org-1", "state": "ready"}],
+            ),
+        ):
             teams = cp_teams.list_enabled_backfills()
         assert teams is not None
         assert [team.team_id for team in teams] == [1]
@@ -203,8 +221,13 @@ class TestTTLCache:
 class TestControlPlaneTransport:
     @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
     def test_org_read_uses_internal_transport_with_the_control_plane_request_shape(self) -> None:
+        response_row = _row()
+        response_row.pop("data_imports_table_naming_version")
         response = MagicMock(status_code=200, text="ok")
-        response.json.return_value = {"teams": [_row()]}
+        response.json.return_value = {
+            "teams": [response_row],
+            "data_imports_table_naming_version": "copy_v1",
+        }
 
         with patch(
             "products.managed_warehouse.backend.cp_teams.internal_requests.request",
@@ -235,6 +258,31 @@ class TestControlPlaneTransport:
         request.assert_called_once_with(
             "GET",
             "https://duckgres.example/api/v1/teams",
+            json=None,
+            params=None,
+            headers={"X-Duckgres-Internal-Secret": "secret"},
+            timeout=30,
+        )
+
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_ready_warehouse_read_filters_non_ready_states(self) -> None:
+        response = MagicMock(status_code=200, text="ok")
+        response.json.return_value = {
+            "warehouses": [
+                {"org_id": "org-1", "state": "ready", "writable": True},
+                {"org_id": "org-2", "state": "resharding", "writable": False},
+            ]
+        }
+
+        with patch(
+            "products.managed_warehouse.backend.cp_teams.internal_requests.request",
+            return_value=response,
+        ) as request:
+            assert cp_teams._fetch_ready_warehouse_rows() == [{"org_id": "org-1", "state": "ready", "writable": True}]
+
+        request.assert_called_once_with(
+            "GET",
+            "https://duckgres.example/api/v1/warehouses",
             json=None,
             params=None,
             headers={"X-Duckgres-Internal-Secret": "secret"},

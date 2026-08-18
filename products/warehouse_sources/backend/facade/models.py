@@ -34,9 +34,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import (
+    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
+    ManagedWarehouseSQLMode,
     get_direct_external_data_source_for_connection,
+    is_managed_warehouse_connection_ready,
 )
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -50,6 +54,8 @@ from products.warehouse_sources.backend.models.table import (
 from products.warehouse_sources.backend.models.util import (
     clickhouse_column_to_dwh_column,
     clickhouse_columns_to_dwh_columns,
+    motherduck_column_to_dwh_column,
+    motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -69,7 +75,10 @@ __all__ = [
     "ExternalDataJob",
     "ExternalDataSchema",
     "ExternalDataSource",
+    "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
+    "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
+    "ManagedWarehouseSQLMode",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "SSHTunnel",
@@ -81,10 +90,13 @@ __all__ = [
     "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
+    "is_managed_warehouse_connection_ready",
     "get_latest_run_if_exists",
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
+    "motherduck_column_to_dwh_column",
+    "motherduck_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",

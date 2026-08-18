@@ -38,6 +38,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
         123,
         scopes="read_only",
         application=application,
+        sandbox_task_id=task.id,
         include_mcp_builtin_agent_scope=True,
     )
 
@@ -62,6 +63,7 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
         123,
         scopes="read_only",
         application="posthog_ai",
+        sandbox_task_id=task.id,
     )
 
 
@@ -85,6 +87,7 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
         123,
         scopes="read_only",
         application="array",
+        sandbox_task_id=task.id,
     )
 
 
@@ -104,6 +107,7 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
         123,
         scopes="read_only",
         application="array",
+        sandbox_task_id=task.id,
     )
 
 
@@ -133,6 +137,7 @@ def test_server_created_task_persists_trusted_mcp_agent_marker(
     organization = Organization.objects.create(name=f"agent-marker-{agent_key}")
     team = Team.objects.create(organization=organization, name="agent-marker-team")
     creator = User.objects.create(email=f"agent-marker-{agent_key}@example.com")
+    owner = User.objects.create(email=f"agent-owner-{agent_key}@example.com")
 
     task = Task.create_without_run(
         team=team,
@@ -141,10 +146,14 @@ def test_server_created_task_persists_trusted_mcp_agent_marker(
         origin_product=origin_product,
         user_id=creator.id,
         mcp_builtin_agent_key=agent_key,
+        mcp_credential_owner_id=owner.id,
     )
 
-    assert task.state == {"mcp_builtin_agent_key": agent_key}
+    assert task.state == {"mcp_builtin_agent_key": agent_key, "mcp_credential_owner_id": owner.id}
     assert task.mcp_builtin_agent_key == agent_key
+    # The credential owner is its own value, not the task's creator: the run acts as `creator`
+    # but may only mount `owner`'s MCP grants.
+    assert task.mcp_credential_owner_id == owner.id
 
 
 @pytest.mark.django_db
@@ -158,9 +167,24 @@ def test_reserved_origin_without_matching_server_marker_is_untrusted() -> None:
         title="Legacy",
         description="Untrusted origin",
         origin_product=Task.OriginProduct.SUPPORT_REPLY,
+        state={"mcp_credential_owner_id": creator.id},
     )
 
     assert legacy_task.mcp_builtin_agent_key is None
+    # An owner id without the server-stamped agent marker resolves to nothing, so an
+    # untrusted task can never borrow that person's grants.
+    assert legacy_task.mcp_credential_owner_id is None
+
+    unstamped = Task.create_without_run(
+        team=team,
+        title="Unstamped",
+        description="No agent marker",
+        origin_product=Task.OriginProduct.USER_CREATED,
+        user_id=creator.id,
+        mcp_credential_owner_id=creator.id,
+    )
+    assert unstamped.state == {}
+    assert unstamped.mcp_credential_owner_id is None
 
     with pytest.raises(ValueError, match="does not match task origin"):
         Task.create_without_run(
@@ -279,4 +303,5 @@ def test_non_loop_run_keeps_loop_write_scope(mock_create: MagicMock) -> None:
         123,
         scopes=["loop:read", "loop:write", "task:read"],
         application="array",
+        sandbox_task_id=task.id,
     )

@@ -22,6 +22,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -51,6 +52,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -449,6 +452,13 @@ def _rows_select(
     )
 
 
+@frozen
+class _CollectedCatalog:
+    table_rows: list[list[Any]]
+    column_rows: list[list[Any]]
+    relationships: list[_CollectedRelationship]
+
+
 class _Introspection:
     """Walks the live database once and produces the rows for every information_schema table."""
 
@@ -466,7 +476,7 @@ class _Introspection:
         self.materialized_view_ids = warehouse_metadata.materialized_view_ids
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
-        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
+        self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
         # Per-table certification lookup key `(table_type, resource_id)`, parallel to the table rows.
@@ -542,7 +552,7 @@ class _Introspection:
                 return self.column_stats.get((str(table_id), column_name), (None, None, None))
         return (None, None, None)
 
-    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]:
+    def collect(self) -> _CollectedCatalog:
         if self._collected is not None:
             return self._collected
 
@@ -578,12 +588,13 @@ class _Introspection:
             )
 
         self._table_certification_keys = certification_keys
-        self._collected = (table_rows, column_rows, relationship_rows)
+        self._collected = _CollectedCatalog(
+            table_rows=table_rows, column_rows=column_rows, relationships=relationship_rows
+        )
         return self._collected
 
     def table_rows(self) -> list[list[Any]]:
-        table_rows, _, _ = self.collect()
-        return table_rows
+        return self.collect().table_rows
 
     def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_table_rows is not None:
@@ -601,21 +612,18 @@ class _Introspection:
         return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
-        _, column_rows, _ = self.collect()
-        return column_rows
+        return self.collect().column_rows
 
     def relationship_rows(self) -> list[list[Any]]:
-        _, _, relationship_rows = self.collect()
-        return [relationship.values for relationship in relationship_rows]
+        return [relationship.values for relationship in self.collect().relationships]
 
     def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_relationship_rows is not None:
             return self._data_catalog_enriched_relationship_rows
 
-        _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
-        for relationship in relationships:
+        for relationship in self.collect().relationships:
             confidence, reasoning = (
                 accepted_relationships.get(relationship.provenance_key, (None, None))
                 if relationship.provenance_key is not None
@@ -860,6 +868,7 @@ _CERTIFICATIONS_COLUMNS: list[tuple[str, str]] = [
     ("target_id", _STRING),
     ("target_kind", _STRING),
     ("status", _STRING),
+    ("proposed_status", _STRING),
     ("notes", _NULLABLE_STRING),
     ("certified_by", _NULLABLE_STRING),
     ("certified_at", _NULLABLE_STRING),
@@ -869,7 +878,8 @@ _CERTIFICATIONS_DESCRIPTION = (
     "Catalog of trust-mark proposals and decisions on warehouse tables and views; one row per "
     "certification. Unlike the certification column on information_schema.tables (which shows only "
     "settled 'certified'/'deprecated' marks), this lists the full review queue — including 'proposed' "
-    "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue."
+    "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue; "
+    "proposed_status shows whether a 'proposed' row asks to certify or deprecate the target."
 )
 
 _RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
@@ -944,6 +954,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
     from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
 
+    record_catalog_read("metrics")
     try:
         denied = context.database._denied_tables if context.database is not None else set()
         queryset = (
@@ -978,6 +989,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
             )
         return rows
     except Exception:
+        record_catalog_read_failure("metrics")
         logger.exception("information_schema: failed to load catalog metrics", team_id=team_id)
         return []
 
@@ -1017,6 +1029,7 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
     from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    record_catalog_read("tables")
     try:
         result: dict[tuple[str, str], str] = {}
         certs = TableCertification.objects.for_team(team_id).filter(
@@ -1037,6 +1050,7 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
             result[("view", str(saved_query_id))] = status
         return result
     except Exception:
+        record_catalog_read_failure("tables")
         logger.exception("information_schema: failed to load certifications", team_id=team_id)
         return {}
 
@@ -1045,9 +1059,16 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
     database = context.database
     if database is None or _references_denied_table([table_name], database._denied_tables):
         return False
+    record_catalog_read("table_visibility")
     try:
         return database.has_table(table_name) and database.get_table(table_name) is not None
     except Exception:
+        record_catalog_read_failure("table_visibility")
+        logger.exception(
+            "information_schema: failed to resolve catalog table visibility",
+            table_name=table_name,
+            team_id=context.team_id,
+        )
         return False
 
 
@@ -1070,6 +1091,7 @@ def _catalog_accepted_relationships(
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationships")
     try:
         accepted = RelationshipProposal.objects.for_team(team_id).filter(
             status=RelationshipStatus.ACCEPTED,
@@ -1129,6 +1151,7 @@ def _catalog_accepted_relationships(
             )
         return result
     except Exception:
+        record_catalog_read_failure("relationships")
         logger.exception("information_schema: failed to load accepted relationships", team_id=team_id)
         return {}
 
@@ -1147,6 +1170,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationship_proposals")
     try:
         proposals = RelationshipProposal.objects.for_team(team_id).filter(status=RelationshipStatus.PROPOSED)
         if allowed is not None:
@@ -1174,6 +1198,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
             )
         return rows
     except Exception:
+        record_catalog_read_failure("relationship_proposals")
         logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
         return []
 
@@ -1191,6 +1216,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
         return []
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    record_catalog_read("certifications")
     try:
         certs = (
             TableCertification.objects.for_team(team_id)
@@ -1221,6 +1247,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
                     target_id,
                     target_kind,
                     cert.status,
+                    cert.proposed_status,
                     cert.notes or None,
                     cert.certified_by.email if cert.certified_by else None,
                     cert.certified_at.isoformat() if cert.certified_at else None,
@@ -1229,6 +1256,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
             )
         return rows
     except Exception:
+        record_catalog_read_failure("certifications")
         logger.exception("information_schema: failed to load certifications table", team_id=team_id)
         return []
 
@@ -1241,7 +1269,16 @@ def _accesses_any_field(table_to_add: LazyTableToAdd, field_names: frozenset[str
     return any(field_chain and field_chain[0] in field_names for field_chain in table_to_add.fields_accessed.values())
 
 
-class InformationSchemaTablesTable(LazyTable):
+class InformationSchemaTable(LazyTable):
+    """Base for every `system.information_schema.*` table.
+
+    These describe the catalog rather than read from it: each one builds its rows in Python and ships
+    them to ClickHouse as external data. Callers that dispatch a query by where its tables live —
+    notably direct-connection routing — test against this base.
+    """
+
+
+class InformationSchemaTablesTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every table, view, system table, and data warehouse table visible "
         "to the caller; one row per table. Start here to discover what is queryable."
@@ -1301,7 +1338,7 @@ class InformationSchemaTablesTable(LazyTable):
         return "system__information_schema__tables"
 
 
-class InformationSchemaColumnsTable(LazyTable):
+class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
@@ -1381,7 +1418,7 @@ class InformationSchemaColumnsTable(LazyTable):
         return "system__information_schema__columns"
 
 
-class InformationSchemaRelationshipsTable(LazyTable):
+class InformationSchemaRelationshipsTable(InformationSchemaTable):
     description: str = _DATA_CATALOG_ENRICHED_RELATIONSHIPS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "source_table": _string_field(
@@ -1439,7 +1476,7 @@ class InformationSchemaRelationshipsTable(LazyTable):
         return "system__information_schema__relationships"
 
 
-class InformationSchemaDataTypesTable(LazyTable):
+class InformationSchemaDataTypesTable(InformationSchemaTable):
     description: str = (
         "Reference list of the HogQL data types reported in information_schema.columns, with a short "
         "explanation of each; one row per type."
@@ -1464,7 +1501,7 @@ class InformationSchemaDataTypesTable(LazyTable):
         return "system__information_schema__data_types"
 
 
-class InformationSchemaMetricsTable(LazyTable):
+class InformationSchemaMetricsTable(InformationSchemaTable):
     description: str = (
         "Catalog of the project's governed business metrics (the semantic layer); one row per metric. "
         "Consult before data discovery for explicit or implicit business measures and metric-powered rankings, "
@@ -1477,7 +1514,9 @@ class InformationSchemaMetricsTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
         "name": _string_field(
-            "name", description="Identifier-safe handle uniquely naming this metric within the project."
+            "name",
+            description="Identifier-safe handle uniquely naming this metric among the project's live metrics. "
+            "Not permanent: a metric can be renamed, and deleting one frees its name for reuse.",
         ),
         "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
         "description": _string_field("description", description="What the metric means and how to interpret it."),
@@ -1527,7 +1566,7 @@ class InformationSchemaMetricsTable(LazyTable):
         return "system__information_schema__metrics"
 
 
-class InformationSchemaCertificationsTable(LazyTable):
+class InformationSchemaCertificationsTable(InformationSchemaTable):
     description: str = _CERTIFICATIONS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate tools."),
@@ -1547,6 +1586,13 @@ class InformationSchemaCertificationsTable(LazyTable):
             description=(
                 "'proposed' (pending review), 'certified' (prefer this source), or 'deprecated' (avoid it). "
                 "Only 'certified'/'deprecated' are trust marks; a 'proposed' row is not yet vouched for."
+            ),
+        ),
+        "proposed_status": _string_field(
+            "proposed_status",
+            description=(
+                "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid it). "
+                "Informational once the row is settled."
             ),
         ),
         "notes": _string_field("notes", nullable=True, description="Why the mark exists; review context."),
@@ -1576,7 +1622,7 @@ class InformationSchemaCertificationsTable(LazyTable):
         return "system__information_schema__certifications"
 
 
-class InformationSchemaRelationshipProposalsTable(LazyTable):
+class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
     description: str = _RELATIONSHIP_PROPOSALS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Proposal UUID — pass to the relationship accept/reject tools."),
@@ -1640,6 +1686,26 @@ def information_schema_node() -> TableNode:
             ),
         },
     )
+
+
+def direct_connection_information_schema_node() -> TableNode:
+    """The `information_schema` namespace mounted on a direct-connection database.
+
+    Only the schema-discovery tables. Metrics, certifications, relationship proposals and joins all
+    describe the team's own ClickHouse catalog, so mounting them here would answer a question about
+    the team's catalog under a name that reads as the connection's.
+    """
+    node = TableNode(
+        name="information_schema",
+        children={
+            "tables": TableNode(name="tables", table=InformationSchemaTablesTable()),
+            "columns": TableNode(name="columns", table=InformationSchemaColumnsTable()),
+            "data_types": TableNode(name="data_types", table=InformationSchemaDataTypesTable()),
+        },
+    )
+    # Drops the `certification` column, which is data-catalog state about the team's own tables.
+    disable_data_catalog(node)
+    return node
 
 
 def disable_data_catalog(info_schema: TableNode) -> None:

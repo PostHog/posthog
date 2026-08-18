@@ -1,11 +1,11 @@
 import "./generated.augment";
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
   CreateTaskAutomationOptions,
   ExecutionMode,
+  McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -105,14 +106,39 @@ import type {
   TaskMention,
   TaskRun,
   TaskRunArtefact,
+  TaskRunArtifact,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
   shapeAgentAnalytics,
 } from "./agent-analytics";
+import {
+  compactCount,
+  dailySparkPoints,
+  decorateFlagPreview,
+  decorateSurveyPreview,
+  type EvidencePreview,
+  exposureFact,
+  gridRows,
+  hogqlEscape,
+  shapeActionPreview,
+  shapeCohortPreview,
+  shapeDashboardPreview,
+  shapeErrorIssuePreview,
+  shapeEvaluationPreview,
+  shapeEventDefinitionPreview,
+  shapeExperimentPreview,
+  shapeFlagPreview,
+  shapePersonPreview,
+  shapeRecordingPreview,
+  shapeSurveyPreview,
+  shapeTicketPreview,
+  shapeTracePreview,
+} from "./evidence-previews";
 import {
   ApiRequestError,
   buildApiFetcher,
@@ -121,6 +147,7 @@ import {
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
+  McpAgentGrantScope,
   McpAuditCounts,
   McpAuditEvent,
   McpAuditPage,
@@ -141,7 +168,9 @@ import type {
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import {
   normalizeTaskResponse,
+  normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
+  type TaskRunArtifactDTO,
 } from "./task-normalization";
 
 export type * from "./mcp-gateway";
@@ -185,6 +214,8 @@ export type UsageLimitType = "burst" | "sustained" | null;
 
 // Stable message so callers recognize this after a saga reduces the error to a string.
 export const CLOUD_USAGE_LIMIT_ERROR_MESSAGE = "Cloud usage limit reached";
+export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
+  "posthog_code_billing_limit_exceeded";
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 
@@ -193,10 +224,54 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+export interface TaskListOptions {
+  repository?: string;
+  createdBy?: number;
+  originProduct?: string;
+  internal?: boolean;
+  channel?: string;
+  /** Caller-side cap for surfaces that only show the newest few. */
+  limit?: number;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
   content_sha256: string | null;
+}
+
+/**
+ * The commentable resources this client knows how to address. `scope` is a
+ * free-form column on the backend `Comment` model, so adding a resource is a
+ * new member here plus a caller — no migration and no endpoint.
+ */
+export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+
+/** Named `Resource*` so it never collides with the DOM's global `Comment`.
+ * Optimistic rows do not have a server version yet, while item_context is a
+ * real JSON value despite the generated serializer's historically narrow type. */
+export type ResourceComment = Omit<Schemas.Comment, "version"> & {
+  version?: number;
+};
+
+export interface CreateResourceCommentRequest {
+  scope: CommentScope;
+  itemId: string;
+  content: string;
+  context: unknown;
+  sourceCommentId?: string;
+  mentions?: number[];
 }
 
 /** Thrown when the backend rejects a cloud run with a 429 usage-limit error. */
@@ -351,12 +426,49 @@ export interface SignalSourceConfig {
 // Endpoints live under /api/projects/{id}/signals/scout/ and require the
 // `signal_scout:read` / `signal_scout:write` scopes.
 
+/**
+ * Lifecycle state the coordinator keeps alongside `enabled`:
+ * - `active` – running on its schedule.
+ * - `pending_pause` – still running, but flagged by the inactivity sweep and
+ *   due to be paused unless something changes.
+ * - `paused_by_user` – a person switched it off; the system never overrides it.
+ * - `paused_by_system` – the platform switched it off, see `pause_reason`.
+ */
+export type ScoutLifecycleStatus =
+  | "active"
+  | "pending_pause"
+  | "paused_by_user"
+  | "paused_by_system";
+
+/**
+ * Why the system warned or paused a scout: `ignored` (its findings went
+ * unacted on), `no_output` (it stopped emitting anything), or
+ * `repeated_failures` (its runs kept erroring).
+ */
+export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
+
 export interface ScoutConfig {
   id: string;
   skill_name: string;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;
+  /**
+   * Lifecycle state behind `enabled`. Absent on backends predating the
+   * lifecycle fields, in which case `enabled` is all there is to go on.
+   */
+  status?: ScoutLifecycleStatus;
+  /** Why the system warned or paused the scout; null while it is healthy. */
+  pause_reason?: ScoutPauseReason | null;
+  /** ISO timestamp of the last `status` transition; null if it never moved. */
+  status_changed_at?: string | null;
+  /** Runs that failed back to back; trips a `repeated_failures` pause. */
+  consecutive_failure_count?: number;
+  /**
+   * Exempts the scout from the inactivity sweep — both the `ignored` pause and
+   * the `no_output` warning. Set on watchdog scouts whose value is staying quiet.
+   */
+  auto_pause_exempt?: boolean;
   /**
    * Summary of what the scout investigates, from the skill's description
    * metadata. Empty string when the skill is absent or carries no description;
@@ -373,26 +485,6 @@ export interface ScoutConfig {
   run_interval_minutes: number;
   last_run_at: string | null;
   created_at: string;
-}
-
-/** A team's enforced scout run caps and current usage, as dispatch applies them. */
-export interface ScoutLimits {
-  max_runs_per_tick: number;
-  /** Null when the daily budget is uncapped. */
-  max_runs_per_day: number | null;
-  runs_today: number;
-  /** Null when the daily budget is uncapped. */
-  runs_remaining_today: number | null;
-}
-
-/**
- * Team-scoped scout metadata from the `signals-scout` flag: enrollment, an optional
- * announcement banner, and the enforced run limits. `banner_message` is null when unset.
- */
-export interface ScoutMetadata {
-  enrolled: boolean;
-  banner_message: string | null;
-  limits: ScoutLimits;
 }
 
 export interface ScoutRun {
@@ -586,7 +678,7 @@ export interface SourceConfig {
   fields: SourceFieldConfig[];
 }
 
-export interface FolderInstructionsUser {
+export interface ChannelInstructionsUser {
   id?: number;
   uuid?: string;
   first_name?: string;
@@ -594,29 +686,19 @@ export interface FolderInstructionsUser {
   email?: string;
 }
 
-export interface FolderInstructions {
-  id: string;
+export interface ChannelInstructions {
+  channel: string;
   content: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-  updated_at: string;
+  created_by: ChannelInstructionsUser | null;
 }
 
-export interface FolderInstructionsVersion {
-  id: string;
+export interface ChannelInstructionsVersion {
+  channel: string;
   version: number;
-  is_latest: boolean;
-  created_by: FolderInstructionsUser | null;
   created_at: string;
-}
-
-interface PaginatedFolderInstructionsVersions {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: FolderInstructionsVersion[];
+  created_by: ChannelInstructionsUser | null;
 }
 
 // Thrown when PUT /instructions/ rejects a publish because the caller's
@@ -634,7 +716,7 @@ export class FolderInstructionsConflictError extends Error {
 
 export interface TaskArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;
@@ -663,6 +745,8 @@ export interface FinalizedTaskArtifactUpload {
   metadata?: TaskArtifactUploadRequest["metadata"];
   storage_path: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
 }
 
 export interface CloudRunOptions {
@@ -685,7 +769,7 @@ export interface CloudRunOptions {
    * Local url-based MCP servers to make available inside the sandbox. The
    * backend merges these into the agent server's `--mcpServers` at spawn.
    */
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
@@ -1546,308 +1630,20 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
       adapter,
     );
-  }
-
-  // Desktop file system — the backend surface that backs canvas channels
-  // (top-level folders) and dashboards. These routes aren't in the generated
-  // OpenAPI client, so we use the raw fetcher.
-  // Channels are top-level folders on the desktop file system. Filtering to
-  // `type=folder` server-side (and requesting a large page) keeps us from
-  // paginating over every dashboard and filed task just to populate the
-  // sidebar channel list — the bulk of the initial-load cost otherwise.
-  async getDesktopFileSystemChannels(): Promise<Schemas.FileSystem[]> {
-    const DESKTOP_FILE_SYSTEM_MAX_PAGES = 50;
-    const DESKTOP_FILE_SYSTEM_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystem[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system/?type=folder&limit=${DESKTOP_FILE_SYSTEM_PAGE_SIZE}`;
-    for (let i = 0; i < DESKTOP_FILE_SYSTEM_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system channels: ${response.statusText}`,
-        );
-      }
-      const page = (await response.json()) as Schemas.PaginatedFileSystemList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemChannels hit MAX_PAGES (${DESKTOP_FILE_SYSTEM_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a top-level channel (a folder row whose path is a single segment).
-  async createDesktopFileSystemChannel(
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name, type: "folder", depth: 1 }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Rename a top-level channel: PATCH its path (a single segment) to the new
-  // name. The backend recomputes depth from the path.
-  async renameDesktopFileSystemChannel(
-    id: string,
-    name: string,
-  ): Promise<Schemas.FileSystem> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ path: name }),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to rename desktop file system channel: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystem;
-  }
-
-  // Delete a desktop file system entry by id (used to remove top-level channels).
-  async deleteDesktopFileSystem(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system channel: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Desktop file system shortcuts — the user-scoped "starred" items on the
-  // desktop surface (e.g. starred channels). Unlike the file system rows above,
-  // shortcuts are per-user, so they back cross-device starring without leaking
-  // one user's stars to their teammates. Not in the generated OpenAPI client,
-  // so we use the raw fetcher.
-  async getDesktopFileSystemShortcuts(): Promise<Schemas.FileSystemShortcut[]> {
-    const SHORTCUTS_MAX_PAGES = 50;
-    const SHORTCUTS_PAGE_SIZE = 200;
-    const teamId = await this.getTeamId();
-    const all: Schemas.FileSystemShortcut[] = [];
-    let urlPath: string = `/api/projects/${teamId}/desktop_file_system_shortcut/?limit=${SHORTCUTS_PAGE_SIZE}`;
-    for (let i = 0; i < SHORTCUTS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch desktop file system shortcuts: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as Schemas.PaginatedFileSystemShortcutList;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `getDesktopFileSystemShortcuts hit MAX_PAGES (${SHORTCUTS_MAX_PAGES}); returning partial results`,
-      { returned: all.length },
-    );
-    return all;
-  }
-
-  // Create a desktop shortcut for the current user. For a folder/channel the
-  // backend links by `ref` (the folder's full path), with `path` as the label.
-  async createDesktopFileSystemShortcut(input: {
-    path: string;
-    type: string;
-    ref?: string;
-    href?: string;
-  }): Promise<Schemas.FileSystemShortcut> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to create desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as Schemas.FileSystemShortcut;
-  }
-
-  // Delete a desktop shortcut by id (used to unstar). A 404 means it's already
-  // gone, which is the desired end state, so we treat it as success.
-  async deleteDesktopFileSystemShortcut(id: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system_shortcut/${encodeURIComponent(id)}/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete desktop file system shortcut: ${response.statusText}`,
-      );
-    }
-  }
-
-  // Per-folder, versioned markdown instructions for a desktop folder. The
-  // endpoint is keyed on the FileSystem row id (must be `type === "folder"`).
-  // Returns the current latest version or null when none has been published.
-  async getDesktopFolderInstructions(
-    folderId: string,
-  ): Promise<FolderInstructions | null> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Publish a new version of the folder's instructions. Pass `base_version`
-  // (the latest version the editor was started from) for optimistic
-  // concurrency; use 0 when no instructions exist yet. A 409 turns into a
-  // typed `FolderInstructionsConflictError` so the UI can prompt to reload.
-  async putDesktopFolderInstructions(
-    folderId: string,
-    input: { content: string; base_version?: number },
-  ): Promise<FolderInstructions> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (response.status === 409) {
-      throw new FolderInstructionsConflictError();
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Failed to publish folder instructions: ${response.statusText}`,
-      );
-    }
-    return (await response.json()) as FolderInstructions;
-  }
-
-  // Soft-delete all versions of this folder's instructions. The folder row
-  // itself is not affected.
-  async deleteDesktopFolderInstructions(folderId: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url,
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to delete folder instructions: ${response.statusText}`,
-      );
-    }
-  }
-
-  // List version metadata (no content) newest-first. Single page is enough for
-  // the typical UI; we cap follow-up pages to avoid runaway pagination on
-  // pathological histories.
-  async listDesktopFolderInstructionVersions(
-    folderId: string,
-  ): Promise<FolderInstructionsVersion[]> {
-    const VERSIONS_MAX_PAGES = 20;
-    const teamId = await this.getTeamId();
-    const all: FolderInstructionsVersion[] = [];
-    let urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/instructions/versions/`;
-    for (let i = 0; i < VERSIONS_MAX_PAGES; i++) {
-      const url = new URL(`${this.api.baseUrl}${urlPath}`);
-      const response = await this.api.fetcher.fetch({
-        method: "get",
-        url,
-        path: urlPath,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch folder instruction versions: ${response.statusText}`,
-        );
-      }
-      const page =
-        (await response.json()) as PaginatedFolderInstructionsVersions;
-      all.push(...page.results);
-      if (!page.next) return all;
-      const nextUrl = new URL(page.next);
-      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
-    }
-    log.warn(
-      `listDesktopFolderInstructionVersions hit MAX_PAGES (${VERSIONS_MAX_PAGES}); returning partial results`,
-      { folderId, returned: all.length },
-    );
-    return all;
   }
 
   // The task currently generating this folder's CONTEXT.md, shared across the
@@ -1978,6 +1774,76 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
   }
 
   async switchOrganization(orgId: string): Promise<void> {
@@ -2140,17 +2006,19 @@ export class PostHogAPIClient {
     return Array.isArray(data) ? data : (data.results ?? []);
   }
 
-  async getScoutMetadata(projectId: number): Promise<ScoutMetadata> {
-    return this.scoutGet<ScoutMetadata>(projectId, "metadata/current/");
-  }
-
   async updateScoutConfig(
     projectId: number,
     configId: string,
     updates: {
+      /**
+       * Flipping this off records a user pause (`status` becomes
+       * `paused_by_user`, which the system never overrides); flipping it on
+       * resumes the scout from any pause, including a system one.
+       */
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;
@@ -2421,16 +2289,33 @@ export class PostHogAPIClient {
     }
   }
 
-  async getTasks(options?: {
-    repository?: string;
-    createdBy?: number;
-    originProduct?: string;
-    internal?: boolean;
-    channel?: string;
-  }): Promise<Task[]> {
+  async getTasks(options?: TaskListOptions): Promise<Task[]> {
+    return (await this.getTasksPage(options)).tasks;
+  }
+
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
+  }
+
+  /**
+   * The same list with the total behind it, for surfaces that ask for a short
+   * page and still have to say how much they are not showing.
+   */
+  async getTasksPage(
+    options?: TaskListOptions,
+  ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
     const params: Record<string, string | number | boolean> = {
-      limit: 500,
+      limit: options?.limit ?? 500,
     };
 
     if (options?.repository) {
@@ -2458,9 +2343,10 @@ export class PostHogAPIClient {
       query: params,
     });
 
-    return (data.results ?? []).map((task) =>
+    const tasks = (data.results ?? []).map((task) =>
       normalizeTaskResponse(task, { teamId }),
     );
+    return { tasks, count: data.count ?? tasks.length };
   }
 
   async getTaskSummaries(ids: string[]) {
@@ -2638,7 +2524,6 @@ export class PostHogAPIClient {
           Task,
           | "title"
           | "repository"
-          | "repositories"
           | "json_schema"
           | "origin_product"
           | "runtime"
@@ -2660,13 +2545,15 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
 
-    const data = await this.api.post(`/api/projects/{project_id}/tasks/`, {
-      path: { project_id: teamId.toString() },
-      body: {
-        ...taskOptions,
-        origin_product: originProduct ?? "user_created",
-      } as unknown as Schemas.Task,
-    });
+    const data = await this.withCloudUsageLimitCheck(() =>
+      this.api.post(`/api/projects/{project_id}/tasks/`, {
+        path: { project_id: teamId.toString() },
+        body: {
+          ...taskOptions,
+          origin_product: originProduct ?? "user_created",
+        } as unknown as Schemas.Task,
+      }),
+    );
 
     return normalizeTaskResponse(data, { teamId });
   }
@@ -2700,8 +2587,6 @@ export class PostHogAPIClient {
       description: task.description ?? "",
       title: task.title,
       repository: task.repository,
-      repositories:
-        task.repositories ?? (task.repository ? [task.repository] : []),
       json_schema: task.json_schema,
       origin_product: task.origin_product,
       github_integration: task.github_integration,
@@ -2728,15 +2613,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options: { star: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options.star }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
@@ -2744,20 +2636,38 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
-  async updateTaskChannel(
-    channelId: string,
-    updates: {
-      github_integration: number | null;
-      repositories: string[];
-    },
-  ): Promise<TaskChannel> {
+  async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/`;
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
     const response = await this.api.fetcher.fetch({
       method: "patch",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify(updates) },
+      overrides: { body: JSON.stringify({ name }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to rename task channel: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannelRepositories(
+    id: string,
+    githubIntegration: number | null,
+    repositories: string[],
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          github_integration: githubIntegration,
+          repositories,
+        }),
+      },
     });
     if (!response.ok) {
       throw new Error(
@@ -2765,6 +2675,131 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async deleteTaskChannel(id: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to delete task channel: ${response.statusText}`);
+    }
+  }
+
+  async starTaskChannel(id: string, starred: boolean): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/star/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ starred }) },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to star task channel: ${response.statusText}`);
+    }
+  }
+
+  async getChannelInstructions(
+    channelId: string,
+  ): Promise<ChannelInstructions | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch channel instructions: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  async putChannelInstructions(
+    channelId: string,
+    input: { content: string; baseVersion?: number },
+  ): Promise<ChannelInstructions> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "put",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          content: input.content,
+          ...(input.baseVersion !== undefined
+            ? { base_version: input.baseVersion }
+            : {}),
+        }),
+      },
+    });
+    if (response.status === 409) {
+      throw new FolderInstructionsConflictError();
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to publish channel instructions: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelInstructions;
+  }
+
+  async deleteChannelInstructions(channelId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to delete channel instructions: ${response.statusText}`,
+      );
+    }
+  }
+
+  async listChannelInstructionVersions(
+    channelId: string,
+  ): Promise<ChannelInstructionsVersion[]> {
+    const maxPages = 20;
+    const teamId = await this.getTeamId();
+    const all: ChannelInstructionsVersion[] = [];
+    let urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/versions/`;
+    for (let i = 0; i < maxPages; i++) {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch channel instruction versions: ${response.statusText}`,
+        );
+      }
+      const body = (await response.json()) as
+        | ChannelInstructionsVersion[]
+        | { next: string | null; results: ChannelInstructionsVersion[] };
+      if (Array.isArray(body)) return [...all, ...body];
+      all.push(...body.results);
+      if (!body.next) return all;
+      const nextUrl = new URL(body.next);
+      urlPath = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+    log.warn("Channel instruction version pagination limit reached", {
+      channelId,
+      returned: all.length,
+    });
+    return all;
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -2836,8 +2871,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskMention[];
   }
 
-  // Tasks the current user is involved in (created, mentioned, or messaged),
-  // one row per task, newest activity first.
+  // Task lifecycle and individual comment activity, newest first.
   async getTaskActivity(options?: {
     before?: string;
     beforeId?: string;
@@ -2860,8 +2894,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskActivityPage;
   }
 
-  // Read state is per task, so callers name the tasks the user has seen rather than
-  // clearing the whole feed.
+  // Task lifecycle activity clears by task timestamp; comment activity clears by row id.
   async markTaskActivityRead(
     activities: TaskActivityReadMarker[],
   ): Promise<TaskActivityMarkReadResult> {
@@ -3069,6 +3102,7 @@ export class PostHogAPIClient {
     } catch (error) {
       if (error instanceof CloudCommandError) throw error;
       if (error instanceof ApiRequestError) {
+        this.throwIfCloudUsageLimit(error);
         const backendError = cloudCommandBackendError(error.body);
         throw new CloudCommandError(
           method,
@@ -3126,8 +3160,9 @@ export class PostHogAPIClient {
   }
 
   async warmTask(options: {
-    repository: string;
-    github_integration: number;
+    repository?: string | null;
+    repositories?: string[];
+    github_integration?: number | null;
     branch?: string | null;
     runtime_adapter?: string | null;
     model?: string | null;
@@ -3140,33 +3175,36 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({
-          repository: options.repository,
-          github_integration: options.github_integration,
-          branch: options.branch ?? null,
-          runtime_adapter: options.runtime_adapter ?? null,
-          model: options.model ?? null,
-          reasoning_effort: options.reasoning_effort ?? null,
-          ...(options.context_window
-            ? { context_window: options.context_window }
-            : {}),
-          ...(options.fast_mode != null
-            ? { fast_mode: options.fast_mode }
-            : {}),
-          ...(options.sandbox_environment_id
-            ? { sandbox_environment_id: options.sandbox_environment_id }
-            : {}),
-          ...(options.custom_image_id
-            ? { custom_image_id: options.custom_image_id }
-            : {}),
-        }),
-      },
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            repository: options.repository,
+            repositories: options.repositories,
+            github_integration: options.github_integration,
+            branch: options.branch ?? null,
+            runtime_adapter: options.runtime_adapter ?? null,
+            model: options.model ?? null,
+            reasoning_effort: options.reasoning_effort ?? null,
+            ...(options.context_window
+              ? { context_window: options.context_window }
+              : {}),
+            ...(options.fast_mode != null
+              ? { fast_mode: options.fast_mode }
+              : {}),
+            ...(options.sandbox_environment_id
+              ? { sandbox_environment_id: options.sandbox_environment_id }
+              : {}),
+            ...(options.custom_image_id
+              ? { custom_image_id: options.custom_image_id }
+              : {}),
+          }),
+        },
+      }),
+    );
     if (!response.ok) {
       throw new Error(`Failed to warm task: ${response.statusText}`);
     }
@@ -3355,6 +3393,82 @@ export class PostHogAPIClient {
     return data.url;
   }
 
+  async getResourceComments(
+    scope: CommentScope,
+    itemId: string,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const MAX_COMMENT_PAGES = 50;
+    const teamId = await this.getTeamId();
+    const comments: ResourceComment[] = [];
+    let cursor: string | undefined;
+    for (let pageIndex = 0; pageIndex < MAX_COMMENT_PAGES; pageIndex++) {
+      const page = await this.api.get("/api/projects/{project_id}/comments/", {
+        path: { project_id: String(teamId) },
+        query: { scope, item_id: itemId, task_id: taskId, cursor },
+      });
+      comments.push(...page.results);
+      cursor = page.next
+        ? (new URL(page.next).searchParams.get("cursor") ?? undefined)
+        : undefined;
+      if (!cursor) return comments;
+    }
+    log.warn(
+      `getResourceComments hit MAX_PAGES (${MAX_COMMENT_PAGES}); returning partial results`,
+      { scope, itemId, returned: comments.length },
+    );
+    return comments;
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const teamId = await this.getTeamId();
+    const payload = {
+      content: request.content,
+      scope: request.scope,
+      item_id: request.itemId,
+      item_context: request.context,
+      source_comment: request.sourceCommentId ?? null,
+      mentions: request.mentions ?? [],
+      // Resolution is represented by a thread-state reply so this stays on the
+      // same PAT-compatible write path as ordinary comments.
+      is_task: false,
+    };
+    return await this.api.post("/api/projects/{project_id}/comments/", {
+      path: { project_id: String(teamId) },
+      body: payload as unknown as Schemas.Comment,
+    });
+  }
+
+  /** Hide or restore every version of a file on the run, returning the updated manifest. */
+  async setTaskRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update artifact: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as {
+      artifacts?: TaskRunArtifactDTO[];
+    };
+    return (data.artifacts ?? []).map(normalizeTaskRunArtifact);
+  }
+
   async getTaskSessionStorageAccess(
     taskId: string,
     runId: string,
@@ -3383,11 +3497,13 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
@@ -4335,6 +4451,41 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
    * Edit a report's suggested reviewers. The server appends a new `suggested_reviewers` status
    * artefact (latest-wins), canonicalizes each entry to a lowercase `github_login`, and carries
    * `relevant_commits` / `github_name` forward from the current reviewers for surviving logins.
@@ -5107,6 +5258,11 @@ export class PostHogAPIClient {
     options: {
       gateway_server_id: string;
       enabled: boolean;
+      /**
+       * Reach of the caller's own share. The server defaults an omitted
+       * scope to "personal", so re-enabling without it resets a team share.
+       */
+      scope?: McpAgentGrantScope;
       /** Agent-scope tool policies to set alongside the grant. */
       policies?: McpToolPolicyEntry[];
     },
@@ -5202,26 +5358,29 @@ export class PostHogAPIClient {
     try {
       return await fn();
     } catch (error) {
-      const parsed = this.parseFetcherError(error);
-      if (
-        parsed &&
-        parsed.status === 429 &&
-        parsed.body.code === "usage_limit_exceeded"
-      ) {
-        const limitType = parsed.body.limit_type;
-        throw new CloudUsageLimitError({
-          limitType:
-            limitType === "burst" || limitType === "sustained"
-              ? limitType
-              : null,
-          resetAt:
-            typeof parsed.body.reset_at === "string"
-              ? parsed.body.reset_at
-              : null,
-          isPro: parsed.body.is_pro === true,
-        });
-      }
+      this.throwIfCloudUsageLimit(error);
       throw error;
+    }
+  }
+
+  private throwIfCloudUsageLimit(error: unknown): void {
+    const parsed = this.parseFetcherError(error);
+    if (
+      parsed &&
+      parsed.status === 429 &&
+      (parsed.body.code === "usage_limit_exceeded" ||
+        parsed.body.code === DESKTOP_BILLING_LIMIT_ERROR_CODE)
+    ) {
+      const limitType = parsed.body.limit_type;
+      throw new CloudUsageLimitError({
+        limitType:
+          limitType === "burst" || limitType === "sustained" ? limitType : null,
+        resetAt:
+          typeof parsed.body.reset_at === "string"
+            ? parsed.body.reset_at
+            : null,
+        isPro: parsed.body.is_pro === true,
+      });
     }
   }
 
@@ -5648,6 +5807,7 @@ export class PostHogAPIClient {
     description: string;
     body: string;
     files?: LlmSkillFileInput[];
+    metadata?: Record<string, unknown>;
   }): Promise<LlmSkill> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/environments/${teamId}/llm_skills/`;
@@ -5680,6 +5840,7 @@ export class PostHogAPIClient {
       body: string;
       description?: string;
       files?: LlmSkillFileInput[];
+      metadata?: Record<string, unknown>;
       base_version: number;
     },
   ): Promise<LlmSkill> {
@@ -6871,6 +7032,292 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
+  }
+
+  /**
+   * The insight's identity and query node, by short id. Backs saved-insight
+   * chart cards in agent messages: the caller plans and runs the query.
+   */
+  async getInsightDefinition(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+    query: unknown;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    const page = await this.api.get("/api/projects/{project_id}/insights/", {
+      path: { project_id: projectId },
+      query: { short_id: shortId },
+    });
+    const insight = page.results[0];
+    if (!insight) return null;
+    return {
+      name: insight.name || insight.derived_name || null,
+      description: insight.description || null,
+      query: insight.query ?? null,
+    };
+  }
+
+  /**
+   * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
+   * small live summary of the object it points at. Returns null for kinds
+   * without a lookup and for ids that don't resolve, so the caller can fall
+   * back to a static reference. Query-backed kinds (hogql, insight) resolve
+   * in the UI instead, where chart shaping lives.
+   */
+  async getEvidencePreview(
+    kind: string,
+    id: string,
+  ): Promise<EvidencePreview | null> {
+    const projectId = (await this.getTeamId()).toString();
+    const numericId = /^\d+$/.test(id) ? Number(id) : null;
+
+    switch (kind) {
+      case "flag": {
+        let flag: Schemas.FeatureFlag | undefined;
+        if (numericId !== null) {
+          flag = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/{id}/",
+            { path: { project_id: projectId, id: numericId } },
+          );
+        } else {
+          // Agents often cite flags by key; the API only retrieves by
+          // numeric id, so find the exact key through the list search.
+          const page = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/",
+            { path: { project_id: projectId }, query: { search: id } },
+          );
+          flag = page.results.find((entry) => entry.key === id);
+        }
+        if (!flag) return null;
+        // Depth: PostHog's own staleness verdict, and whether anything still
+        // evaluates the flag (7-day call volume).
+        const [status, volume] = await Promise.all([
+          this.api
+            .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
+              path: { project_id: projectId, id: flag.id },
+            })
+            .catch(() => null),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        return decorateFlagPreview(
+          shapeFlagPreview(flag),
+          status,
+          gridRows(volume),
+        );
+      }
+      case "experiment": {
+        if (numericId === null) return null;
+        const experiment = await this.api.get(
+          "/api/projects/{project_id}/experiments/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        const preview = shapeExperimentPreview(experiment);
+        // Depth: unique persons exposed per variant, showing the experiment
+        // is collecting and roughly balanced.
+        if (!experiment.start_date || !experiment.feature_flag_key) {
+          return preview;
+        }
+        const until = experiment.end_date
+          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
+          : "";
+        const exposures = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
+        }).catch(() => ({}));
+        const fact = exposureFact(gridRows(exposures));
+        return fact
+          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
+          : preview;
+      }
+      case "error": {
+        // The issue's identity plus its 30-day activity: total events, users
+        // affected, and a daily-occurrence spark answering "still firing?".
+        const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
+        const [issue, totals, daily] = await Promise.all([
+          this.api.get(
+            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            { path: { project_id: projectId, id } },
+          ),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id) FROM events WHERE ${scope}`,
+          }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeErrorIssuePreview(issue);
+        const totalRow = gridRows(totals)[0];
+        const facts = [...(preview.facts ?? [])];
+        const users = totalRow ? Number(totalRow[1]) : 0;
+        const events = totalRow ? Number(totalRow[0]) : 0;
+        if (Number.isFinite(users) && users > 0) {
+          facts.unshift(
+            `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
+          );
+        }
+        const points = dailySparkPoints(gridRows(daily));
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "bar" as const } : undefined,
+        };
+      }
+      case "event": {
+        // Verify the event against its definition (also yields the id that
+        // makes the reference clickable), then chart its 14-day volume.
+        const definition = await this.api
+          .get("/api/projects/{project_id}/event_definitions/by_name/", {
+            path: { project_id: projectId },
+            query: { name: id },
+          })
+          .catch(() => null);
+        if (!definition) return null;
+        const volume = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+        }).catch(() => ({}));
+        const preview = shapeEventDefinitionPreview(definition);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        return {
+          ...preview,
+          facts:
+            total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "ticket": {
+        const ticket = await this.api.get(
+          "/api/projects/{project_id}/conversations/tickets/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeTicketPreview(ticket);
+      }
+      case "person": {
+        const page = await this.api.get("/api/projects/{project_id}/persons/", {
+          path: { project_id: projectId },
+          query: { search: id },
+        });
+        const person = page.results?.[0];
+        return person ? shapePersonPreview(person) : null;
+      }
+      case "replay": {
+        const recording = await this.api.get(
+          "/api/projects/{project_id}/session_recordings/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeRecordingPreview(recording);
+      }
+      case "survey": {
+        const [survey, stats] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/surveys/{id}/", {
+            path: { project_id: projectId, id },
+          }),
+          this.api
+            .get("/api/projects/{project_id}/surveys/{id}/stats/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch(() => null),
+        ]);
+        return decorateSurveyPreview(
+          shapeSurveyPreview(survey),
+          stats as Record<string, unknown> | null,
+        );
+      }
+      case "trace": {
+        const rollup = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT count(), round(sum(toFloat(properties.$ai_total_cost_usd)), 3), round(sum(toFloat(properties.$ai_latency)), 1), groupUniqArray(properties.$ai_model), countIf(toString(properties.$ai_is_error) IN ('true', '1')) FROM events WHERE event IN ('$ai_generation', '$ai_embedding') AND properties.$ai_trace_id = '${hogqlEscape(id)}'`,
+        });
+        const row = gridRows(rollup)[0];
+        return row ? shapeTracePreview(row) : null;
+      }
+      case "dashboard": {
+        if (numericId === null) return null;
+        const dashboard = await this.api.get(
+          "/api/projects/{project_id}/dashboards/{id}/",
+          { path: { project_id: projectId, id: numericId }, query: {} },
+        );
+        return shapeDashboardPreview(dashboard);
+      }
+      case "cohort": {
+        if (numericId === null) return null;
+        const cohort = await this.api.get(
+          "/api/projects/{project_id}/cohorts/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        return shapeCohortPreview(cohort);
+      }
+      case "action": {
+        if (numericId === null) return null;
+        const [action, volume] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/actions/{id}/", {
+            path: { project_id: projectId, id: numericId },
+            query: {},
+          }),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeActionPreview(action);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        const facts = [...(preview.facts ?? [])];
+        if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "eval": {
+        const evaluation = await this.api.get(
+          "/api/environments/{project_id}/evaluations/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeEvaluationPreview(evaluation);
+      }
+      default:
+        return null;
+    }
   }
 
   /**

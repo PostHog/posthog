@@ -13,16 +13,18 @@ from __future__ import annotations
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
 import structlog
-from psycopg import sql
+from psycopg import pq, sql
 from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -65,12 +67,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
     "JsonAsStringLoader",
     "RedshiftColumn",
     "RedshiftImplementation",
+    "SafeDateLoader",
     "filter_redshift_incremental_fields",
 ]
 
@@ -115,6 +119,20 @@ SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "p
 # discovered schema makes the Arrow schema disagree with the streamed rows and
 # `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
 REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
+
+# A single-node Redshift cluster rejects any `FETCH FORWARD` above 1000 rows with
+# "Fetch size N exceeds the limit of 1000 for a single node configuration". The limit is fixed by
+# the node topology, so a cluster that rejects one fetch rejects every fetch: without a retry at
+# this size the server cursor is unreachable on such clusters and every sync degrades to a
+# client-side read of the whole table.
+REDSHIFT_SINGLE_NODE_FETCH_LIMIT = 1000
+
+# Rows libpq hands over per chunk while streaming. Only the delivery granularity — the server sends
+# the result set at its own pace either way — so this trades per-row Python overhead against the
+# transient list held between yields. Chunked delivery needs libpq 17; older builds fall back to
+# row-at-a-time, which streams just as correctly.
+REDSHIFT_STREAM_ROWS_PER_CHUNK = 1000
+_LIBPQ_CHUNKED_ROWS_MIN_VERSION = 170000
 
 
 def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
@@ -180,6 +198,45 @@ class JsonAsStringLoader(Loader):
         if data is None:
             return None
         return bytes(data).decode("utf-8")
+
+
+class SafeDateLoader(Loader):
+    """Load Redshift dates, handling edge cases beyond Python's date range.
+
+    Redshift's `date` range (4713 BC to 294276 AD) is far wider than Python's `datetime.date`
+    (year 1 to year 9999). psycopg's default loader raises `DataError` on anything outside that
+    range — including a bare `0000-01-01` — which aborts the whole table sync. We clamp
+    out-of-range values to `date.min`/`date.max` instead, mirroring the equivalent Postgres fix.
+
+    A value we genuinely cannot parse raises rather than being clamped: silently mapping it onto
+    date.max fabricates a real-looking 9999-12-31 and corrupts the whole column, which is far
+    worse than a loud sync failure.
+    """
+
+    def load(self, data) -> date | None:
+        if data is None:
+            return None
+
+        s = bytes(data).decode("utf-8").strip()
+
+        if s in ("infinity", "-infinity"):
+            return date.max if s == "infinity" else date.min
+
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
+        try:
+            year, month, day = (int(part) for part in s.split("-"))
+        except ValueError as e:
+            raise ValueError(f"Unparseable Redshift date value: {s!r}") from e
+
+        if year > 9999:
+            return date.max
+        if year < 1:
+            return date.min
+
+        return date(year, month, day)
 
 
 def _redshift_select_clause(
@@ -293,6 +350,200 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
             pass
 
 
+def _is_fetch_size_error(error: Exception) -> bool:
+    """Is this Redshift rejecting the FETCH size rather than the cursor itself?
+
+    Matched on the message because Redshift reports it as a generic `InternalError_`/
+    `FeatureNotSupported` with no distinguishing SQLSTATE. Both halves are required so an
+    unrelated "exceeds the limit" (e.g. the cumulative result-set cap, which shrinking the fetch
+    cannot fix) doesn't trigger a pointless retry.
+    """
+    message = str(error).lower()
+    return "fetch size" in message and "exceeds the limit" in message
+
+
+def _is_cursor_size_error(error: Exception) -> bool:
+    """Is this Redshift refusing to materialize a cursor result set this large?
+
+    A cursor's result set is materialized whole on the leader node, and the cap is on that total,
+    not on the page a `FETCH` asks for. So no fetch size gets under it: the cap makes the server
+    cursor permanently unusable for the table on this cluster, whatever we do to the fetch.
+    """
+    message = str(error).lower()
+    return "cursor data" in message or ("cursor result set" in message and "exceeds the limit" in message)
+
+
+def _rollback_if_aborted(connection: psycopg.Connection) -> None:
+    """Clear an aborted transaction so the next attempt isn't killed by `InFailedSqlTransaction`.
+
+    Redshift has no savepoints to scope a failure, so the whole transaction goes. This also frees
+    the cursor name for a re-DECLARE, since an aborted transaction turns `CLOSE` into a no-op.
+    """
+    if connection.info.transaction_status == TransactionStatus.INERROR:
+        connection.rollback()
+
+
+def _libpq_rows_per_chunk() -> int:
+    """Rows per libpq chunk while streaming, or 1 where chunked delivery isn't available.
+
+    Chunked row mode arrived in libpq 17. On an older build `stream()` still streams correctly,
+    one row at a time — only the per-row overhead differs, never the memory profile.
+    """
+    return REDSHIFT_STREAM_ROWS_PER_CHUNK if pq.version() >= _LIBPQ_CHUNKED_ROWS_MIN_VERSION else 1
+
+
+def _stream_rows_as_arrow_batches(
+    cursor: psycopg.Cursor,
+    query: sql.Composed,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+) -> Iterator[pa.Table]:
+    """Yield one Arrow table per `chunk_size` rows, reading rows straight off the wire.
+
+    `stream()` puts libpq in single-row (or chunked-row) mode: no cursor is declared, so the
+    per-node cap on cursor data never applies, and no result set is buffered into the worker
+    either. Those were the two ways a large table could not be read.
+    """
+    column_names: list[str] = []
+    pending: list[Any] = []
+
+    def to_arrow(rows: list[Any]) -> pa.Table:
+        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    for row in cursor.stream(query, size=_libpq_rows_per_chunk()):
+        if not column_names:
+            # Only described once the first result arrives, so it can't be read before the loop.
+            column_names = [column.name for column in cursor.description or []]
+        pending.append(row)
+        if len(pending) >= chunk_size:
+            yield to_arrow(pending)
+            pending = []
+
+    if pending:
+        yield to_arrow(pending)
+
+
+def _fetch_arrow_batches(
+    cursor: psycopg.Cursor,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+    fetch_size: int | None = None,
+) -> Iterator[pa.Table]:
+    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`.
+
+    `fetch_size` decouples the per-`FETCH` page from the Arrow batch: rows accumulate across
+    pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node cluster
+    (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so paging is
+    the only way to keep the server cursor and still write batches the Delta writer sizes well.
+    Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
+    """
+    column_names = [column.name for column in cursor.description or []]
+    page_size = fetch_size or chunk_size
+
+    def to_arrow(rows: list[Any]) -> pa.Table:
+        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    pending: list[Any] = []
+    while True:
+        rows = cursor.fetchmany(page_size)
+        if not rows:
+            break
+
+        pending.extend(rows)
+        # Overshoots by at most `page_size - 1` rows, which is bounded and far below the byte
+        # budget `chunk_size` was derived from.
+        if len(pending) >= chunk_size:
+            yield to_arrow(pending)
+            pending = []
+
+    if pending:
+        yield to_arrow(pending)
+
+
+def _stream_arrow_batches(
+    connection: psycopg.Connection,
+    query: sql.Composed,
+    chunk_size: int,
+    arrow_schema: pa.Schema,
+    cursor_name: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[pa.Table]:
+    """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
+
+    Two ways to read, tried in order. Streaming (`stream()`) is preferred: libpq delivers rows as
+    the server produces them, so nothing is declared on the cluster and nothing is buffered in the
+    worker. The server-side cursor (`DECLARE`/`FETCH`) is the fallback, mirroring the sibling
+    Postgres driver.
+
+    Redshift constrains cursors in ways Postgres doesn't, which is why streaming leads. A cursor's
+    result set is materialized whole on the leader node under a per-node-type cap, so a table above
+    that cap can never be read through a cursor at any fetch size. Single-node clusters separately
+    reject a `FETCH FORWARD` above 1000 rows; that one is a property of the cluster rather than the
+    table, so the retry at `REDSHIFT_SINGLE_NODE_FETCH_LIMIT` recovers it.
+
+    Neither path buffers the whole result set, so there is no third attempt: an unnamed cursor would
+    pull the entire table into the worker and OOM the pod, taking every co-tenant extraction on it
+    down too. A table that neither path can read fails the sync instead.
+
+    Once a batch has been yielded every recovery is off the table: re-running the query would
+    re-emit rows the pipeline has already consumed, so later errors propagate.
+    """
+    yielded = False
+
+    try:
+        with connection.cursor() as stream_cursor:
+            for batch in _stream_rows_as_arrow_batches(stream_cursor, query, chunk_size, arrow_schema):
+                yielded = True
+                yield batch
+        return
+    except Exception as e:
+        if yielded:
+            raise
+        _rollback_if_aborted(connection)
+        logger.warning(f"Row streaming unusable ({e}); falling back to a server-side cursor", exc_info=e)
+
+    fetch_sizes = [chunk_size]
+    if chunk_size > REDSHIFT_SINGLE_NODE_FETCH_LIMIT:
+        fetch_sizes.append(REDSHIFT_SINGLE_NODE_FETCH_LIMIT)
+
+    for attempt, fetch_size in enumerate(fetch_sizes):
+        try:
+            # `close()` is a no-op while the transaction is aborted (psycopg checks the status
+            # first), so this never masks the original failure with a CLOSE error.
+            with connection.cursor(name=cursor_name) as server_cursor:
+                server_cursor.execute(query)
+                for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema, fetch_size):
+                    yielded = True
+                    yield batch
+            return
+        except Exception as e:
+            if yielded:
+                raise
+            _rollback_if_aborted(connection)
+
+            is_last_attempt = attempt == len(fetch_sizes) - 1
+            if not is_last_attempt and _is_fetch_size_error(e):
+                logger.warning(
+                    f"Server cursor rejected a {fetch_size}-row FETCH ({e}); "
+                    f"retrying at {REDSHIFT_SINGLE_NODE_FETCH_LIMIT} rows per fetch"
+                )
+                continue
+
+            if _is_cursor_size_error(e):
+                # Classified, permanent for this table on this cluster: no fetch size gets under the
+                # cap, and streaming already failed. Retrying just repeats a materialization that
+                # takes over a minute to fail.
+                raise NonRetryableException(
+                    "This table is too large to read from this Redshift cluster. The cluster caps how "
+                    "much data a cursor can hold, and row streaming is unavailable, so PostHog cannot "
+                    "page through the result set. Sync fewer columns, add a row filter, or move to a "
+                    "multi-node cluster."
+                ) from e
+
+            logger.warning(f"Server-side cursor unusable ({e})", exc_info=e)
+            raise
+
+
 class RedshiftColumn(Column):
     """Implementation of the `Column` protocol for a Redshift source."""
 
@@ -354,6 +605,13 @@ class RedshiftColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+@frozen
+class DisplayNameIndex:
+    display_by_pair: dict[tuple[str, str], str]
+    schemas: list[str]
+    bare_tables: list[str]
+
+
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
@@ -388,6 +646,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 password=config.password,
                 **_REDSHIFT_CONNECT_OPTS,
             ) as conn:
+                conn.adapters.register_loader("date", SafeDateLoader)
                 yield conn
 
     # ------------------------------------------------------------------
@@ -483,7 +742,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return result
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
 
         try:
             with conn.cursor() as cursor:
@@ -498,7 +757,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE tc.table_schema = ANY({schemas})
                         AND tc.table_name = ANY({names})
                         AND tc.constraint_type = 'PRIMARY KEY'
-                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
+                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 rows = cursor.fetchall()
         except Exception as e:
@@ -507,7 +766,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
         for table_schema, table_name, column_name in rows:
-            display = display_by_pair.get((table_schema, table_name))
+            display = index.display_by_pair.get((table_schema, table_name))
             if display is not None:
                 pks[display].append(column_name)
         for display, pk_cols in pks.items():
@@ -515,9 +774,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         return result
 
     @staticmethod
-    def _index_display_names(
-        tables: list[str], selected_schema: Optional[str]
-    ) -> tuple[dict[tuple[str, str], str], list[str], list[str]]:
+    def _index_display_names(tables: list[str], selected_schema: Optional[str]) -> DisplayNameIndex:
         """Map `(schema, table)` → display key, plus the distinct schemas and bare table names.
 
         Lets a single batch query (`schema = ANY(...) AND table = ANY(...)`) cover both the
@@ -536,7 +793,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 continue
             display_by_pair[(schema, table)] = display
             schemas.add(schema)
-        return display_by_pair, sorted(schemas), sorted(bare_tables)
+        return DisplayNameIndex(
+            display_by_pair=display_by_pair, schemas=sorted(schemas), bare_tables=sorted(bare_tables)
+        )
 
     def get_row_counts(
         self,
@@ -556,7 +815,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return {}
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
 
         result: dict[str, int | None] = {}
         try:
@@ -565,7 +824,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
                 )
 
-                params: dict = {"schemas": schemas, "names": bare_tables}
+                params: dict = {"schemas": index.schemas, "names": index.bare_tables}
                 cursor.execute(
                     """
                     SELECT schema, "table" AS table_name, tbl_rows AS row_count
@@ -575,7 +834,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     params,
                 )
                 for schema_name, table_name, row_count in cursor.fetchall():
-                    display = display_by_pair.get((schema_name, table_name))
+                    display = index.display_by_pair.get((schema_name, table_name))
                     if display is not None:
                         result[display] = int(row_count)
 
@@ -586,7 +845,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 view_pairs = [
                     (schema_name, view_name)
                     for schema_name, view_name in cursor.fetchall()
-                    if (schema_name, view_name) in display_by_pair
+                    if (schema_name, view_name) in index.display_by_pair
                 ]
 
                 if view_pairs:
@@ -603,7 +862,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     ]
                     cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
                     for schema_name, table_name, row_count in cursor.fetchall():
-                        display = display_by_pair.get((schema_name, table_name))
+                        display = index.display_by_pair.get((schema_name, table_name))
                         if display is not None:
                             result[display] = int(row_count)
         except Exception:
@@ -641,7 +900,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return {}
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
         result: dict[str, set[str]] = {table: set() for table in tables}
 
         try:
@@ -653,7 +912,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 # path. Documented behavior: docs.aws.amazon.com/redshift/latest/dg/r_PG_TABLE_DEF.html
                 cursor.execute(
                     sql.SQL("SET search_path TO {schemas}").format(
-                        schemas=sql.SQL(", ").join(sql.Identifier(schema) for schema in schemas)
+                        schemas=sql.SQL(", ").join(sql.Identifier(schema) for schema in index.schemas)
                     )
                 )
                 cursor.execute(
@@ -663,14 +922,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE schemaname = ANY({schemas})
                           AND tablename = ANY({names})
                           AND sortkey != 0
-                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
+                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 # Group rows by display name so we can classify compound vs interleaved
                 # before deciding which columns count as indexed. Negative sortkey
                 # values are the marker Redshift uses for interleaved sortkeys.
                 rows_by_display: dict[str, list[tuple[str, int]]] = {}
                 for schema_name, table_name, column_name, sortkey_value in cursor.fetchall():
-                    display = display_by_pair.get((schema_name, table_name))
+                    display = index.display_by_pair.get((schema_name, table_name))
                     if display is None:
                         continue
                     rows_by_display.setdefault(display, []).append((column_name, sortkey_value))
@@ -787,6 +1046,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return row is not None
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.OperationalError:
+            # A connection-level failure (e.g. the SSL connection dropping mid-query) means the
+            # probe never ran — swallowing it as "no duplicate keys" would be a false negative.
+            # Propagate it so the activity's retry path handles it; these are transient and stay
+            # retryable. Mirrors the equivalent Postgres source.
+            raise
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
@@ -897,6 +1162,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+            if "Remote request timeout" in str(e):
+                # Redshift's leader node lost internal RPC contact with a compute node mid-query
+                # (SQLSTATE-less `InternalError_`, code 29150) — a transient cluster-side hiccup,
+                # the same non-actionable class as a WLM/QMR abort (see `has_duplicate_primary_keys`).
+                # Row-count estimation is best-effort (already defaulting to 0 here), so skip
+                # reporting the expected error to error tracking.
+                return 0
             capture_exception(e)
             if "temporary file size exceeds temp_file_limit" in str(e):
                 raise TemporaryFileSizeExceedsLimitException(
@@ -963,45 +1235,27 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         inner_query_args: Any,
         logger: FilteringBoundLogger,
     ) -> int | None:
-        """Sample the 95th percentile of `pg_column_size(t)` across the filtered query.
+        """Derive the average row size from `svv_table_info`'s reported size and row count.
 
-        `inner_query` is a `psycopg.sql.Composed` whose literals are
-        already bound — no separate `inner_query_args` is interpolated
-        here, mirroring how the rest of the Redshift driver builds
-        queries.
+        Redshift has no portable whole-row size expression — `pg_column_size(t)` (like Postgres'
+        `octet_length(t::text)`) needs a composite whole-row reference that Redshift rejects with
+        `UndefinedColumn: column "t" does not exist in t`, so sampling the rows directly fails on
+        every table and the caller silently fell back to `DEFAULT_CHUNK_SIZE` for all of them. The
+        table's own catalog stats give the same figure without a sample scan.
 
-        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
-        currently returns None on every table and the caller falls back to the default chunk size.
-        Failures are swallowed rather than reported — see the except block below.
+        `size` is the *compressed* on-disk footprint, so this under-estimates the decompressed
+        working set and the chunk it yields stays larger than the true row size warrants. The caller
+        caps the result at `DEFAULT_CHUNK_SIZE` either way, so an under-estimate is safe: it can
+        only shrink a table's chunk from what it was, never grow it.
+
+        Best-effort, like every other stats probe on this driver: None falls back to the default.
         """
-        try:
-            query = sql.SQL("""
-                SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
-                    SELECT pg_column_size(t) as row_size FROM ({}) as t
-                ) as subquery
-            """).format(inner_query)
-
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-            cursor.execute(query)
-            row = cursor.fetchone()
-
-            if row is None or row[0] is None:
-                logger.debug("fetch_average_row_size: no results returning None")
-                return None
-
-            return int(row[0] or 1)
-        except psycopg.errors.QueryCanceled:
-            raise
-        except Exception as e:
-            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
-            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
-            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
-            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
-            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
-            # both of which treat this as expected, non-actionable noise.
-            logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
+        stats = self.fetch_table_stats(cursor, schema, table_name, logger)
+        if stats is None or stats.row_count <= 0:
+            logger.debug("fetch_average_row_size: no usable table stats, returning None")
             return None
+
+        return max(1, stats.table_size_bytes // stats.row_count)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
@@ -1131,31 +1385,31 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             arrow_schema = table.to_arrow_schema()
             with self.connect(config) as streaming_connection:
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
-                with streaming_connection.cursor() as cursor:
-                    query = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        table.type,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
-                        row_filters=row_filters,
-                    )
-                    logger.debug(f"Redshift query: {query.as_string()}")
+                query = _build_query(
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    table.type,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
+                    row_filters=row_filters,
+                )
+                logger.debug(f"Redshift query: {query.as_string()}")
 
-                    cursor.execute(query)
-
-                    column_names = [column.name for column in cursor.description or []]
-
-                    while True:
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
-
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                # Left in the connection's default (autocommit off) transaction: Redshift only
+                # allows a cursor inside an explicit transaction block, and only one open per
+                # session — this connection is dedicated to the stream, so neither binds.
+                yield from _stream_arrow_batches(
+                    streaming_connection,
+                    query,
+                    chunk_size,
+                    arrow_schema,
+                    f"posthog_{inputs.team_id}_{schema}.{table_name}",
+                    logger,
+                )
 
         return SourceResponse(
             name=location.response_name,

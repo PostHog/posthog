@@ -33,7 +33,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
-            hogExecutor: this.hogExecutor,
+            hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
@@ -56,6 +56,23 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const invocationsToBeQueued = await this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
             hogTypes: this.hogTypes,
             filterFn: () => true,
+            invocationFilterFn: (fn, globals) => {
+                if (!/^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$/.test(globals.event.event)) {
+                    return true
+                }
+                const alertId = globals.event.properties?.alert_id
+                return Boolean(
+                    typeof alertId === 'string' &&
+                        fn.filters?.events?.some((event) => event.id === globals.event.event) &&
+                        fn.filters?.properties?.some(
+                            (property) =>
+                                property.type === 'event' &&
+                                property.key === 'alert_id' &&
+                                property.operator === 'exact' &&
+                                property.value === alertId
+                        )
+                )
+            },
         })
 
         return {

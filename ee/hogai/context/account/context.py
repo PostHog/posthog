@@ -72,6 +72,7 @@ class AccountContext:
             account_id=str(account.id),
             external_id=account.external_id or "Not set",
             created_at=account.created_at.isoformat() if account.created_at else "Unknown",
+            churned_at=account.churned_at.isoformat() if account.churned_at else "Not churned",
             roles_section=self._roles_section(account),
             external_ids_section=self._external_ids_section(account),
             tags_section=self._tags_section(account),

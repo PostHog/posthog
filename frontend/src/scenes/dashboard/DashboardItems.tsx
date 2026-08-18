@@ -12,9 +12,9 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -121,7 +121,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
@@ -245,7 +245,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
 
     const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number, targetW?: number): LemonMenuItem[] =>
+        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
             dashboard
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
@@ -290,6 +290,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }),
         [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
+
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
@@ -707,6 +709,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             isMobileView={isMobileView}
                             disabled={resizingTileId !== null}
                             getMenuItems={getInsertMenuItems}
+                            onMenuOpen={() => {
+                                if (dashboard?.id) {
+                                    reportDashboardAddMenuOpened('inline', dashboard.id)
+                                }
+                            }}
                         />
                     )}
                 </div>

@@ -60,7 +60,7 @@ class Ecosystem:
 
 DEPENDENCY_ECOSYSTEMS: dict[str, Ecosystem] = {
     "node": Ecosystem(
-        manifests=frozenset({"package.json"}),
+        manifests=frozenset({"package.json", "pnpm-workspace.yaml"}),
         lockfiles=frozenset({"pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"}),
         trusted_at_dismiss=True,
     ),
@@ -238,18 +238,25 @@ def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> li
     return [OWNERSHIP_FORMATS[source.format].build(repo_root, source) for source in sources]
 
 
+# How many of a team's changed files to keep per PR. Enough for a reader to judge whether the
+# touch was incidental; the full count travels in team_file_counts.
+TEAM_FILE_SAMPLE = 10
+
+
 def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
     """Aggregate per-file ownership, unioning each source's owners per file.
 
     Individuals (`@handle`) count toward owned/unowned but live in their own
     bucket: `teams` feeds team-membership checks and the cross-team calculus
     downstream, and a raw handle there would fail membership lookups and inflate
-    the team count."""
+    the team count. `team_files` samples each team's changed paths so a later
+    consumer can tell a change in a team's area from one that merely grazed it."""
     all_teams: set[str] = set()
     all_individuals: set[str] = set()
     owned_files = 0
     unowned_files = 0
     team_file_counts: Counter = Counter()
+    team_files: dict[str, list[str]] = {}
 
     for f in files:
         owners: set[str] = set()
@@ -262,6 +269,11 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
             all_individuals.update(owners - teams)
             for t in teams:
                 team_file_counts[t] += 1
+                # Capped: a sweeping rename can own hundreds of a team's files, and the consumer
+                # (a digest line) only needs enough to tell an incidental touch from a real one.
+                paths = team_files.setdefault(t, [])
+                if len(paths) < TEAM_FILE_SAMPLE:
+                    paths.append(f)
         else:
             unowned_files += 1
 
@@ -272,6 +284,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
         "owned_files": owned_files,
         "unowned_files": unowned_files,
         "team_file_counts": dict(team_file_counts.most_common()),
+        "team_files": {t: team_files[t] for t, _ in team_file_counts.most_common()},
         "cross_team": len(all_teams) > 1,
     }
 

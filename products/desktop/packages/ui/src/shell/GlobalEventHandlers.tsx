@@ -9,17 +9,17 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
-import { useVisualTaskOrder } from "@posthog/ui/features/sidebar/useVisualTaskOrder";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import type { TaskData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useFocusWorkspace } from "@posthog/ui/features/workspace/useFocusWorkspace";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { shipIt } from "@posthog/ui/primitives/confetti";
@@ -40,13 +40,17 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 interface GlobalEventHandlersProps {
+  allTasks: Task[];
   onToggleCommandMenu: () => void;
   onToggleShortcutsSheet: () => void;
+  visualTaskOrder: TaskData[];
 }
 
 export function GlobalEventHandlers({
+  allTasks,
   onToggleCommandMenu,
   onToggleShortcutsSheet,
+  visualTaskOrder,
 }: GlobalEventHandlersProps) {
   const trpcReact = useHostTRPC();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
@@ -74,10 +78,6 @@ export function GlobalEventHandlers({
     currentTaskId ?? "",
   );
   const isWorktreeTask = currentWorkspace?.mode === "worktree";
-
-  const { data: allTasks = [] } = useTasks();
-  const sidebarData = useSidebarData({ activeView: view });
-  const visualTaskOrder = useVisualTaskOrder(sidebarData);
 
   // mod+N belongs to the browser tab strip with channels on, and to the
   // starred channels in the new layout (ChannelHotkeys, mounted from __root so
@@ -203,6 +203,21 @@ export function GlobalEventHandlers({
   );
   useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
   useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
+  // Under the spaces chrome a session's activity is the right panel, and the
+  // dock this shortcut used to collapse is not rendered, so it goes to the
+  // panel instead. Off that chrome, only the dock exists.
+  const handleToggleActivityPanel = useCallback(() => {
+    if (channelsLayout && currentTaskId) {
+      toggleRightPanel(currentTaskId);
+      return;
+    }
+    toggleActivityPanel();
+  }, [channelsLayout, currentTaskId]);
+
+  useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, handleToggleActivityPanel, {
+    ...globalOptions,
+    enabled: channelsLayout,
+  });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
   useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [

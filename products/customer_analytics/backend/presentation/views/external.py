@@ -190,6 +190,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "id": account.id,
         "external_id": account.external_id,
         "name": account.name,
+        "churned_at": account.churned_at,
         "properties": account.properties,
         "tags": account.tags,
         "relationships": account.relationships,
@@ -250,6 +251,11 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         default="add",
         help_text="How to apply tags: add to, replace, or remove from the existing set.",
     )
+    churned_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the account churned. Set to null to mark it as active again.",
+    )
 
     def validate_relationships(self, value: dict[str, Any]) -> dict[str, int | None]:
         return {name: self._normalize_assignee(name, assignee) for name, assignee in value.items()}
@@ -291,9 +297,13 @@ class ExternalAccountSerializer(serializers.Serializer):
         allow_null=True, help_text="External account key — the group key the account is linked to."
     )
     name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
     properties = serializers.DictField(
-        child=serializers.JSONField(help_text="Property value: a string, a role-assignment object, or null."),
-        help_text="Typed account properties: role assignments (csm, account_executive, account_owner) and external-system ids.",
+        child=serializers.JSONField(help_text="Property value: a string or null."),
+        help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
     )
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
@@ -319,7 +329,7 @@ class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
     POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
-    PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
+    PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
     Authenticated via Bearer token (team secret_api_token) in Authorization header.
     """
@@ -414,6 +424,8 @@ class ExternalAccountView(APIView):
             relationship_assignments=data.get("relationships") or {},
             tags=data["tags"] if "tags" in data else None,
             tags_mode=data.get("tags_mode", "add"),
+            churned_at=data.get("churned_at"),
+            churned_at_provided="churned_at" in data,
             workflow_id=_workflow_id_from_request(request),
         )
         if result.account is None:
@@ -470,6 +482,10 @@ class ExternalAccountListAssignmentSerializer(serializers.Serializer):
 class ExternalAccountListItemSerializer(serializers.Serializer):
     external_id = serializers.CharField(help_text="External account key used by downstream systems.")
     name = serializers.CharField(help_text="Human-readable account name.")
+    churned_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the account churned, or null if it has not churned.",
+    )
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
         help_text=(
@@ -538,7 +554,7 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List accounts with external IDs and their active relationship assignments. "
+            "List accounts with external IDs, churn timestamps, and active relationship assignments. "
             "Requires a project secret API key with the `account:read` scope."
         ),
     )

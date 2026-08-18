@@ -2,7 +2,9 @@ import {
   type Adapter,
   buildCloudTaskConfigOptions,
   type CloudTaskConfigOption,
+  DEEPSEEK_MODEL_FLAG,
   GLM_MODEL_FLAG,
+  isDeepseekModelId,
   isGlmModelId,
   isRestrictedModelOption,
 } from "@posthog/shared";
@@ -25,6 +27,7 @@ const fallbackOptionsByAdapter: Record<Adapter, CloudTaskConfigOption[]> = {
 export function useCloudTaskConfigOptions(adapter: Adapter = "claude") {
   const oauthAccessToken = useAuthStore((state) => state.oauthAccessToken);
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const query = useQuery({
     queryKey: cloudTaskConfigOptionKeys.adapter(adapter),
     queryFn: () => getPostHogApiClient().getCloudTaskConfigOptions(adapter),
@@ -32,27 +35,31 @@ export function useCloudTaskConfigOptions(adapter: Adapter = "claude") {
     staleTime: 5 * 60 * 1000,
   });
   const configOptions = query.data ?? fallbackOptionsByAdapter[adapter];
-  const visibleConfigOptions = glmEnabled
-    ? configOptions
-    : configOptions.map((option) =>
-        option.category === "model"
-          ? (() => {
-              const options = option.options.filter(
-                (model) => !isGlmModelId(model.value),
-              );
-              const currentValue = options.some(
-                (model) =>
-                  model.value === option.currentValue &&
-                  !isRestrictedModelOption(model._meta),
-              )
-                ? option.currentValue
-                : (options.find(
-                    (model) => !isRestrictedModelOption(model._meta),
-                  )?.value ?? option.currentValue);
-              return { ...option, currentValue, options };
-            })()
-          : option,
-      );
+  const isHiddenModel = (value: string) =>
+    (!glmEnabled && isGlmModelId(value)) ||
+    (!deepseekEnabled && isDeepseekModelId(value));
+  const visibleConfigOptions =
+    glmEnabled && deepseekEnabled
+      ? configOptions
+      : configOptions.map((option) =>
+          option.category === "model"
+            ? (() => {
+                const options = option.options.filter(
+                  (model) => !isHiddenModel(model.value),
+                );
+                const currentValue = options.some(
+                  (model) =>
+                    model.value === option.currentValue &&
+                    !isRestrictedModelOption(model._meta),
+                )
+                  ? option.currentValue
+                  : (options.find(
+                      (model) => !isRestrictedModelOption(model._meta),
+                    )?.value ?? option.currentValue);
+                return { ...option, currentValue, options };
+              })()
+            : option,
+        );
 
   return {
     ...query,

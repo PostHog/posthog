@@ -1,4 +1,5 @@
 import { MakeLogicType, BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -225,8 +226,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isSelfManagedSource,
         source,
         sourceConnectionDetails,
+        isWebhookFieldInputsSubmitting,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
+    const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         currentStep,
@@ -267,7 +269,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
-                loading={isLoading || manualLinkIsLoading}
+                loading={isLoading || manualLinkIsLoading || isWebhookFieldInputsSubmitting}
                 disabledReason={
                     disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
                 }
@@ -311,6 +313,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         onBack,
         isLoading,
         manualLinkIsLoading,
+        isWebhookFieldInputsSubmitting,
         canGoNext,
         nextButtonDisabledReason,
         nextButtonText,
@@ -373,7 +376,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 5 ? (
                     <ProgressStep />
                 ) : (
-                    <div>Something went wrong...</div>
+                    <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}
 
                 {footer()}
@@ -612,7 +615,8 @@ function WebhookSetupStep({
 }: {
     sourceWizardLogicProps?: SourceWizardLogicProps
 }): JSX.Element {
-    const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
+    const { webhookResult, webhookCreating, selectedConnector, databaseSchema, isWebhookFieldInputsSubmitting } =
+        useValues(sourceWizardLogic)
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
@@ -626,6 +630,7 @@ function WebhookSetupStep({
             webhookTables={webhookTables}
             webhookResult={webhookResult}
             webhookCreating={webhookCreating}
+            webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
@@ -635,4 +640,23 @@ function WebhookSetupStep({
 
 function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
+}
+
+function UnknownWizardStepFallback({
+    currentStep,
+    onRestart,
+}: {
+    currentStep: number
+    onRestart: () => void
+}): JSX.Element {
+    useEffect(() => {
+        posthog.captureException(new Error(`Data warehouse source wizard reached an unexpected step: ${currentStep}`))
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    return (
+        <LemonBanner type="error" action={{ children: 'Start over', onClick: onRestart }}>
+            This source setup ran into an unexpected step. Start over to try again.
+        </LemonBanner>
+    )
 }
