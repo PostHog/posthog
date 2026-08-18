@@ -2056,3 +2056,18 @@ class TestWarehouseParentReuse:
         kwargs = mock_build.call_args.kwargs
         assert kwargs["source_id"] == "source-1"
         assert kwargs["use_warehouse_parent"] is True
+
+
+def test_every_warehouse_fanout_child_bounds_its_parent_scan():
+    # The issues API windows its listing server-side, so an unbounded snapshot scan fans out
+    # over issues the API path never would (shipped as 2-4x row inflation). Any endpoint
+    # opting into the warehouse parent must carry the floor.
+    warehouse_children = {
+        name: config.fanout
+        for name, config in SENTRY_ENDPOINTS.items()
+        if config.fanout is not None and config.fanout.parent_source == "warehouse"
+    }
+    assert warehouse_children, "expected Sentry to have warehouse-mode fan-out children"
+    for name, fanout in warehouse_children.items():
+        assert fanout.parent_row_filter is not None, f"{name} reads its parent unbounded"
+        assert fanout.parent_row_filter.field == "lastSeen"
