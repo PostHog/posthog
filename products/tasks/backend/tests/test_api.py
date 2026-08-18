@@ -1455,13 +1455,23 @@ class TestTaskAPI(BaseTaskAPITest):
                 "sandbox_connect_token": "secret-token",
                 "sandbox_url": "https://sandbox.example.com",
                 "pending_dispatch": {"user_id": self.user.id},
+                # Slack delivery routing the sandbox agent reads back over this endpoint.
+                "slack_artifact_delivery": "canvas_file",
+                "slack_chart_delivery": True,
             },
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["state"], {"mode": "interactive"})
+        self.assertEqual(
+            response.json()["state"],
+            {
+                "mode": "interactive",
+                "slack_artifact_delivery": "canvas_file",
+                "slack_chart_delivery": True,
+            },
+        )
 
     def test_create_task(self):
         response = self.client.post(

@@ -183,13 +183,6 @@ export interface StamphogPullRequestApi {
     readonly deletions: number
     /** Files changed, recorded when the pull request merges. */
     readonly changed_files: number
-    /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
-    readonly audience_key: string
-    /**
-     * ID of the digest run that reported this merged PR, if any.
-     * @nullable
-     */
-    readonly digest_run: string | null
     /** When this pull request was first captured. */
     readonly created_at: string
     /** When this pull request was last updated. */
@@ -232,7 +225,7 @@ export interface StamphogRepoConfigApi {
     enabled?: boolean
     /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
     readonly installation_id: string
-    /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+    /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
     digest_enabled?: boolean
     /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
      *
@@ -273,7 +266,7 @@ export interface PatchedStamphogRepoConfigApi {
     enabled?: boolean
     /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
     readonly installation_id?: string
-    /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+    /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
     digest_enabled?: boolean
     /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
      *

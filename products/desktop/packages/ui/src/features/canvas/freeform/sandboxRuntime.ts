@@ -244,16 +244,17 @@ export function buildSandboxDocument(
           shortId,
           dateRange: opts && opts.dateRange,
           variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
         }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
       // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
-      query: (queryOrHogql, params) =>
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -281,6 +282,12 @@ export function buildSandboxDocument(
       // \`ph.actions.invoke("tasks.create", { title, description })\`.
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // \`ph.agent.request("Make the square blue")\`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
       },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).

@@ -3,6 +3,7 @@ import {
   canvasBuildStatusSchema,
 } from "@posthog/shared";
 import { z } from "zod";
+import { canvasAgentRequestInputSchema } from "./freeformSchemas";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
 // epoch-ms timestamps. Source code and version history are NOT part of the
@@ -213,3 +214,7 @@ export const canvasActionResultSchema = z.object({
   result: z.record(z.string(), z.unknown()),
 });
 export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
+
+export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
+  id: z.string().min(1),
+});
