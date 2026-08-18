@@ -177,3 +177,48 @@ describe("handleFreeformDataRequest", () => {
     ).rejects.toThrow("between 30 and 86400 seconds");
   });
 });
+
+describe("handleFreeformDataRequest tasks", () => {
+  // The "tasks" avenue never touches the QueryClient (live status must not be
+  // served stale from cache), so a bare client is enough here.
+  it("routes to the context tasks resolver with the parsed input", async () => {
+    const queryClient = new QueryClient();
+    const result = { tasks: [] };
+    const tasks = vi.fn().mockResolvedValue(result);
+    await expect(
+      handleFreeformDataRequest("tasks", { limit: 5 }, queryClient, { tasks }),
+    ).resolves.toBe(result);
+    expect(tasks).toHaveBeenCalledWith({ limit: 5 });
+  });
+
+  it("defaults a missing payload to an empty input", async () => {
+    const queryClient = new QueryClient();
+    const tasks = vi.fn().mockResolvedValue({ tasks: [] });
+    await handleFreeformDataRequest("tasks", undefined, queryClient, { tasks });
+    expect(tasks).toHaveBeenCalledWith({});
+  });
+
+  it.each([{ limit: 0 }, { limit: -1 }, { limit: 1.5 }, { limit: 10_000 }])(
+    "rejects an invalid limit %o",
+    async (payload) => {
+      const queryClient = new QueryClient();
+      const tasks = vi.fn();
+      await expect(
+        handleFreeformDataRequest("tasks", payload, queryClient, { tasks }),
+      ).rejects.toThrow("ph.tasks");
+      expect(tasks).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects when no resolver is wired (e.g. a surface without task data)", async () => {
+    await expect(
+      handleFreeformDataRequest("tasks", {}, new QueryClient()),
+    ).rejects.toThrow("ph.tasks is not available here");
+  });
+
+  it("stays denied for built canvases (capability manifests do not cover it)", () => {
+    expect(() => assertCanvasCapability(capabilities, "tasks", {})).toThrow(
+      'Method "tasks" is not allowed',
+    );
+  });
+});

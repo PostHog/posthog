@@ -256,6 +256,13 @@ export function buildSandboxDocument(
             ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
             : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
+      // Live snapshot of the user's agent tasks in this app, joined with
+      // session state — \`{ tasks: [{ id, title, status, needsPermission,
+      // isGenerating, prUrl, repository, environment, runStatus, createdAt,
+      // updatedAt }] }\`, most recently updated first. Poll it (e.g. every few
+      // seconds) to build a live board tracking parallel agent work; pair with
+      // \`ph.navigate.toTask(id)\` to jump into a task. In-app canvases only.
+      tasks: (opts) => call("tasks", opts ?? {}),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
       capture: (event, properties, distinctId) => {

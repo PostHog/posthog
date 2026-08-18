@@ -1,7 +1,10 @@
-import type {
-  CanvasCaptureInput,
-  CanvasDataQueryInput,
-  CanvasLoadInsightInput,
+import {
+  type CanvasCaptureInput,
+  type CanvasDataQueryInput,
+  type CanvasLoadInsightInput,
+  type CanvasTasksInput,
+  type CanvasTasksResult,
+  canvasTasksInput,
 } from "@posthog/core/canvas/freeformSchemas";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
@@ -84,8 +87,14 @@ export async function handleFreeformDataRequest(
   payload: unknown,
   queryClient: QueryClient,
   // State and actions are canvas-scoped, unlike the content-keyed reads above,
-  // so the caller passes the canvas identity in.
-  context?: { dashboardId?: string },
+  // so the caller passes the canvas identity in. `tasks` is the renderer-local
+  // resolver behind ph.tasks (app state, not a PostHog API call) — injected by
+  // the calling component, which holds the hooks/stores; a surface that can't
+  // serve it simply omits it and the shim call rejects.
+  context?: {
+    dashboardId?: string;
+    tasks?: (input: CanvasTasksInput) => Promise<CanvasTasksResult>;
+  },
 ): Promise<unknown> {
   const requireDashboardId = (): string => {
     if (!context?.dashboardId) {
@@ -201,6 +210,20 @@ export async function handleFreeformDataRequest(
         verb: input.verb,
         payload: input.payload ?? {},
       });
+    }
+    case "tasks": {
+      // Live status must never be served stale, so this read bypasses the
+      // QueryClient cache — the resolver reads current app state directly.
+      if (!context?.tasks) {
+        throw new Error("ph.tasks is not available here");
+      }
+      const parsed = canvasTasksInput.safeParse(payload ?? {});
+      if (!parsed.success) {
+        throw new Error(
+          "ph.tasks accepts an optional { limit } between 1 and 200",
+        );
+      }
+      return context.tasks(parsed.data);
     }
     case "run":
       // Named, server-stored insights land in Phase 3 (the live published tier).

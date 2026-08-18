@@ -58,6 +58,11 @@ describe("decodeJsxUnicodeEscapes", () => {
 });
 
 describe("buildSandboxDocument", () => {
+  it("exposes the ph.tasks shim in the bootstrap", () => {
+    const html = buildSandboxDocument("edit");
+    expect(html).toContain('tasks: (opts) => call("tasks", opts ?? {})');
+  });
+
   it("inlines the unicode-escape decoder into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(

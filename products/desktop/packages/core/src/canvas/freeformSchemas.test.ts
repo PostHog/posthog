@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canvasTasksInput,
   canvasToHostMessageSchema,
   hostToCanvasMessageSchema,
   limitCanvasCommentHighlights,
@@ -157,5 +158,46 @@ describe("canvasToHostMessageSchema", () => {
       channel: "posthog-canvas",
       type: "clear-text-selection",
     });
+  });
+});
+
+describe("canvasTasksInput", () => {
+  it.each([{}, { limit: 1 }, { limit: 200 }])("accepts %o", (input) => {
+    expect(canvasTasksInput.safeParse(input).success).toBe(true);
+  });
+
+  it.each([
+    { limit: 0 },
+    { limit: -5 },
+    { limit: 1.5 },
+    { limit: 201 },
+    { limit: "10" },
+  ])("rejects %o", (input) => {
+    expect(canvasTasksInput.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("canvasToHostMessageSchema data-request methods", () => {
+  const request = (method: string) => ({
+    channel: "posthog-canvas",
+    type: "data-request",
+    id: "1",
+    method,
+    payload: {},
+  });
+
+  // The wire enum is the first gate a new ph.* method has to pass: a method
+  // missing here is silently dropped by the host, which looks like a hang
+  // from inside the canvas.
+  it.each(["tasks", "query", "stateGet"])("accepts %s", (method) => {
+    expect(canvasToHostMessageSchema.safeParse(request(method)).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects unknown methods", () => {
+    expect(
+      canvasToHostMessageSchema.safeParse(request("filesystem")).success,
+    ).toBe(false);
   });
 });

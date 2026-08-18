@@ -40,10 +40,16 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   },
   // PostHog's own design system — already built + self-hosted, so it's the
   // cheapest dependency and keeps shared canvases visually on-brand.
+  // `deps=` pins Quill's TRANSITIVE @base-ui/react: Quill declares it as a
+  // ^range, so esm.sh re-resolves it on every request — and @base-ui 1.7.0
+  // emits `import "/#prehydration/..."` lines that esm.sh serves as its HTML
+  // homepage, which kills the whole module graph (every Quill canvas fails to
+  // mount). Without this pin the sandbox drifts onto new base-ui releases
+  // silently, defeating the frozen-versions rule this file exists for.
   {
     name: "@posthog/quill",
     version: QUILL_VERSION,
-    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom`,
+    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom&deps=@base-ui/react@1.6.0`,
   },
   // One charting library (the conventional React pick).
   {
