@@ -261,11 +261,12 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
 
             {alertId && !alertForEditModal && !alertLoading && (
                 <LemonModal onClose={() => push(urls.alerts())} isOpen simple title="">
-                    <div className="flex min-h-64 flex-col items-center justify-center gap-2 p-6 text-center">
+                    <div className="flex min-h-64 flex-col items-center justify-center gap-3 p-6 text-center">
+                        <HedgehogMagnifyingGlass className="h-28 w-28" />
                         <h2 className="m-0 text-lg font-semibold">Alert not found</h2>
                         <p className="m-0 text-secondary">This alert may have been deleted.</p>
                         <LemonButton type="secondary" onClick={() => push(urls.alerts())}>
-                            Close
+                            Back to alerts
                         </LemonButton>
                     </div>
                 </LemonModal>

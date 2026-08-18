@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -48,6 +51,8 @@ import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
 import { defaultAlertTabs, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 interface AlertModalCommonProps {
     isOpen: boolean | undefined
@@ -415,11 +420,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             {alertLoading && !alert ? (
                 <AlertEditorLoading title="Edit alert" onBack={handleClose} />
             ) : alertId && !alert ? (
-                <div className="flex min-h-[600px] flex-col items-center justify-center gap-2 p-6 text-center">
+                <div className="flex min-h-[600px] flex-col items-center justify-center gap-3 p-6 text-center">
+                    <HedgehogMagnifyingGlass className="h-28 w-28" />
                     <h2 className="m-0 text-lg font-semibold">Alert not found</h2>
                     <p className="m-0 text-secondary">This alert may have been deleted.</p>
                     <LemonButton type="secondary" onClick={handleClose}>
-                        Close
+                        Back to alerts
                     </LemonButton>
                 </div>
             ) : (
