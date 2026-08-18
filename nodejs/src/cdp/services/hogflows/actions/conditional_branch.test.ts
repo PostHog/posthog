@@ -4,10 +4,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import {
-    CohortMembershipRepository,
-    NoOpCohortMembershipRepository,
-} from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -295,7 +292,11 @@ describe('action.conditional_branch', () => {
                 id: waitAction.id,
                 startedAtTimestamp: DateTime.utc().toMillis(),
             }
-            handler = new ConditionalBranchHandler(new NoOpCohortMembershipRepository())
+            const stubCohortMembershipRepository: CohortMembershipRepository = {
+                getMemberships: (_teamId, _personUuid, cohortIds) =>
+                    Promise.resolve(new Map(cohortIds.map((id) => [id, false]))),
+            }
+            handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitPollOnlyAdvance.reset()
             counterHogflowRekeyWake.reset()
         })
