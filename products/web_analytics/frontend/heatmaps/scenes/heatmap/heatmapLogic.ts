@@ -76,7 +76,7 @@ function isValidPageUrl(url: string | null): boolean {
     }
 }
 
-export function computeLockedWidth(source: HeatmapSource, capturedWidths: number[]): number | null {
+export function computeLockedWidth(source: HeatmapSource, capturedWidths: readonly number[]): number | null {
     return source === 'toolbar' && capturedWidths.length === 1 ? (capturedWidths[0] ?? null) : null
 }
 
@@ -123,10 +123,10 @@ export interface heatmapLogicValues {
     effectiveWidth: number
     generatingScreenshot: boolean
     heatmapId: string | null
-    lockedWidth: number | null
     isDisplayUrlValid: boolean
     isPageUrlDraftValid: boolean
     loading: boolean
+    lockedWidth: number | null
     name: string
     pageUrlDraft: string
     pageUrlDraftIsPattern: boolean
@@ -201,9 +201,6 @@ export interface heatmapLogicActions {
     setBlockConsentModals: (value: boolean) => {
         value: boolean
     }
-    setLockedWidth: (lockedWidth: number | null) => {
-        lockedWidth: number | null
-    }
     setContainerWidth: (containerWidth: number | null) => {
         containerWidth: number | null
     }
@@ -215,6 +212,9 @@ export interface heatmapLogicActions {
     }
     setLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setLockedWidth: (lockedWidth: number | null) => {
+        lockedWidth: number | null
     }
     setName: (name: string) => {
         name: string
@@ -231,11 +231,11 @@ export interface heatmapLogicActions {
     setScreenshotUrl: (url: string | null) => {
         url: string | null
     }
-    setType: (type: HeatmapType) => {
-        type: HeatmapType
-    }
     setSource: (source: HeatmapSource) => {
         source: HeatmapSource
+    }
+    setType: (type: HeatmapType) => {
+        type: HeatmapType
     }
     setUserAccessLevel: (level: AccessControlLevel | null) => {
         level: AccessControlLevel | null
