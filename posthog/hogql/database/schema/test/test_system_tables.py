@@ -50,7 +50,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -675,6 +675,14 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_survey_response_archive(team: Team, label: str) -> SurveyResponseArchive:
+    return SurveyResponseArchive.objects.create(
+        team=team,
+        survey=_create_survey(team, f"archived_{label}"),
+        response_uuid=uuid.uuid4(),
+    )
+
+
 def _create_public_task_channel(team: Team, label: str):
     Channel = apps.get_model("tasks", "Channel")
 
@@ -860,6 +868,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
+    ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
