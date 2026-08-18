@@ -450,6 +450,10 @@ class BytecodeCompiler(Visitor):
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
+        if node.name in ("inCohort", "notInCohort") and len(node.args) == 1:
+            # The STL implementations are pure two-arg functions (stl/ chunks execute without
+            # globals), so pass the runtime-prefetched `cohort_ids` global as the second argument
+            return self.visit(ast.Call(name=node.name, args=[node.args[0], ast.Field(chain=["cohort_ids"])]))
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:

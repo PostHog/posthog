@@ -406,11 +406,7 @@ def compile_filters_bytecode(
         expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
         filters["bytecode"] = create_bytecode(
-            expr,
-            context=context,
-            cohort_membership_supported=cohort_membership_supported,
-            # Host functions the runtime injects (conditional_branch.ts), not STL
-            supported_functions={"inCohort", "notInCohort"} if cohort_membership_supported else None,
+            expr, context=context, cohort_membership_supported=cohort_membership_supported
         ).bytecode
         if cohort_membership_supported:
             filters["cohort_ids"] = filter_cohort_ids(filters)
