@@ -91,7 +91,6 @@ export type Session = BaseSession & {
   cwd: string;
   taskRunId?: string;
   lastPlanFilePath?: string;
-  lastPlanContent?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */
   fastModeEnabled: boolean;
