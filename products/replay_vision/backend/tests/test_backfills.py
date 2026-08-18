@@ -537,7 +537,7 @@ class TestBackfillTickActivities:
         for _ in range(STUCK_SESSION_THRESHOLD):
             redis_client.incr(_stuck_key(backfill.team_id, "wedged"))
         with (
-            patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls,
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
             patch.object(excluded_sessions, "excluded_session_ids", return_value=set()),
         ):
             query_cls.return_value.run.return_value = fetched
