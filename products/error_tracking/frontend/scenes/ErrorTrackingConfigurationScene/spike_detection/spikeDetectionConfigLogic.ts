@@ -16,6 +16,8 @@ import {
     errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate,
 } from 'products/error_tracking/frontend/generated/api'
 
+import type { ErrorTrackingSpikeDetectionConfigApi } from '../../../generated/api.schemas'
+
 export interface SpikeDetectionConfigForm {
     snooze_duration_minutes: number
     multiplier: number
@@ -61,10 +63,10 @@ export interface spikeDetectionConfigLogicActions {
         errorObject?: any
     }
     loadConfigSuccess: (
-        config: ErrorTrackingSpikeDetectionConfig,
+        config: ErrorTrackingSpikeDetectionConfigApi,
         payload?: any
     ) => {
-        config: ErrorTrackingSpikeDetectionConfig
+        config: ErrorTrackingSpikeDetectionConfigApi
         payload?: any
     }
     loadSpikeAlerts: () => any

@@ -9,6 +9,7 @@ import { SubscriptionType } from '~/types'
 
 import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
 
+import type { SubscriptionApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
 import { subscriptionDeleteEndpoint, SubscriptionsLogicProps } from './utils'
@@ -49,10 +50,10 @@ export interface subscriptionsLogicActions {
         errorObject?: any
     }
     loadInsightSubscriptionsSuccess: (
-        insightSubscriptions: SubscriptionType[],
+        insightSubscriptions: SubscriptionApi[],
         payload?: any
     ) => {
-        insightSubscriptions: SubscriptionType[]
+        insightSubscriptions: SubscriptionApi[]
         payload?: any
     }
     loadSubscriptions: (_?: any) => any
@@ -64,10 +65,10 @@ export interface subscriptionsLogicActions {
         errorObject?: any
     }
     loadSubscriptionsSuccess: (
-        subscriptions: SubscriptionType[],
+        subscriptions: SubscriptionApi[],
         payload?: any
     ) => {
-        subscriptions: SubscriptionType[]
+        subscriptions: SubscriptionApi[]
         payload?: any
     }
     setSubscriptionEnabled: (

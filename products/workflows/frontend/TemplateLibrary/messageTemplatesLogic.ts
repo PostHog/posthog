@@ -39,12 +39,12 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     createTemplateSuccess: (
-        templates: MessageTemplate[],
+        templates: any[],
         payload?: {
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: MessageTemplate[]
+        templates: any[]
         payload?: {
             template: Partial<MessageTemplate>
         }
@@ -73,10 +73,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     duplicateTemplateSuccess: (
-        templates: MessageTemplate[],
+        templates: any[],
         payload?: MessageTemplate
     ) => {
-        templates: MessageTemplate[]
+        templates: any[]
         payload?: MessageTemplate
     }
     loadTemplates: () => any
@@ -112,13 +112,13 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     updateTemplateSuccess: (
-        templates: MessageTemplate[],
+        templates: any[],
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: MessageTemplate[]
+        templates: any[]
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>

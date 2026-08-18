@@ -32,6 +32,7 @@ import {
 import { warehouseSavedQueriesMaterializeCreate } from 'products/data_warehouse/frontend/generated/api'
 import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
 
+import type { DataWarehouseSavedQueryFolderApi } from '../../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
 
@@ -105,10 +106,10 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     createDataWarehouseSavedQueryFolderSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[],
         payload?: string
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[]
         payload?: string
     }
     createDataWarehouseSavedQuerySuccess: (
@@ -180,10 +181,10 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     loadDataWarehouseSavedQueryFoldersSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolderApi[],
         payload?: any
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolderApi[]
         payload?: any
     }
     materializeDataWarehouseSavedQuery: (
@@ -248,13 +249,13 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     updateDataWarehouseSavedQueryFolderSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[],
         payload?: {
             id: string
             name: string
         }
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[]
         payload?: {
             id: string
             name: string

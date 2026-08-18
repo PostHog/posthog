@@ -6,6 +6,8 @@ import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 
 import { errorTrackingSpikeEventsList } from 'products/error_tracking/frontend/generated/api'
 
+import type { PaginatedErrorTrackingSpikeEventListApi } from '../../../generated/api.schemas'
+
 const RESULTS_PER_PAGE = 10
 
 export type SpikeEventOrder =
@@ -48,12 +50,12 @@ export interface recentSpikesLogicActions {
         errorObject?: any
     }
     loadRecentSpikesSuccess: (
-        spikesResponse: CountedPaginatedResponse<ErrorTrackingSpikeEvent>,
+        spikesResponse: PaginatedErrorTrackingSpikeEventListApi,
         payload?: {
             value: true
         }
     ) => {
-        spikesResponse: CountedPaginatedResponse<ErrorTrackingSpikeEvent>
+        spikesResponse: PaginatedErrorTrackingSpikeEventListApi
         payload?: {
             value: true
         }

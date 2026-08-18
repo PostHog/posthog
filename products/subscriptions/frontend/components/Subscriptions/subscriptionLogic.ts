@@ -31,6 +31,7 @@ import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscr
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
+import type { SubscriptionsSummaryQuotaRetrieve200 } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import {
@@ -321,18 +322,10 @@ export interface subscriptionLogicActions {
         errorObject?: any
     }
     loadSummaryQuotaSuccess: (
-        summaryQuota: {
-            active_count: number
-            at_limit: boolean
-            limit: number | null
-        },
+        summaryQuota: SubscriptionsSummaryQuotaRetrieve200,
         payload?: any
     ) => {
-        summaryQuota: {
-            active_count: number
-            at_limit: boolean
-            limit: number | null
-        }
+        summaryQuota: SubscriptionsSummaryQuotaRetrieve200
         payload?: any
     }
     resetSubscription: (values?: SubscriptionType) => {

@@ -136,10 +136,10 @@ export interface logsAlertDetailSceneLogicActions {
         errorObject?: any
     }
     loadSparkline7dSuccess: (
-        sparkline7d: any[],
+        sparkline7d: Record<string, any>[],
         payload?: any
     ) => {
-        sparkline7d: any[]
+        sparkline7d: Record<string, any>[]
         payload?: any
     }
     markPendingEnable: () => {

@@ -16,6 +16,8 @@ import {
 import { errorTrackingIssueQuery } from 'products/error_tracking/frontend/queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
+import type { ErrorTrackingSpikeEventApi } from '../../../../../error_tracking/frontend/generated/api.schemas'
+
 export type InboxErrorTrackingIssueSourceType = 'issue_created' | 'issue_reopened' | 'issue_spiking'
 
 export interface InboxErrorTrackingIssueLogicProps {
@@ -79,10 +81,10 @@ export interface inboxErrorTrackingIssueLogicActions {
         errorObject?: any
     }
     loadSpikeEventsSuccess: (
-        spikeEvents: ErrorTrackingSpikeEvent[],
+        spikeEvents: ErrorTrackingSpikeEventApi[],
         payload?: any
     ) => {
-        spikeEvents: ErrorTrackingSpikeEvent[]
+        spikeEvents: ErrorTrackingSpikeEventApi[]
         payload?: any
     }
     loadSummary: () => any

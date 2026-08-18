@@ -312,10 +312,10 @@ export interface logsViewerDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        sparkline: any[],
+        sparkline: Record<string, any>[],
         payload?: any
     ) => {
-        sparkline: any[]
+        sparkline: Record<string, any>[]
         payload?: any
     }
     handleQueryChange: (

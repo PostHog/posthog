@@ -11,6 +11,7 @@ import { generatedDataModelingNodes } from 'products/data_modeling/frontend/gene
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
 
+import type { DataWarehouseSavedQueryApi } from '../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { DataModelingNodeType } from '../../types'
 
 export interface NodeDetailSceneLogicProps {
@@ -139,10 +140,10 @@ export interface nodeDetailSceneLogicActions {
         errorObject?: any
     }
     loadSavedQuerySuccess: (
-        savedQuery: DataWarehouseSavedQuery | null,
+        savedQuery: DataWarehouseSavedQueryApi | null,
         payload?: any
     ) => {
-        savedQuery: DataWarehouseSavedQuery | null
+        savedQuery: DataWarehouseSavedQueryApi | null
         payload?: any
     }
     openLineageModal: () => {

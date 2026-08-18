@@ -388,7 +388,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
 
 
 class TicketWriteSerializer(TicketSerializer):
-    assignee = serializers.JSONField(
+    assignee = serializers.JSONField(  # type: ignore[assignment]
         required=False,
         allow_null=True,
         help_text="User or role assignment, or null to unassign the ticket.",

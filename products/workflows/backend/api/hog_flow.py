@@ -2440,7 +2440,7 @@ class HogFlowInvocationResultSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Next workflow action to execute, or null when execution is complete.",
     )
-    errors = serializers.ListField(
+    errors = serializers.ListField(  # type: ignore[assignment]
         child=serializers.CharField(),
         required=False,
         help_text="Errors produced during execution.",

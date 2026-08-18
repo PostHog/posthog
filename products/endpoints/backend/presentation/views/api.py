@@ -697,7 +697,7 @@ class EndpointViewSet(
 
     @validated_request(
         MaterializationPreviewRequestSerializer,
-        responses={200: MaterializationPreviewResponseSerializer},
+        responses={200: OpenApiResponse(response=MaterializationPreviewResponseSerializer)},
         description="Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
     )
     @action(methods=["POST"], detail=True, url_path="materialization_preview")

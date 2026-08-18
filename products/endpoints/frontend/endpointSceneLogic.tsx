@@ -27,6 +27,7 @@ import { generatedEndpointsApi } from 'products/endpoints/frontend/generatedApiA
 import { endpointLogic } from './endpointLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
 import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
+import type { MaterializationPreviewResponseApi } from './generated/api.schemas'
 
 // Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
 const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
@@ -245,38 +246,12 @@ export interface endpointSceneLogicActions {
         errorObject?: any
     }
     loadMaterializationPreviewSuccess: (
-        materializationPreview: {
-            aggregates: {
-                expression: string
-                reaggregate_fn: string | null
-            }[]
-            can_materialize: boolean
-            range_pairs: {
-                bucket_fn: string
-                column: string
-                variables: string[]
-            }[]
-            reason: string | null
-            transformed_query: string | null
-        } | null,
+        materializationPreview: MaterializationPreviewResponseApi | null,
         payload?: {
             value: true
         }
     ) => {
-        materializationPreview: {
-            aggregates: {
-                expression: string
-                reaggregate_fn: string | null
-            }[]
-            can_materialize: boolean
-            range_pairs: {
-                bucket_fn: string
-                column: string
-                variables: string[]
-            }[]
-            reason: string | null
-            transformed_query: string | null
-        } | null
+        materializationPreview: MaterializationPreviewResponseApi | null
         payload?: {
             value: true
         }

@@ -83,10 +83,10 @@ export interface symbolSetLogicActions {
         errorObject?: any
     }
     loadSymbolSetsSuccess: (
-        symbolSetResponse: CountedPaginatedResponse<ErrorTrackingSymbolSet>,
+        symbolSetResponse: ErrorTrackingSymbolSetResponse,
         payload?: void
     ) => {
-        symbolSetResponse: CountedPaginatedResponse<ErrorTrackingSymbolSet>
+        symbolSetResponse: ErrorTrackingSymbolSetResponse
         payload?: void
     }
     setPage: (page: number) => {

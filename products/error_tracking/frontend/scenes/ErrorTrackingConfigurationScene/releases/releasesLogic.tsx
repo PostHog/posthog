@@ -42,10 +42,10 @@ export interface releasesLogicActions {
         errorObject?: any
     }
     loadReleasesSuccess: (
-        releaseResponse: CountedPaginatedResponse<ErrorTrackingRelease>,
+        releaseResponse: ErrorTrackingReleaseResponse,
         payload?: void
     ) => {
-        releaseResponse: CountedPaginatedResponse<ErrorTrackingRelease>
+        releaseResponse: ErrorTrackingReleaseResponse
         payload?: void
     }
     setPage: (page: number) => {

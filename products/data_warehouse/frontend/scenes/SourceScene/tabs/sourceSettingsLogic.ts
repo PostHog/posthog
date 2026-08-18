@@ -439,34 +439,10 @@ export interface sourceSettingsLogicActions {
         errorObject?: any
     }
     loadCdcStatusSuccess: (
-        cdcStatus: {
-            enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
-        },
+        cdcStatus: CdcStatus,
         payload?: any
     ) => {
-        cdcStatus: {
-            enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
-        }
+        cdcStatus: CdcStatus
         payload?: any
     }
     loadJobs: () => any

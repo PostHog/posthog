@@ -110,10 +110,10 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     loadTemplateSuccess: (
-        template: MessageTemplate,
+        template: any,
         payload?: any
     ) => {
-        template: MessageTemplate
+        template: any
         payload?: any
     }
     resetTemplate: (values?: {
@@ -150,10 +150,10 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: MessageTemplate,
+        template: any,
         payload?: any
     ) => {
-        template: MessageTemplate
+        template: any
         payload?: any
     }
     setOriginalTemplate: (template: MessageTemplate) => {

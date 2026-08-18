@@ -67,6 +67,7 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import type { ErrorTrackingSpikeEventApi } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
@@ -292,10 +293,10 @@ export interface errorTrackingIssueSceneLogicActions {
         errorObject?: any
     }
     loadSpikeEventsSuccess: (
-        spikeEvents: ErrorTrackingSpikeEvent[],
+        spikeEvents: ErrorTrackingSpikeEventApi[],
         payload?: any
     ) => {
-        spikeEvents: ErrorTrackingSpikeEvent[]
+        spikeEvents: ErrorTrackingSpikeEventApi[]
         payload?: any
     }
     loadSummary: () => {

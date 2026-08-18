@@ -138,10 +138,10 @@ export interface workflowsLogicActions {
         errorObject?: any
     }
     loadWorkflowsSuccess: (
-        workflows: CountedPaginatedResponse<HogFlow>,
+        workflows: WorkflowsResult,
         payload?: {}
     ) => {
-        workflows: CountedPaginatedResponse<HogFlow>
+        workflows: WorkflowsResult
         payload?: {}
     }
     restoreWorkflow: (workflow: HogFlow) => {
