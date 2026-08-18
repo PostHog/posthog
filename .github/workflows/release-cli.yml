@@ -386,7 +386,7 @@ jobs:
         needs:
             - release
             - plan-release
-        if: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
+        if: ${{ needs.plan-release.result == 'success' && fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -699,7 +699,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             PLAN: ${{ needs.plan-release.outputs.val }}
-        if: ${{ !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases }}
+        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
         permissions:
             id-token: write
         steps:
