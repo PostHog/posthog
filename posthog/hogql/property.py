@@ -817,7 +817,7 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         # An unbounded "ever performed" filter would scan every partition of the events table.
         raise QueryError("Behavioral filters require a time window (time_value/time_interval or explicit_datetime)")
 
-    # Applies to both window styles — pairing it only with explicit_datetime silently drops the upper bound.
+    # Deliberately outside the branch above, so it bounds a relative window too.
     if property.explicit_datetime_to:
         date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
         conditions.append(
