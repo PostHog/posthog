@@ -67,7 +67,6 @@ export interface AgentSession {
   cloudTranscriptEntryCount?: number;
   /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
   transcriptWindowStart?: number;
-  /** True while an older transcript page is being fetched for the scrolled-up thread. */
   isLoadingOlderTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;

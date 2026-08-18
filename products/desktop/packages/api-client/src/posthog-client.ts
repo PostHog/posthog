@@ -233,7 +233,6 @@ type SessionLogsPage =
 export interface TaskRunSessionLogsPage {
   entries: StoredLogEntry[];
   hasMore: boolean;
-  /** Total entries matching the query, or null when the server omits the header. */
   matchingCount: number | null;
 }
 
@@ -3756,8 +3755,7 @@ export class PostHogAPIClient {
         `Failed to fetch session logs page at offset ${options.offset ?? 0}: ${page.status} ${page.statusText}`,
       );
     }
-    // An absent header must stay null: Number(null) is 0, and callers treat
-    // the count as authoritative when it is present.
+    // Number(null) is 0, so an absent header must stay null.
     const matchingHeader = page.headers.get("X-Matching-Count");
     const matchingCount =
       matchingHeader === null ? null : Number(matchingHeader);

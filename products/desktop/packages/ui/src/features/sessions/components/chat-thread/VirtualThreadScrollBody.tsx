@@ -43,7 +43,6 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
-/** Roughly a viewport of estimated rows: far enough to prefetch mid-fling, near enough that a slow read to the top doesn't chain loads. */
 const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
@@ -322,11 +321,8 @@ export function VirtualThreadScrollBody({
   renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
-  /** True when older transcript history exists above the loaded window. */
   hasOlderHistory?: boolean;
-  /** True while an older history page is loading. */
   isLoadingOlderHistory?: boolean;
-  /** Invoked when the reader scrolls near the top of the loaded window. */
   onLoadOlderHistory?: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -350,8 +346,7 @@ export function VirtualThreadScrollBody({
     getItemKey: (index) => flatRows[index]?.key ?? index,
   });
 
-  // Re-armed by the props flipping back rather than by re-render, so one
-  // scroll gesture near the top loads exactly one older page.
+  // Re-armed by the props flipping back, so one gesture loads one page.
   const loadOlderArmedRef = useRef(false);
   loadOlderArmedRef.current =
     hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
@@ -366,11 +361,8 @@ export function VirtualThreadScrollBody({
     onLoadOlderHistoryRef.current?.();
   }, []);
 
-  // A viewport parked at the very top produces no scroll events (Home or a
-  // wheel-up at scrollTop 0 changes nothing), so arming alone must also
-  // attempt a load: on mount at the top, and again after each page lands
-  // while the reader stays parked there. The delay lets the end-anchored
-  // initial layout settle so a fresh mount reads its real scrollTop, not 0.
+  // A viewport parked at the very top produces no scroll events, so arming
+  // must also attempt a load once the end-anchored layout has settled.
   useEffect(() => {
     if (!hasOlderHistory || isLoadingOlderHistory) return;
     const id = window.setTimeout(maybeLoadOlderHistory, 250);
