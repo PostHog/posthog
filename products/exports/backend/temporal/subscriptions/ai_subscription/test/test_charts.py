@@ -53,6 +53,15 @@ def test_a_well_formed_chart_validates():
         ("line_with_too_few_rows", _LINE, _response(rows=_ROWS[:2]), "too_few_rows"),
         ("bar_over_the_category_cap", _BAR, _response(rows=[[f"c{i}", i] for i in range(26)]), "too_many_categories"),
         ("empty_result", _LINE, _response(rows=[]), "no_results"),
+        # Both observed from a real planner run: it marked single-row scalar queries (a failure
+        # rate, a growth rate) as bar charts with the same column on both axes.
+        (
+            "x_and_y_are_the_same_column",
+            StepChart(display="ActionsBar", x_column="signups", y_columns=["signups"]),
+            _response(),
+            "x_and_y_identical",
+        ),
+        ("bar_over_a_single_row", _BAR, _response(rows=[["a", 1]]), "too_few_rows"),
         # The response shape comes from a query runner, not from us; a chart must never break a report.
         ("malformed_results", _LINE, {"results": "nonsense"}, "no_results"),
         ("response_is_not_a_dict", _LINE, "nonsense", "no_results"),

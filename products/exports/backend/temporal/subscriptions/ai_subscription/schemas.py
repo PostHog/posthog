@@ -18,6 +18,9 @@ MAX_CHART_IMPORTANCE = 5
 MAX_CHART_SERIES = 4
 # Two points are a slope, not a shape.
 MIN_CHART_ROWS = 3
+# A bar chart compares categories, so one bar is not a chart. Planners do emit single-row scalar
+# queries (a rate, a growth percentage) and mark them chartable.
+MIN_CHART_CATEGORIES = 2
 # Past this the bars stop being separable at the render width.
 MAX_CHART_CATEGORIES = 25
 # A chart caption is a label, not a sentence. Long enough for "New signups per day, by plan".

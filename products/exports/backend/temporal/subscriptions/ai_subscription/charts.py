@@ -10,6 +10,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.facade.api import render_png_export
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHART_CATEGORIES,
+    MIN_CHART_CATEGORIES,
     MIN_CHART_ROWS,
     StepChart,
 )
@@ -60,9 +61,16 @@ def validate_chart(
     if not {spec.x_column, *spec.y_columns}.issubset(set(column_names)):
         return None, "missing_columns"
 
+    # Plotting a column against itself is never a chart. It is what a planner emits when it marks a
+    # single scalar (a rate, a growth percentage) as chartable.
+    if spec.x_column in spec.y_columns:
+        return None, "x_and_y_identical"
+
     if spec.display in _CONTINUOUS_DISPLAYS:
         if len(rows) < MIN_CHART_ROWS:
             return None, "too_few_rows"
+    elif len(rows) < MIN_CHART_CATEGORIES:
+        return None, "too_few_rows"
     elif _distinct_count(rows, column_names.index(spec.x_column)) > MAX_CHART_CATEGORIES:
         return None, "too_many_categories"
 
