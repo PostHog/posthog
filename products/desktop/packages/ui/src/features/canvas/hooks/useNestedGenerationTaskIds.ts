@@ -1,4 +1,4 @@
-import type { DashboardSummary } from "@posthog/core/canvas/dashboardSchemas";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   deriveTaskData,
   narrowFullTask,
@@ -26,7 +26,7 @@ const EMPTY_STRING_MAP: ReadonlyMap<string, string> = new Map();
 // the channel can both render the nested rows and dedupe them out of the flat
 // task list from a single source of truth, with no chance of the two diverging.
 export function useNestedGenerationTaskIds(
-  dashboards: DashboardSummary[],
+  dashboards: DashboardRecord[],
   tasks: Task[] | undefined,
   openTaskId: string | undefined,
 ): ReadonlySet<string> {

@@ -16,7 +16,13 @@ import { hasOpenOverlay } from "@posthog/ui/utils/overlay";
 import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { EditorContent } from "@tiptap/react";
 import clsx from "clsx";
-import { forwardRef, useCallback, useEffect, useImperativeHandle } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useSkills } from "../../skills/useSkills";
 import { skillToEditorCommand } from "../commands";
@@ -55,14 +61,6 @@ export interface PromptInputProps {
     active: boolean;
     onToggle: () => void;
   };
-  /**
-   * When provided, the mode dropdown gains a "Canvas" toggle (channels
-   * composer only). `active` drives its checkmark and the trigger label.
-   */
-  canvas?: {
-    active: boolean;
-    onToggle: () => void;
-  };
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
@@ -72,11 +70,14 @@ export interface PromptInputProps {
   messagingModeToggle?: React.ReactNode;
   historyButton?: React.ReactNode;
   /**
-   * Rendered in the attachments row at the top of the composer, ahead of the
-   * attachments themselves — for context the prompt carries that the user did
-   * not attach by hand (e.g. a channel's CONTEXT.md).
+   * Pinned inside the composer box beside the send button — for context the
+   * prompt always carries that the user did not attach by hand (e.g. a
+   * channel's CONTEXT.md). It sits apart from the attachments row on purpose:
+   * hand-picked files come and go, this rides along with every send. The
+   * editor reserves its measured width, so keep it a fixed size rather than
+   * one that changes on hover.
    */
-  attachmentsPrefix?: React.ReactNode;
+  submitAdornment?: React.ReactNode;
   /**
    * Pushed to the far end of the composer's toolbar row — for read-only status
    * about the session the prompt goes to (e.g. context usage), as opposed to
@@ -142,14 +143,13 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       onModeChange,
       allowBypassPermissions = false,
       autoresearch,
-      canvas,
       enableBashMode = false,
       enableCommands = true,
       modelSelector,
       reasoningSelector,
       messagingModeToggle,
       historyButton,
-      attachmentsPrefix,
+      submitAdornment,
       toolbarEndSlot,
       headerAddon,
       hideDefaultToolbar = false,
@@ -180,6 +180,24 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     const clearFocusRequest = useDraftStore((s) => s.actions.clearFocusRequest);
     const slotMachineMode = useSettingsStore((s) => s.slotMachineMode);
     const { data: skills } = useSkills();
+    // Seeded at the send button's own width so the first paint already clears
+    // it, rather than laying the text out full-width and reflowing it.
+    const [submitClusterWidth, setSubmitClusterWidth] = useState(40);
+    // The text's right inset has to clear whatever sits over its bottom-right
+    // corner. That used to be the send button alone (a fixed 40px), but an
+    // adornment beside it makes the width depend on its content, so measure.
+    // A callback ref rather than an effect: the cluster mounts and unmounts
+    // with the button, and this re-observes the new node each time.
+    const submitClusterRef = useCallback((el: HTMLSpanElement | null) => {
+      if (!el) return;
+      const observer = new ResizeObserver(([entry]) => {
+        // The cluster is inset by 4px (right-1); the same again keeps the text
+        // from running up against it.
+        setSubmitClusterWidth(entry.contentRect.width + 8);
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, []);
 
     const {
       editor,
@@ -195,6 +213,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       setContent,
       insertEditorContent,
       insertChip,
+      insertSlashCommand,
       removeChipById,
       replaceChipAttrs,
       attachments,
@@ -411,6 +430,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           onClick={handleSubmitClick}
           disabled={submitBlocked}
           aria-label="Send message"
+          className="rounded-xs"
           {...(tourTarget && { "data-tour": `${tourTarget}-submit` })}
         >
           <ArrowUp size={14} weight="bold" />
@@ -436,7 +456,20 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               onAttachFiles={onAttachFiles}
               onInsertChip={insertChip}
               onRemoveChip={removeChipById}
+              // No `/` extension registered means the item would type a bare
+              // slash and open nothing, so it hides instead.
+              onInsertSlashCommand={
+                enableCommands ? insertSlashCommand : undefined
+              }
             />
+            {/* Direct flex children, not wrapped in a span: an inline wrapper
+                builds a line box whose leading pushes the trigger a pixel below
+                the toolbar's other buttons. The model chip renders before the
+                mode chip so its open menu stays anchored in place while a
+                harness switch changes which permission modes exist (and how
+                wide their labels are). */}
+            {modelSelector}
+            {reasoningSelector}
             {onModeChange && (
               <ModeSelector
                 modeOption={modeOption}
@@ -444,11 +477,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 allowBypassPermissions={allowBypassPermissions}
                 disabled={disabled}
                 autoresearch={autoresearch}
-                canvas={canvas}
               />
             )}
-            {modelSelector && <span>{modelSelector}</span>}
-            {reasoningSelector && <span>{reasoningSelector}</span>}
             {isBashMode && (
               <Text className="font-mono text-(--blue-9) text-[13px]">
                 ! bash
@@ -478,12 +508,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           {headerAddon && (
             <InputGroupAddon align="block-start">{headerAddon}</InputGroupAddon>
           )}
-          {(attachmentsPrefix || attachments.length > 0) && (
+          {attachments.length > 0 && (
             <InputGroupAddon align="block-start">
               {/* One provider for the row: moving between squares reuses the
                     open delay instead of re-waiting it per attachment. */}
               <TooltipProvider>
-                {attachmentsPrefix}
                 <AttachmentsBar
                   attachments={attachments}
                   onRemove={removeAttachment}
@@ -496,11 +525,21 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               column beside it. Laid out beside the text, it would push the
               scroll container inwards and strand the scrollbar mid-box; over
               it, the container runs to the edge and the bar hugs it. The text
-              reserves the button's width so a long line never runs underneath. */}
+              reserves the cluster's width so a long line never runs underneath
+              — measured rather than fixed, because an adornment beside the
+              button makes that width depend on what's in it. */}
           <div className="relative w-full">
             <div
+              // Gated on the cluster existing rather than trusting the last
+              // measurement: the observer's cleanup can't clear the width, so
+              // a cluster that unmounts (slot-machine mode, then the adornment
+              // removed) would otherwise leave its gutter behind for good.
+              style={{
+                paddingRight:
+                  submitButton || submitAdornment ? submitClusterWidth : 8,
+              }}
               className={clsx(
-                "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pr-10 pl-2 text-[14px]",
+                "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pl-2 text-[14px]",
                 editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
                 // A disabled editor still looks editable: the caret is the only
                 // tell, and it is absent precisely because you cannot focus it.
@@ -512,8 +551,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             >
               <EditorContent editor={editor} />
             </div>
-            {submitButton && (
-              <span className="absolute right-2 bottom-1">{submitButton}</span>
+            {(submitButton || submitAdornment) && (
+              <span
+                ref={submitClusterRef}
+                className="absolute right-1 bottom-1 flex items-center gap-1"
+              >
+                {submitAdornment}
+                {submitButton}
+              </span>
             )}
           </div>
         </InputGroup>

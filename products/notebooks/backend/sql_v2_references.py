@@ -20,7 +20,7 @@ whatever HogQL refs it also reads — the same input shape Python nodes use.
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -50,24 +50,33 @@ class SQLV2Ref:
     last_run_code identify its latest completed run (both None if it has never completed
     one); kind "local" is a frame a Python node bound in the kernel namespace — it has
     no query, only a name.
+
+    `unavailable_reason` marks a ref this run can't use even though the upstream cell has
+    run — a cross-engine reference, say. It replaces the generic "has not been run yet"
+    message, and only surfaces when the query actually reads the name.
     """
 
-    kind: str  # "hogql" | "local"
+    kind: Literal["hogql", "local"]
     node_id: str | None = None
     run_id: str | None = None
     last_run_code: str | None = None
+    unavailable_reason: str | None = None
 
 
-class _TableReferenceCollector(TraversingVisitor):
+class _ReferenceCollector(TraversingVisitor):
+    """Base for the two scans below: both gather the names of `candidates` a query reaches."""
+
+    def __init__(self, candidates: set[str]) -> None:
+        self.candidates = candidates
+        self.found: set[str] = set()
+
+
+class _TableReferenceCollector(_ReferenceCollector):
     """Collect the FROM/JOIN targets of a query that name one of `candidates`.
 
     Only bare single-identifier tables count — ``from df1`` matches, a column called
     ``df1`` does not — so a reference is a genuine table position, not any mention.
     """
-
-    def __init__(self, candidates: set[str]) -> None:
-        self.candidates = candidates
-        self.found: set[str] = set()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         table = node.table
@@ -78,22 +87,47 @@ class _TableReferenceCollector(TraversingVisitor):
         super().visit_join_expr(node)
 
 
-def _references(query: ast.SelectQuery | ast.SelectSetQuery, candidates: set[str]) -> set[str]:
-    collector = _TableReferenceCollector(candidates)
+class _NameReferenceCollector(_ReferenceCollector):
+    """Collect every bare identifier naming one of `candidates`, in any position.
+
+    A superset of `_TableReferenceCollector`: a scalar CTE (``with 5 as cutoff``) is read as a
+    column, not a table, so FROM/JOIN positions alone can't see that dependency. Only safe for
+    ordering an already-chosen set of CTEs — never for deciding what to inline, where a column
+    that merely shares a node's name must not pull that node in.
+    """
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) == 1 and node.chain[0] in self.candidates:
+            name = node.chain[0]
+            if isinstance(name, str):
+                self.found.add(name)
+        super().visit_field(node)
+
+
+def _collect(collector: _ReferenceCollector, query: ast.Expr) -> set[str]:
     collector.visit(query)
     # A name the query defines as its own CTE shadows the ref — don't pull it in.
     own_ctes = set(query.ctes.keys()) if isinstance(query, ast.SelectQuery) and query.ctes else set()
     return collector.found - own_ctes
 
 
-def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
+def _references(query: ast.Expr, candidates: set[str]) -> set[str]:
+    return _collect(_TableReferenceCollector(candidates), query)
+
+
+def _ordering_dependencies(query: ast.Expr, candidates: set[str]) -> set[str]:
+    return _collect(_NameReferenceCollector(candidates), query)
+
+
+def resolve_sql_v2_references(code: str, refs: dict[str, str | None], unavailable: dict[str, str] | None = None) -> str:
     """Return `code` with every referenced upstream definition inlined as a CTE.
 
     `refs` maps a node's dataframe name to its **last-run** HogQL — the exact query that
     produced the result the user is looking at — or None when that node has never
     completed a run. A name absent from `refs` (e.g. a real table like ``events``) is
     left untouched; a name present but None that `code` actually references raises,
-    since there is no definition to join against yet.
+    since there is no definition to join against yet. `unavailable` overrides that
+    message per name for refs unusable for a more specific reason.
 
     Names not actually referenced by `code` (transitively) are ignored. Returns `code`
     unchanged when it references none of them, so a plain single-node run is byte-for-byte
@@ -116,7 +150,9 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
         if name not in parsed:
             raw = refs[name]
             if raw is None or not raw.strip():
-                raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
+                raise SQLV2ReferenceError(
+                    (unavailable or {}).get(name) or f"Referenced node '{name}' has not been run yet — run it first."
+                )
             try:
                 parsed[name] = parse_select(raw)
             except ExposedHogQLError as exc:
@@ -152,11 +188,43 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     root = main if isinstance(main, ast.SelectQuery) else parse_select(f"select * from ({code}\n)")
     if not isinstance(root, ast.SelectQuery):  # narrow for the type checker; the wrap is always a SelectQuery
         return code
-    ctes: dict[str, ast.CTE] = dict(root.ctes or {})
-    for name in order:
-        # setdefault so the user's own CTE of the same name always wins over a node ref.
-        ctes.setdefault(name, ast.CTE(name=name, expr=parse_ref(name), cte_type="subquery"))
-    root.ctes = ctes
+    user_ctes: dict[str, ast.CTE] = dict(root.ctes or {})
+    # The user's own CTE of the same name always wins over a node ref.
+    injected = {
+        name: ast.CTE(name=name, expr=parse_ref(name), cte_type="subquery") for name in order if name not in user_ctes
+    }
+
+    # A CTE must be printed before every CTE that reads it, and the user's own WITH clauses
+    # can read node refs just as node definitions can read a shadowing user CTE. So the two
+    # sides get merged in one dependency order rather than concatenated — appending the refs
+    # after a `with … as (select … from df1)` leaves df1 an unknown table.
+    all_names = set(injected) | set(user_ctes)
+    merged: dict[str, ast.CTE] = {}
+    emitting: set[str] = set()
+
+    def emit(name: str) -> None:
+        if name in merged or name in emitting:
+            return
+        emitting.add(name)
+        cte = injected.get(name) or user_ctes[name]
+        # Ordering has to see expression-position reads too: an inlined definition reading the
+        # user's `with 5 as cutoff` depends on it even though no FROM/JOIN names it.
+        table_dependencies = _references(cte.expr, all_names)
+        for dependency in sorted(_ordering_dependencies(cte.expr, all_names) - {name}):
+            # The node-ref cycle check above only walks node names, so a cycle running through
+            # one of the user's own CTEs reaches here instead. No ordering satisfies it, so fail
+            # with a 400 rather than dispatch a query that can't resolve. Only a real table
+            # position counts: the broader scan above also matches columns, where a name shared
+            # with a CTE is not a dependency at all.
+            if dependency in emitting and dependency in table_dependencies:
+                raise SQLV2ReferenceError(f"Reference cycle through '{dependency}'.")
+            emit(dependency)
+        emitting.discard(name)
+        merged[name] = cte
+
+    for name in [*injected, *user_ctes]:
+        emit(name)
+    root.ctes = merged
 
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
 
@@ -165,6 +233,8 @@ def _hogql_input(name: str, ref: SQLV2Ref) -> dict[str, Any]:
     """The materialization spec for one HogQL ref: the executor fetches its last-run query to a
     local Arrow file keyed by the upstream run_id, so the same run reuses its frame while a
     re-run materializes fresh data and the node's superseded frames get evicted."""
+    if ref.unavailable_reason:
+        raise SQLV2ReferenceError(ref.unavailable_reason)
     if ref.run_id is None or ref.last_run_code is None or not ref.last_run_code.strip():
         raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
     return {
@@ -215,7 +285,8 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
     """
     local_names = {name for name, ref in refs.items() if name and ref.kind == "local"}
     hogql_refs = {name: ref for name, ref in refs.items() if name and ref.kind == "hogql"}
-    hogql_codes = {name: ref.last_run_code for name, ref in hogql_refs.items()}
+    hogql_codes = {name: None if ref.unavailable_reason else ref.last_run_code for name, ref in hogql_refs.items()}
+    unavailable = {name: ref.unavailable_reason for name, ref in hogql_refs.items() if ref.unavailable_reason}
     referenced_locals: set[str] = set()
     referenced_hogql: set[str] = set()
     if local_names:
@@ -235,7 +306,7 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
         referenced_hogql = found - local_names
 
     if not referenced_locals:
-        return "hogql", resolve_sql_v2_references(code, hogql_codes), []
+        return "hogql", resolve_sql_v2_references(code, hogql_codes, unavailable), []
 
     inputs: list[dict[str, Any]] = []
     for name in sorted(referenced_locals | referenced_hogql):

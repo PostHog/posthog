@@ -23,6 +23,7 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
@@ -34,14 +35,12 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
-import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -133,7 +132,17 @@ const DEFAULT_ERROR_MESSAGE =
  * every panel width rather than only once the panel is wide enough for the
  * full column. Padding on the capped box instead of around it would eat into
  * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
+ *
+ * The gutter is a percentage of this box, and the thread's equivalent box sits
+ * inside a scroller whose `scrollbar-gutter: stable` has already taken the
+ * scrollbar's width off it. Without the same reservation here, the composer
+ * centers on a wider box and its column lands half a scrollbar right of the
+ * messages. Reserving it rather than subtracting a constant keeps the browser's
+ * own measurement authoritative, since scrollbar width varies by platform.
  */
+/** Widest ring the composer paints outside its border box (quill's 3px focus outline). */
+const OUTLINE_BLEED = 4;
+
 function ComposerWidth({
   compact,
   children,
@@ -146,7 +155,19 @@ function ComposerWidth({
   }
 
   return (
-    <Box style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}>
+    <Box
+      style={{
+        paddingInline: CHAT_CONTENT_PADDING_INLINE,
+        overflow: "hidden",
+        scrollbarGutter: "stable",
+        // `overflow: hidden` clips at this box's padding edge, which sits flush
+        // with the composer's top, so the focus ring painted outside its border
+        // box would lose its top. Buy the ring room and take it back out of the
+        // layout. The sides have the gutter and `pb-2` covers below.
+        paddingBlockStart: OUTLINE_BLEED,
+        marginBlockStart: -OUTLINE_BLEED,
+      }}
+    >
       <Box
         className="mx-auto pb-2"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
@@ -234,7 +255,6 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
-  const useNewChatThread = useSettingsStore((s) => s.useNewChatThread);
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
@@ -562,10 +582,6 @@ export function SessionView({
       .catch(() => toast.error("Failed to attach files"));
   }, []);
 
-  const handlePaneClick = useCallback((event: React.MouseEvent) => {
-    focusComposerOnPaneClick(event, () => editorRef.current?.focus());
-  }, []);
-
   useAutoFocusOnTyping(editorRef, !isActiveSession);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -599,13 +615,16 @@ export function SessionView({
             direction="column"
             height="100%"
             className="relative bg-background"
-            onClick={handlePaneClick}
             onContextMenu={handleContextMenu}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            <div
+              id="fullscreen-portal"
+              className="pointer-events-none absolute inset-0 z-20"
+            />
             {isSuspended ? (
               <>
                 <ThreadView
@@ -708,8 +727,6 @@ export function SessionView({
                   promptRecallRef={promptRecallRef}
                 />
 
-                {!useNewChatThread && <SessionResourcesBar events={events} />}
-
                 <PlanStatusBar plan={latestPlan} />
 
                 {hasError && !showInlineBanner ? (
@@ -787,7 +804,7 @@ export function SessionView({
                         <PromptInput
                           ref={editorRef}
                           sessionId={sessionId}
-                          placeholder="Type a message... @ to mention files, ! for bash mode, / for skills"
+                          placeholder="Type a message... ! for bash mode, / for skills"
                           disabled={!isRunning && !handoffInProgress}
                           submitDisabledExternal={
                             handoffInProgress ||
@@ -836,7 +853,13 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator usage={contextUsage} />
+                            <>
+                              <CloudArtifactDownloads
+                                taskId={taskId}
+                                task={task}
+                              />
+                              <ContextUsageIndicator usage={contextUsage} />
+                            </>
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

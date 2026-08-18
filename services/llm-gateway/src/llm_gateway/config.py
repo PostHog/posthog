@@ -36,6 +36,10 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
+    # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
+    # unbilled and reachable with any feature-gated llm_gateway:read key, so a tight cap bounds
+    # abuse of the shared budget rather than real usage.
+    "web_analytics": ProductCostLimit(limit_usd=100.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -44,12 +48,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         burst_window_seconds=2592000,  # 30 days
         sustained_limit_usd=100.0,
         sustained_window_seconds=2592000,  # 30 days
-    ),
-    "posthog_code": UserCostLimit(
-        burst_limit_usd=500.0,
-        burst_window_seconds=86400,
-        sustained_limit_usd=3000.0,
-        sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
         burst_limit_usd=500.0,
@@ -77,21 +75,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
 }
-
-FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=20.0,
-    burst_window_seconds=86400,
-    sustained_limit_usd=20.0,
-    sustained_window_seconds=2592000,
-)
-
-ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=float("inf"),
-    burst_window_seconds=86400,
-    sustained_limit_usd=float("inf"),
-    sustained_window_seconds=2592000,
-)
-
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",
@@ -218,14 +201,22 @@ class Settings(BaseSettings):
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
-    # TODO: flip on when Code migrates all users to usage-based billing
-    posthog_code_model_gate_enabled: bool = False
-    posthog_code_free_tier_models: list[str] = ["@cf/zai-org/glm-5.2"]
+    posthog_code_free_tier_models: list[str] = [
+        "@cf/zai-org/glm-5.2",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3",
+    ]
 
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+
+    desktop_access_gate_enabled: bool = True
+    desktop_access_cache_ttl: int = 900
+    desktop_access_denied_cache_ttl: int = 60
+    desktop_access_request_timeout: float = 2.0
+
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes

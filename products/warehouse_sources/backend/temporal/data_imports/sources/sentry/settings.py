@@ -50,10 +50,10 @@ FIRST_SEEN_INCREMENTAL: IncrementalField = {
     "field": "firstSeen",
     "field_type": IncrementalFieldType.DateTime,
 }
-DATE_CREATED_INCREMENTAL: IncrementalField = {
-    "label": "dateCreated",
+DATE_RECEIVED_INCREMENTAL: IncrementalField = {
+    "label": "dateReceived",
     "type": IncrementalFieldType.DateTime,
-    "field": "dateCreated",
+    "field": "dateReceived",
     "field_type": IncrementalFieldType.DateTime,
 }
 
@@ -83,8 +83,8 @@ EPOCH_TIMESTAMP_INCREMENTAL: IncrementalField = {
 }
 
 ISSUES_INCREMENTAL_FIELDS: list[IncrementalField] = [LAST_SEEN_INCREMENTAL, FIRST_SEEN_INCREMENTAL]
-DATE_CREATED_INCREMENTAL_FIELD: list[IncrementalField] = [
-    DATE_CREATED_INCREMENTAL,
+DATE_RECEIVED_INCREMENTAL_FIELD: list[IncrementalField] = [
+    DATE_RECEIVED_INCREMENTAL,
 ]
 LAST_SEEN_INCREMENTAL_FIELD: list[IncrementalField] = [
     LAST_SEEN_INCREMENTAL,
@@ -181,9 +181,12 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "project_events": SentryEndpointConfig(
         name="project_events",
         path="/projects/{organization_slug}/{project_slug}/events/",
-        incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
-        default_incremental_field="dateCreated",
-        partition_key="date_created",
+        # full=true (below) makes Sentry return the full event body, which carries a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use.
+        incremental_fields=DATE_RECEIVED_INCREMENTAL_FIELD,
+        default_incremental_field="dateReceived",
+        partition_key="date_received",
         primary_key=["project_id", "event_id"],
         fanout=DependentEndpointConfig(
             parent_name="projects",
@@ -239,9 +242,12 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
     "issue_events": SentryEndpointConfig(
         name="issue_events",
         path="/organizations/{organization_slug}/issues/{issue_id}/events/",
-        incremental_fields=DATE_CREATED_INCREMENTAL_FIELD,
-        default_incremental_field="dateCreated",
-        partition_key="date_created",
+        # full=true (below) makes Sentry return the full event body, which carries a
+        # `dateReceived` timestamp rather than the `dateCreated` field the lightweight
+        # issue/event list serializers use.
+        incremental_fields=DATE_RECEIVED_INCREMENTAL_FIELD,
+        default_incremental_field="dateReceived",
+        partition_key="date_received",
         primary_key=["issue_id", "event_id"],
         fanout=DependentEndpointConfig(
             parent_name="issues",
@@ -252,6 +258,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             parent_params={"query": "", "sort": "date"},
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
+            parent_source="warehouse",
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -266,6 +273,11 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            # An issue can be deleted or merged into another between the `issues` listing and
+            # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
+            # it as "no hashes for this issue" instead of failing the whole schema.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+            parent_source="warehouse",
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(

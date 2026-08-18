@@ -28,9 +28,39 @@ describe("serializeSkillMarkdown", () => {
 
       const parsed = parseSkillFrontmatter(content);
 
-      expect(parsed).toEqual({ name, description });
+      expect(parsed).toEqual({
+        name,
+        description,
+        disableModelInvocation: false,
+      });
     },
   );
+
+  it("emits disable-model-invocation and round-trips it", () => {
+    const content = serializeSkillMarkdown(
+      { name: "my-skill", description: "d", disableModelInvocation: true },
+      "The body",
+    );
+
+    expect(content).toBe(
+      "---\nname: my-skill\ndescription: d\ndisable-model-invocation: true\n---\n\nThe body\n",
+    );
+    expect(parseSkillFrontmatter(content)).toEqual({
+      name: "my-skill",
+      description: "d",
+      disableModelInvocation: true,
+    });
+  });
+
+  it("omits disable-model-invocation when false", () => {
+    const content = serializeSkillMarkdown(
+      { name: "my-skill", description: "d", disableModelInvocation: false },
+      "The body",
+    );
+
+    expect(content).not.toContain("disable-model-invocation");
+    expect(parseSkillFrontmatter(content)?.disableModelInvocation).toBe(false);
+  });
 
   it("appends the body after the frontmatter with a trailing newline", () => {
     const content = serializeSkillMarkdown(

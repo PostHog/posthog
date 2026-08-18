@@ -117,7 +117,12 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         # (honored only when NODE_ENV is explicitly development/test — set above).
         # product-data-catalog gates the metric-discovery section of the execute-sql
         # description; the governed-metrics evals exercise that path.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True}),
+        # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
+        # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
+        # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
+        # being mutually exclusive makes unavoidable — an eval of the legacy tools
+        # needs its own lever, not this one.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True, "revamped-py-notebooks": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
