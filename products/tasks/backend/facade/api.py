@@ -78,6 +78,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -172,6 +176,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
@@ -399,6 +404,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_artifact_delivery",
+        "slack_chart_delivery",
         "slack_thread_url",
     }
 )
@@ -1297,13 +1304,17 @@ def create_task_without_run(
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    channel: Channel | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+    if channel is None:
+        channel = (
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+        )
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1315,6 +1326,26 @@ def create_task_without_run(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    return create_task_without_run(
+        team=Team.objects.get(id=team_id),
+        user_id=user_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        title=title,
+        description=description,
+        channel=channel,
+    )
 
 
 def create_run(
@@ -1482,7 +1513,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1582,6 +1613,12 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -1629,12 +1666,13 @@ def create_sandbox_environment(
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
+    normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
         name=name,
         network_access_level=network_access_level,
-        allowed_domains=allowed_domains,
+        allowed_domains=normalized_allowed_domains,
         include_default_domains=include_default_domains,
         repositories=repositories,
         environment_variables=environment_variables,
@@ -1655,6 +1693,8 @@ def update_sandbox_environment(
         _validate_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
+    if "allowed_domains" in fields:
+        fields["allowed_domains"] = normalize_sandbox_allowed_domains(fields["allowed_domains"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -5450,7 +5490,6 @@ def warm_task_sandbox(
     extra_state: dict = {
         "branch": branch,
         "initial_permission_mode": initial_permission_mode,
-        "use_modal_network_allowlist": False,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -7517,6 +7556,41 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             )
         )
     return "new_run"
+
+
+def request_canvas_change(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    prompt: str,
+    viewer_prompt: str,
+    acting_user_id: int | None,
+) -> str:
+    """Dispatch a creator's canvas request, or file a teammate's request for review."""
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id).first()
+        if task is None:
+            return "not_found"
+        if acting_user_id is None:
+            return "not_found"
+        is_creator = task.created_by_id == acting_user_id
+    if not is_creator:
+        # A teammate can reach this through a canvas they can see while the authoring
+        # task is deleted or filed in a space they can't — the thread message is then
+        # dropped, so surface the miss instead of reporting a delivery that didn't happen.
+        filed = create_thread_message(
+            task_id,
+            team_id,
+            acting_user_id,
+            content=f"Requested from the canvas:\n\n{viewer_prompt}",
+        )
+        return "reported" if filed is not None else "not_found"
+    outcome = request_canvas_fix(task_id, team_id, prompt=prompt, acting_user_id=acting_user_id)
+    # already_queued is a deduplicated repeat: the request that queued the run
+    # already wrote this entry, so writing another would double the record.
+    if outcome in {"signaled", "new_run"}:
+        create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
+    return outcome
 
 
 def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:

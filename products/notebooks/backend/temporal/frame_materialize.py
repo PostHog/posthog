@@ -66,7 +66,7 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.execute import kill_switch_overrides
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -307,20 +307,20 @@ def _materialize_slots(team_id: int, task_id: str) -> Iterator[None]:
     """
     global_limiter = _get_global_limiter()
     team_limiter = _get_per_team_limiter()
-    global_key, global_task = global_limiter.use(task_id=f"{task_id}:global", team_id=team_id)
-    team_key = team_task = None
+    global_slot = global_limiter.use(task_id=f"{task_id}:global", team_id=team_id)
+    team_slot: ConcurrencySlot | None = None
     try:
-        team_key, team_task = team_limiter.use(task_id=f"{task_id}:team", team_id=team_id)
+        team_slot = team_limiter.use(task_id=f"{task_id}:team", team_id=team_id)
         yield
     finally:
         # Release each slot independently: a Redis blip releasing the team slot must not
         # skip the global release and leak a global slot until its 15-minute TTL.
-        if team_key and team_task:
+        if team_slot is not None:
             with suppress(Exception):
-                team_limiter.release(team_key, team_task)
-        if global_key and global_task:
+                team_limiter.release(team_slot)
+        if global_slot is not None:
             with suppress(Exception):
-                global_limiter.release(global_key, global_task)
+                global_limiter.release(global_slot)
 
 
 def _capped_settings(team_id: int) -> HogQLGlobalSettings:

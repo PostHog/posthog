@@ -1,5 +1,56 @@
 # DuckLake copy workflow configuration
 
+## DuckgresServer retirement telemetry
+
+ORM access to `DuckgresServer` emits the counter
+`warehouse.duckgres.server.model.access`. It has five bounded attributes: `operation`
+(`read`, `create`, `update`, or `delete`), the immediate `accessor_module` and
+`accessor_function`, and the meaningful outer `caller_module` and `caller_function`.
+The outer caller skips shared managed-warehouse configuration gateways so the result
+identifies the business workflow that still depends on the model. Caller names are
+limited to 160 characters. The metric deliberately excludes model fields,
+organization identifiers, connection details, and other customer data.
+
+Use the PostHog Metrics SQL editor to find active callers over a representative
+period:
+
+```sql
+SELECT
+    attributes['operation'] AS operation,
+    attributes['accessor_module'] AS accessor_module,
+    attributes['accessor_function'] AS accessor_function,
+    attributes['caller_module'] AS caller_module,
+    attributes['caller_function'] AS caller_function,
+    sum(value) AS accesses
+FROM posthog.metrics
+WHERE metric_name = 'warehouse.duckgres.server.model.access'
+    AND metric_type = 'counter'
+    AND aggregation_temporality = 'delta'
+    AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY operation, accessor_module, accessor_function, caller_module, caller_function
+ORDER BY accesses DESC
+```
+
+Reads are recorded through the model's default `objects` manager when a normal
+queryset is evaluated, or when `get`, `count`, `exists`, or `iterator` executes.
+Re-evaluating the same cached queryset does not emit another access. Normal model
+saves and deletes and queryset updates and deletes are also recorded once per ORM
+operation. Normal `async for` queryset evaluation uses `_fetch_all` and is recorded,
+although attribution may become `unknown` across its thread boundary.
+
+This is deliberately a probe of the default manager rather than proof of all model
+use. It does not observe reads through `_base_manager`, reverse one-to-one access,
+`select_related` or `prefetch_related` hydration, raw SQL, `raw()`/`RawQuerySet`, or
+`.aiterator()`. `bulk_create` bypasses the save signals. These paths can construct or
+write `DuckgresServer` instances without incrementing the counter.
+
+Before using an empty result as retirement evidence, confirm that another known
+metric from every relevant service is reaching the same Metrics project. Observe
+for at least one complete schedule window, remove the remaining callers, then
+repeat the query. An empty result cannot prove that the model is unused: a final
+static search for the model, its table, and reverse relation is mandatory before
+removal because telemetry cannot discover dormant or uninstrumented code paths.
+
 The DuckLake copy and registration workflows write data into a DuckLake-managed S3 bucket. There are three workflows:
 
 1. **Data Modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
@@ -86,7 +137,7 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 
 Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the batch sink's snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the copy workflow format, such as `tiktokads_ad_report`. Copy, registration, the batch sink, and query binding derive the same physical name from that organization-level policy. Do not change the policy after an organization has written data unless the underlying tables are migrated at the same time.
 
-Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, and registers the generation through one recursive Parquet glob. This gives DuckDB one parallel metadata scan and one generation-sized DuckLake commit. The workflow verifies the shadow table's row count, then swaps it into the stable table name through the Duckgres PostgreSQL connection. Publication uses one short transaction that renames the current table to an attempt-owned backup and the verified shadow to the stable name. A mismatch never enters the publication transaction, so the previous table remains live. The backup is dropped after publication. Each prepared generation gets its own object prefix and child workflow ID.
+Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories. Schema creation still uses one recursive Parquet glob. File registration calls `ducklake_add_data_files` in batches of copied object paths so each catalog transaction stays short. The workflow verifies the shadow table's row count, then swaps it into the stable table name through the Duckgres PostgreSQL connection. Publication uses one short transaction that renames the current table to an attempt-owned backup and the verified shadow to the stable name. A mismatch never enters the publication transaction, so the previous table remains live. The backup is dropped after publication. Each prepared generation gets its own object prefix. The workflow id is one per schema, so a later start is skipped while a run is in flight. The next import after that run finishes can start.
 
 A run that is no longer the latest prepared snapshot still publishes after a successful verify, so a long registration can land instead of losing the race to the next snapshot. A later run replaces it. Publication is skipped only when a newer snapshot has already been published, so the live table does not move backward. Prepare still skips a snapshot that is already obsolete before any copy or catalog work starts.
 
