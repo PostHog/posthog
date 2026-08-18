@@ -160,6 +160,28 @@ describe('meta ads template', () => {
         expect(body.data[0].user_data.fbc).toEqual('fb.1.1735689600000.AbC_123-x')
     })
 
+    it('prefers the fbc and fbp stored on the person', async () => {
+        const response = await tester.invokeMapping(
+            'Page Viewed',
+            { accessToken: 'access-token', pixelId: 'pixel-id' },
+            createAdDestinationPayload({
+                event: { event: '$pageview', properties: {} },
+                person: {
+                    properties: {
+                        fbclid: 'AbC_123-x',
+                        $meta_fbc: 'fb.1.1700000000000.AbC_123-x',
+                        $meta_fbp: 'fb.1.1700000000000.1234567890',
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
+        expect(body.data[0].user_data.fbc).toEqual('fb.1.1700000000000.AbC_123-x')
+        expect(body.data[0].user_data.fbp).toEqual('fb.1.1700000000000.1234567890')
+    })
+
     it('surfaces error responses', async () => {
         const response = await tester.invokeMapping(
             'Order Completed',

@@ -52,6 +52,7 @@ import { template as filterPropertiesTemplate } from './_transformations/filter-
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
+import { template as metaAdsClickIdsTemplate } from './_transformations/meta-ads-click-ids/meta-ads-click-ids.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
@@ -116,6 +117,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     filterPropertiesTemplate,
     hashPropertiesTemplate,
     urlNormalizationTemplate,
+    metaAdsClickIdsTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
