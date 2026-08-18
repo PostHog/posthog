@@ -85,6 +85,11 @@ export interface BuildResult {
   /** Number of tool calls settled into a terminal status so far. Monotonic
    *  within a thread; consumers treat a change as "a tool/MCP call finished". */
   completedToolCallCount: number;
+  /** Timestamp (ms) of the most recent event applied to the thread, or null
+   *  when none have been. Lets the footer say how long the agent has been
+   *  silent: a turn can sit minutes inside one tool call or thinking block
+   *  with nothing new to render, and a frozen status word reads as a hang. */
+  lastActivityAt: number | null;
 }
 
 interface ProgressCardState {
@@ -142,6 +147,9 @@ export interface ItemBuilder {
    *  Drives the generating indicator's status word so it advances on real work
    *  finishing rather than on a timer. */
   completedToolCallCount: number;
+  /** Timestamp (ms) of the newest event fed to this builder. See the field of
+   *  the same name on `BuildResult`. */
+  lastActivityAt: number | null;
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
@@ -161,8 +169,17 @@ export function createItemBuilder(): ItemBuilder {
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
+    lastActivityAt: null,
     runStartedRunIds: new Set(),
   };
+}
+
+/** Record that an event landed at `ts`. Events are usually fed in order, but a
+ *  rebuild sorts them and an append can carry a stale ts, so keep the max. */
+function noteActivity(b: ItemBuilder, ts: number) {
+  if (b.lastActivityAt === null || ts > b.lastActivityAt) {
+    b.lastActivityAt = ts;
+  }
 }
 
 const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -278,6 +295,7 @@ export function buildConversationItems(
     isCompacting: b.isCompacting,
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
+    lastActivityAt: b.lastActivityAt,
   };
 }
 
@@ -292,6 +310,7 @@ export function processEvent(
   options?: BuildConversationOptions,
 ) {
   const msg = event.message;
+  noteActivity(b, event.ts);
 
   if (isJsonRpcNotification(msg)) {
     handleNotification(b, msg, event.ts, options);
@@ -333,6 +352,7 @@ export function buildAgentConversationItems(
     isCompacting: b.isCompacting,
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
+    lastActivityAt: b.lastActivityAt,
   };
 }
 
@@ -340,6 +360,8 @@ export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
+  noteActivity(b, event.timestamp);
+
   if (event.type === "user_message") {
     handlePromptRequest(
       b,
