@@ -11,13 +11,14 @@ describe("startup location", () => {
       getTaskChannels: vi.fn(),
     };
 
-    await expect(resolveStartupLocation("project", client)).resolves.toBe(
-      "/code",
-    );
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/code",
+      firstRun: null,
+    });
     expect(client.getTaskChannels).not.toHaveBeenCalled();
   });
 
-  it("opens a new task in general when there is no saved location", async () => {
+  it("lands a first-run user on the general space home", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
       getTaskChannels: vi.fn().mockResolvedValue([
@@ -38,9 +39,10 @@ describe("startup location", () => {
       ]),
     };
 
-    await expect(resolveStartupLocation("project", client)).resolves.toBe(
-      "/website/general-id/new",
-    );
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/website/general-id",
+      firstRun: { generalChannelId: "general-id" },
+    });
     expect(client.getTaskChannels).toHaveBeenCalledOnce();
   });
 
@@ -57,9 +59,10 @@ describe("startup location", () => {
       ]),
     };
 
-    await expect(resolveStartupLocation("project", client)).resolves.toBe(
-      "/website/me-id/new",
-    );
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/website/me-id/new",
+      firstRun: null,
+    });
     expect(client.getTaskChannels).toHaveBeenCalledOnce();
   });
 });
