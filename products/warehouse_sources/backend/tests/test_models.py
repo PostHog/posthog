@@ -21,6 +21,7 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    BackfillFloorUnavailable,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -961,6 +962,33 @@ class TestBackfillFloor(BaseTest):
         # The cursor is what a reset must clear; the floor is what tells the next run how far back
         # the data went, so it has to outlive the same reset.
         assert "incremental_field_last_value" not in schema.sync_type_config
+
+    @parameterized.expand([("table_holds_rows", 5000, True), ("table_is_empty", 0, False)])
+    def test_unreadable_floor_leaves_a_populated_table_alone(
+        self, _name: str, row_count: int, expect_raise: bool
+    ) -> None:
+        # The floor lookup returns None both for an empty table and for a failed query, so a
+        # transient ClickHouse error otherwise reads as "no history to protect" and the wipe goes
+        # ahead. The next run then has no cursor and no floor, and falls back to the source's default
+        # window: the silent truncation the floor exists to prevent, with no later run recovering.
+        schema = self._schema("segments.date")
+        table = MagicMock(columns={"segments_date": {}}, deleted=False, row_count=row_count)
+        table.get_min_value_for_column.return_value = None
+
+        with (
+            patch.object(ExternalDataSchema, "table", table),
+            patch.object(schema, "folder_path", return_value="folder"),
+            patch("products.data_warehouse.backend.facade.api.get_s3_client") as s3,
+        ):
+            if expect_raise:
+                with pytest.raises(BackfillFloorUnavailable):
+                    schema.delete_table()
+            else:
+                schema.delete_table()
+
+        # A raise has to land before the delete, or the data is gone and the floor never recorded.
+        assert s3.called is not expect_raise
+        assert table.soft_delete.called is not expect_raise
 
 
 def test_reset_pipeline_clears_xmin_state() -> None:

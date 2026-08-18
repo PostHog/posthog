@@ -35,6 +35,11 @@ if TYPE_CHECKING:
 
 type IncrementalFieldValue = str | int | float | None
 
+
+class BackfillFloorUnavailable(Exception):
+    """A schema's earliest synced value could not be read before a wipe that needs it."""
+
+
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
@@ -965,6 +970,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         A wipe clears the cursor, so the next run looks like a first sync. A source that bounds a
         first sync restarts from its own default window rather than the range this table held,
         dropping everything older without saying so.
+
+        Raises `BackfillFloorUnavailable` when the table holds rows but the lookup came back empty,
+        which leaves the caller to abandon the wipe rather than perform it unprotected.
         """
         field = self.incremental_field
         if self.table is None or not field:
@@ -980,6 +988,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         value = self._incremental_value_as_json(self.table.get_min_value_for_column(column))
         if value is None:
+            # The lookup returns None both for a table with no readable files and for a failed
+            # query, so a transient ClickHouse or S3 error is indistinguishable from an empty table.
+            # `row_count` comes from Postgres and doesn't share that failure, so it separates the
+            # two. Wiping a table that holds rows without a floor is the silent truncation the floor
+            # exists to prevent, and no later run recovers from it.
+            if self.table.row_count:
+                raise BackfillFloorUnavailable(
+                    f"Could not read the earliest {column} for schema {self.id}, which holds "
+                    f"{self.table.row_count} rows. Refusing to wipe it without a backfill floor."
+                )
             return
 
         # Merged rather than saved off this instance, which the pipeline holds from before the run
