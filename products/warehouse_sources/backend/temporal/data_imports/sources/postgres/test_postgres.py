@@ -422,6 +422,10 @@ class TestPostgresSourceNonRetryableErrors:
             # customer RLS policy, view, or pooler. Permanent until the customer changes it — must not
             # keep retrying. Parameter name is invented, not a real customer value.
             'unrecognized configuration parameter "app.current_tenant"',
+            # A database proxy (e.g. Prisma Accelerate) refuses the connection because the account
+            # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
+            # the same refusal — must not keep retrying. Host/port are invented, not a real value.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -457,6 +461,19 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "connect timeout must be classified non-retryable"
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
+
+    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
+        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
+        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
+        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "plan-limit restriction must be classified non-retryable"
+        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
+        assert "plan" in matches[0].lower()
 
     @pytest.mark.parametrize(
         "error_msg",
