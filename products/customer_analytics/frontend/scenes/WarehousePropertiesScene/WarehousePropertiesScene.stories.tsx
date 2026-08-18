@@ -176,6 +176,18 @@ const meta: Meta = {
                     { count: definitions.length, next: null, previous: null, results: definitions },
                 ],
                 '/api/users/@me/': () => [200, userWithGroupAnalytics],
+                // The group definition attaches to group type 0, so the tab needs that type to exist.
+                '/api/projects/:team_id/groups_types/': () => [
+                    200,
+                    [
+                        {
+                            group_type: 'organization',
+                            group_type_index: 0,
+                            name_singular: 'Organization',
+                            name_plural: 'Organizations',
+                        },
+                    ],
+                ],
                 // Expanding a row loads its run history, which carries the link to the table's
                 // warehouse syncs.
                 '/api/projects/:team_id/custom_property_sources/:source_id/runs/': () => [
