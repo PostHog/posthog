@@ -38,7 +38,7 @@ VALIDATION_QUERY_LIMIT = 50_000
 
 
 class ValidationDataTruncatedError(Exception):
-    """The predictions query hit VALIDATION_QUERY_LIMIT, so the fetched set may be incomplete."""
+    """A validation query hit VALIDATION_QUERY_LIMIT, so the fetched set may be incomplete."""
 
 
 def run_online_validation_for_pipeline(pipeline: AutoresearchPipeline) -> list[AutoresearchRun]:
@@ -303,16 +303,20 @@ def _fetch_realized_labels(
     target_cond, target_values = build_target_condition(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=team
     )
+    # Unbounded HogQL is capped at 100 rows by default; without an explicit LIMIT every
+    # positive past the 100th silently scores as a negative.
     sql = (
         "SELECT DISTINCT person_id"
         " FROM events"
         f" WHERE {target_cond}"
         " AND toDate(timestamp) >= {start_date}"
         " AND toDate(timestamp) < {end_date}"
+        " LIMIT {limit}"
     )
     values: dict[str, Any] = {
         "start_date": prediction_date.isoformat(),
         "end_date": end_date.isoformat(),
+        "limit": VALIDATION_QUERY_LIMIT,
         **target_values,
     }
 
@@ -324,6 +328,11 @@ def _fetch_realized_labels(
     result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     if not result.results:
         return frozenset()
+    if len(result.results) >= VALIDATION_QUERY_LIMIT:
+        raise ValidationDataTruncatedError(
+            f"Realized labels for {prediction_date.isoformat()} hit the {VALIDATION_QUERY_LIMIT} row limit; "
+            "refusing to compute metrics from a truncated subset"
+        )
     return frozenset(str(row[0]) for row in result.results if row[0])
 
 

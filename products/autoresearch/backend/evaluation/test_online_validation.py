@@ -11,6 +11,7 @@ from products.autoresearch.backend.evaluation.online_validation import (
     _compute_validation_metrics,
     _expected_calibration_error,
     _fetch_predictions_by_model,
+    _fetch_realized_labels,
     _find_mature_unvalidated_dates,
     _lift_at_k,
     _update_model_realized_metrics,
@@ -325,6 +326,26 @@ class TestFetchPredictionsByModel(BaseTest):
         else:
             predictions = _fetch_predictions_by_model(self.team, pipeline, date(2026, 5, 1))
             assert predictions == {"model-1": {f"user-{i}": 0.5 for i in range(n_rows)}}
+
+    @parameterized.expand(
+        [
+            ("at_limit_raises", 3, True),
+            ("under_limit_returns", 2, False),
+        ]
+    )
+    @patch("products.autoresearch.backend.evaluation.online_validation.VALIDATION_QUERY_LIMIT", 3)
+    @patch("products.autoresearch.backend.evaluation.online_validation.HogQLQueryRunner")
+    def test_realized_labels_truncation_guard(self, _name, n_rows, expect_raise, mock_runner_cls):
+        pipeline = self._make_pipeline()
+        rows = [(f"user-{i}",) for i in range(n_rows)]
+        mock_runner_cls.return_value.run.return_value = MagicMock(results=rows)
+
+        if expect_raise:
+            with self.assertRaises(ValidationDataTruncatedError):
+                _fetch_realized_labels(self.team, pipeline, date(2026, 5, 1))
+        else:
+            labels = _fetch_realized_labels(self.team, pipeline, date(2026, 5, 1))
+            assert labels == frozenset(f"user-{i}" for i in range(n_rows))
 
 
 class TestFindMatureUnvalidatedDates(BaseTest):
