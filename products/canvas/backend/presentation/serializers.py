@@ -13,6 +13,7 @@ from products.canvas.backend.contract import (
     canvas_sdk_version,
     contract_limits,
 )
+from products.canvas.backend.layout import CANVAS_LAYOUT_SCHEMA_VERSION, PLACEMENT_STATUSES
 from products.canvas.backend.models import Canvas, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
@@ -326,6 +327,165 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     )
 
 
+class CanvasGridSerializer(serializers.Serializer):
+    """The grid a grid canvas lays its placements out on."""
+
+    columns = serializers.IntegerField(
+        min_value=4, max_value=12, help_text="Grid width in columns. One of 4, 6, 8, 10, or 12."
+    )
+    rowHeight = serializers.IntegerField(min_value=24, max_value=400, help_text="Height of one grid row, in pixels.")
+    gap = serializers.IntegerField(min_value=0, max_value=48, help_text="Gap between placements, in pixels.")
+
+
+class CanvasPlacementSerializer(serializers.Serializer):
+    """One placed widget on a grid canvas."""
+
+    id = serializers.CharField(
+        max_length=64,
+        help_text="Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
+    )
+    status = serializers.ChoiceField(
+        choices=list(PLACEMENT_STATUSES),
+        help_text=(
+            "Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), "
+            "'live' (renders its component), 'failed' (generation failed; re-prompt or remove)."
+        ),
+    )
+    component = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Id of the component canvas this placement renders. Required once the placement is live.",
+    )
+    version = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            'Component version to render: "latest" (the default — follows the component\'s published build) '
+            "or a pinned source version id."
+        ),
+    )
+    x = serializers.IntegerField(min_value=0, help_text="Left edge, in grid columns (0-based).")
+    y = serializers.IntegerField(min_value=0, help_text="Top edge, in grid rows (0-based).")
+    w = serializers.IntegerField(min_value=1, help_text="Width, in grid columns.")
+    h = serializers.IntegerField(min_value=1, help_text="Height, in grid rows.")
+    config = serializers.DictField(
+        required=False,
+        allow_null=True,
+        help_text="Per-placement settings, validated against the component's configSchema.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=10_000,
+        trim_whitespace=False,
+        help_text="For pending/generating/failed placements: what the user asked this box to become.",
+    )
+    generationTaskId = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Id of the agent task currently filling this placement, when one is running.",
+    )
+
+
+class CanvasLayoutSerializer(serializers.Serializer):
+    """A grid canvas's layout document — its entire 'source'."""
+
+    schemaVersion = serializers.IntegerField(
+        help_text=f"Layout schema version. Currently always {CANVAS_LAYOUT_SCHEMA_VERSION}."
+    )
+    grid = CanvasGridSerializer(help_text="The grid placements are laid out on.")
+    placements = CanvasPlacementSerializer(
+        many=True, help_text="The placed widgets. Placements may not overlap or extend past the grid."
+    )
+
+
+class CanvasLayoutPublishSerializer(serializers.Serializer):
+    """Payload for publishing a complete layout document."""
+
+    layout = CanvasLayoutSerializer(help_text="The complete layout document to publish.")
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    expected_current_version_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        help_text=(
+            "Optimistic-concurrency guard: the current_version_id the layout was based on (null when the "
+            "canvas has no versions yet). A moved head is rejected with 409 version_conflict. "
+            "Omit to publish unguarded."
+        ),
+    )
+
+
+class CanvasPlacementChangesSerializer(CanvasPlacementSerializer):
+    """Fields to merge into an existing placement (all optional; id cannot change)."""
+
+    id = None  # type: ignore[assignment]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.required = False
+
+
+class CanvasLayoutPatchOperationSerializer(serializers.Serializer):
+    """One surgical layout operation."""
+
+    op = serializers.ChoiceField(
+        choices=["set_grid", "add_placement", "update_placement", "remove_placement"],
+        help_text="The operation to apply.",
+    )
+    grid = CanvasGridSerializer(required=False, help_text="For set_grid: the new grid definition.")
+    placement = CanvasPlacementSerializer(required=False, help_text="For add_placement: the placement to add.")
+    id = serializers.CharField(
+        required=False, max_length=64, help_text="For update_placement/remove_placement: the target placement id."
+    )
+    changes = CanvasPlacementChangesSerializer(
+        required=False, help_text="For update_placement: the fields to merge into the placement."
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        op = attrs["op"]
+        required_by_op = {
+            "set_grid": ["grid"],
+            "add_placement": ["placement"],
+            "update_placement": ["id", "changes"],
+            "remove_placement": ["id"],
+        }
+        missing = [field for field in required_by_op[op] if field not in attrs]
+        if missing:
+            raise serializers.ValidationError(f"{op} requires: {', '.join(missing)}")
+        return attrs
+
+
+class CanvasLayoutPatchSerializer(serializers.Serializer):
+    """Payload for applying surgical operations to the canvas's current layout."""
+
+    operations = CanvasLayoutPatchOperationSerializer(
+        many=True,
+        allow_empty=False,
+        help_text="Operations applied in order to the canvas's current layout.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    expected_current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Required optimistic-concurrency guard: the current_version_id the operations are based on "
+            "(null when the canvas has no layout versions yet). A moved head is rejected with 409 "
+            "version_conflict — patches cannot apply unguarded."
+        ),
+    )
+
+
 class CanvasDiagnosticSerializer(serializers.Serializer):
     """One structured validation/build diagnostic for a canvas source project."""
 
@@ -368,6 +528,30 @@ class CanvasSummarySerializer(serializers.Serializer):
 
     def get_url(self, canvas: Canvas) -> str:
         return canvas_url(canvas)
+
+
+class CanvasLayoutResponseSerializer(serializers.Serializer):
+    """A grid canvas's layout plus the version pointer edits must be based on."""
+
+    canvas = CanvasSummarySerializer(help_text="Identity and version pointers for the canvas.")
+    layout = CanvasLayoutSerializer(
+        help_text="The layout document. A grid canvas with no versions yet returns the default empty layout."
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The live layout version this document reflects — pass as expected_current_version_id when "
+            "publishing or patching. Null before the first layout publish."
+        ),
+    )
+
+
+class CanvasLayoutPublishResponseSerializer(serializers.Serializer):
+    """Result of a successful layout publish or patch. The new version is live immediately — no build runs."""
+
+    canvas = CanvasSummarySerializer(help_text="The canvas after the publish, including the new version pointer.")
+    layout = CanvasLayoutSerializer(help_text="The layout document as published.")
+    current_version_id = serializers.CharField(help_text="Id of the layout version this publish created.")
 
 
 class CanvasVersionSerializer(serializers.Serializer):

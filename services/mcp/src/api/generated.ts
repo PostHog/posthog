@@ -15340,6 +15340,322 @@ export namespace Schemas {
     }
 
     /**
+     * The grid a grid canvas lays its placements out on.
+     */
+    export interface CanvasGrid {
+      /**
+         * Grid width in columns. One of 4, 6, 8, 10, or 12.
+         * @minimum 4
+         * @maximum 12
+         */
+      columns: number;
+      /**
+         * Height of one grid row, in pixels.
+         * @minimum 24
+         * @maximum 400
+         */
+      rowHeight: number;
+      /**
+         * Gap between placements, in pixels.
+         * @minimum 0
+         * @maximum 48
+         */
+      gap: number;
+    }
+
+    /**
+     * * `pending` - pending
+     * * `generating` - generating
+     * * `live` - live
+     * * `failed` - failed
+     */
+    export type CanvasPlacementStatusEnum = typeof CanvasPlacementStatusEnum[keyof typeof CanvasPlacementStatusEnum];
+
+
+    export const CanvasPlacementStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      Live: 'live',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Per-placement settings, validated against the component's configSchema.
+     * @nullable
+     */
+    export type CanvasPlacementConfig = { [key: string]: unknown } | null;
+
+    /**
+     * One placed widget on a grid canvas.
+     */
+    export interface CanvasPlacement {
+      /**
+         * Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.
+         * @maxLength 64
+         */
+      id: string;
+      /** Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).
+       *
+       * * `pending` - pending
+       * * `generating` - generating
+       * * `live` - live
+       * * `failed` - failed */
+      status: CanvasPlacementStatusEnum;
+      /**
+         * Id of the component canvas this placement renders. Required once the placement is live.
+         * @nullable
+         */
+      component?: string | null;
+      /**
+         * Component version to render: "latest" (the default — follows the component's published build) or a pinned source version id.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Left edge, in grid columns (0-based).
+         * @minimum 0
+         */
+      x: number;
+      /**
+         * Top edge, in grid rows (0-based).
+         * @minimum 0
+         */
+      y: number;
+      /**
+         * Width, in grid columns.
+         * @minimum 1
+         */
+      w: number;
+      /**
+         * Height, in grid rows.
+         * @minimum 1
+         */
+      h: number;
+      /**
+         * Per-placement settings, validated against the component's configSchema.
+         * @nullable
+         */
+      config?: CanvasPlacementConfig;
+      /**
+         * For pending/generating/failed placements: what the user asked this box to become.
+         * @maxLength 10000
+         * @nullable
+         */
+      prompt?: string | null;
+      /**
+         * Id of the agent task currently filling this placement, when one is running.
+         * @nullable
+         */
+      generationTaskId?: string | null;
+    }
+
+    /**
+     * A grid canvas's layout document — its entire 'source'.
+     */
+    export interface CanvasLayout {
+      /** Layout schema version. Currently always 1. */
+      schemaVersion: number;
+      /** The grid placements are laid out on. */
+      grid: CanvasGrid;
+      /** The placed widgets. Placements may not overlap or extend past the grid. */
+      placements: CanvasPlacement[];
+    }
+
+    /**
+     * * `set_grid` - set_grid
+     * * `add_placement` - add_placement
+     * * `update_placement` - update_placement
+     * * `remove_placement` - remove_placement
+     */
+    export type CanvasLayoutOpEnum = typeof CanvasLayoutOpEnum[keyof typeof CanvasLayoutOpEnum];
+
+
+    export const CanvasLayoutOpEnum = {
+      SetGrid: 'set_grid',
+      AddPlacement: 'add_placement',
+      UpdatePlacement: 'update_placement',
+      RemovePlacement: 'remove_placement',
+    } as const;
+
+    /**
+     * Per-placement settings, validated against the component's configSchema.
+     * @nullable
+     */
+    export type CanvasPlacementChangesConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Fields to merge into an existing placement (all optional; id cannot change).
+     */
+    export interface CanvasPlacementChanges {
+      /** Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).
+       *
+       * * `pending` - pending
+       * * `generating` - generating
+       * * `live` - live
+       * * `failed` - failed */
+      status?: CanvasPlacementStatusEnum;
+      /**
+         * Id of the component canvas this placement renders. Required once the placement is live.
+         * @nullable
+         */
+      component?: string | null;
+      /**
+         * Component version to render: "latest" (the default — follows the component's published build) or a pinned source version id.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Left edge, in grid columns (0-based).
+         * @minimum 0
+         */
+      x?: number;
+      /**
+         * Top edge, in grid rows (0-based).
+         * @minimum 0
+         */
+      y?: number;
+      /**
+         * Width, in grid columns.
+         * @minimum 1
+         */
+      w?: number;
+      /**
+         * Height, in grid rows.
+         * @minimum 1
+         */
+      h?: number;
+      /**
+         * Per-placement settings, validated against the component's configSchema.
+         * @nullable
+         */
+      config?: CanvasPlacementChangesConfig;
+      /**
+         * For pending/generating/failed placements: what the user asked this box to become.
+         * @maxLength 10000
+         * @nullable
+         */
+      prompt?: string | null;
+      /**
+         * Id of the agent task currently filling this placement, when one is running.
+         * @nullable
+         */
+      generationTaskId?: string | null;
+    }
+
+    /**
+     * One surgical layout operation.
+     */
+    export interface CanvasLayoutPatchOperation {
+      /** The operation to apply.
+       *
+       * * `set_grid` - set_grid
+       * * `add_placement` - add_placement
+       * * `update_placement` - update_placement
+       * * `remove_placement` - remove_placement */
+      op: CanvasLayoutOpEnum;
+      /** For set_grid: the new grid definition. */
+      grid?: CanvasGrid;
+      /** For add_placement: the placement to add. */
+      placement?: CanvasPlacement;
+      /**
+         * For update_placement/remove_placement: the target placement id.
+         * @maxLength 64
+         */
+      id?: string;
+      /** For update_placement: the fields to merge into the placement. */
+      changes?: CanvasPlacementChanges;
+    }
+
+    /**
+     * Payload for applying surgical operations to the canvas's current layout.
+     */
+    export interface CanvasLayoutPatch {
+      /** Operations applied in order to the canvas's current layout. */
+      operations: CanvasLayoutPatchOperation[];
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
+     * Payload for publishing a complete layout document.
+     */
+    export interface CanvasLayoutPublish {
+      /** The complete layout document to publish. */
+      layout: CanvasLayout;
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Optimistic-concurrency guard: the current_version_id the layout was based on (null when the canvas has no versions yet). A moved head is rejected with 409 version_conflict. Omit to publish unguarded.
+         * @nullable
+         */
+      expected_current_version_id?: string | null;
+    }
+
+    /**
+     * Identity and version pointers for one canvas.
+     */
+    export interface CanvasSummary {
+      /** The canvas's id. */
+      id: string;
+      /** Display name of the canvas. */
+      name: string;
+      /** The canvas's kind (freeform, component, or grid).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      kind: CanvasKindEnum;
+      /** Id of the channel the canvas belongs to. */
+      channel_id: string;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /** When the canvas was created. */
+      created_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
+    }
+
+    /**
+     * Result of a successful layout publish or patch. The new version is live immediately — no build runs.
+     */
+    export interface CanvasLayoutPublishResponse {
+      /** The canvas after the publish, including the new version pointer. */
+      canvas: CanvasSummary;
+      /** The layout document as published. */
+      layout: CanvasLayout;
+      /** Id of the layout version this publish created. */
+      current_version_id: string;
+    }
+
+    /**
+     * A grid canvas's layout plus the version pointer edits must be based on.
+     */
+    export interface CanvasLayoutResponse {
+      /** Identity and version pointers for the canvas. */
+      canvas: CanvasSummary;
+      /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
+      layout: CanvasLayout;
+      /**
+         * The live layout version this document reflects — pass as expected_current_version_id when publishing or patching. Null before the first layout publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+    }
+
+    /**
      * Payload for promoting a draft version to the canvas's live head.
      */
     export interface CanvasPromote {
@@ -15581,38 +15897,6 @@ export namespace Schemas {
          * @nullable
          */
       expected_current_version_id?: string | null;
-    }
-
-    /**
-     * Identity and version pointers for one canvas.
-     */
-    export interface CanvasSummary {
-      /** The canvas's id. */
-      id: string;
-      /** Display name of the canvas. */
-      name: string;
-      /** The canvas's kind (freeform, component, or grid).
-       *
-       * * `freeform` - freeform
-       * * `grid` - grid
-       * * `component` - component */
-      kind: CanvasKindEnum;
-      /** Id of the channel the canvas belongs to. */
-      channel_id: string;
-      /**
-         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
-         * @nullable
-         */
-      current_version_id: string | null;
-      /**
-         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
-         * @nullable
-         */
-      published_build_id: string | null;
-      /** When the canvas was created. */
-      created_at: string;
-      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
-      readonly url: string;
     }
 
     /**
@@ -84632,6 +84916,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Read this historical layout version instead of the head (for version browsing).
+     */
+    version_id?: string;
     };
 
     export type CanvasesSourceRetrieveParams = {

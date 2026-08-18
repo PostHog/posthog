@@ -29,7 +29,8 @@ from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion, CanvasState
+from products.canvas.backend.layout import apply_layout_ops, default_layout, validate_layout, validate_layout_references
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -44,6 +45,10 @@ from products.canvas.backend.presentation.serializers import (
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
+    CanvasLayoutPatchSerializer,
+    CanvasLayoutPublishResponseSerializer,
+    CanvasLayoutPublishSerializer,
+    CanvasLayoutResponseSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
@@ -121,17 +126,25 @@ def _state_rejection() -> Response:
 
 
 def _grid_rejection(canvas: Canvas) -> Response | None:
-    """Reject file-source writes to a grid canvas, whose source is a layout document."""
+    """Reject file-source reads/writes on a grid canvas, whose source is a layout document."""
     if canvas.kind != Canvas.KIND_GRID:
         return None
-    return Response(
-        {
-            "detail": "Grid canvases are compositions of components; edit them through the layout endpoints, "
-            "not source publish.",
-            "code": "wrong_canvas_kind",
-        },
-        status=status.HTTP_400_BAD_REQUEST,
+    return _wrong_kind_response(
+        "Grid canvases are compositions of components; use the layout endpoints, not file source."
     )
+
+
+def _non_grid_rejection(canvas: Canvas) -> Response | None:
+    """Reject layout reads/writes on canvases whose source is a file project."""
+    if canvas.kind == Canvas.KIND_GRID:
+        return None
+    return _wrong_kind_response(
+        "Only grid canvases have a layout; freeform and component canvases publish source projects."
+    )
+
+
+def _wrong_kind_response(detail: str) -> Response:
+    return Response({"detail": detail, "code": "wrong_canvas_kind"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CanvasStateWriteThrottle(SimpleRateThrottle):
@@ -168,7 +181,17 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Canvas.objects.unscoped().select_related("created_by", "current_source_version")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate", "state"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "source",
+        "versions",
+        "drafts",
+        "builds",
+        "validate",
+        "state",
+        "layout",
+    ]
     scope_object_write_actions = [
         "create",
         "partial_update",
@@ -185,6 +208,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "set_state",
         "invoke_action",
         "request_agent",
+        "publish_layout",
+        "patch_layout",
+        "home",
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -217,6 +243,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "promote",
         "revert",
         "build_action",
+        "publish_layout",
+        "patch_layout",
     }
 
     @extend_schema(
@@ -427,6 +455,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         `?version_id=` reads a historical version instead of the head.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         requested_version_id = request.query_params.get("version_id")
         try:
             if requested_version_id:
@@ -932,6 +963,271 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "builds": CanvasBuildSerializer(builds, many=True).data,
         }
         return Response(response)
+
+    @extend_schema(
+        operation_id="canvases_layout_retrieve",
+        responses={
+            200: CanvasLayoutResponseSerializer,
+            400: OpenApiResponse(description="The canvas is not a grid canvas."),
+        },
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                name="version_id",
+                type=str,
+                required=False,
+                description="Read this historical layout version instead of the head (for version browsing).",
+            )
+        ],
+    )
+    @action(methods=["GET"], detail=True)
+    def layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read a grid canvas's layout document and its `current_version_id`.
+
+        Always call this before editing: pass the returned version id as
+        `expected_current_version_id` on publish/patch so concurrent edits are
+        not overwritten. A grid canvas with no versions yet returns the
+        default empty layout with a null version id.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        requested_version_id = request.query_params.get("version_id")
+        try:
+            if requested_version_id:
+                version = (
+                    CanvasSourceVersion.objects.for_team(self.team_id)
+                    .filter(pk=requested_version_id, canvas_id=canvas.id)
+                    .first()
+                )
+                if version is None:
+                    return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+                layout = build_service.read_source_project(version)
+            else:
+                layout = self._read_current_layout(canvas)
+        except DjangoValidationError:
+            return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "The canvas's layout is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(
+            {
+                "canvas": CanvasSummarySerializer(canvas).data,
+                "layout": layout,
+                "current_version_id": (
+                    str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+                ),
+            }
+        )
+
+    @extend_schema(
+        operation_id="canvases_layout_publish_create",
+        request=CanvasLayoutPublishSerializer,
+        responses={
+            200: CanvasLayoutPublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="The canvas is not a grid canvas, or the layout failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="layout/publish")
+    def publish_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a complete layout document as the grid canvas's new head version.
+
+        Layout is data, not code: the new version is live immediately, with no
+        build. Validation errors reject the publish (400) and leave the canvas
+        untouched; a stale `expected_current_version_id` is rejected with 409.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        payload = CanvasLayoutPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        return self._publish_layout(
+            request,
+            canvas,
+            layout=payload.validated_data["layout"],
+            prompt=payload.validated_data.get("prompt"),
+            has_expected_version="expected_current_version_id" in payload.validated_data,
+            expected_version_id=payload.validated_data.get("expected_current_version_id"),
+        )
+
+    @extend_schema(
+        operation_id="canvases_layout_patch_create",
+        request=CanvasLayoutPatchSerializer,
+        responses={
+            200: CanvasLayoutPublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="An operation targeted a missing placement, or the edited layout failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="layout/patch")
+    def patch_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Apply surgical operations to the grid canvas's current layout.
+
+        The default write path for both the editor and agents: add, move,
+        resize, fill, or remove one placement without resending the layout.
+        `expected_current_version_id` is mandatory so an agent filling a box
+        and a user rearranging widgets cannot overwrite each other.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        payload = CanvasLayoutPatchSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            layout = self._read_current_layout(canvas)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "The canvas's layout is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        layout, diagnostics = apply_layout_ops(layout, payload.validated_data["operations"])
+        if diagnostics:
+            return Response(
+                {
+                    "detail": "The operations could not be applied to the canvas's current layout.",
+                    "code": "invalid_layout",
+                    "diagnostics": diagnostics,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return self._publish_layout(
+            request,
+            canvas,
+            layout=layout,
+            prompt=payload.validated_data.get("prompt"),
+            has_expected_version=True,
+            expected_version_id=payload.validated_data["expected_current_version_id"],
+        )
+
+    def _publish_layout(
+        self,
+        request: Request,
+        canvas: Canvas,
+        *,
+        layout: dict[str, Any],
+        prompt: str | None,
+        has_expected_version: bool,
+        expected_version_id: str | None,
+    ) -> Response:
+        diagnostics = validate_layout(layout)
+        if not has_errors(diagnostics):
+            user = self._request_user()
+            diagnostics = [
+                *diagnostics,
+                *validate_layout_references(self.team_id, user.id if user else None, layout),
+            ]
+        if has_errors(diagnostics):
+            return Response(
+                {
+                    "detail": "The layout failed validation; fix the error diagnostics and publish again.",
+                    "code": "invalid_layout",
+                    "diagnostics": diagnostics,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = self._request_user()
+        task_id = self._sandbox_task_id(request)
+        try:
+            canvas, version = build_service.publish_grid_layout(
+                canvas,
+                layout=layout,
+                prompt=prompt,
+                has_expected_version=has_expected_version,
+                expected_version_id=expected_version_id,
+                task_id=task_id,
+                created_by=user,
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the layout was not saved."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas layout published",
+            canvas,
+            version_id=str(version.id),
+            placement_count=len(layout.get("placements", [])),
+            is_sandbox_publish=task_id is not None,
+        )
+        return Response(
+            {
+                "canvas": CanvasSummarySerializer(canvas).data,
+                "layout": layout,
+                "current_version_id": str(version.id),
+            }
+        )
+
+    def _read_current_layout(self, canvas: Canvas) -> dict[str, Any]:
+        """The canvas's head layout document, or the default empty layout before
+        the first publish. Raises ObjectStorageError when storage is unavailable."""
+        if canvas.current_source_version is None:
+            return default_layout()
+        return build_service.read_source_project(canvas.current_source_version)
+
+    @extend_schema(
+        operation_id="canvases_home_create",
+        request=None,
+        responses={
+            200: CanvasSerializer,
+            403: OpenApiResponse(description="Home is a viewer surface; sandbox tokens cannot provision it."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def home(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get or provision the caller's home canvas.
+
+        Idempotent: returns the user's existing home canvas, or creates a grid
+        canvas in their personal channel and points their home preference at
+        it. The home surface calls this on open.
+        """
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Home is a viewer surface; sandbox tokens cannot provision it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        preference = (
+            CanvasHomePreference.objects.for_team(self.team_id).select_related("canvas").filter(user=user).first()
+        )
+        if preference is not None and not preference.canvas.deleted:
+            return Response(CanvasSerializer(preference.canvas).data)
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
+        with transaction.atomic():
+            canvas = Canvas.objects.create(
+                team_id=self.team_id,
+                channel_id=channel_id,
+                name="Home",
+                kind=Canvas.KIND_GRID,
+                description="Your personal home canvas.",
+                created_by=user,
+            )
+            CanvasHomePreference.objects.for_team(self.team_id).update_or_create(
+                team_id=self.team_id, user=user, defaults={"canvas": canvas}
+            )
+        self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
+        self._report_canvas_action("canvas home provisioned", canvas)
+        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         operation_id="canvases_build_action_create",

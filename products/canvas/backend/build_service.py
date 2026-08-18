@@ -510,6 +510,55 @@ def publish_source_project(
     return canvas, version, build, first_publish
 
 
+def publish_grid_layout(
+    canvas: Canvas,
+    *,
+    layout: dict[str, Any],
+    prompt: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion]:
+    """Publish a validated layout document as a grid canvas's new head version.
+
+    Same upload-then-commit versioning as file projects, but no build is
+    queued and no capacity is consumed: layout is data, so the new version is
+    live the moment the head advances. Raises CanvasVersionConflict or
+    ObjectStorageError.
+    """
+    key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+            check_capacity=False,
+        )
+        version = CanvasSourceVersion.objects.create(
+            team_id=canvas.team_id,
+            canvas=canvas,
+            parent_version_id=canvas.current_source_version_id,
+            source_hash=digest,
+            source_object_key=key,
+            source_size=size,
+            task_id=task_id,
+            prompt=prompt or None,
+            created_by=created_by,
+        )
+        canvas.current_source_version = version
+        canvas.save(update_fields=["current_source_version", "updated_at"])
+    _log_canvas_activity(
+        canvas,
+        user=created_by,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name),
+    )
+    return canvas, version
+
+
 def publish_current_source_version(
     canvas: Canvas,
     expected_current_version_id: str | UUID,

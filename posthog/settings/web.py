@@ -687,6 +687,9 @@ SPECTACULAR_SETTINGS = {
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
         "CanvasKindEnum": ["freeform", "grid", "component"],
+        # `status`/`op` are generic field names; pin the grid placement sets.
+        "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
+        "CanvasLayoutOpEnum": ["set_grid", "add_placement", "update_placement", "remove_placement"],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
         # `strength` and `kind` are generic enough that the next one added anywhere would collide,
