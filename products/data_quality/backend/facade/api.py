@@ -23,7 +23,7 @@ from ..logic.errors import CheckConfigError, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
-from ..logic.subject_access import denied_subject_names, is_subject_denied
+from ..logic.subject_access import denied_subject_names, is_subject_denied, referenced_subject_names
 from ..logic.subjects import resolve_subject
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo
@@ -45,6 +45,7 @@ __all__ = [
     "is_subject_denied",
     "list_check_types",
     "quality_audit_mode",
+    "referenced_subject_names",
     "related_subject_ref",
     "resolve_subject",
     "roll_up_health",

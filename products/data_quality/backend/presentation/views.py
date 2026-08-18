@@ -90,6 +90,18 @@ class _DataQualityGateMixin:
         if ref.exists and api.is_subject_denied(ref.name, self._denied_subject_names()):
             raise PermissionDenied("You don't have access to this table or view.")
 
+    def _require_referenced_subject_access(self, check_type: str, config: dict) -> None:
+        # The declared subject is not the only one a check reads: a relationships check names a second
+        # subject and a custom_sql query selects arbitrary tables, both run by the worker with team
+        # scope only. Authorize them too, or a check on an allowed subject is a count oracle over a
+        # denied one.
+        denied = self._denied_subject_names()
+        if not denied:
+            return
+        for name in api.referenced_subject_names(self.team.id, check_type, config):
+            if api.is_subject_denied(name, denied):
+                raise PermissionDenied("You don't have access to a table or view this check reads.")
+
 
 class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for data quality checks, plus the actions that run them and report on them."""
@@ -141,6 +153,7 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         self._require_subject_access(data["subject_type"], str(data["subject_uuid"]))
+        self._require_referenced_subject_access(data["check_type"], data.get("config") or {})
 
         optional = {
             key: data[key]
@@ -185,8 +198,11 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
     @action(methods=["POST"], detail=True)
     def run(self, request: Request, **kwargs) -> Response:
         # get_object() runs through safely_get_queryset, which already drops checks on a denied
-        # subject -- so a denied check 404s here before we could reach the subject.
+        # subject -- so a denied check 404s here before we could reach the subject. A check whose
+        # *declared* subject is allowed can still read a denied one (relationships target, custom_sql
+        # table), so gate on every subject it references before running it.
         check = self.get_object()
+        self._require_referenced_subject_access(check.check_type, check.config)
         suite_run = api.start_check_suite(team=self.team, user=cast(User, request.user), check_ids=[str(check.id)])
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
@@ -199,14 +215,20 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
     def run_for_subject(self, request: Request, **kwargs) -> Response:
         serializer = RunForSubjectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._require_subject_access(
-            serializer.validated_data["subject_type"], str(serializer.validated_data["subject_uuid"])
-        )
+        subject_type = serializer.validated_data["subject_type"]
+        subject_uuid = str(serializer.validated_data["subject_uuid"])
+        self._require_subject_access(subject_type, subject_uuid)
+        # The subject's own checks may each read a further subject the member is denied, so gate on
+        # those too before running the batch. Only a restricted member has anything to check, so skip
+        # loading the checks otherwise.
+        if self._denied_subject_names():
+            for check in api.checks_for_subject(self.team_id, subject_type, subject_uuid).filter(enabled=True):
+                self._require_referenced_subject_access(check.check_type, check.config)
         suite_run = api.start_check_suite(
             team=self.team,
             user=cast(User, request.user),
-            subject_type=serializer.validated_data["subject_type"],
-            subject_uuids=[str(serializer.validated_data["subject_uuid"])],
+            subject_type=subject_type,
+            subject_uuids=[subject_uuid],
         )
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
@@ -290,7 +312,28 @@ class DataQualitySuiteRunViewSet(
         return None
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id)
+        # A single-subject suite exposes that subject_uuid alongside its passed/failed/errored counts,
+        # a per-subject outcome the member must not read for a denied table. Drop those runs, matching
+        # how check_runs already hides denied child rows. Mixed-subject suites carry no subject_uuid,
+        # so they surface no denied identifier; their child rows stay filtered by the check_runs action.
+        if denied := self._denied_subject_names():
+            blocked = self._denied_suite_subject_uuids(queryset, denied)
+            if blocked:
+                queryset = queryset.exclude(subject_uuid__in=blocked)
+        return queryset.order_by("-created_at")
+
+    def _denied_suite_subject_uuids(self, queryset: QuerySet[DataQualitySuiteRun], denied: set[str]) -> set[str]:
+        # The suite row keeps subject_type + subject_uuid but not the name, so resolve each distinct
+        # single-subject pair to the name the denial set is keyed by. Skipped entirely for the common
+        # caller with an empty denied set, so the resolve loop only runs for a restricted member.
+        blocked: set[str] = set()
+        pairs = queryset.exclude(subject_uuid__isnull=True).values_list("subject_type", "subject_uuid").distinct()
+        for subject_type, subject_uuid in pairs:
+            ref = api.resolve_subject(self.team_id, subject_type, str(subject_uuid))
+            if ref.exists and api.is_subject_denied(ref.name, denied):
+                blocked.add(str(subject_uuid))
+        return blocked
 
     @extend_schema(
         description="Every check execution in this suite run.",

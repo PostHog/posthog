@@ -330,7 +330,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             fingerprint=uuid4().hex,
         )
         allowed_view = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="customers", query={"kind": "HogQLQuery"}
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
         DataQualityCheck.objects.for_team(self.team.id).create(
             team=self.team,
@@ -371,6 +371,84 @@ class TestDataQualityCheckAPI(APIBaseTest):
         response = self.client.get(url)
 
         assert {row["subject_name"] for row in response.json()} == {"customers"}
+
+    @parameterized.expand(
+        [
+            ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}),
+            ("relationships", CheckType.RELATIONSHIPS, "customer_id", None),
+        ]
+    )
+    def test_a_denied_referenced_subject_blocks_authoring(self, _name, check_type, column_name, config) -> None:
+        # The declared subject is not the only one a check reads: custom_sql selects arbitrary tables
+        # and relationships names a second subject. Authoring one that reads the denied "orders" from an
+        # allowed subject must 403 -- the worker runs it with team scope only, a count oracle otherwise.
+        allowed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        if config is None:
+            config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"}
+        self._deny_the_view()
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(subject_uuid=str(allowed.id), check_type=check_type, column_name=column_name, config=config),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
+
+    @parameterized.expand(
+        [
+            ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
+            (
+                "run_for_subject",
+                lambda self, check: self.client.post(
+                    f"{self.url}/run_for_subject/",
+                    {"subject_type": check.subject_type, "subject_uuid": str(check.subject_uuid)},
+                ),
+            ),
+        ]
+    )
+    def test_running_a_check_that_reads_a_denied_referenced_subject_is_blocked(self, _name, call) -> None:
+        # The declared subject stays allowed, so the check is visible and runnable -- but its custom_sql
+        # reads the denied "orders". The trigger paths gate on every subject the check references, not
+        # just the one they name in the request.
+        allowed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        assert call(self, check).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_denied_single_subject_suite_runs_drop_out_of_list_and_detail(self) -> None:
+        # A single-subject suite carries that subject_uuid alongside its passed/failed counts, a
+        # per-subject outcome the member must not read for a denied table, so list and detail hide it.
+        allowed = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        denied_suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
+        )
+        allowed_suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        self._deny_the_view()
+
+        base = f"/api/projects/{self.team.id}/data_quality/check_suite_runs"
+        listed = self.client.get(f"{base}/")
+
+        assert {row["id"] for row in listed.json()["results"]} == {str(allowed_suite.id)}
+        assert self.client.get(f"{base}/{denied_suite.id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{base}/{allowed_suite.id}/").status_code == status.HTTP_200_OK
 
     @parameterized.expand([("create",), ("run",), ("runs",)])
     def test_query_denied_members_cannot_author_or_execute_checks(self, surface: str) -> None:

@@ -7,10 +7,13 @@ history, or health rollup -- those carry the compiled ``config``, failed-row cou
 values, which together act as a count oracle over rows the member cannot read directly.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
+
+from .registry import get_spec
+from .subjects import resolve_subject
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -31,3 +34,20 @@ def denied_subject_names(
 def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
     """Whether a check's subject is in the caller's denied set, matched the same way the loaders match."""
     return _references_denied_table([subject_name], denied)
+
+
+def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+    """Every warehouse name a check reads *besides* its declared subject.
+
+    A ``relationships`` check names a second subject and a ``custom_sql`` query selects from arbitrary
+    tables; the worker later runs both with team scope only. Authorizing these at the API is the one
+    place a denied subject can be kept out of reach, so a check on an allowed subject can't be used as
+    a count oracle over one the author cannot read. Assumes config already validated."""
+    spec = get_spec(check_type)
+    parsed = spec.parse_config(config)
+    names = list(spec.referenced_table_names(parsed))
+    if related := spec.related_subject_ref(parsed):
+        ref = resolve_subject(team_id, related[0], related[1])
+        if ref.exists:
+            names.append(ref.name)
+    return names
