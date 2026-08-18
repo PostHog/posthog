@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -21,7 +23,7 @@ _USAGE_DATE_INCREMENTAL_FIELD: IncrementalField = {
 }
 
 
-@dataclass
+@frozen
 class AzureCostManagementEndpointConfig:
     name: str
     kind: EndpointKind

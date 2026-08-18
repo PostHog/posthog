@@ -1,6 +1,5 @@
 import re
 import time
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -11,12 +10,15 @@ import structlog
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.settings import (
     AZURE_COST_MANAGEMENT_ENDPOINTS,
     AzureCostManagementEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGIN_HOST = "https://login.microsoftonline.com"
@@ -54,7 +56,7 @@ class AzureCostManagementRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AzureCostManagementResumeConfig:
     # ISO date of the window the sync was on when state was saved. Windows are recomputed
     # deterministically, so replaying from this date skips every window already walked.
@@ -239,16 +241,16 @@ def resolve_window_start(
     return today - timedelta(days=DEFAULT_HISTORY_DAYS)
 
 
-def build_windows(start: date, end: date, max_days: int = MAX_WINDOW_DAYS) -> list[tuple[date, date]]:
+def build_windows(start: date, end: date, max_days: int = MAX_WINDOW_DAYS) -> list[SyncWindow[date]]:
     """Split an inclusive date range into consecutive windows the query API will accept."""
     if start > end:
         return []
 
-    windows: list[tuple[date, date]] = []
+    windows: list[SyncWindow[date]] = []
     window_start = start
     while window_start <= end:
         window_end = min(window_start + timedelta(days=max_days - 1), end)
-        windows.append((window_start, window_end))
+        windows.append(SyncWindow(start=window_start, end=window_end))
         window_start = window_end + timedelta(days=1)
     return windows
 
@@ -438,7 +440,7 @@ def get_rows(
 
     today = datetime.now(tz=UTC).date()
     if config.kind == "forecast":
-        windows = [(today, today + timedelta(days=FORECAST_HORIZON_DAYS))]
+        windows = [SyncWindow(start=today, end=today + timedelta(days=FORECAST_HORIZON_DAYS))]
     else:
         window_start = resolve_window_start(
             should_use_incremental_field, db_incremental_field_last_value, start_date, today
@@ -448,14 +450,14 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     pending_next_link: Optional[str] = None
     if resume is not None and resume.window_start:
-        windows = [window for window in windows if window[0].isoformat() >= resume.window_start]
+        windows = [window for window in windows if window.start.isoformat() >= resume.window_start]
         pending_next_link = resume.next_link
         logger.debug(f"Azure Cost Management: resuming {endpoint} from {resume.window_start}")
 
     url = _endpoint_url(normalized_scope, "forecast" if config.kind == "forecast" else "query", api_version)
 
-    for index, (period_start, period_end) in enumerate(windows):
-        body = build_query_body(config, period_start, period_end)
+    for index, window in enumerate(windows):
+        body = build_query_body(config, window.start, window.end)
         next_link = pending_next_link
         pending_next_link = None
 
@@ -469,12 +471,12 @@ def get_rows(
             if not next_link:
                 break
             resumable_source_manager.save_state(
-                AzureCostManagementResumeConfig(window_start=period_start.isoformat(), next_link=next_link)
+                AzureCostManagementResumeConfig(window_start=window.start.isoformat(), next_link=next_link)
             )
 
         if index + 1 < len(windows):
             resumable_source_manager.save_state(
-                AzureCostManagementResumeConfig(window_start=windows[index + 1][0].isoformat())
+                AzureCostManagementResumeConfig(window_start=windows[index + 1].start.isoformat())
             )
 
 

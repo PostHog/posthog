@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 
 TRANSPORT_MODULE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management"
@@ -288,23 +289,25 @@ class TestRowsFromDimensions:
 
 class TestBuildWindows:
     def test_single_window_for_short_range(self) -> None:
-        assert build_windows(date(2024, 1, 1), date(2024, 1, 10)) == [(date(2024, 1, 1), date(2024, 1, 10))]
+        assert build_windows(date(2024, 1, 1), date(2024, 1, 10)) == [
+            SyncWindow(start=date(2024, 1, 1), end=date(2024, 1, 10))
+        ]
 
     def test_splits_at_the_api_max_range(self) -> None:
         windows = build_windows(date(2023, 1, 1), date(2024, 6, 30))
 
         assert windows == [
-            (date(2023, 1, 1), date(2023, 12, 31)),
-            (date(2024, 1, 1), date(2024, 6, 30)),
+            SyncWindow(start=date(2023, 1, 1), end=date(2023, 12, 31)),
+            SyncWindow(start=date(2024, 1, 1), end=date(2024, 6, 30)),
         ]
 
     def test_windows_are_contiguous_and_cover_the_range(self) -> None:
         windows = build_windows(date(2020, 1, 1), date(2024, 1, 1))
 
-        assert windows[0][0] == date(2020, 1, 1)
-        assert windows[-1][1] == date(2024, 1, 1)
+        assert windows[0].start == date(2020, 1, 1)
+        assert windows[-1].end == date(2024, 1, 1)
         for earlier, later in zip(windows, windows[1:]):
-            assert later[0] == earlier[1] + timedelta(days=1)
+            assert later.start == earlier.end + timedelta(days=1)
 
     def test_empty_when_start_after_end(self) -> None:
         assert build_windows(date(2024, 2, 1), date(2024, 1, 1)) == []
