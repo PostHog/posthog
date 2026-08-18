@@ -655,7 +655,6 @@
     // if we ever need more than 7 modals active at the same time
     --z-top: 9999;
     --z-modal: 1100;
-    --z-toast: 1090; // under --z-modal on purpose, see --toastify-z-index
     --z-hedgehog-buddy: 1050;
     --z-annotation-popover: 800;
     --z-drawer: 900;
@@ -1400,16 +1399,6 @@
     .Toastify__toast-container {
         padding: 0;
         pointer-events: none;
-    }
-
-    // react-toastify defaults its container to 9999, above everything. A modal keeps its actions in
-    // the same corner a toast occupies, so a toast that outlives the click which opened the modal
-    // covers those actions and takes the clicks meant for them. Drop the container under --z-modal
-    // while a modal is open, and only then: at this level popovers, tooltips and the impersonation
-    // notice all cover a toast too, which is only acceptable for as long as a modal has focus.
-    // A toast raised while a modal is open waits behind it until the modal closes.
-    body:has(.LemonModal) .Toastify__toast-container {
-        z-index: var(--z-toast);
     }
 
     .Toastify__toast-body {
