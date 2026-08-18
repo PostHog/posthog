@@ -59,6 +59,11 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
             continue
         if path.stat().st_size > MAX_FILE_BYTES:
             errors.append(f"{path.relative_to(root)}: exceeds the {MAX_FILE_BYTES // 1_000_000} MB page size limit")
+        elif path.suffix == ".md":
+            try:
+                path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                errors.append(f"{path.relative_to(root)}: pages must be UTF-8 encoded")
 
     return errors
 

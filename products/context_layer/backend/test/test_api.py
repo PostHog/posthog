@@ -238,6 +238,38 @@ class TestContextLayerAPI(APIBaseTest):
         assert response.status_code == 409
         assert "at most 3" in response.json()["detail"]
 
+    def test_commits_endpoint_rejects_bundles_with_merge_commits(self, _flag) -> None:
+        self._enable()
+        with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            subprocess.run([*env_git, "checkout", "--quiet", "-b", "side"], cwd=checkout.path, check=True)
+            (checkout.path / "areas").mkdir(exist_ok=True)
+            (checkout.path / "areas" / "side.md").write_text("# Side\n")
+            subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Side edit"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "checkout", "--quiet", "main"], cwd=checkout.path, check=True)
+            (checkout.path / "areas" / "main.md").write_text("# Main\n")
+            subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Main edit"], cwd=checkout.path, check=True)
+            subprocess.run(
+                [*env_git, "merge", "--no-ff", "--quiet", "-m", "Merge side", "side"], cwd=checkout.path, check=True
+            )
+            with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
+                subprocess.run(
+                    [*env_git, "bundle", "create", bundle_file.name, "origin/main..main"],
+                    cwd=checkout.path,
+                    check=True,
+                )
+                bundle_bytes = Path(bundle_file.name).read_bytes()
+
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+            format="multipart",
+        )
+        assert response.status_code == 409
+        assert "merge commits" in response.json()["detail"]
+
     def test_export_returns_a_download_url(self, _flag) -> None:
         head = self._enable()
         response = self.client.get(f"{self.base_url}/export/")

@@ -1,6 +1,5 @@
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, Throttled, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -9,7 +8,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from products.context_layer.backend.facade import api as facade
@@ -58,7 +56,9 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
 class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """The organization's context wiki: a git repo of Markdown pages hosted by PostHog."""
 
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    # No authentication_classes override: the mixin already appends PostHog's
+    # session/PAT/OAuth authenticators, and DRF's stock SessionAuthentication
+    # would run first and skip enforce_two_factor.
     # The flag is the rollout boundary: the whole surface stays off until the
     # organization opts into `context-layer`.
     posthog_feature_flag = "context-layer"

@@ -91,6 +91,11 @@ def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
     head_sha = store.get_config(organization_id).head_sha
     content = get_safe_cache(_page_cache_key(organization_id, head_sha, path))
     if content is None:
+        # Answer misses from the cached tree when we can: repeated requests for
+        # a nonexistent path must 404 cheaply, not re-download the bundle.
+        known_paths = get_safe_cache(_tree_cache_key(organization_id, head_sha))
+        if known_paths is not None and path not in known_paths:
+            raise PageNotFoundError(f"no page at {path}")
         head_sha, _, pages = _warm_cache(organization_id)
         content = pages.get(path)
     if content is None:
@@ -133,7 +138,9 @@ def _warm_cache(organization_id: uuid.UUID | str) -> tuple[str, list[str], dict[
             if ".git" in file_path.parts or file_path.is_symlink() or not file_path.is_file():
                 continue
             relative = str(file_path.relative_to(checkout.path))
-            pages[relative] = file_path.read_text(encoding="utf-8")
+            # The linter rejects non-UTF-8 pages at land time; replacement here
+            # keeps one legacy file from turning every read into a 500.
+            pages[relative] = file_path.read_text(encoding="utf-8", errors="replace")
         paths = sorted(pages)
         safe_cache_set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
         for relative, content in pages.items():
