@@ -10,9 +10,20 @@ Start from it when building a checklist, settings, or any state-carrying widget,
 {
   "schemaVersion": 1,
   "entryHtml": "index.html",
-  "files": { "index.html": "<synthetic shell from canvas-source-retrieve — loads /src/canvas.tsx as a module>", "src/canvas.tsx": "<the component below>" },
-  "dependencies": { "react": "<pinned>", "react-dom": "<pinned>", "@posthog/quill": "<pinned>", "lucide-react": "<pinned>" },
-  "capabilities": { "posthog": { "insights": [], "inlineQueries": false, "captureEvents": [], "state": ["user"], "actions": [] }, "network": { "origins": [] } },
+  "files": {
+    "index.html": "<synthetic shell from canvas-source-retrieve — loads /src/canvas.tsx as a module>",
+    "src/canvas.tsx": "<the component below>"
+  },
+  "dependencies": {
+    "react": "<pinned>",
+    "react-dom": "<pinned>",
+    "@posthog/quill": "<pinned>",
+    "lucide-react": "<pinned>"
+  },
+  "capabilities": {
+    "posthog": { "insights": [], "inlineQueries": false, "captureEvents": [], "state": ["user"], "actions": [] },
+    "network": { "origins": [] }
+  },
   "component": { "size": { "defaultW": 3, "defaultH": 5, "minW": 2, "minH": 3 } }
 }
 ```
@@ -25,77 +36,67 @@ Start from it when building a checklist, settings, or any state-carrying widget,
 ## The component (`src/canvas.tsx`)
 
 ```tsx
-import { useEffect, useState } from "react";
-import {
-  Checkbox,
-  SkeletonText,
-  Text,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@posthog/quill";
-import { Info } from "lucide-react";
+import { useEffect, useState } from 'react'
+import { Checkbox, SkeletonText, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Info } from 'lucide-react'
 
 const ITEMS = [
-  { id: "download-desktop", label: "Download PostHog Desktop", hint: null },
+  { id: 'download-desktop', label: 'Download PostHog Desktop', hint: null },
   {
-    id: "add-widget",
-    label: "Add a widget to this canvas",
-    hint: "Select Edit in the top right, then click and drag anywhere on the dotted grid and describe what should go there.",
+    id: 'add-widget',
+    label: 'Add a widget to this canvas',
+    hint: 'Select Edit in the top right, then click and drag anywhere on the dotted grid and describe what should go there.',
   },
   {
-    id: "start-task",
-    label: "Start your first task",
-    hint: "Open a space and tell the agent what you want done. It picks the task up and reports back.",
+    id: 'start-task',
+    label: 'Start your first task',
+    hint: 'Open a space and tell the agent what you want done. It picks the task up and reports back.',
   },
-];
+]
 
 // Persistence needs both the SDK surface and a host that answers it. An old
 // runtime without ph.state must degrade to session-only ticks, never crash
 // the tile.
-const stateApi =
-  typeof ph !== "undefined" && ph.state && typeof ph.state.get === "function"
-    ? ph.state
-    : null;
+const stateApi = typeof ph !== 'undefined' && ph.state && typeof ph.state.get === 'function' ? ph.state : null
 
 export default function WelcomeChecklist() {
-  const [checked, setChecked] = useState(null);
+  const [checked, setChecked] = useState(null)
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false
     if (!stateApi) {
-      setChecked({ "download-desktop": true });
+      setChecked({ 'download-desktop': true })
     } else {
       stateApi
-        .get("checked", { scope: "user" })
+        .get('checked', { scope: 'user' })
         .then((value) => {
           if (!cancelled) {
-            setChecked(value && typeof value === "object" ? value : {});
+            setChecked(value && typeof value === 'object' ? value : {})
           }
         })
         .catch(() => {
           if (!cancelled) {
-            setChecked({});
+            setChecked({})
           }
-        });
+        })
     }
     return () => {
-      cancelled = true;
-    };
-  }, []);
+      cancelled = true
+    }
+  }, [])
 
   const toggle = (id, value) => {
     if (!checked) {
-      return;
+      return
     }
-    const next = { ...checked, [id]: value };
-    setChecked(next);
+    const next = { ...checked, [id]: value }
+    setChecked(next)
     if (stateApi) {
-      stateApi.set("checked", next, { scope: "user" }).catch(() => {});
+      stateApi.set('checked', next, { scope: 'user' }).catch(() => {})
     }
-  };
+  }
 
-  const done = checked ? ITEMS.filter((item) => checked[item.id]).length : 0;
+  const done = checked ? ITEMS.filter((item) => checked[item.id]).length : 0
 
   return (
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
@@ -113,21 +114,13 @@ export default function WelcomeChecklist() {
         <div className="flex flex-col gap-1.5">
           {ITEMS.map((item) => (
             <div key={item.id} className="flex items-center gap-2">
-              <Checkbox
-                checked={!!checked[item.id]}
-                onCheckedChange={(value) => toggle(item.id, value === true)}
-              />
-              <Text
-                size="sm"
-                className={checked[item.id] ? "text-muted-foreground line-through" : ""}
-              >
+              <Checkbox checked={!!checked[item.id]} onCheckedChange={(value) => toggle(item.id, value === true)} />
+              <Text size="sm" className={checked[item.id] ? 'text-muted-foreground line-through' : ''}>
                 {item.label}
               </Text>
               {item.hint ? (
                 <Tooltip>
-                  <TooltipTrigger
-                    render={<Info size={13} className="shrink-0 text-muted-foreground" />}
-                  />
+                  <TooltipTrigger render={<Info size={13} className="shrink-0 text-muted-foreground" />} />
                   <TooltipContent>
                     <div className="max-w-60">{item.hint}</div>
                   </TooltipContent>
@@ -138,7 +131,7 @@ export default function WelcomeChecklist() {
         </div>
       )}
     </div>
-  );
+  )
 }
 ```
 
