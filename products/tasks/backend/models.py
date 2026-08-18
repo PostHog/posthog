@@ -34,6 +34,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -65,6 +66,25 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     if isinstance(schema, dict):
         return schema
     return schema.model_json_schema()
+
+
+class TeamTasksConfig(models.Model):
+    """Project-wide defaults for the tasks product.
+
+    A Team extension rather than columns on `Team`: `posthog_team` is read on nearly every
+    request, so altering it can stall site-wide traffic (see posthog/models/team/README.md).
+    """
+
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+
+    # Project-wide default for the PR follow-up loop: whether an agent keeps watching a pull
+    # request it opened, fixing CI and replying to review comments. Null means "no opinion",
+    # which leaves the loop off for everything but the two origins that opt in. A single task
+    # overrides this either way via `Task.pr_loop_enabled`.
+    pr_loop_enabled = models.BooleanField(null=True, blank=True)
+
+
+register_team_extension_signal(TeamTasksConfig, logger=logger)
 
 
 class Channel(TeamScopedRootMixin):
@@ -323,7 +343,7 @@ class Task(DeletedMetaFields, models.Model):
     )
     # Per-task override for the PR follow-up loop: once a PR is open the agent keeps
     # watching CI and review threads and pushes follow-up commits. Null defers to the
-    # project-wide `Team.tasks_pr_loop_enabled`, and with neither set the loop stays off
+    # project-wide `TeamTasksConfig.pr_loop_enabled`, and with neither set the loop stays off
     # except for the two origins that opt in (see the get_task_processing_context activity).
     pr_loop_enabled = models.BooleanField(
         null=True,

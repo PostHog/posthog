@@ -2445,8 +2445,6 @@ export interface ProjectBackwardCompatApi {
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
-    /** @nullable */
-    tasks_pr_loop_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
     /**
      * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
@@ -3299,8 +3297,6 @@ export interface PatchedProjectBackwardCompatApi {
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
-    /** @nullable */
-    tasks_pr_loop_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
     /**
      * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.

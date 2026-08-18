@@ -559,8 +559,7 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Whether to keep watching this task's pull request after it opens, fixing CI and "
-            "replying to review comments. Null inherits the project default "
-            "(`tasks_pr_loop_enabled` on the environment)."
+            "replying to review comments. Null inherits the project default."
         ),
     )
     branch = serializers.CharField(

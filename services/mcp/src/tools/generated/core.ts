@@ -223,9 +223,6 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.proactive_tasks_enabled !== undefined) {
             body['proactive_tasks_enabled'] = params.proactive_tasks_enabled
         }
-        if (params.tasks_pr_loop_enabled !== undefined) {
-            body['tasks_pr_loop_enabled'] = params.tasks_pr_loop_enabled
-        }
         if (params.revenue_analytics_config !== undefined) {
             body['revenue_analytics_config'] = params.revenue_analytics_config
         }

@@ -451,7 +451,6 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
-    "tasks_pr_loop_enabled",
     "workflows_config",
 )
 

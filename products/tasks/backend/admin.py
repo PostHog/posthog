@@ -10,7 +10,7 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun, TeamTasksConfig
 from .visibility import task_run_visibility_q, task_visibility_q
 
 
@@ -244,3 +244,10 @@ class LoopTriggerAdmin(admin.ModelAdmin):
         for trigger in queryset:
             loop_service.delete_loop_trigger_schedule(trigger)
         super().delete_queryset(request, queryset)
+
+
+@admin.register(TeamTasksConfig)
+class TeamTasksConfigAdmin(admin.ModelAdmin):
+    list_display = ("team", "pr_loop_enabled")
+    list_filter = ("pr_loop_enabled",)
+    autocomplete_fields = ("team",)

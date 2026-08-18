@@ -44,7 +44,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
-from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun, TeamTasksConfig
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -722,7 +722,9 @@ def _pr_loop_override(task: Task, team: Team) -> bool | None:
     """
     if task.pr_loop_enabled is not None:
         return task.pr_loop_enabled
-    return team.tasks_pr_loop_enabled
+    # Read rather than get-or-create: no row is the same "no opinion" as a null column, and
+    # an activity that retries shouldn't be writing config rows.
+    return TeamTasksConfig.objects.filter(team=team).values_list("pr_loop_enabled", flat=True).first()
 
 
 def _is_continue_as_new_enabled(

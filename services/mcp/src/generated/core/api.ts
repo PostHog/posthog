@@ -266,7 +266,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
-        tasks_pr_loop_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod
             .object({
                 base_currency: zod

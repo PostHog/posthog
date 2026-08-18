@@ -23,7 +23,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
-from products.tasks.backend.models import SandboxEnvironment, Task
+from products.tasks.backend.models import SandboxEnvironment, Task, TeamTasksConfig
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -515,8 +515,7 @@ class TestGetTaskProcessingContextActivity:
     def test_pr_loop_enabled_resolves_task_setting_before_project_setting(
         self, activity_environment, test_task, team_setting, task_setting, expected
     ):
-        test_task.team.tasks_pr_loop_enabled = team_setting
-        test_task.team.save(update_fields=["tasks_pr_loop_enabled"])
+        TeamTasksConfig.objects.update_or_create(team=test_task.team, defaults={"pr_loop_enabled": team_setting})
         test_task.pr_loop_enabled = task_setting
         test_task.save(update_fields=["pr_loop_enabled"])
         task_run = test_task.create_run()

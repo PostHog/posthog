@@ -666,7 +666,6 @@ class ProjectBackwardCompatSerializer(
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
             "proactive_tasks_enabled",  # Compat with TeamSerializer
-            "tasks_pr_loop_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
             "project_id",  # Compat with TeamSerializer
@@ -774,7 +773,6 @@ class ProjectBackwardCompatSerializer(
             "conversations_settings",
             "logs_settings",
             "proactive_tasks_enabled",
-            "tasks_pr_loop_enabled",
             "base_currency",
             "capture_dead_clicks",
             "cookieless_server_hash_mode",
