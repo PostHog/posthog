@@ -244,6 +244,18 @@ tools:
     canvases-destroy:
         operation: canvases_destroy
         enabled: false
+    canvases-home-create:
+        operation: canvases_home_create
+        enabled: false
+    canvases-layout-patch-create:
+        operation: canvases_layout_patch_create
+        enabled: false
+    canvases-layout-publish-create:
+        operation: canvases_layout_publish_create
+        enabled: false
+    canvases-layout-retrieve:
+        operation: canvases_layout_retrieve
+        enabled: false
     canvases-partial-update:
         operation: canvases_partial_update
         enabled: false
