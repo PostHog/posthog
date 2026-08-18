@@ -27,13 +27,16 @@
 //! aborted records (consumers run `read_committed`), so the coupling is
 //! visible only as grouped retryable errors.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
+use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
@@ -455,6 +458,27 @@ impl Drop for FenceGuard {
     }
 }
 
+/// A partition's slot in the pre-connect pipeline: claimed while a
+/// dial is in flight, then holding the parked connection.
+enum Prepared {
+    /// A preconnect owns the slot and is dialing. Concurrent
+    /// preconnects seeing this return immediately, so at most one dial
+    /// runs per partition. The claim is what bounds connection churn:
+    /// the trigger fires on every convergence pass through a drain
+    /// window, and without it those passes stack concurrent dials
+    /// until the pod runs out of memory.
+    ///
+    /// The token identifies the owning dial. A dial resolves only its
+    /// own claim: a stale dial whose claim was removed mid-flight (by
+    /// an acquire, a release, or the sweep) must neither usurp a
+    /// replacement dial's claim on success nor release it on failure —
+    /// either would let convergence start extra dials, which is the
+    /// churn the claim exists to prevent.
+    Connecting { token: u64, since: Instant },
+    /// A finished dial, parked for the next acquire to consume.
+    Ready(ConnectedTransactionalProducer),
+}
+
 /// Per-partition fenced producers for the changelog. Constructed once
 /// and shared; partitions are acquired at warm completion and released
 /// with ownership.
@@ -491,7 +515,16 @@ pub struct FencedChangelogProducers {
     /// transactional state, so it can run ahead of the authority
     /// transition; `init_transactions` — the fencing action — still
     /// happens only inside `acquire`.
-    prepared: DashMap<u32, ConnectedTransactionalProducer>,
+    prepared: DashMap<u32, Prepared>,
+    /// Distinguishes dials, so each resolves only its own claim.
+    dial_token: AtomicU64,
+
+    /// Dials attempted, so tests can pin single-flight: the storm this
+    /// guards against is invisible through public behavior until the
+    /// pod is already dying.
+    #[cfg(any(test, feature = "test-support"))]
+    connect_attempts: AtomicUsize,
+
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -542,6 +575,9 @@ impl FencedChangelogProducers {
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
+            dial_token: AtomicU64::new(0),
+            #[cfg(any(test, feature = "test-support"))]
+            connect_attempts: AtomicUsize::new(0),
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
@@ -570,7 +606,11 @@ impl FencedChangelogProducers {
         // failing the acquisition.
         let mut path = "cold";
         let mut producer = None;
-        if let Some((_, parked)) = self.prepared.remove(&partition) {
+        // The removal also clears a Connecting claim: acquisition is
+        // happening now, so a dial still in flight is too late to help,
+        // and losing its claim makes it discard on completion instead
+        // of parking a connection nothing will consume.
+        if let Some((_, Prepared::Ready(parked))) = self.prepared.remove(&partition) {
             match init_producer(parked, timeout).await {
                 Ok(ready) => {
                     path = "prepared";
@@ -663,13 +703,28 @@ impl FencedChangelogProducers {
     /// Connect the partition's producer ahead of acquisition, so the
     /// acquire that follows pays only the init round trip. Runs the
     /// connection on the blocking pool and parks it; a failure is only
-    /// logged and counted, because the cold acquire path covers it. At
-    /// most one parked connection survives per partition — concurrent
-    /// preconnects are possible through the pending-ownership window,
-    /// and the loser is discarded and counted.
+    /// logged and counted, because the cold acquire path covers it.
+    /// Single-flight per partition: the slot is claimed before the dial
+    /// begins, so however often convergence fires this through a drain
+    /// window, one dial runs and the rest return as coalesced.
     pub async fn preconnect(&self, partition: u32) {
-        if self.prepared.contains_key(&partition) {
-            return;
+        // The claim must precede the dial, and the entry guard must not
+        // be held across it: the guard holds a shard lock.
+        let token = self.dial_token.fetch_add(1, Ordering::Relaxed);
+        match self.prepared.entry(partition) {
+            Entry::Occupied(_) => {
+                // Another preconnect is dialing or already parked a
+                // connection; either way this call has nothing to add.
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "coalesced")
+                    .increment(1);
+                return;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(Prepared::Connecting {
+                    token,
+                    since: Instant::now(),
+                });
+            }
         }
         let start = Instant::now();
         match self.connect_producer(partition).await {
@@ -677,18 +732,40 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
                     .record(start.elapsed().as_secs_f64() * 1000.0);
-                if let Some(displaced) = self.prepared.insert(partition, connected) {
-                    // A racing preconnect parked first; one connection is
-                    // as good as the other, keep the newer.
-                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "duplicate")
-                        .increment(1);
-                    spawn_blocking(move || drop(displaced));
-                }
+                self.park(partition, token, connected);
             }
             Err(e) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
                     .increment(1);
                 warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
+                // Release the claim so a later preconnect can retry —
+                // but only this dial's own claim. A replacement dial's
+                // claim, or a parked connection, stays.
+                self.prepared.remove_if(
+                    &partition,
+                    |_, slot| matches!(slot, Prepared::Connecting { token: t, .. } if *t == token),
+                );
+            }
+        }
+    }
+
+    /// Park a finished dial, unless its claim is gone (a release, a
+    /// sweep, or an acquire that went cold discarded it): a discarded
+    /// partition must not resurrect, so the late connection is dropped
+    /// instead. The token check makes ownership exact — a stale dial
+    /// finding a replacement dial's claim here must not usurp it, or
+    /// the replacement's own park would discard the newer connection
+    /// while later convergence passes see whatever raced in.
+    fn park(&self, partition: u32, token: u64, connected: ConnectedTransactionalProducer) {
+        match self.prepared.entry(partition) {
+            Entry::Occupied(mut slot) if matches!(slot.get(), Prepared::Connecting { token: t, .. } if *t == token) =>
+            {
+                slot.insert(Prepared::Ready(connected));
+            }
+            _ => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "discarded")
+                    .increment(1);
+                spawn_blocking(move || drop(connected));
             }
         }
     }
@@ -699,6 +776,8 @@ impl FencedChangelogProducers {
         &self,
         partition: u32,
     ) -> Result<ConnectedTransactionalProducer, String> {
+        #[cfg(any(test, feature = "test-support"))]
+        self.connect_attempts.fetch_add(1, Ordering::SeqCst);
         let kafka = self.kafka.clone();
         let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
@@ -717,9 +796,11 @@ impl FencedChangelogProducers {
     }
 
     /// Drop a parked connection on the blocking pool — librdkafka's
-    /// client teardown blocks, same as a full fence's.
+    /// client teardown blocks, same as a full fence's. A Connecting
+    /// claim is removed without a drop: its dial discards on
+    /// completion once the claim is gone.
     fn discard_prepared(&self, partition: u32) {
-        if let Some((_, connected)) = self.prepared.remove(&partition) {
+        if let Some((_, Prepared::Ready(connected))) = self.prepared.remove(&partition) {
             spawn_blocking(move || drop(connected));
         }
     }
@@ -734,16 +815,39 @@ impl FencedChangelogProducers {
     /// acquires cold, which is the behavior this whole path improves on
     /// rather than a failure.
     pub fn sweep_prepared(&self) {
-        let parked: Vec<u32> = self.prepared.iter().map(|entry| *entry.key()).collect();
-        for partition in parked {
-            if let Some((_, connected)) = self.prepared.remove(&partition) {
-                counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
-                    .increment(1);
-                warn!(
-                    partition,
-                    "swept a parked changelog connection nothing consumed"
-                );
-                spawn_blocking(move || drop(connected));
+        // Every live dial is bounded by the init timeout, so a claim
+        // twice that old has no owner left to resolve it (its task
+        // panicked or was torn down). Clearing it un-wedges preconnect
+        // for the partition; correctness never depended on the claim,
+        // acquisition just goes cold.
+        let stale_claim_bound = self.init_timeout * 2;
+        let now = Instant::now();
+        let slots: Vec<u32> = self.prepared.iter().map(|entry| *entry.key()).collect();
+        for partition in slots {
+            // remove_if re-checks the slot under the shard lock, so a
+            // dial that parks between the scan and this removal is not
+            // swept as a stale claim.
+            match self.prepared.remove_if(&partition, |_, slot| match slot {
+                Prepared::Ready(_) => true,
+                Prepared::Connecting { since, .. } => {
+                    now.duration_since(*since) > stale_claim_bound
+                }
+            }) {
+                Some((_, Prepared::Ready(connected))) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
+                        .increment(1);
+                    warn!(
+                        partition,
+                        "swept a parked changelog connection nothing consumed"
+                    );
+                    spawn_blocking(move || drop(connected));
+                }
+                Some((_, Prepared::Connecting { .. })) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "orphaned")
+                        .increment(1);
+                    warn!(partition, "cleared an orphaned preconnect claim");
+                }
+                None => {}
             }
         }
     }
@@ -751,7 +855,37 @@ impl FencedChangelogProducers {
     /// Whether a parked connection exists for the partition.
     #[cfg(any(test, feature = "test-support"))]
     pub fn has_prepared(&self, partition: u32) -> bool {
-        self.prepared.contains_key(&partition)
+        self.prepared
+            .get(&partition)
+            .is_some_and(|slot| matches!(*slot, Prepared::Ready(_)))
+    }
+
+    /// How many dials have been attempted.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn connect_attempts_for_test(&self) -> usize {
+        self.connect_attempts.load(Ordering::SeqCst)
+    }
+
+    /// Stage a Connecting claim of a given age, standing in for a dial
+    /// whose task died without resolving it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn stage_connecting_for_test(&self, partition: u32, age: Duration) {
+        let token = self.dial_token.fetch_add(1, Ordering::Relaxed);
+        self.prepared.insert(
+            partition,
+            Prepared::Connecting {
+                token,
+                since: Instant::now() - age,
+            },
+        );
+    }
+
+    /// Whether a Connecting claim holds the partition's slot.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn has_connecting_claim_for_test(&self, partition: u32) -> bool {
+        self.prepared
+            .get(&partition)
+            .is_some_and(|slot| matches!(*slot, Prepared::Connecting { .. }))
     }
 
     /// Whether this pod holds a *usable* fence for the partition.
@@ -1047,6 +1181,11 @@ impl FencedChangelogProducers {
         // ordinary batching alongside its window-mates.
         let key = changelog_message_key(person.team_id, person.id);
         let payload = person.encode_to_vec();
+        // Same metric as the unfenced path in kafka.rs, so the size
+        // distribution covers all changelog produces regardless of the
+        // fencing rollout. Recorded before the send so a payload rejected
+        // by the broker (message.max.bytes) still shows up.
+        histogram!("personhog_leader_kafka_produce_bytes").record(payload.len() as f64);
         let record = FutureRecord::to(&self.topic)
             .partition(partition as i32)
             .key(&key)
@@ -1591,7 +1730,15 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     }
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
-    for outcome in ["ok", "error", "duplicate", "swept", "init_failed"] {
+    for outcome in [
+        "ok",
+        "error",
+        "coalesced",
+        "discarded",
+        "swept",
+        "orphaned",
+        "init_failed",
+    ] {
         counter!("personhog_leader_fence_preconnect_total", "outcome" => outcome).increment(0);
     }
     // The healing counters fire exactly during the incidents an operator

@@ -11,20 +11,30 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
  * ref of approximately 60 bytes and no image bytes. A ref that this cache drops before its next
- * sighting produces a second time, which costs topic volume and one more ledger read in the
+ * arrival produces a second time, which costs topic volume and one more ledger read in the
  * fetcher, but never correctness. The fetcher dedupes on the same ref again.
  */
 const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
- * Records for one host per Kafka message.
- *
- * The Rust collector caps one replay message at 256 URLs of up to 2048 bytes each, which is about
- * 540 KB if they all share one host. That is under librdkafka's 1 MB default, but only just, and
- * the bound lives in another crate. This cap keeps the record size inside this file, where the
- * produce happens.
+ * The URL payload one record may carry. The `message.max.bytes` default is 1,000,000 bytes and this
+ * producer does not override it, so the remainder holds the envelope. The budget counts bytes
+ * rather than URLs, because a URL can be as long as `MAX_URL_LEN`.
  */
-const MAX_URLS_PER_RECORD = 64
+const MAX_RECORD_URL_BYTES = 512 * 1024
+
+/**
+ * The URL count one record may carry. Without it the collector's cap in another crate decides the
+ * count, and an increase there makes records the fetcher refuses whole. Keep it below
+ * `MAX_URLS_PER_RECORD` in `ml-mirror-image-fetch/collected-urls-record.ts`.
+ */
+const MAX_RECORD_URLS = 512
+
+export interface RecordUrl {
+    ref: string
+    url: string
+    host: string
+}
 
 /** One record on the fetch topic. The Kafka key is the registrable domain, so every URL here
  *  belongs to one operator. Hosts can differ within it: a CDN sharding over img1..img8 keeps one
@@ -44,7 +54,7 @@ export interface CollectedUrlsMessage {
      * age check exists for.
      */
     capturedAtMs: number
-    urls: { ref: string; url: string; host: string }[]
+    urls: RecordUrl[]
 }
 
 /**
@@ -66,8 +76,8 @@ export interface CollectedUrlsMessage {
  * would then lose them. The group-by-host step already removes most of the record count, `linger.ms`
  * makes the batches on the wire, and the ref cache stops a repeated image before it produces at all.
  *
- * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs,
- * and a ref with no image behind it renders as a placeholder.
+ * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs
+ * in namespaced sibling attributes, while media sources keep their placeholders.
  *
  * The `url` field is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
@@ -122,11 +132,12 @@ export function createProduceCollectedUrlsStep<
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
-        const byDomain = new Map<string, { ref: string; url: string; host: string }[]>()
+        const byDomain = new Map<string, RecordUrl[]>()
         for (const entry of usable) {
             producedRefs.add(entry.ref)
             const group = byDomain.get(entry.domain)
-            const record = { ref: entry.ref, url: entry.url, host: entry.host }
+            const record: RecordUrl = { ref: entry.ref, url: entry.url, host: entry.host }
+            SessionRecordingIngesterMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
             if (group) {
                 group.push(record)
             } else {
@@ -141,17 +152,18 @@ export function createProduceCollectedUrlsStep<
         const messageTimestamp = input.message.timestamp
         const capturedAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : Date.now()
         const messages = [...byDomain].flatMap(([domain, urls]) =>
-            chunk(urls, MAX_URLS_PER_RECORD).map((slice) => ({
-                key: domain,
-                value: Buffer.from(
+            packByBytes(urls, MAX_RECORD_URL_BYTES).map((slice) => {
+                const value = Buffer.from(
                     JSON.stringify({
                         v: 1,
                         pseudoTeam,
                         capturedAtMs,
                         urls: slice,
                     } satisfies CollectedUrlsMessage)
-                ),
-            }))
+                )
+                SessionRecordingIngesterMetrics.observeMlUrlRecord(slice.length, value.length)
+                return { key: domain, value }
+            })
         )
 
         // The failure handler captures only the refs, so that a produce which is not yet delivered
@@ -182,13 +194,43 @@ export function createProduceCollectedUrlsStep<
     }
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-    if (items.length <= size) {
-        return [items]
+/**
+ * An entry always goes into a record, even alone in one above the budget, because a drop here loses
+ * an image that every earlier check accepted. `MAX_URL_LEN` keeps that record under the broker
+ * limit.
+ */
+function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
+    const out: RecordUrl[][] = []
+    let current: RecordUrl[] = []
+    let bytes = 0
+    for (const entry of entries) {
+        const size = entryBytes(entry)
+        if (current.length > 0 && (bytes + size > maxBytes || current.length >= MAX_RECORD_URLS)) {
+            out.push(current)
+            current = []
+            bytes = 0
+        }
+        current.push(entry)
+        bytes += size
     }
-    const out: T[][] = []
-    for (let i = 0; i < items.length; i += size) {
-        out.push(items.slice(i, i + size))
+    if (current.length > 0) {
+        out.push(current)
     }
     return out
+}
+
+/**
+ * `JSON.stringify` widens a quote or a backslash, so this count is a lower bound. Canonicalization
+ * percent-encodes both upstream, and the budget is half the broker limit, so the estimate has room.
+ * The `ml_url_record_bytes` metric shows that margin if it shrinks.
+ */
+const ENTRY_OVERHEAD_BYTES = '{"ref":"","url":"","host":""},'.length
+
+function entryBytes(entry: RecordUrl): number {
+    return (
+        Buffer.byteLength(entry.ref) +
+        Buffer.byteLength(entry.url) +
+        Buffer.byteLength(entry.host) +
+        ENTRY_OVERHEAD_BYTES
+    )
 }

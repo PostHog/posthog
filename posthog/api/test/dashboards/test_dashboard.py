@@ -16,12 +16,15 @@ from rest_framework import status
 
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
@@ -470,6 +473,96 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Dashboards created without an explicit folder land in the default unfiled folder
         assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
 
+    def test_list_includes_the_file_system_entry_needed_to_move_a_dashboard(self):
+        filed_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        result = {dashboard["id"]: dashboard for dashboard in response["results"]}[filed_id]
+
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(filed_id), shortcut=False)
+        # Together these are everything a move needs, so the list page never looks the entry up again.
+        assert result["file_system_id"] == str(entry.id)
+        assert result["file_system_path"] == entry.path
+        # Unlike `folder`, the path keeps the dashboard's own name as its last segment
+        assert result["file_system_path"] == "Marketing/Website/Filed dashboard"
+
+    def test_list_picks_the_same_entry_every_time_when_a_dashboard_has_several(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Twice filed", "_create_in_folder": "First"})
+        second = FileSystem.objects.create(
+            team=self.team, path="Second/Twice filed", type="dashboard", ref=str(dashboard_id), created_by=self.user
+        )
+        first = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+        first = min([first, second], key=lambda entry: entry.id)
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        result = {dashboard["id"]: dashboard for dashboard in response["results"]}[dashboard_id]
+
+        # Both annotations must resolve the same row, or a move would target one and report the other
+        assert result["file_system_id"] == str(first.id)
+        assert result["file_system_path"] == first.path
+
+    def test_updating_a_dashboard_keeps_its_file_system_entry_in_the_response(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"pinned": True})
+
+        # The list gates "Move to another folder" on these, so an update that drops them un-files the row
+        assert updated["file_system_id"] == str(entry.id)
+        assert updated["file_system_path"] == entry.path
+
+    def test_creating_a_dashboard_from_a_template_returns_its_file_system_entry(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": valid_template, "_create_in_folder": "Unfiled/Dashboards"},
+        )
+        assert response.status_code == 200, response.content
+
+        created = response.json()
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(created["id"]), shortcut=False)
+        # This endpoint serializes a dashboard the list annotation never touched, and the list stores the
+        # response as-is, so without the entry the new row offers no way to file it until a reload.
+        assert created["file_system_id"] == str(entry.id)
+        assert created["file_system_path"] == entry.path
+        assert created["folder"] == "Unfiled/Dashboards"
+
+    def test_creating_a_dashboard_returns_its_file_system_entry(self):
+        dashboard_id, created = self.dashboard_api.create_dashboard(
+            {"name": "Fresh dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+
+        # The save signal files the dashboard, so a response saying otherwise disables its move action
+        # until the list is reloaded.
+        assert created["file_system_id"] == str(entry.id)
+        assert created["file_system_path"] == entry.path
+
+    def test_renaming_a_dashboard_returns_the_new_file_system_path(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Old name", "_create_in_folder": "Marketing/Website"}
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"name": "New name"})
+
+        # The path's last segment is the dashboard's own name, and a move re-files the row under whatever
+        # that segment says, so a stale path would rename the entry back.
+        assert updated["file_system_path"] == "Marketing/Website/New name"
+
+    def test_list_reports_no_file_system_entry_when_the_dashboard_has_none(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Entryless dashboard"})
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard_id)).delete()
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        result = {dashboard["id"]: dashboard for dashboard in response["results"]}[dashboard_id]
+
+        assert result["file_system_id"] is None
+        assert result["file_system_path"] is None
+        assert result["folder"] is None
+
     @parameterized.expand(
         [
             # The named folder matches only the dashboard filed directly in it — nested sub-folders excluded
@@ -658,6 +751,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_shared_dashboard_does_not_expose_where_it_is_filed(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "public dashboard", "_create_in_folder": "Acquisitions/Project Falcon"}
+        )
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
+        self.client.logout()
+
+        response = self.client.get("/shared_dashboard/testtoken")
+        assert response.status_code == status.HTTP_200_OK
+
+        # The share page serializes the dashboard straight off the sharing configuration, so the fields fall
+        # back to reading the entry. Every one of them names a folder an anonymous viewer must not see.
+        payload = response.content.decode()
+        assert "Project Falcon" not in payload
+        assert "Acquisitions" not in payload
 
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -3437,6 +3547,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         streamed_tiles = json.loads(metadata_line)["dashboard"]["tiles"]
         assert [a["id"] for a in streamed_tiles[0]["insight"]["alerts"]] == [str(alert.id)]
 
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_dashboard_refresh_serializes_broken_query_tile_in_place(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.side_effect = ExposedHogQLError("Invalid HogQL syntax")
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard with broken tile", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/dashboards/{dashboard.id}/?refresh=blocking")
+
+        # The failure must ride on the tile insight's query_status, not trip get_tiles' generic
+        # DashboardTileError fallback, and must not fail the whole response.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tile = response.json()["tiles"][0]
+        self.assertIsNone(tile.get("error"))
+        query_status = tile["insight"]["query_status"]
+        self.assertTrue(query_status["error"])
+        self.assertIn("Invalid HogQL syntax", query_status["error_message"])
+        self.assertEqual(query_status["error_code"], "hogql_error")
+
     def test_streamed_tile_error_preserves_insight_metadata_without_exception_detail(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -3677,6 +3809,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["llm-analytics"])
+
+        insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
+        self.assertGreater(insights.count(), 0)
+        for insight in insights:
+            self.assertEqual(
+                list(insight.tagged_items.values_list("tag__name", flat=True)),
+                ["ai-observability"],
+            )
 
     def test_create_unlisted_dashboard_enforces_uniqueness(self):
         """Test that creating duplicate unlisted dashboards returns 409"""

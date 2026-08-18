@@ -25,7 +25,7 @@ import { type SseEvent, SseEventParser } from "./sse-parser";
 
 // Reconnect backoff: flat base delay for the first SSE_RECONNECT_FLAT_ATTEMPTS attempts, then
 // exponential up to the cap (0.5, 0.5, 0.5, 1, 2, 4, 8, 16, 30s), spanning ~60s before giving up.
-const MAX_SSE_RECONNECT_ATTEMPTS = 9;
+export const MAX_SSE_RECONNECT_ATTEMPTS = 9;
 const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30;
 const SSE_RECONNECT_BASE_DELAY_MS = 500;
 const SSE_RECONNECT_FLAT_ATTEMPTS = 3;
@@ -317,7 +317,7 @@ function createStreamStatusError(status: number): CloudTaskStreamError {
           title: "Cloud authentication expired",
           message: "Please reauthenticate and retry the cloud run stream.",
           retryable: true,
-          autoRetry: false,
+          autoRetry: true,
         },
         status,
       );
@@ -473,7 +473,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   /**
-   * Relay-designated server names per run (docs/cloud-mcp-relay.md).
+   * Relay-designated server names per run (docs/CLOUD-MCP-RELAY.md).
    * In-memory by design: only the client that created a run in this app
    * session may execute relay requests for it; requests for undesignated
    * runs or names are dropped.
@@ -1550,7 +1550,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       }
 
       // Proxy-leg 401: the read token expired or its signing key rotated. Re-resolve to mint a
-      // fresh token (or route back to Django) instead of failing. Django-leg 401 stays fatal below.
+      // fresh token (or route back to Django) instead of failing.
       const unauthorizedWatcher = this.watchers.get(key);
       if (
         error instanceof CloudTaskStreamError &&

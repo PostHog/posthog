@@ -4,7 +4,7 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
-  type AgentSessionEvent,
+  type JsonAgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
   type RpcEventListener,
@@ -23,7 +23,7 @@ import type {
   RpcExtensionUIResponse,
 } from "./types";
 
-export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+export type PiRpcEvent = JsonAgentSessionEvent | PiExtensionEvent;
 export type PiRuntimeExtension = "repository-tools" | "auto-publish";
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
@@ -82,6 +82,10 @@ export interface PiStdioMcpServer {
   env?: Array<{ name: string; value: string }>;
 }
 
+// Signed git may use three 30-second GitHub attempts before reporting task activity.
+// The client deadline must not report failure while the MCP child continues the push.
+const LOCAL_STDIO_MCP_REQUEST_TIMEOUT_MS = 5 * 60_000;
+
 export function createRuntimeMcpServers(
   servers: McpServerConnection[],
 ): PiRuntimeMcpServers {
@@ -119,6 +123,7 @@ export function createRuntimeMcpStdioServers(
         ),
         transport: "stdio" as const,
         lifecycle: "eager" as const,
+        requestTimeoutMs: LOCAL_STDIO_MCP_REQUEST_TIMEOUT_MS,
         directTools: true,
       },
     ]),

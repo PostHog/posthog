@@ -256,7 +256,6 @@ export type IngestionConsumerConfig = {
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -398,7 +397,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),

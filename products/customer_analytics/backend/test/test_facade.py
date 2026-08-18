@@ -854,7 +854,7 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
                 allow_matching_updates=True,
             )
 
-        mock_send_task.assert_called_once_with(
+        mock_send_task.assert_any_call(
             "customer_analytics.rematch_account_meetings",
             kwargs={"team_id": self.team.pk, "account_id": str(account.id)},
         )

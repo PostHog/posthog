@@ -20,10 +20,16 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    PRIORITIES_BY_URGENCY,
+    PRIORITY_LABELS,
+    effective_priority,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
@@ -77,12 +83,6 @@ _THRESHOLD_ATTRIBUTIONS = {
 }
 # Only personal thresholds live in someone's ReviewHog settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
-
-_PRIORITY_LABELS = {
-    IssuePriority.MUST_FIX: "must fix",
-    IssuePriority.SHOULD_FIX: "should fix",
-    IssuePriority.CONSIDER: "consider",
-}
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
 # comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
@@ -168,8 +168,7 @@ def render_final_body(
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
-        f"**{counts[priority]} {_PRIORITY_LABELS[priority]}**"
-        for priority in (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+        f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
@@ -373,38 +372,45 @@ def maybe_refresh_status_comment(team_id: int, report_id: str) -> None:
         logger.exception("Could not refresh the ReviewHog status comment; the review continues without it")
 
 
-def finalize_status_comment(
-    team_id: int,
-    report_id: str,
-    *,
-    run_index: int,
-    urgency_threshold: str,
-    review_url: str | None,
-    resolved_from: str = "author",
-) -> None:
+@frozen
+class FinalizeStatusCommentInput:
+    team_id: int
+    report_id: str
+    run_index: int
+    # The run's snapshotted threshold, so the held-back explanation matches what publish enforced.
+    urgency_threshold: str
+    review_url: str | None = None
+    # Whose threshold gated the run ("author" / "override" / "default", from the resolve snapshot) —
+    # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
+    resolved_from: str = "author"
+
+
+def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: everything found vs. what was published."""
     try:
-        report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+        report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
         counts = dict.fromkeys(IssuePriority, 0)
-        for finding, verdict in load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index):
+        for finding, verdict in load_valid_findings(
+            team_id=input.team_id, report_id=input.report_id, run_index=input.run_index
+        ):
             counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
-        threshold = IssuePriority(urgency_threshold)
+        threshold = IssuePriority(input.urgency_threshold)
         published = published_priorities_for(threshold)
         published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
         body = render_final_body(
-            report_id,
+            input.report_id,
             counts=counts,
             published_count=published_count,
             held_back_count=held_back_count,
             threshold=threshold,
-            review_url=review_url,
-            resolved_from=resolved_from,
-            report_url=report_deep_link(team_id, report_id),
+            review_url=input.review_url,
+            resolved_from=input.resolved_from,
+            report_url=report_deep_link(input.team_id, input.report_id),
         )
-        _edit_and_stamp(team_id, report, body)
+        _edit_and_stamp(input.team_id, report, body)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 

@@ -1,5 +1,6 @@
 """Activities for the per-backfill tick workflow: gatekeeping, candidate walk, cursor advance, schedule ops."""
 
+import time
 import asyncio
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -24,8 +26,9 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     BackfillStatus,
     ReplayScannerBackfill,
 )
-from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import WindowedCandidateQuery
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
     count_in_flight_rows,
@@ -43,6 +46,7 @@ from products.replay_vision.backend.temporal.backfill_types import (
 from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
+    FIND_BACKFILL_CANDIDATES_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -98,6 +102,13 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
+    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
+        # Children would decline at create while the cursor walks past their sessions; the hold lets
+        # the backfill resume when the period resets or the limit rises.
+        record_backfill_tick_outcome("skipped_scanner_limit")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
+
     in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
     budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
     # Never dispatch more children than the quota can pay for: a child declined at create still advances
@@ -106,6 +117,11 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
     affordable = quota.affordable_count(backfill.credits_per_observation)
     if affordable is not None:
         budget = min(budget, affordable)
+    if scanner_budget is not None:
+        # The scanner's own cap bounds the batch the same way the org quota does.
+        scanner_affordable = scanner_budget.affordable_count(backfill.credits_per_observation)
+        if scanner_affordable is not None:
+            budget = min(budget, scanner_affordable)
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
@@ -142,19 +158,24 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
 
-    candidates = BackfillCandidateQuery(
+    candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
         window_start=backfill.window_start,
         window_end=backfill.window_end,
+        query_type="ReplayVisionBackfillCandidateQuery",
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
+        scanner_id=str(backfill.scanner_id),
         sampling_mode=snapshot.sampling_mode,
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
-    ).run()
+        skip_negative_blocklists=True,
+    )
+    started_at = time.monotonic()
+    candidates = candidate_query.run()
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
@@ -167,7 +188,19 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    unobserved = [c for c in candidates if c.session_id not in succeeded_at]
+    # After the Postgres filter, so the scan covers only ids that could still be dispatched.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=backfill.team,
+        candidate_query=candidate_query,
+        candidates=unobserved,
+        scanner_id=str(backfill.scanner_id),
+        seconds_remaining=FIND_BACKFILL_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    # Same quarantine as the live sweep: a session past the stuck threshold cannot render, and the
+    # cursor steps over it exactly like an excluded session.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
+    dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {

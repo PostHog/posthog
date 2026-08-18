@@ -16,7 +16,9 @@ this product is isolated.
   (`QueryRunner`, `MaxTool`, Temporal defns, `@shared_task`) and are defined under the
   product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`,
   `backend/temporal/`, `backend/tasks/`); data and error types belong in
-  `facade/contracts.py`; Django models never cross the boundary
+  `facade/contracts.py`; Django models never cross the boundary, except for the few
+  `(product, class)` pairs on the frozen watched-models allowance (`MODEL_CROSSINGS`),
+  whose `backend/models/` + `backend/migrations/` must stay in the contract-check inputs
   (see `products/architecture.md` § Wiring couplings).
 - **Not isolated:** boundaries are not yet enforced by CI, but prefer using existing
   facades when they exist rather than importing internals.
