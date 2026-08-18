@@ -754,14 +754,12 @@ _BEHAVIORAL_COUNT_OPERATORS = {
 
 
 def _behavioral_property_to_expr(property: Property, team: Team, scope: str, strict: bool = False) -> ast.Expr:
-    """Compile a behavioral ("performed event") filter into `person_id [NOT] IN (SELECT person_id FROM events ...)`.
+    """Compile a behavioral ("performed event") filter into a `person_id IN (...)` subquery.
 
-    Unlike cohort-backed behavioral criteria this runs entirely at query time — no saved cohort,
-    no precalculated cohortpeople. Only the performed-event family is supported; the multi-subquery
-    criteria (sequences, stopped/restarted) still require a cohort.
+    Unlike cohort-backed behavioral criteria this runs at query time, with no saved cohort and no
+    precalculated cohortpeople.
     """
-    # Person scope would emit `id IN (SELECT person_id FROM events ...)`, which HogQL cannot resolve when the
-    # enclosing FROM is `persons` — the lazy person join gets added twice. Event scope only until that is fixed.
+    # Person scope needs `id IN (SELECT person_id FROM events ...)`, which HogQL can't resolve under a `persons` FROM.
     if scope != "event":
         raise QueryError(f"The 'behavioral' property filter does not work in '{scope}' scope")
     if property.value not in (
@@ -817,7 +815,6 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         # An unbounded "ever performed" filter would scan every partition of the events table.
         raise QueryError("Behavioral filters require a time window (time_value/time_interval or explicit_datetime)")
 
-    # Deliberately outside the branch above, so it bounds a relative window too.
     if property.explicit_datetime_to:
         date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
         conditions.append(
