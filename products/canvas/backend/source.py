@@ -18,6 +18,9 @@ import jsonschema
 
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.contract import (
+    GRID_COLUMN_CHOICES,
+    MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH,
     allowed_import_specifiers,
     canonical_network_origin,
     canvas_sdk_version,
@@ -29,15 +32,6 @@ CANVAS_SOURCE_SCHEMA_VERSION = 1
 CANVAS_ENTRY_HTML = "index.html"
 # The conventional React entry component (also what the synthetic shell mounts).
 CANVAS_COMPONENT_PATH = "src/canvas.tsx"
-
-# Grid bounds shared by component size contracts and grid layout validation.
-# Grids choose their column count from GRID_COLUMN_CHOICES; a component's
-# width contract is capped at the widest choice so it can never be unplaceable
-# everywhere, and heights are capped to keep a single widget from claiming an
-# effectively unbounded scroll area.
-GRID_COLUMN_CHOICES = (4, 6, 8, 10, 12)
-MAX_COMPONENT_WIDTH = max(GRID_COLUMN_CHOICES)
-MAX_COMPONENT_HEIGHT = 40
 
 # Config schemas are author-supplied, so the vocabulary is an allowlist:
 # no $ref/$dynamicRef (nothing downstream may be induced to resolve one) and

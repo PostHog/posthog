@@ -7,9 +7,13 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.canvas.backend.contract import canvas_sdk_version, contract_limits
+from products.canvas.backend.contract import (
+    MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH,
+    canvas_sdk_version,
+    contract_limits,
+)
 from products.canvas.backend.models import Canvas, CanvasState
-from products.canvas.backend.source import MAX_COMPONENT_HEIGHT, MAX_COMPONENT_WIDTH
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.

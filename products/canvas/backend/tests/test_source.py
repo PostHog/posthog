@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -277,7 +279,7 @@ def component_meta(**overrides):
 
 
 def deeply_nested_config_schema(levels):
-    schema = {"type": "object"}
+    schema: dict[str, Any] = {"type": "object"}
     for _ in range(levels):
         schema = {"type": "object", "items": schema}
     return schema
