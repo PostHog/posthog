@@ -18,7 +18,7 @@ import { useComponentStore } from "./useGridLayout";
 
 export interface PlacementTileActions {
   /** Dispatch an agent task to fill this placement with the given ask. */
-  describe: (placement: GridPlacement, prompt: string) => void;
+  describe: (placement: GridPlacement, prompt: string) => Promise<void>;
   /** Fill this placement with an existing store component. */
   place: (placement: GridPlacement, component: DashboardRecord) => void;
   /** Remove this placement from the layout. */
@@ -125,6 +125,7 @@ function DescribeTile({
   actions: PlacementTileActions;
 }) {
   const [prompt, setPrompt] = useState(placement.prompt ?? "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [storeOpen, setStoreOpen] = useState(false);
   const [storeSearch, setStoreSearch] = useState("");
   // The store query only fires once the picker opens — a grid full of drawn
@@ -143,8 +144,14 @@ function DescribeTile({
       </div>
     );
   }
-  const submit = () => {
-    if (prompt.trim()) actions.describe(placement, prompt.trim());
+  const submit = async () => {
+    if (!prompt.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await actions.describe(placement, prompt.trim());
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   return (
     <div className="flex h-full w-full flex-col justify-center gap-2 p-3">
@@ -155,7 +162,7 @@ function DescribeTile({
         className="flex items-center gap-1"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          void submit();
         }}
       >
         <Input
@@ -163,8 +170,14 @@ function DescribeTile({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="What should go here?"
+          disabled={isSubmitting}
         />
-        <Button type="submit" size="sm" disabled={!prompt.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          loading={isSubmitting}
+          disabled={!prompt.trim() || isSubmitting}
+        >
           {failed ? "Retry" : "Create"}
         </Button>
       </form>

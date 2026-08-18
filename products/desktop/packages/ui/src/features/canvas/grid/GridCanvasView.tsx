@@ -106,6 +106,20 @@ export function GridCanvasView({
   const describe = useCallback(
     async (placement: GridPlacement, prompt: string) => {
       if (!dashboard) return;
+      // Flip the tile to its generating state before dispatching the task —
+      // task creation takes seconds, and a silent describe box reads as broken.
+      const staged = await patch(
+        [
+          {
+            op: "update_placement",
+            id: placement.id,
+            changes: { status: "generating", prompt },
+          },
+        ],
+        currentVersionId,
+        prompt,
+      );
+      if (!staged) return;
       const taskId = await generate({
         dashboardId: canvasId,
         name: dashboard.name,
@@ -121,13 +135,14 @@ export function GridCanvasView({
           {
             op: "update_placement",
             id: placement.id,
+            // Dispatch failed (already toasted): back to pending so the box
+            // offers the prompt again instead of spinning forever.
             changes: taskId
-              ? { status: "generating", prompt, generationTaskId: taskId }
-              : { status: "pending", prompt },
+              ? { generationTaskId: taskId }
+              : { status: "pending" },
           },
         ],
-        currentVersionId,
-        prompt,
+        staged.currentVersionId ?? null,
       );
     },
     [dashboard, generate, patch, canvasId, currentVersionId],
@@ -172,7 +187,9 @@ export function GridCanvasView({
   const { grid } = layout;
 
   return (
-    <div className="h-full overflow-y-auto p-4">
+    // `relative` anchors the empty-state overlay below; without it the
+    // absolute inset-0 escapes to the nearest positioned ancestor.
+    <div className="relative h-full overflow-y-auto p-4">
       {placements.length === 0 && !drag ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <Empty>

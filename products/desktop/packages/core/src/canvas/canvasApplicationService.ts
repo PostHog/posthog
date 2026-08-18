@@ -185,6 +185,12 @@ export class CanvasApplicationService {
     });
 
     const dashboardId = input.dashboardId;
+    // A placement fill is scoped to one tile: the placement row carries the
+    // task id, so the whole canvas must not read as "generating" (nor get
+    // auto-renamed from a single widget's prompt).
+    if (input.placement) {
+      return { ok: true, taskId: task.id };
+    }
     await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
       this.log.warn("Failed to record canvas generation task", { error });
     });

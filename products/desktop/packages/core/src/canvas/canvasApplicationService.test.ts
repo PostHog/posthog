@@ -87,6 +87,29 @@ describe("CanvasApplicationService", () => {
     expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
   });
 
+  it("scopes a placement fill to its tile: skill routing, no canvas-level generation state", async () => {
+    const { service, createTask, generateCanvasName } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.generateCanvas(
+      input({
+        name: "Untitled canvas",
+        placement: { placementId: "p-1", w: 2, h: 1 },
+      }),
+      gateway,
+    );
+
+    expect(result).toEqual({ ok: true, taskId: "task-1" });
+    const [taskInput] = createTask.mock.calls[0];
+    expect(taskInput.content).toContain("`composing-grid-canvases` skill");
+    expect(taskInput.content).toContain('placement id: "p-1"');
+    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
+    // The placement row carries the task id; the canvas itself is not
+    // generating and must not be renamed from one widget's prompt.
+    expect(gateway.setGenerationTask).not.toHaveBeenCalled();
+    expect(generateCanvasName).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["no signed-in region", input({ cloudRegion: null })],
     ["resolver returns nothing", input(), vi.fn().mockResolvedValue(undefined)],
