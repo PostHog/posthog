@@ -4735,6 +4735,7 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
 
+
 @override_settings(INSTAGRAM_APP_CLIENT_ID="instagram-client-id", INSTAGRAM_APP_CLIENT_SECRET="instagram-client-secret")
 class TestInstagramIntegrationModel(BaseTest):
     def test_oauth_config(self):

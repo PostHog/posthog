@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -6,6 +5,8 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -31,7 +32,7 @@ DEFAULT_API_VERSION = "v2"
 AccessTokenRefresher = Callable[[], str]
 
 
-@dataclasses.dataclass
+@frozen
 class YouTubeAnalyticsResumeConfig:
     # ISO date (YYYY-MM-DD) of the next day-window to request.
     next_start_date: str
