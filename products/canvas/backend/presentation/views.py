@@ -1031,13 +1031,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(
-            {
-                "canvas": CanvasSummarySerializer(canvas).data,
-                "layout": layout,
-                "current_version_id": (
-                    str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-                ),
-            }
+            CanvasLayoutResponseSerializer(
+                instance={
+                    "canvas": canvas,
+                    "layout": layout,
+                    "current_version_id": (
+                        str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+                    ),
+                }
+            ).data
         )
 
     @extend_schema(
@@ -1192,11 +1194,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_sandbox_publish=task_id is not None,
         )
         return Response(
-            {
-                "canvas": CanvasSummarySerializer(canvas).data,
-                "layout": layout,
-                "current_version_id": str(version.id),
-            }
+            CanvasLayoutPublishResponseSerializer(
+                instance={"canvas": canvas, "layout": layout, "current_version_id": str(version.id)}
+            ).data
         )
 
     def _read_current_layout(self, canvas: Canvas) -> dict[str, Any]:

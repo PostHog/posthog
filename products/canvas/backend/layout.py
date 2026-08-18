@@ -18,6 +18,7 @@ from uuid import UUID
 
 import jsonschema
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend.contract import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, contract_limits
@@ -423,11 +424,18 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
 _PLACEMENT_INDEX_RE = re.compile(r"placements\[\d+\]")
 
 
-def _diagnostic_key(diag: dict[str, Any]) -> tuple[Any, Any, str]:
-    return (
-        diag.get("severity"),
-        diag.get("code"),
-        _PLACEMENT_INDEX_RE.sub("placements[]", str(diag.get("message", ""))),
+@frozen
+class _DiagnosticKey:
+    severity: str
+    code: str
+    message: str
+
+
+def _diagnostic_key(diag: dict[str, Any]) -> _DiagnosticKey:
+    return _DiagnosticKey(
+        severity=str(diag.get("severity", "")),
+        code=str(diag.get("code", "")),
+        message=_PLACEMENT_INDEX_RE.sub("placements[]", str(diag.get("message", ""))),
     )
 
 
