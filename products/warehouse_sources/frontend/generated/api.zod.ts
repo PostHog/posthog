@@ -564,6 +564,10 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                 incremental_field_type: zod.string().nullish().describe('Type of the incremental cursor field.'),
                 sync_frequency: zod.string().nullish().describe('Human-readable sync frequency value.'),
                 sync_time_of_day: zod.iso.time({}).nullish().describe('UTC anchor time for scheduled syncs.'),
+                primary_key_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe('Column names for primary key deduplication.'),
                 cdc_table_mode: zod
                     .union([
                         zod
