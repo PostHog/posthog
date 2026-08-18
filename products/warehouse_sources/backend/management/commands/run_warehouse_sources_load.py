@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
-from posthog.product_db_migrations import collect_unapplied_product_migrations
+from posthog.product_db_migrations import collect_unapplied_product_migrations, configured_product_databases
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.logger import configure_logger
 
@@ -226,6 +226,14 @@ class Command(BaseCommand):
         # and fail at runtime (UndefinedColumn), so refuse startup instead. Requires
         # the PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env (a no-op where it is absent).
         if not options.get("skip_migrations_check"):
+            if not configured_product_databases(databases={"warehouse_sources_queue"}):
+                # Legacy config: consumer reaches the queue DB via WAREHOUSE_SOURCES_DATABASE_URL
+                # alone, so the schema can't be verified. Warn instead of failing so those
+                # deployments keep working, but make the blind spot visible to operators.
+                logger.warning(
+                    "migrations_check_skipped_unconfigured",
+                    note="PRODUCT_DB_WAREHOUSE_SOURCES_QUEUE_* env not set; queue schema not verified against this image",
+                )
             unapplied = collect_unapplied_product_migrations(databases={"warehouse_sources_queue"})
             if unapplied:
                 for alias, migrations in unapplied.items():
