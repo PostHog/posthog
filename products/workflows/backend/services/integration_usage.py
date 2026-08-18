@@ -17,6 +17,9 @@ def _node_references_integration(node: Any, integration_id: int, depth: int = 0)
         value = node.get("integrationId")
         if value is not None and str(value) == str(integration_id):
             return True
+        values = node.get("integrationIds")
+        if isinstance(values, list) and any(str(value) == str(integration_id) for value in values):
+            return True
         return any(_node_references_integration(child, integration_id, depth + 1) for child in node.values())
     if isinstance(node, list):
         return any(_node_references_integration(item, integration_id, depth + 1) for item in node)

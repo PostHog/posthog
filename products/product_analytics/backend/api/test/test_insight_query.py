@@ -1,10 +1,17 @@
+from typing import get_args
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
 
+from products.product_analytics.backend.api.insight import (
+    AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
+    BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import LicensedTestMixin
@@ -220,6 +227,23 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "DataVisualizationNode",
                 "HogQLQuery",
             ),
+            (
+                "bare_paths_v2_query",
+                {"kind": "PathsV2Query", "dateRange": {"date_from": "-7d"}},
+                "InsightVizNode",
+                "PathsV2Query",
+            ),
+            (
+                "bare_web_stats_table_query",
+                {
+                    "kind": "WebStatsTableQuery",
+                    "breakdownBy": "Page",
+                    "properties": [],
+                    "dateRange": {"date_from": "-7d"},
+                },
+                "InsightVizNode",
+                "WebStatsTableQuery",
+            ),
         ]
     )
     def test_create_wraps_bare_query_sources(self, _name, query, expected_kind, expected_source_kind) -> None:
@@ -265,6 +289,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight_id, _ = self.dashboard_api.create_insight({"name": "Verbatim query insight", "query": query})
 
         assert Insight.objects.get(pk=insight_id).query == query
+
+    def test_every_insight_viz_source_kind_is_either_auto_wrapped_or_bare_rendered(self) -> None:
+        source_annotation = schema.InsightVizNode.model_fields["source"].annotation
+        schema_kinds = {get_args(member.model_fields["kind"].annotation)[0] for member in get_args(source_annotation)}
+
+        assert AUTO_WRAPPED_INSIGHT_QUERY_KINDS.isdisjoint(BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS)
+        # A kind added to the union but to neither set would save bare and render as a blank tile.
+        assert AUTO_WRAPPED_INSIGHT_QUERY_KINDS | BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS == schema_kinds
 
     def test_update_wraps_bare_query_sources(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight(

@@ -27,6 +27,7 @@ from .demo_data import SandboxedDemoData, ensure_demo_ready
 from .discovery import EvalSuite, discover_suites
 from .django_env import EvalDatabase
 from .env_preflight import validate_eval_env
+from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .ports import DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
@@ -194,7 +195,7 @@ class SandboxedEvalHarness:
 
         if Infra.LLM_GATEWAY in required:
             assert self._live_server is not None
-            self._stack.callback(start_llm_gateway(self._live_server.url))
+            self._stack.callback(start_llm_gateway(self._live_server.url, self.options.agent_model))
         if Infra.MCP_SERVER in required:
             assert self._live_server is not None
             self._stack.callback(start_mcp_server(self._live_server.url))
@@ -254,6 +255,10 @@ class SandboxedEvalHarness:
                     TEMPORAL_CLIENT_KEY=None,
                     # Keep eval workflows off any dev worker already polling the normal tasks queue.
                     TASKS_TASK_QUEUE=temporal_task_queue(),
+                    # Notebook kernel runs dispatch onto the general-purpose queue. Pointing it at
+                    # the same per-process queue lets the single eval worker serve both, and keeps
+                    # those workflows off a dev worker the same way.
+                    GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
                     **self.provider.settings_overrides(),
                 )
 
@@ -269,6 +274,10 @@ class SandboxedEvalHarness:
                 worker = TemporalWorkerThread()
                 worker.start()
                 stack.callback(worker.stop)
+                # A run interrupted before its own sweep leaves kernel rows behind in the
+                # reused test database; reclaim those containers now rather than at the end.
+                await self._sweep_notebook_kernels()
+                stack.push_async_callback(self._sweep_notebook_kernels)
 
             ctx = self._build_context(required, reporter)
 
@@ -283,6 +292,17 @@ class SandboxedEvalHarness:
                 logger.info("Running %d suite(s) without sandbox infrastructure", len(suites))
             results = await asyncio.gather(*(self._run_suite(suite, ctx) for suite in suites))
         return results
+
+    async def _sweep_notebook_kernels(self) -> None:
+        """Sweep every notebook kernel sandbox recorded in the eval database.
+
+        A python or duckdb notebook cell provisions a kernel sandbox next to the case's
+        agent sandbox, and docker ignores the sandbox TTL. Each case reclaims its own
+        before it frees its slot; this catches whatever a crash or a timeout left behind.
+        Registered on the stack that still holds the provider settings overrides, so the
+        sandbox class resolves the same way it did when the kernel was created.
+        """
+        await reclaim_kernels(keep=self.provider is not None and self.provider.keeps_sandboxes())
 
     def _build_context(self, required: frozenset[Infra], reporter: ProgressReporter) -> EvalContext:
         if Infra.DEMO_DATA in required and self._demo_data is None:

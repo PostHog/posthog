@@ -103,7 +103,7 @@ interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // When set, the dialog is the "Create your CONTEXT.md" flow for an existing
-  // context: no name field, just a description that seeds the planning session.
+  // context: no name field, just a description that seeds the build session.
   existingContext?: { channelId: string; channelName: string };
 }
 
@@ -112,12 +112,12 @@ interface CreateChannelModalProps {
 //   Step one names the channel, step two asks what it's about, step three
 //   carries the settings. Nothing is created until that last step resolves —
 //   "Create" makes the channel, links the chosen repositories and launches the
-//   context.md plan session seeded by the description, "Skip" makes the channel
+//   context.md build session seeded by the description, "Skip" makes the channel
 //   alone. Either way the user lands in the channel's feed, whose intro card
 //   carries the onboarding (and offers context.md later if skipped).
 // - Describe mode: the "Create your context.md" dialog (opened from the intro
 //   card or the CONTEXT.md empty state). A single textarea whose text seeds
-//   a plan-mode session that builds the context's CONTEXT.md with the user.
+//   the session that builds the context's CONTEXT.md.
 export function CreateChannelModal({
   open,
   onOpenChange,
@@ -180,7 +180,7 @@ export function CreateChannelModal({
   // `busy` only disables the buttons a render after the mutation starts, so a
   // double-click lands two submits before it applies. Create is resolve-or-
   // create (idempotent), but a double submit would still double-launch the
-  // plan session. Latch synchronously; the buttons stay the user-visible half.
+  // build session. Latch synchronously; the buttons stay the user-visible half.
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
@@ -251,7 +251,7 @@ export function CreateChannelModal({
     });
   };
 
-  // Describe mode: launch the plan-mode session that builds CONTEXT.md. On
+  // Describe mode: launch the session that builds CONTEXT.md. On
   // failure (generate() already toasted) the dialog stays open, state intact,
   // for a clean retry.
   const submitDescribe = async () => {
@@ -267,7 +267,7 @@ export function CreateChannelModal({
     });
     if (!task) return;
 
-    // Land on the context index (its feed), where the announcement and the plan
+    // Land on the context index (its feed), where the announcement and the
     // task card show. The user clicks the card to open the session.
     onOpenChange(false);
     void navigate({

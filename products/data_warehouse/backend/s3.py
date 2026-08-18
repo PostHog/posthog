@@ -135,6 +135,14 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
             raise
 
         if int(error_code) == 404:
-            s3_client.create_bucket(Bucket=bucket_name)
+            try:
+                s3_client.create_bucket(Bucket=bucket_name)
+            except botocore.exceptions.ClientError as create_error:
+                # Concurrent callers can both see the 404 above before either creates the bucket; the
+                # loser's create_bucket then reports it already owns the bucket the winner just made.
+                # That's the intended end state, not a failure.
+                create_error_code = create_error.response.get("Error", {}).get("Code")
+                if create_error_code != "BucketAlreadyOwnedByYou":
+                    raise
         else:
             raise

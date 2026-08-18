@@ -661,7 +661,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         expected = oracle_resource_access_level(
             resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
         )
-        assert self._fresh_uac().access_level_for_resource(resource) == expected
+        resource_access = self._fresh_uac().access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
@@ -743,6 +744,51 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         blocked, _allowed = oracle_blocked_and_allowed_object_ids(object_specs_by_id)
         assert result == ({resource: blocked} if blocked else {})
 
+    @given(scenario=queryset_scenario())
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_hogql_guard_inputs_resolve_the_same_rows_as_the_queryset_filter(self, scenario):
+        # HogQL can't run filter_queryset_by_access_level, so it rebuilds the same decision in SQL from
+        # allowlisted_resource_ids_by_scope, blocked_resource_ids_by_scope and the row's creator (see
+        # build_access_control_guard). Evaluate that decision here and hold it to the REST oracle: a
+        # divergence means HogQL and the API disagree about who can see an object. Members only - HogQL
+        # exempts org admins from object-level filtering outright, while the queryset filter does so
+        # only when its caller passes include_all_if_admin.
+        resource, model_cls, objects, resource_specs = scenario
+        self._set_membership_level(OrganizationMembership.Level.MEMBER)
+
+        object_specs_by_id: dict[str, list[RowSpec]] = {}
+        creator_ids: set[str] = set()
+        for specs, owned in objects:
+            creator = self.user if owned else self.other_user
+            obj = build_instance(model_cls, self.team, creator)
+            self._materialize(specs, resource, obj)
+            object_specs_by_id[str(obj.pk)] = specs
+            if owned:
+                creator_ids.add(str(obj.pk))
+        self._materialize(resource_specs, resource, obj=None)
+
+        uac = self._fresh_uac()
+        allowlisted = uac.allowlisted_resource_ids_by_scope.get(resource)
+        blocked = uac.blocked_resource_ids_by_scope.get(resource, frozenset())
+        model_has_creator = model_has_created_by(model_cls)
+
+        def guard_admits(object_id: str) -> bool:
+            if model_has_creator and object_id in creator_ids:
+                return True
+            if allowlisted:
+                return object_id in allowlisted
+            return object_id not in blocked
+
+        visible = {object_id for object_id in object_specs_by_id if guard_admits(object_id)}
+        assert visible == oracle_visible_object_ids(
+            resource,
+            resource_specs,
+            object_specs_by_id,
+            creator_ids,
+            model_has_creator=model_has_creator,
+            is_org_admin=False,
+        )
+
     @given(
         data=object_resource_and_rows(),
         team_rows=project_rows(),
@@ -760,7 +806,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
         assert effective is not None
         assert uac.access_level_for_object(obj) == highest_access_level(resource)
-        assert uac.access_level_for_resource(resource) == highest_access_level(effective)
+        resource_access = uac.access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
 
