@@ -2742,17 +2742,22 @@ def set_task_run_output(
     if run is None:
         return None
     task = run.task
-    # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
-    # so a bare `= output` would drop output.pr_url recorded out of band.
-    existing = run.output if isinstance(run.output, dict) else {}
-    merged = merge_pr_output(existing, output)
-    applied = _apply_caller_output(existing, output, merged)
-    # Only the sandbox agent identity attests a PR as ours; a human `task:write` caller reporting a
-    # URL here must not mark it agent-opened (the PR close guard trusts that flag).
-    if caller_is_agent:
-        applied = with_agent_opened_pr_urls(applied, read_pr_urls(output))
-    run.output = applied
-    run.save(update_fields=["output", "updated_at"])
+    with transaction.atomic():
+        # Take the row lock and re-read before merging so this wholesale output write can't clobber
+        # PR facts a concurrent webhook or PATCH committed after our first read — including the
+        # agent_opened_pr_urls attestation the PR close guard trusts. Mirrors update_task_run.
+        run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
+        # so a bare `= output` would drop output.pr_url recorded out of band.
+        existing = run.output if isinstance(run.output, dict) else {}
+        merged = merge_pr_output(existing, output)
+        applied = _apply_caller_output(existing, output, merged)
+        # Only the sandbox agent identity attests a PR as ours; a human `task:write` caller reporting a
+        # URL here must not mark it agent-opened (the PR close guard trusts that flag).
+        if caller_is_agent:
+            applied = with_agent_opened_pr_urls(applied, read_pr_urls(output))
+        run.output = applied
+        run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
