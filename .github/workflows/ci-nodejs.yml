@@ -64,8 +64,6 @@ jobs:
                         - 'rust/replay-anonymizer-node/**'
                         # These native addons are built by Turbo before Node.js tests. Their Rust
                         # dependencies are not part of the ingestion consumer's targeted e2e set.
-                        - 'rust/cyclotron-core/**'
-                        - 'rust/cyclotron-node/**'
                         - 'rust/common/hogvm/**'
                         - '**/crosslang/**'
                         # The clientwarnings consumer e2e replays capture's warning envelope from
