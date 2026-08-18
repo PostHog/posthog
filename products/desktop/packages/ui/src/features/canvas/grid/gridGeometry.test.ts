@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cellFromPoint,
   clampRect,
+  clampRectToContract,
   collides,
   rectFromCells,
 } from "./gridGeometry";
@@ -50,6 +51,39 @@ describe("gridGeometry", () => {
     ],
   ])("clampRect: %s", (_name, rect, expected) => {
     expect(clampRect(rect, 6)).toEqual(expected);
+  });
+
+  // The server rejects a live placement outside its component's contract, so
+  // an unclamped rect here means a doomed patch and an error toast.
+  it.each([
+    [
+      "too-small drawn box grows to the contract minimum",
+      { x: 0, y: 0, w: 1, h: 1 },
+      { minW: 2, minH: 4, maxH: 6 },
+      { x: 0, y: 0, w: 2, h: 4 },
+    ],
+    [
+      "oversized resize shrinks to the contract maximum",
+      { x: 0, y: 0, w: 5, h: 8 },
+      { minW: 2, minH: 4, maxW: 3, maxH: 6 },
+      { x: 0, y: 0, w: 3, h: 6 },
+    ],
+    [
+      "growth past the right edge slides the box left",
+      { x: 5, y: 2, w: 1, h: 4 },
+      { minW: 3, minH: 4 },
+      { x: 3, y: 2, w: 3, h: 4 },
+    ],
+    [
+      "a contract minimum wider than the grid gets the full width",
+      { x: 0, y: 0, w: 1, h: 4 },
+      { minW: 9, minH: 4 },
+      { x: 0, y: 0, w: 6, h: 4 },
+    ],
+  ])("clampRectToContract: %s", (_name, rect, size, expected) => {
+    expect(
+      clampRectToContract(rect, { defaultW: 2, defaultH: 4, ...size }, 6),
+    ).toEqual(expected);
   });
 
   it("cellFromPoint maps pointer positions to cells including the gap", () => {

@@ -1,4 +1,5 @@
 import type {
+  ComponentSize,
   GridDefinition,
   GridPlacement,
 } from "@posthog/core/canvas/gridLayoutSchemas";
@@ -38,6 +39,26 @@ export function clampRect(rect: GridRect, columns: number): GridRect {
   const x = Math.min(Math.max(0, rect.x), columns - w);
   const y = Math.max(0, rect.y);
   return { x, y, w, h };
+}
+
+// Snap a rect into a component's size contract (the server rejects a live
+// placement outside it), then keep it inside the grid. The grid wins when the
+// two conflict: a contract minimum wider than the grid gets the full width.
+export function clampRectToContract(
+  rect: GridRect,
+  size: ComponentSize,
+  columns: number,
+): GridRect {
+  const w = Math.min(
+    Math.min(Math.max(rect.w, size.minW), size.maxW ?? columns),
+    columns,
+  );
+  const h = Math.min(
+    Math.max(rect.h, size.minH),
+    size.maxH ?? MAX_PLACEMENT_HEIGHT,
+  );
+  const x = Math.max(0, Math.min(rect.x, columns - w));
+  return { x, y: rect.y, w, h };
 }
 
 // The grid cell under a pointer position, given the surface's bounding rect.
