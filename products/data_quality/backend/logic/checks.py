@@ -187,7 +187,7 @@ def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) ->
 def start_check_suite(
     *,
     team: Team,
-    trigger: str = SuiteRunTrigger.MANUAL,
+    trigger: SuiteRunTrigger = SuiteRunTrigger.MANUAL,
     user: User | None = None,
     subject_type: str = "",
     subject_uuids: list[str] | None = None,
