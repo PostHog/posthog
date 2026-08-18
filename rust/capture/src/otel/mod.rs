@@ -22,7 +22,8 @@ use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::otel::{
-    emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning, SpanCapStage,
+    emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning,
+    emit_span_too_big_warning, SpanCapStage,
 };
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
@@ -281,16 +282,30 @@ pub async fn otel_handler(
                 e.into_response()
             })?;
 
-    // Drop spans past the deployment's per-event ceiling rather than refusing
-    // the export. An OTEL collector retries a rejected export, so one oversized
-    // span would otherwise stall everything behind it; the span cap on this
-    // endpoint already sheds spans the same way.
+    // Shed spans past the deployment's per-event ceiling rather than refusing
+    // the export.
+    //
+    // Every other AI path answers an oversize event with an error: the legacy
+    // batch path 413s the request and v1 marks the single event dropped. OTEL
+    // diverges because a collector retries a rejected export, so a span that
+    // can never fit would stall every span queued behind it, indefinitely. The
+    // span cap on this endpoint sheds spans for the same reason.
+    //
+    // The cost is that the loss cannot be seen in the response, so it is
+    // reported twice: on `capture_events_dropped_total` for us, and as a
+    // `MessageSizeTooLarge` ingestion warning for whoever owns the project.
     let before = processed_events.len();
     processed_events
         .retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), state.ai_max_event_bytes));
     let dropped = before - processed_events.len();
     if dropped > 0 {
         report_dropped_events("ai_event_too_big", dropped as u64);
+        emit_span_too_big_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(&token, OTEL_PATH, Some(&request)),
+            dropped,
+            state.ai_max_event_bytes,
+        );
     }
 
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain

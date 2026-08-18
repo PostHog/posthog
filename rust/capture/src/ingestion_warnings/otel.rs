@@ -137,6 +137,36 @@ pub fn emit_span_cap_warning(
     );
 }
 
+/// Emit the warning for spans shed for exceeding the deployment's per-event
+/// size ceiling.
+///
+/// This is the second warning here that accompanies a 200. The export is not
+/// refused, because an OTEL collector retries a rejected export and would stall
+/// behind a span that can never fit — so the offending spans are shed and the
+/// rest publish. That trade makes the loss invisible in the response, which is
+/// what this warning exists to correct.
+///
+/// `count` charges only the spans that were shed; the others landed.
+pub fn emit_span_too_big_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    dropped_spans: usize,
+    limit: u64,
+) {
+    let mut details = Map::new();
+    details.insert("droppedSpans".to_string(), json!(dropped_spans));
+    details.insert("limit".to_string(), json!(limit));
+
+    emit_request_warning(
+        emitter,
+        request,
+        CAPTURE_AI_OTEL,
+        WarningType::MessageSizeTooLarge,
+        details,
+        dropped_spans as u64,
+    );
+}
+
 /// Emit the warning for an export whose spans all filtered out as non-AI.
 ///
 /// This is the one warning here that accompanies a 200. The OTLP contract gives

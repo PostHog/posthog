@@ -266,6 +266,22 @@ pub struct Config {
     /// `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
     /// event inside it. capture-analytics needs a smaller value than capture-ai
     /// because its AI topic is on MSK.
+    ///
+    /// What an over-ceiling event gets back differs by path, because each one
+    /// keeps its own convention:
+    ///
+    /// * `/i/v0/ai/batch` and the diverted legacy path — 413, whole request
+    ///   refused, like every other oversize check there.
+    /// * `/i/v1/analytics/events` — the one event is dropped and reported as
+    ///   `ai_event_too_big` in the 200 body; the rest of the batch publishes.
+    /// * `/i/v0/ai` (multipart) — 413, the endpoint's pre-existing behavior.
+    /// * `/i/v0/ai/otel` — the span is shed and the export still succeeds. A
+    ///   collector retries a rejected export, so refusing would stall every
+    ///   span behind one that can never fit. That loss is invisible in the
+    ///   response, so it raises a `MessageSizeTooLarge` ingestion warning.
+    ///
+    /// Every path also counts the loss under `ai_event_too_big`, on
+    /// `capture_events_dropped_total` or `capture_v1_events_dropped`.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 

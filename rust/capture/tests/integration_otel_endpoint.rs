@@ -140,6 +140,9 @@ struct TestClientOptions {
     // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
     // every emit site.
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    // Per-event AI size ceiling. `None` keeps the 960KB the multipart
+    // endpoint enforced before it became configurable.
+    ai_max_event_bytes: Option<u64>,
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {
@@ -178,19 +181,19 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.event_restriction_service,
         None, // recorder_handle
         CaptureMode::Ai,
-        None,             // concurrency_limit
-        25 * 1024 * 1024, // event_payload_size_limit
-        false,            // enable_historical_rerouting
-        1_i64,            // historical_rerouting_threshold_days
-        false,            // is_mirror_deploy
-        0.0_f32,          // verbose_sample_percent
-        26_214_400,       // ai_max_sum_of_parts_bytes
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
-        None,             // body_chunk_read_timeout_ms
-        256,              // body_read_chunk_size_kb
-        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        None,             // overflow_limiter
+        None,                                          // concurrency_limit
+        25 * 1024 * 1024,                              // event_payload_size_limit
+        false,                                         // enable_historical_rerouting
+        1_i64,                                         // historical_rerouting_threshold_days
+        false,                                         // is_mirror_deploy
+        0.0_f32,                                       // verbose_sample_percent
+        26_214_400,                                    // ai_max_sum_of_parts_bytes
+        options.ai_max_event_bytes.unwrap_or(983_040), // ai_max_event_bytes
+        None,                                          // body_chunk_read_timeout_ms
+        256,                                           // body_read_chunk_size_kb
+        10 * 1024 * 1024,                              // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                              // capture_v1_max_decompressed_body_bytes
+        None,                                          // overflow_limiter
         options.ai_events_overflow_limiter,
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
@@ -847,6 +850,41 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event.event, "$ai_generation");
+}
+
+/// An oversized span is shed and the export still succeeds, so a collector is
+/// never made to retry a span that can never fit. The warning is the only
+/// feedback channel for that, which is why it is asserted alongside the drop:
+/// without it the customer sees a 200 and silently missing spans.
+#[tokio::test]
+async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
+    let sink = CapturingSink::new();
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ai_max_event_bytes: Some(64),
+            ..Default::default()
+        },
+    );
+
+    // A 64-byte ceiling is under the serialized size of even a minimal AI span.
+    let status = send_request_with_client(&client, &make_single_span_request()).await;
+    assert_eq!(status, 200, "the export must still be accepted");
+    assert!(
+        sink.get_events().await.is_empty(),
+        "the oversized span must not reach the sink"
+    );
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
+    assert_eq!(
+        emitted[0].extra_details.get("droppedSpans"),
+        Some(&json!(1))
+    );
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract
