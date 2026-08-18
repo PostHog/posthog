@@ -58,6 +58,8 @@ interface TaskItemProps {
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   onArchive?: () => void;
   onTogglePin?: () => void;
   onEditSubmit?: (newTitle: string) => void;
@@ -131,6 +133,8 @@ export function TaskItem({
   onClick,
   onDoubleClick,
   onContextMenu,
+  onDragStart,
+  onDragEnd,
   onArchive,
   onTogglePin,
   onEditSubmit,
@@ -190,9 +194,10 @@ export function TaskItem({
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       e.dataTransfer.setData("text/x-task-id", taskId);
-      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.effectAllowed = isPinned ? "move" : "copyMove";
+      onDragStart?.(e);
     },
-    [taskId],
+    [isPinned, onDragStart, taskId],
   );
 
   if (isEditing) {
@@ -220,6 +225,7 @@ export function TaskItem({
       isDimmed={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
