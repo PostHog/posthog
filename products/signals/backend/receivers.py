@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.apps import apps
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -59,7 +60,17 @@ def mark_report_canvas_collaborative_from_version(
     # stamps its task). That is a direct edit and always claims the canvas. A version stamped with
     # this session's own generation task is the pipeline republishing, so it is excluded.
     if instance.task_id is not None:
-        canvases = canvases.exclude(generation_task_id=instance.task_id)
+        report_ids = canvases.values("report_id")
+        task_model = apps.get_model("tasks", "Task")
+        is_report_generation = task_model.objects.filter(
+            id=instance.task_id,
+            team_id=instance.team_id,
+            internal=True,
+            origin_product="signal_report",
+            signal_report_id__in=report_ids,
+        ).exists()
+        if is_report_generation:
+            return
     canvases.update(
         collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
         updated_at=timezone.now(),
