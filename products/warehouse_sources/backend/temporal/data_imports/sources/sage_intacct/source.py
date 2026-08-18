@@ -60,7 +60,9 @@ class SageIntacctSource(ResumableSource[SageIntacctSourceConfig, SageIntacctResu
             label="Sage Intacct",
             caption="""Connect Sage Intacct to pull your ledger, payables, receivables, and dimension records into the PostHog Data warehouse.
 
-Register an app in the [Sage Developer Portal](https://developer.sage.com/intacct/) to get a client ID and secret, and make sure Web Services is enabled for the company you want to sync. Leave the refresh token blank to use the client credentials grant, or paste one in if your app uses the authorization code grant.
+Register an app in the [Sage Developer Portal](https://developer.sage.com/intacct/) to get a client ID and secret, and make sure Web Services is enabled for the company you want to sync.
+
+Leave the refresh token blank. Syncs then use the client credentials grant, which needs no user to authorize it and nothing to renew.
 
 Sage meters REST API usage, so pick a sync frequency that fits your plan's transaction allowance.""",
             iconPath="/static/services/sage_intacct.png",
@@ -92,6 +94,7 @@ Sage meters REST API usage, so pick a sync frequency that fits your plan's trans
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        caption="Only needed if your app uses the authorization code grant. Sage expires refresh tokens after about six months, and syncs stop until you enter a new one.",
                         secret=True,
                     ),
                 ],
