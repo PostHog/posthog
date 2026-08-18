@@ -100,6 +100,24 @@ describe('onboardingLogic', () => {
         )
     })
 
+    it('never enables exception autocapture when no use case is selected', async () => {
+        const updates: Record<string, unknown>[] = []
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/': async ({ request }) => {
+                    const update = (await request.json()) as Record<string, unknown>
+                    updates.push(update)
+                    return [200, { ...MOCK_DEFAULT_TEAM, ...update }]
+                },
+            },
+        })
+
+        await logic.asyncActions.completeOnboarding()
+
+        expect(updates.some((update) => 'autocapture_exceptions_opt_in' in update)).toBe(false)
+    })
+
     it('records each selected product once and persists completion last', async () => {
         let addIntentRequests = 0
         let customProductLoads = 0

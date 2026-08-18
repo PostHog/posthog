@@ -91,6 +91,10 @@ export const SUPPORTED_TOOL_PRODUCTS = [
 ]
 
 export const ADDITIONAL_TOOL_DETAILS: Partial<Record<ProductKey, { description: string; docsUrl: string }>> = {
+    [ProductKey.ERROR_TRACKING]: {
+        description: 'Group exceptions into issues. Turn on autocapture when you want it.',
+        docsUrl: 'https://posthog.com/docs/error-tracking',
+    },
     [ProductKey.FEATURE_FLAGS]: {
         description: 'Roll out changes gradually and safely.',
         docsUrl: 'https://posthog.com/docs/feature-flags',
@@ -260,8 +264,12 @@ export const ONBOARDING_USE_CASES: OnboardingUseCase[] = [
 
 const DEFAULT_SETUP: OnboardingSetup = {
     primaryProduct: ProductKey.PRODUCT_ANALYTICS,
-    tools: ['product_analytics', 'session_replay', 'error_tracking'],
+    // error_tracking stays out of tools because a tool applies its options, and its
+    // exception_autocapture option bills the team. The no-use-case default must not enable
+    // billable capture the user never chose, so it rides along as an intent-only additional tool.
+    tools: ['product_analytics', 'session_replay'],
     additionalTools: [
+        ProductKey.ERROR_TRACKING,
         ProductKey.FEATURE_FLAGS,
         ProductKey.EXPERIMENTS,
         ProductKey.SURVEYS,
