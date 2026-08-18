@@ -2914,8 +2914,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         started = perf_counter()
 
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
-            # The insight node under the InsightVizNode wrapper; empty on the saved-insight path,
-            # and on a malformed query that never got past validation.
             raw_source = query.get("source") if isinstance(query, dict) else None
             source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
@@ -2926,8 +2924,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "run_id": run_id,
                     "source": "query" if query is not None else "insight",
                     "insight_id": request.validated_data.get("insight_id"),
-                    # Which chart got made, not just that one did. The display type lives on
-                    # whichever <kind>Filter the source carries, so pick it up wherever it sits.
                     "query_kind": source.get("kind"),
                     "display": next(
                         (f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None
