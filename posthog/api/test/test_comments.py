@@ -11,7 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Integration, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
@@ -76,6 +76,57 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             artifacts=[{"id": "artifact-1", "name": "report.md", "type": "output"}],
         )
         return task
+
+    @mock.patch("posthog.api.comments.SlackIntegration")
+    def test_comment_emojis_resolve_slack_aliases_and_skip_unscoped_integrations(
+        self, slack_integration: mock.Mock
+    ) -> None:
+        scoped = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SCOPED",
+            config={"scope": "emoji:read"},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_UNSCOPED",
+            config={"scope": "chat:write"},
+        )
+        emoji_list = mock.Mock(
+            return_value={
+                "emoji": {
+                    "hedgehog": "https://emoji.slack-edge.com/hedgehog.png",
+                    "hog": "alias:hedgehog",
+                    "loop_a": "alias:loop_b",
+                    "loop_b": "alias:loop_a",
+                }
+            }
+        )
+
+        def build_slack(integration: Integration) -> mock.Mock:
+            slack = mock.Mock()
+            slack.missing_scopes.return_value = set() if integration.id == scoped.id else {"emoji:read"}
+            slack.client.emoji_list = emoji_list
+            return slack
+
+        slack_integration.side_effect = build_slack
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments/emojis/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "results": [
+                {"name": "hedgehog", "url": "https://emoji.slack-edge.com/hedgehog.png"},
+                {"name": "hog", "url": "https://emoji.slack-edge.com/hedgehog.png"},
+            ]
+        }
+        emoji_list.assert_called_once_with()
+
+        scoped_client = self._sandbox_task_comment_client(scopes="comment:read")
+        forbidden = scoped_client.get(f"/api/projects/{self.team.id}/comments/emojis/")
+        assert forbidden.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:read" in forbidden.json()["detail"]
 
     def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
         task = self._task_artifact_target()

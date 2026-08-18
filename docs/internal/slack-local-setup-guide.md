@@ -112,6 +112,7 @@ oauth_config:
       - channels:history
       - groups:history
       - chat:write
+      - emoji:read
       - canvases:write
       - files:write
       - reactions:write

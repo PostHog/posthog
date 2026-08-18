@@ -4380,6 +4380,16 @@ export namespace Schemas {
     source_comment?: (string | null) | undefined;
     completed_at?: (string | null) | undefined;
   };
+  export type CommentEmoji = {
+    /** Slack shortcode without surrounding colons. */
+    name: string;
+    /** HTTPS image URL for the custom emoji. */
+    url: string;
+  };
+  export type CommentEmojiListResponse = {
+    /** Custom emoji available from Slack workspaces connected to this project. */
+    results: Array<CommentEmoji>;
+  };
   export type CompareItem = { label: string; value: string };
   export type ConclusionEnum = "won" | "lost" | "inconclusive" | "stopped_early" | "invalid";
   export type ConditionalFormattingRule = {
@@ -18530,6 +18540,15 @@ export namespace Endpoints {
     };
     responses: { 200: unknown };
   };
+  export type get_Comments_emojis_retrieve = {
+    method: "GET";
+    path: "/api/projects/{project_id}/comments/emojis/";
+    requestFormat: "json";
+    parameters: {
+      path: { project_id: string };
+    };
+    responses: { 200: Schemas.CommentEmojiListResponse };
+  };
   export type get_Conversations_tickets_list = {
     method: "GET";
     path: "/api/projects/{project_id}/conversations/tickets/";
@@ -25898,6 +25917,7 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/comments/{id}/": Endpoints.get_Comments_retrieve;
     "/api/projects/{project_id}/comments/{id}/thread/": Endpoints.get_Comments_thread_retrieve;
     "/api/projects/{project_id}/comments/count/": Endpoints.get_Comments_count_retrieve;
+    "/api/projects/{project_id}/comments/emojis/": Endpoints.get_Comments_emojis_retrieve;
     "/api/projects/{project_id}/conversations/tickets/": Endpoints.get_Conversations_tickets_list;
     "/api/projects/{project_id}/conversations/tickets/{id}/": Endpoints.get_Conversations_tickets_retrieve;
     "/api/projects/{project_id}/conversations/tickets/unread_count/": Endpoints.get_Conversations_tickets_unread_count_retrieve;

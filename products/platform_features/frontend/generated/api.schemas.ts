@@ -949,6 +949,18 @@ export interface CommentSlackThreadApi {
     readonly created_by: UserBasicApi | null
 }
 
+export interface CommentEmojiApi {
+    /** Slack shortcode without surrounding colons. */
+    name: string
+    /** HTTPS image URL for the custom emoji. */
+    url: string
+}
+
+export interface CommentEmojiListResponseApi {
+    /** Custom emoji available from Slack workspaces connected to this project. */
+    results: CommentEmojiApi[]
+}
+
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string

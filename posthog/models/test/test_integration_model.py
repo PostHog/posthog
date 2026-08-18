@@ -93,7 +93,14 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
 
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
-    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
+    assert {
+        "assistant:write",
+        "im:history",
+        "canvases:write",
+        "files:write",
+        "channels:manage",
+        "emoji:read",
+    } <= requested
 
 
 class TestIntegrationModel(BaseTest):

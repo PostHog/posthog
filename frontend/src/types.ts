@@ -5547,6 +5547,7 @@ export enum SlackIntegrationScope {
     CHAT_WRITE = 'chat:write',
     CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
     COMMANDS = 'commands',
+    EMOJI_READ = 'emoji:read',
     FILES_READ = 'files:read',
     FILES_WRITE = 'files:write',
     GROUPS_HISTORY = 'groups:history',

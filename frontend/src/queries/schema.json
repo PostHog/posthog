@@ -48966,6 +48966,7 @@
                 "chat:write",
                 "chat:write.customize",
                 "commands",
+                "emoji:read",
                 "files:read",
                 "files:write",
                 "groups:history",

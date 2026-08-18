@@ -21,6 +21,7 @@ import type {
     ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
+    CommentEmojiListResponseApi,
     CommentSlackThreadApi,
     CommentsListParams,
     ListParams,
@@ -1085,6 +1086,23 @@ export const getCommentsCountRetrieveUrl = (projectId: string) => {
 
 export const commentsCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCommentsEmojisRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/comments/emojis/`
+}
+
+/**
+ * List custom emoji from Slack workspaces connected to this project.
+ */
+export const commentsEmojisRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CommentEmojiListResponseApi> => {
+    return apiMutator<CommentEmojiListResponseApi>(getCommentsEmojisRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

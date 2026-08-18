@@ -85,6 +85,7 @@
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "emojilib": "4.0.2",
     "framer-motion": "^12.26.2",
     "fuse.js": "^7.1.0",
     "fzf": "^0.5.2",

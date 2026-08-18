@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core import exceptions as django_exceptions
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -94,6 +95,22 @@ STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 RESERVED_ITEM_CONTEXT_KEYS = frozenset(
     {"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"}
 )
+SLACK_EMOJI_READ_SCOPE = "emoji:read"
+
+
+def _resolve_slack_emoji_url(name: str, emoji_by_name: dict[str, Any], seen: set[str] | None = None) -> str | None:
+    value = emoji_by_name.get(name)
+    if not isinstance(value, str):
+        return None
+    if value.startswith("https://"):
+        return value
+    if not value.startswith("alias:"):
+        return None
+    seen = {*seen, name} if seen else {name}
+    alias = value.removeprefix("alias:")
+    if alias in seen:
+        return None
+    return _resolve_slack_emoji_url(alias, emoji_by_name, seen)
 
 
 def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:
@@ -585,6 +602,18 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
 
 
+class CommentEmojiSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Slack shortcode without surrounding colons.")
+    url = serializers.URLField(help_text="HTTPS image URL for the custom emoji.")
+
+
+class CommentEmojiListResponseSerializer(serializers.Serializer):
+    results = CommentEmojiSerializer(
+        many=True,
+        help_text="Custom emoji available from Slack workspaces connected to this project.",
+    )
+
+
 class CommentSlackThreadSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who mirrored the discussion. Null if since deleted."
@@ -983,6 +1012,45 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         count = queryset.count()
 
         return Response({"count": count})
+
+    @extend_schema(
+        request=None,
+        responses={200: CommentEmojiListResponseSerializer},
+        description="List custom emoji from Slack workspaces connected to this project.",
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["comment:read", "integration:read"])
+    def emojis(self, request: Request, **kwargs: Any) -> Response:
+        emoji_urls: dict[str, str] = {}
+        integrations = Integration.objects.filter(team_id=self.team_id, kind="slack").order_by("id")
+
+        for integration in integrations:
+            slack = SlackIntegration(integration)
+            if slack.missing_scopes({SLACK_EMOJI_READ_SCOPE}):
+                continue
+
+            cache_key = f"comment-emojis/{integration.id}"
+            cached_emojis: object = cache.get(cache_key)
+            emoji_by_name = cast(dict[str, Any], cached_emojis) if isinstance(cached_emojis, dict) else None
+            if emoji_by_name is None:
+                try:
+                    response = slack.client.emoji_list()
+                    response_emojis: object = response.get("emoji", {})
+                except SlackApiError:
+                    logger.warning("comment_emoji_list_failed", integration_id=integration.id)
+                    continue
+                if not isinstance(response_emojis, dict):
+                    continue
+                emoji_by_name = cast(dict[str, Any], response_emojis)
+                cache.set(cache_key, emoji_by_name, 60 * 60)
+
+            for name in sorted(emoji_by_name):
+                if name in emoji_urls:
+                    continue
+                url = _resolve_slack_emoji_url(name, emoji_by_name)
+                if url:
+                    emoji_urls[name] = url
+
+        return Response({"results": [{"name": name, "url": url} for name, url in emoji_urls.items()]})
 
     @extend_schema(
         request=None,

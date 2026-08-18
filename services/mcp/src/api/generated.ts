@@ -17149,6 +17149,18 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    export interface CommentEmoji {
+      /** Slack shortcode without surrounding colons. */
+      name: string;
+      /** HTTPS image URL for the custom emoji. */
+      url: string;
+    }
+
+    export interface CommentEmojiListResponse {
+      /** Custom emoji available from Slack workspaces connected to this project. */
+      results: CommentEmoji[];
+    }
+
     export interface CommentError {
       /** Human-readable explanation of what went wrong. */
       detail: string;

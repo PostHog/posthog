@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MentionText } from "./MentionText";
 
 const navigateToChannelDashboard = vi.fn();
+const commentEmojis = vi.hoisted(() => [] as { name: string; url: string }[]);
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannel: vi.fn(),
@@ -11,12 +12,17 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelTask: vi.fn(),
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useCommentEmojis", () => ({
+  useCommentEmojis: () => ({ data: commentEmojis }),
+}));
+
 vi.mock("@posthog/ui/utils/urls", () => ({
   getPostHogUrl: (path: string) => `https://us.posthog.com${path}`,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  commentEmojis.length = 0;
 });
 
 describe("MentionText", () => {
@@ -79,6 +85,20 @@ describe("MentionText", () => {
 
     expect(defaultAllowed).toBe(true);
     expect(navigateToChannelDashboard).not.toHaveBeenCalled();
+  });
+
+  it("renders a Slack custom emoji shortcode as its image", () => {
+    commentEmojis.push({
+      name: "party_parrot",
+      url: "https://emoji.slack-edge.com/parrot.gif",
+    });
+
+    render(<MentionText content="Ship it :party_parrot:" />);
+
+    expect(screen.getByAltText(":party_parrot:")).toHaveAttribute(
+      "src",
+      "https://emoji.slack-edge.com/parrot.gif",
+    );
   });
 
   it("inherits the surrounding message text size", () => {

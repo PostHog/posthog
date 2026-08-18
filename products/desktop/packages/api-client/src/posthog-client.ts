@@ -271,6 +271,8 @@ export type ResourceComment = Omit<Schemas.Comment, "version"> & {
   version?: number;
 };
 
+export type CommentEmoji = Schemas.CommentEmoji;
+
 export interface CreateResourceCommentRequest {
   scope: CommentScope;
   itemId: string;
@@ -3428,6 +3430,15 @@ export class PostHogAPIClient {
       { scope, itemId, returned: comments.length },
     );
     return comments;
+  }
+
+  async getCommentEmojis(): Promise<CommentEmoji[]> {
+    const teamId = await this.getTeamId();
+    const response = await this.api.get(
+      "/api/projects/{project_id}/comments/emojis/",
+      { path: { project_id: String(teamId) } },
+    );
+    return response.results;
   }
 
   async createResourceComment(

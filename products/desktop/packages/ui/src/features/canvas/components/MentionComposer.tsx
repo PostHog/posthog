@@ -2,6 +2,11 @@ import { RobotIcon } from "@phosphor-icons/react";
 import { Avatar, AvatarFallback, InputGroup } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { useCommentEmojis } from "@posthog/ui/features/canvas/hooks/useCommentEmojis";
+import {
+  type EmojiSuggestion,
+  filterEmojiSuggestions,
+} from "@posthog/ui/features/canvas/utils/emojiSuggestions";
 import {
   type ComposerMentionCandidate,
   contentToDoc,
@@ -9,11 +14,15 @@ import {
   filterComposerMentionCandidates,
 } from "@posthog/ui/features/canvas/utils/mentionComposer";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { Extension } from "@tiptap/core";
 import Mention, { type MentionNodeAttrs } from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
+import { PluginKey } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Suggestion from "@tiptap/suggestion";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { EmojiSuggestionGrid } from "./EmojiSuggestionGrid";
 import "./mention-chip.css";
 import "./mention-composer.css";
 
@@ -48,6 +57,13 @@ interface SuggestionSession {
   command: (candidate: ComposerMentionCandidate) => void;
 }
 
+interface EmojiSuggestionSession {
+  items: EmojiSuggestion[];
+  command: (candidate: EmojiSuggestion) => void;
+}
+
+const EMOJI_SUGGESTION_PLUGIN_KEY = new PluginKey("commentEmojiSuggestion");
+
 /**
  * The thread composer: a rich text area that opens an @-mention typeahead over
  * the org's members. Selecting a member inserts an inline chip — rendered the
@@ -68,22 +84,36 @@ export function MentionComposer({
   children,
 }: MentionComposerProps) {
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const emojiItemRefs = useRef<(HTMLElement | null)[]>([]);
   const [session, setSession] = useState<SuggestionSession | null>(null);
+  const [emojiSession, setEmojiSession] =
+    useState<EmojiSuggestionSession | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  // Esc hides the popup until the current trigger exits; a new `@` re-arms it.
+  const [selectedEmojiIndex, setSelectedEmojiIndex] = useState(0);
+  // Esc hides the popup until the current trigger exits; a new trigger re-arms it.
   const [dismissed, setDismissed] = useState(false);
+  const [emojiDismissed, setEmojiDismissed] = useState(false);
+  const { data: customEmojis = [] } = useCommentEmojis();
 
   const open = !!session && !dismissed && session.items.length > 0;
+  const emojiOpen =
+    !!emojiSession && !emojiDismissed && emojiSession.items.length > 0;
   // The list can shrink while a lower row is selected (members filter down).
   const highlightedIndex = Math.min(
     selectedIndex,
     Math.max(0, (session?.items.length ?? 0) - 1),
+  );
+  const highlightedEmojiIndex = Math.min(
+    selectedEmojiIndex,
+    Math.max(0, (emojiSession?.items.length ?? 0) - 1),
   );
 
   // The suggestion plugin's callbacks close over refs so they always see the
   // latest props and popup state.
   const membersRef = useRef(members);
   membersRef.current = members;
+  const customEmojisRef = useRef(customEmojis);
+  customEmojisRef.current = customEmojis;
   const allowAgentMentionRef = useRef(allowAgentMention);
   allowAgentMentionRef.current = allowAgentMention;
   const onValueChangeRef = useRef(onValueChange);
@@ -94,10 +124,16 @@ export function MentionComposer({
   onMentionInsertRef.current = onMentionInsert;
   const openRef = useRef(open);
   openRef.current = open;
+  const emojiOpenRef = useRef(emojiOpen);
+  emojiOpenRef.current = emojiOpen;
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const emojiSessionRef = useRef(emojiSession);
+  emojiSessionRef.current = emojiSession;
   const highlightedRef = useRef(highlightedIndex);
   highlightedRef.current = highlightedIndex;
+  const highlightedEmojiRef = useRef(highlightedEmojiIndex);
+  highlightedEmojiRef.current = highlightedEmojiIndex;
   const lastValueRef = useRef(value);
 
   const editor = useEditor(
@@ -119,6 +155,99 @@ export function MentionComposer({
           link: false,
         }),
         Placeholder.configure({ placeholder: placeholder ?? "" }),
+        Extension.create({
+          name: "commentEmojiSuggestion",
+          addProseMirrorPlugins() {
+            return [
+              Suggestion({
+                pluginKey: EMOJI_SUGGESTION_PLUGIN_KEY,
+                editor: this.editor,
+                char: ":",
+                startOfLine: false,
+                allowSpaces: false,
+                allow: ({ state, range }) => {
+                  const before = state.doc.textBetween(
+                    Math.max(0, range.from - 1),
+                    range.from,
+                  );
+                  return before === "" || /\s/.test(before);
+                },
+                items: ({ query }) =>
+                  filterEmojiSuggestions(query, customEmojisRef.current),
+                command: ({ editor: e, range, props }) => {
+                  const emoji = props as unknown as EmojiSuggestion;
+                  e.chain()
+                    .focus()
+                    .insertContentAt(range, emoji.insertion)
+                    .run();
+                },
+                render: () => ({
+                  onStart: (props) => {
+                    setEmojiDismissed(false);
+                    setSelectedEmojiIndex(0);
+                    setEmojiSession({
+                      items: props.items as unknown as EmojiSuggestion[],
+                      command: (candidate) =>
+                        props.command(
+                          candidate as unknown as Record<string, unknown>,
+                        ),
+                    });
+                  },
+                  onUpdate: (props) => {
+                    setSelectedEmojiIndex(0);
+                    setEmojiSession({
+                      items: props.items as unknown as EmojiSuggestion[],
+                      command: (candidate) =>
+                        props.command(
+                          candidate as unknown as Record<string, unknown>,
+                        ),
+                    });
+                  },
+                  onKeyDown: ({ event }) => {
+                    if (event.key === "Escape" && emojiSessionRef.current) {
+                      setEmojiDismissed(true);
+                      return true;
+                    }
+                    if (!emojiOpenRef.current) return false;
+                    const items = emojiSessionRef.current?.items ?? [];
+                    let next: number | null = null;
+                    if (event.key === "ArrowRight") {
+                      next = highlightedEmojiRef.current + 1;
+                    } else if (event.key === "ArrowLeft") {
+                      next = highlightedEmojiRef.current - 1;
+                    } else if (event.key === "ArrowDown") {
+                      next = highlightedEmojiRef.current + 6;
+                    } else if (event.key === "ArrowUp") {
+                      next = highlightedEmojiRef.current - 6;
+                    }
+                    if (next !== null) {
+                      const bounded = Math.max(
+                        0,
+                        Math.min(items.length - 1, next),
+                      );
+                      setSelectedEmojiIndex(bounded);
+                      emojiItemRefs.current[bounded]?.scrollIntoView({
+                        block: "nearest",
+                      });
+                      return true;
+                    }
+                    if (event.key === "Enter" || event.key === "Tab") {
+                      const candidate = items[highlightedEmojiRef.current];
+                      if (candidate)
+                        emojiSessionRef.current?.command(candidate);
+                      return true;
+                    }
+                    return false;
+                  },
+                  onExit: () => {
+                    setEmojiSession(null);
+                    setEmojiDismissed(false);
+                  },
+                }),
+              }),
+            ];
+          },
+        }),
         Mention.configure({
           renderHTML: ({ node }) => [
             "span",
@@ -214,7 +343,7 @@ export function MentionComposer({
         // Runs before the suggestion plugin's handler, so defer to it while
         // the popup is open.
         handleKeyDown: (_view, event) => {
-          if (openRef.current) return false;
+          if (openRef.current || emojiOpenRef.current) return false;
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             onSubmitRef.current();
@@ -242,6 +371,17 @@ export function MentionComposer({
 
   return (
     <div className="relative">
+      {emojiOpen && emojiSession && (
+        <EmojiSuggestionGrid
+          suggestions={emojiSession.items}
+          highlightedIndex={highlightedEmojiIndex}
+          onHighlight={setSelectedEmojiIndex}
+          onSelect={emojiSession.command}
+          registerItem={(index, element) => {
+            emojiItemRefs.current[index] = element;
+          }}
+        />
+      )}
       {open && session && (
         <div className="absolute inset-x-0 bottom-full z-50 mb-1 flex flex-col overflow-hidden rounded-md border border-border bg-card text-[13px] text-foreground shadow-lg">
           <div

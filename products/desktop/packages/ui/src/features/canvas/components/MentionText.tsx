@@ -11,6 +11,8 @@ import type { MentionChip } from "@posthog/core/message-editor/content";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import { Chip } from "@posthog/quill";
 import { splitMentionSegments } from "@posthog/shared";
+import { useCommentEmojis } from "@posthog/ui/features/canvas/hooks/useCommentEmojis";
+import { splitCustomEmojiSegments } from "@posthog/ui/features/canvas/utils/emojiSuggestions";
 import { splitLinkSegments } from "@posthog/ui/features/canvas/utils/linkify";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
 import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
@@ -23,6 +25,7 @@ type RenderSegment =
   | { type: "link"; text: string; href: string }
   | { type: "agent"; text: string }
   | { type: "mention"; name: string; email: string }
+  | { type: "customEmoji"; name: string; url: string }
   | { type: "chip"; chip: MentionChip };
 
 const chipIcons = {
@@ -82,6 +85,7 @@ export function MentionText({
   currentUserEmail?: string | null;
   className?: string;
 }) {
+  const { data: customEmojis = [] } = useCommentEmojis();
   // Key each segment by its character offset — stable for a given content.
   const segments = useMemo(() => {
     let offset = 0;
@@ -107,6 +111,15 @@ export function MentionText({
         push({ type: "text", text: text.slice(cursor) }, text.length - cursor);
       }
     };
+    const pushCustomEmojis = (text: string) => {
+      for (const segment of splitCustomEmojiSegments(text, customEmojis)) {
+        if (segment.type === "customEmoji") {
+          push(segment, segment.name.length + 2);
+        } else {
+          pushAgentMentions(segment.text);
+        }
+      }
+    };
     const pushMentions = (text: string) => {
       for (const segment of splitMentionSegments(text)) {
         if (segment.type === "mention") {
@@ -115,7 +128,7 @@ export function MentionText({
             segment.text.length,
           );
         } else {
-          pushAgentMentions(segment.text);
+          pushCustomEmojis(segment.text);
         }
       }
     };
@@ -133,7 +146,7 @@ export function MentionText({
       }
     }
     return entries;
-  }, [content]);
+  }, [content, customEmojis]);
   const selfEmail = currentUserEmail?.toLowerCase();
   return (
     <span className={className}>
@@ -146,6 +159,17 @@ export function MentionText({
             <span key={key} className={mentionChipClass}>
               {segment.text}
             </span>
+          );
+        }
+        if (segment.type === "customEmoji") {
+          return (
+            <img
+              key={key}
+              src={segment.url}
+              alt={`:${segment.name}:`}
+              title={`:${segment.name}:`}
+              className="mx-0.5 inline-block size-4 object-contain align-text-bottom"
+            />
           );
         }
         if (segment.type === "mention") {
