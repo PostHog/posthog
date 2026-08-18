@@ -515,26 +515,6 @@ export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
 }
 
-// Both arm stories run with the goal-draft flag on, matching the launch state where each arm
-// also offers the "tell PostHog AI what you want to accomplish" box.
-export const ScannersListEmptyTemplates: StoryObj = {
-    decorators: emptyProjectDecorators,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'templates',
-        },
-    },
-}
-
-export const ScannersListEmptyExampleObservations: StoryObj = {
-    decorators: emptyProjectDecorators,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'example-observations',
-        },
-    },
-}
-
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }

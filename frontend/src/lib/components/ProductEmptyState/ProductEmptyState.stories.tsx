@@ -4,6 +4,7 @@ import type { Mocks } from '~/mocks/utils'
 
 import { aiObservabilityEmptyState } from 'products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
+import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 
 import { ProductEmptyState } from './ProductEmptyState'
 import { ProductEmptyStateStory, productEmptyStateStory } from './storybookHelpers'
@@ -58,4 +59,27 @@ export const MCPAnalyticsWithoutWizard: ProductEmptyStateStory = productEmptySta
 export const AIObservabilityNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
     aiObservabilityEmptyState,
     'needs-setup'
+)
+
+// Replay vision detection is binary too (a scanner is the unit of setup); its
+// detection logic polls the scanner stats endpoint, so answer it with zeros.
+export const ReplayVisionNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    replayVisionEmptyState,
+    'needs-setup',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                },
+            },
+        },
+    }
 )

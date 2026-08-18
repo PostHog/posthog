@@ -9,6 +9,7 @@ Nothing here checks consent or access. Callers do that, because the answer diffe
 explains.
 """
 
+import datetime as dt
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -25,8 +26,13 @@ from products.replay_vision.backend.enqueue_claims import (
     release_enqueue_claim,
 )
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
-from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    TERMINAL_STATUSES,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.queries.scanner_candidate_query import ScannerCandidateQuery
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
@@ -133,9 +139,10 @@ def start_observations(
     *,
     scanner: ReplayScanner,
     session_ids: list[str],
-    user: User,
+    user: User | None,
     headroom: ScanHeadroom,
     finished: frozenset[str],
+    trigger: ObservationTrigger = ObservationTrigger.ON_DEMAND,
 ) -> tuple[int, list[dict[str, str]]]:
     """Start a scan per session, as many as fit. Returns (started, per-session outcomes).
 
@@ -151,7 +158,6 @@ def start_observations(
         WorkflowStartOutcome,
         start_apply_scanner_workflow,
     )
-    from products.replay_vision.backend.models.replay_observation import ObservationTrigger  # noqa: PLC0415
 
     max_starts, skip_reason = headroom.max_starts, headroom.skip_reason
     results: list[dict[str, str]] = []
@@ -169,8 +175,8 @@ def start_observations(
         _, outcome = start_apply_scanner_workflow(
             scanner,
             session_id,
-            triggered_by_user_id=user.id,
-            trigger=ObservationTrigger.ON_DEMAND,
+            triggered_by_user_id=user.id if user is not None else None,
+            trigger=trigger,
             # Row counts are this request's snapshot; the atomic claim inside makes racing requests
             # visible to each other, which the snapshot alone cannot.
             team_in_flight_rows=headroom.team_rows,
@@ -197,7 +203,11 @@ def start_observations(
 
 
 def scan_existing_scanner(
-    *, scanner: ReplayScanner, session_ids: list[str], user: User
+    *,
+    scanner: ReplayScanner,
+    session_ids: list[str],
+    user: User | None,
+    trigger: ObservationTrigger = ObservationTrigger.ON_DEMAND,
 ) -> tuple[int, list[dict[str, str]]]:
     """Point a saved scanner at named sessions."""
     return start_observations(
@@ -206,7 +216,42 @@ def scan_existing_scanner(
         user=user,
         headroom=scan_headroom(team=scanner.team, model=scanner.model, scanner=scanner),
         finished=finished_sessions(scanner, session_ids),
+        trigger=trigger,
     )
+
+
+STARTER_SCAN_SESSIONS = 3
+STARTER_SCAN_LOOKBACK = dt.timedelta(hours=24)
+# Runs in the create request path, so it gets the same short budget as the save-time estimate.
+STARTER_SCAN_MAX_EXECUTION_SECONDS = 10
+
+
+def run_starter_scan(*, scanner: ReplayScanner) -> int:
+    """Scan a few recent matching recordings right after creation, so the scanner has observations to
+    show before the first sweep. Returns how many scans started; callers treat this as advisory.
+
+    Tagged `schedule` with no triggering user, like the sweep: the user asked for a scanner, not for
+    these particular scans."""
+    candidates = ScannerCandidateQuery(
+        team=scanner.team,
+        query=scanner.recordings_query(),
+        last_swept_at=dt.datetime.now(dt.UTC) - STARTER_SCAN_LOOKBACK,
+        # Sampling budgets the standing sweep; the starter scan wants examples now, so it scans at 1.0.
+        sampling_rate=1.0,
+        sampling_salt=str(scanner.id),
+        candidate_limit=STARTER_SCAN_SESSIONS,
+        max_execution_time_seconds=STARTER_SCAN_MAX_EXECUTION_SECONDS,
+        scanner_id=str(scanner.id),
+    ).run()
+    if not candidates:
+        return 0
+    started, _ = scan_existing_scanner(
+        scanner=scanner,
+        session_ids=[c.session_id for c in candidates],
+        user=None,
+        trigger=ObservationTrigger.SCHEDULE,
+    )
+    return started
 
 
 def run_inline_scan(

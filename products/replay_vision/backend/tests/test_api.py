@@ -63,8 +63,14 @@ class _VisionAPITestCase(APIBaseTest):
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
+        # The starter scan queries ClickHouse for candidate recordings; keep CRUD tests off that path.
+        self.starter_scan_patcher = patch(
+            "products.replay_vision.backend.api.scanners.run_starter_scan", return_value=0
+        )
+        self.mock_starter_scan = self.starter_scan_patcher.start()
 
     def tearDown(self) -> None:
+        self.starter_scan_patcher.stop()
         self.refresh_estimate_patcher.stop()
         super().tearDown()
 
@@ -106,6 +112,50 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(body["sampling_rate"], 1.0)
         self.assertEqual(body["scanner_version"], 1)
         self.assertEqual(body["created_by"]["id"], self.user.id)
+
+    def test_create_runs_a_starter_scan_for_the_new_scanner(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "starter-scanned",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_7_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.mock_starter_scan.assert_called_once()
+        self.assertEqual(str(self.mock_starter_scan.call_args.kwargs["scanner"].id), resp.json()["id"])
+
+    def test_create_skips_the_starter_scan_for_a_disabled_scanner(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "created-disabled",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_7_FLASH,
+                "enabled": False,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.mock_starter_scan.assert_not_called()
+
+    def test_create_survives_a_failing_starter_scan(self) -> None:
+        self.mock_starter_scan.side_effect = RuntimeError("clickhouse down")
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "starter-scan-broke",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_7_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
 
     def test_create_seeds_sweep_watermark_a_settle_interval_back(self) -> None:
         # The watermark starts one settle-interval before creation so the first sweep isn't a ~settle-interval cold start.

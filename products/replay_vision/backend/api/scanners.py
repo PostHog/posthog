@@ -104,7 +104,12 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    run_inline_scan,
+    run_starter_scan,
+    scan_existing_scanner,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
@@ -157,6 +162,17 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "team_id": scanner.team_id,
         "organization_id": str(scanner.team.organization_id),
     }
+
+
+def _run_starter_scan_fail_soft(scanner: ReplayScanner) -> int:
+    # Advisory, like the estimate below: a scanner save must never fail over its starter scan.
+    if not scanner.enabled:
+        return 0
+    try:
+        return run_starter_scan(scanner=scanner)
+    except Exception:
+        logger.exception("replay_vision.starter_scan_failed", scanner_id=str(scanner.id))
+        return 0
 
 
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
@@ -644,10 +660,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         _refresh_estimate_fail_soft(scanner)
         # Every scanner starts with a built-in featured digest so the overview has a summary to show.
         provision_scanner_digest(scanner, user)
+        # A few recent recordings are scanned immediately, so the scanner page has observations to
+        # show before the first sweep tick.
+        starter_scan_started = _run_starter_scan_fail_soft(scanner)
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            _scanner_lifecycle_properties(scanner),
+            {**_scanner_lifecycle_properties(scanner), "starter_scan_started": starter_scan_started},
             team=team,
             request=self.context.get("request"),
         )
