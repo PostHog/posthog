@@ -6,9 +6,14 @@ from pydantic import BaseModel, Field
 # synthesis result budget all key off. Named once here so they can't silently drift apart.
 MAX_QUERY_PLAN_STEPS = 25
 
-# Chart budget for one report. Three pictures answer a prompt; ten rebuild the wall of text in a
-# new medium, and each one costs a render.
-MAX_CHARTS_PER_REPORT = 3
+# Chart budget for one report. Each chart costs a browserless render and a second execution of its
+# query, and the render phase has to finish inside _CHART_PHASE_BUDGET_SECONDS. Six is two worst-case
+# render waves at _MAX_CONCURRENT_RENDERS. The planner ranks; the highest-importance six render.
+MAX_CHARTS_PER_REPORT = 6
+# Importance scale the planner scores each chart on. Small and bounded so the values stay comparable
+# across steps rather than drifting into arbitrary precision.
+MIN_CHART_IMPORTANCE = 1
+MAX_CHART_IMPORTANCE = 5
 # More series than the legend can carry reads as noise.
 MAX_CHART_SERIES = 4
 # Two points are a slope, not a shape.
@@ -29,6 +34,12 @@ class StepChart(BaseModel):
         None,
         max_length=MAX_CHART_TITLE_LENGTH,
         description="Short label shown above the chart, e.g. 'New signups per day'.",
+    )
+    importance: int = Field(
+        MIN_CHART_IMPORTANCE,
+        ge=MIN_CHART_IMPORTANCE,
+        le=MAX_CHART_IMPORTANCE,
+        description="How much this chart matters to the reader, 5 being the most important.",
     )
     x_column: str = Field(..., max_length=200, description="Result column for the x axis, by its SELECT alias.")
     y_columns: list[str] = Field(

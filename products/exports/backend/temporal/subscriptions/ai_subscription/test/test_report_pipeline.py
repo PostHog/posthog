@@ -10,7 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, Resoluti
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.charts import ValidatedChart
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart, ValidatedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -728,7 +728,9 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
 
 
-def _charted_spec(charts: int = 1, chart_title: str | None = None) -> EnrichedPromptSpec:
+def _charted_spec(
+    charts: int = 1, chart_title: str | None = None, importances: list[int] | None = None
+) -> EnrichedPromptSpec:
     return EnrichedPromptSpec(
         cleaned_prompt="p",
         context_blob="c",
@@ -739,7 +741,11 @@ def _charted_spec(charts: int = 1, chart_title: str | None = None) -> EnrichedPr
                     description=f"s{n}",
                     hogql="SELECT toDate(timestamp) AS day, count() AS signups FROM events WHERE {{date_range}}",
                     chart=StepChart(
-                        display="ActionsLineGraph", title=chart_title, x_column="day", y_columns=["signups"]
+                        display="ActionsLineGraph",
+                        title=chart_title,
+                        importance=importances[n] if importances else 1,
+                        x_column="day",
+                        y_columns=["signups"],
                     ),
                 )
                 for n in range(charts)
@@ -822,7 +828,8 @@ async def test_a_dropped_chart_records_its_reason_and_keeps_the_step(mock_execut
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_charts_are_capped_in_plan_order(mock_executor_cls: MagicMock) -> None:
+async def test_every_validated_candidate_reaches_the_ranker(mock_executor_cls: MagicMock) -> None:
+    # Selection happens in generate_ai_report, so _run_steps must not truncate first.
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         return_value=("formatted", None, _CHART_RESPONSE)
     )
@@ -831,7 +838,7 @@ async def test_charts_are_capped_in_plan_order(mock_executor_cls: MagicMock) -> 
         _charted_spec(charts=MAX_CHARTS_PER_REPORT + 2), MagicMock(), MagicMock(), _test_window(), None
     )
 
-    assert [chart.step_index for chart in charts] == list(range(MAX_CHARTS_PER_REPORT))
+    assert len(charts) == MAX_CHARTS_PER_REPORT + 2
 
 
 def _charted_run(chart_dropped_reason: str | None = None):
@@ -894,3 +901,97 @@ async def test_a_plan_whose_chart_spec_failed_validation_is_not_frozen(
 
     assert result.markdown == "# Report"
     assert result.plan_to_persist is None
+
+
+def _candidate(step_index: int, importance: int) -> ValidatedChart:
+    return ValidatedChart(
+        spec=StepChart(
+            display="ActionsBar", title=f"c{step_index}", importance=importance, x_column="a", y_columns=["b"]
+        ),
+        hogql="SELECT 1",
+        title=f"c{step_index}",
+        step_index=step_index,
+    )
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_only_the_most_important_charts_are_rendered(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
+) -> None:
+    # A render costs a browserless worker and a second query execution, so a chart that loses the
+    # ranking must never be built. Plan order deliberately disagrees with importance here.
+    candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)], candidates)
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    rendered_arg = mock_render.call_args.args[0]
+    assert [chart.step_index for chart in rendered_arg] == [1, 2]
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._capture_charts_truncated")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_truncated_report_says_so_and_emits_an_event(
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_truncated: MagicMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    # A dropped chart used to vanish with no trace. The reader gets a footnote, we get an event.
+    candidates = [_candidate(0, 5), _candidate(1, 4), _candidate(2, 1)]
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)], candidates)
+    mock_render.return_value = ([RenderedChart(export_asset_id=1, title="c0", step_index=0)], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
+        result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert "Showing 1 of 3 charts" in result.markdown
+    assert "Split this prompt into separate subscriptions" in result.markdown
+    assert mock_truncated.call_args.kwargs["requested"] == 3
+    assert mock_truncated.call_args.kwargs["rendered"] == 2
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._capture_charts_truncated")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_report_within_the_cap_says_nothing_about_charts(
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_truncated: MagicMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        [_candidate(0, 3)],
+    )
+    mock_render.return_value = ([RenderedChart(export_asset_id=1, title="c0", step_index=0)], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert result.markdown == "# Report"
+    mock_truncated.assert_not_called()

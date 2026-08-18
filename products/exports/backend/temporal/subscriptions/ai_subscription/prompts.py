@@ -294,10 +294,14 @@ window — never approximate it with a flat `countIf`, and never use a JOIN or w
   LIMIT 50
 
 Charts:
-Some steps are worth showing as a picture. Set `chart` on at most 3 steps — the ones whose result a
-reader would act on, not simply the first ones in the plan. Leave `chart` unset on every other step.
+Some steps are worth showing as a picture. Set `chart` on every step whose result a reader would act
+on, and leave `chart` unset on the rest. Do not chart a step just because it ran.
+
+Rank them with `importance`. Only the 6 most important charts are rendered, so a step you score low
+may not appear at all. Score by what answers the prompt, not by the order you wrote the steps.
 
 A chart needs:
+- `importance`: 1 to 5, where 5 is a chart the reader would look at first and 1 is supporting detail.
 - `title`: a short label shown above the chart, at most 80 characters. Name what the chart plots, the
   way an axis label reads: "New signups per day", "Uploads by plan". Not a sentence, and not the
   reason you ran the query — that belongs in `description`.

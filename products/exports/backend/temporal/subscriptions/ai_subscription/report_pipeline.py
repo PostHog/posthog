@@ -15,6 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.ph_client import ph_scoped_capture
 from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -111,6 +112,10 @@ def _all_queries_failed_notice(total_steps: int) -> str:
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
         "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
+
+
+def _charts_truncated_footnote(rendered: int, total: int) -> str:
+    return f"\n\n_Showing {rendered} of {total} charts. Split this prompt into separate subscriptions to see the rest._"
 
 
 class ReportStage(StrEnum):
@@ -211,7 +216,16 @@ async def generate_ai_report(
         # Count chart specs the result couldn't support before the render phase writes its own
         # reasons onto these diagnostics — only a validation failure should block freezing.
         chart_validation_failures = sum(1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason)
-        rendered_charts, chart_failures = await render_charts(charts, team=team, user=user)
+        # Rank before rendering: a render costs a browserless worker and a second query execution, so
+        # the charts that lose the ranking must never be built. Python's sort is stable, so equal
+        # importance keeps plan order.
+        ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
+        selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
+        if dropped:
+            _capture_charts_truncated(
+                team=team, trace_correlation_id=trace_correlation_id, requested=len(charts), rendered=len(selected)
+            )
+        rendered_charts, chart_failures = await render_charts(selected, team=team, user=user)
         # A render failure is as diagnosable as a validation failure: both mean the reader got no
         # picture, and only the diagnostic says which.
         for step_index, reason in chart_failures:
@@ -229,6 +243,7 @@ async def generate_ai_report(
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
+            charts_dropped=len(dropped),
         )
         if failed_count:
             logger.warning(
@@ -237,6 +252,8 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
+        if dropped:
+            report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
         if total_steps and failed_count == total_steps:
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
@@ -257,6 +274,35 @@ async def generate_ai_report(
             window_end_utc=window.end.astimezone(UTC).isoformat(),
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
+        )
+
+
+def _capture_charts_truncated(
+    *, team: Team, trace_correlation_id: Optional[Union[int, str]], requested: int, rendered: int
+) -> None:
+    """Record that the planner asked for more charts than a report renders.
+
+    Best-effort: losing this event must never cost the report. ph_scoped_capture, not
+    posthoganalytics.capture, because this runs inside a Temporal activity.
+    """
+    try:
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=f"team_{team.id}",
+                event="ai_report_charts_truncated",
+                properties={
+                    "feature": "ai_subscription",
+                    "subscription_id": trace_correlation_id,
+                    "team_id": team.id,
+                    "charts_requested": requested,
+                    "charts_rendered": rendered,
+                    # system signal keyed by team, not a person
+                    "$process_person_profile": False,
+                },
+            )
+    except Exception:
+        logger.warning(
+            "ai_report.charts_truncated_capture_failed", trace_correlation_id=trace_correlation_id, exc_info=True
         )
 
 
@@ -547,9 +593,9 @@ async def _run_steps(
     step_results = await asyncio.gather(*(run_step_bounded(step, index) for index, step in enumerate(spec.plan.steps)))
     rendered = [text for text, _, _ in step_results]
     diagnostics = [diag for _, diag, _ in step_results]
-    # The planner is told to mark at most MAX_CHARTS_PER_REPORT steps; this is the backstop when it
-    # marks more, keeping plan order so the cap is predictable.
-    charts = [chart for _, _, chart in step_results if chart is not None][:MAX_CHARTS_PER_REPORT]
+    # Every validated candidate, uncapped. generate_ai_report ranks and selects, so a chart that
+    # loses the ranking is never rendered.
+    charts = [chart for _, _, chart in step_results if chart is not None]
     failed_count = sum(1 for diag in diagnostics if not diag.ok)
     return rendered, failed_count, diagnostics, charts
 
