@@ -48,6 +48,7 @@ import {
     hasZeroRollout,
     PAIRED_PRESETS,
     validateFeatureFlagVariantKey,
+    validateVariantRolloutSum,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -471,6 +472,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const variantErrors = displayVariants.map(({ key: variantKey }) => ({
         key: validateFeatureFlagVariantKey(variantKey),
     }))
+
+    // Variant rollouts must sum to 100, or the change is rejected when it fires. Only relevant for
+    // UpdateVariants; the other operations leave variants untouched.
+    const variantRolloutSumError =
+        scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants
+            ? validateVariantRolloutSum(displayVariants)
+            : undefined
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)
 
@@ -921,7 +929,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                                         ScheduledChangeOperationType.UpdateVariants &&
                                                     variantErrors.some((error) => error.key != null)
                                                   ? 'Fix schedule variant changes errors'
-                                                  : undefined
+                                                  : variantRolloutSumError
                                 }
                             >
                                 Schedule
