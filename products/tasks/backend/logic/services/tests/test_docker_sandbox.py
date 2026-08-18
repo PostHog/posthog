@@ -39,6 +39,8 @@ def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandb
 def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
     with (
         patch.object(sandbox, "is_running", return_value=True),
+        patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
+        patch.object(sandbox, "_free_agent_server_port"),
         patch.object(sandbox, "write_file"),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
         patch.object(sandbox, "_launch_and_check", return_value=False),

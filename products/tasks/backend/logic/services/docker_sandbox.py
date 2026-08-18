@@ -78,6 +78,10 @@ SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 _DOCKERFILE_SHA_LABEL = "com.posthog.sandbox.dockerfile-sha"
 _AGENT_VERSION_LABEL = "com.posthog.sandbox.agent-version"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
+# Node + MCP init in a local container can take well over 10s when several sandboxes boot at
+# once (a coordinator tick dispatching a whole scout troop); a short budget makes the Temporal
+# retry relaunch on top of the still-booting first process.
+AGENT_SERVER_LAUNCH_HEALTH_MAX_ATTEMPTS = 120
 # Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
 # host-published port maps to it so connect_info can reach the app across processes.
 
@@ -953,7 +957,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=AGENT_SERVER_LAUNCH_HEALTH_MAX_ATTEMPTS)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -1003,6 +1007,17 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
+
+        # A Temporal retry of the start activity lands here with the previous attempt's
+        # process possibly still booting. A second bind on the same port dies with
+        # EADDRINUSE and its fatal handler marks the run failed, so either adopt the
+        # existing server or clear it before launching.
+        if self._agent_server_is_healthy():
+            if wait_for_health:
+                self.wait_for_agent_server_ready(allowed_domains)
+            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+            return
+        self._free_agent_server_port()
 
         repo_path: str | None = None
         if repository:
@@ -1210,6 +1225,21 @@ class DockerSandbox(SandboxBase):
         """Poll health endpoint until server is ready (single remote call)."""
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+
+    def _agent_server_is_healthy(self) -> bool:
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
+
+    def _free_agent_server_port(self) -> None:
+        # `[a]gent-server` matches the server's cmdline but not this command's own bash
+        # wrapper (a bare pattern TERMs the wrapper and the wait/KILL never run). PID 1 in
+        # the container is `tail -f /dev/null`, so the killed process lingers as a zombie;
+        # `-r RSD` keeps the wait from spinning on it.
+        self.execute(
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -r RSD -f '[a]gent-server' >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f '[a]gent-server' 2>/dev/null || true",
+            timeout_seconds=15,
+        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)

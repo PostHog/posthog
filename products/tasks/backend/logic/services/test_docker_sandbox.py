@@ -111,6 +111,60 @@ class TestSandboxFactory:
 class TestDockerSandboxUnit:
     """Unit tests that don't require Docker."""
 
+    @pytest.fixture(autouse=True)
+    def _fresh_container(self):
+        # Launch tests mock `execute` to succeed, which would read as "server already
+        # healthy" and short-circuit start_agent_server before the command is built.
+        with (
+            patch.object(DockerSandbox, "_agent_server_is_healthy", return_value=False),
+            patch.object(DockerSandbox, "_free_agent_server_port"),
+        ):
+            yield
+
+    def test_start_agent_server_skips_relaunch_when_already_healthy(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(sandbox, "wait_for_agent_server_ready") as wait_for_ready,
+            patch.object(sandbox, "_free_agent_server_port") as mock_free,
+            patch.object(sandbox, "execute") as mock_execute,
+        ):
+            sandbox.start_agent_server("PostHog/posthog", "task-123", "run-456", "background")
+
+        wait_for_ready.assert_called_once_with(None)
+        mock_free.assert_not_called()
+        mock_execute.assert_not_called()
+
+    def test_start_agent_server_frees_port_before_relaunch(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+        calls: list[str] = []
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "write_file"),
+            patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
+            patch.object(sandbox, "_free_agent_server_port", side_effect=lambda: calls.append("free")),
+            patch.object(sandbox, "_wait_for_health_check", return_value=True),
+            patch.object(sandbox, "execute") as mock_execute,
+        ):
+            mock_execute.side_effect = lambda command, **kwargs: (
+                calls.append("launch") if "./node_modules/.bin/agent-server" in command else None,
+                MagicMock(exit_code=0, stdout="", stderr=""),
+            )[1]
+            sandbox.start_agent_server("PostHog/posthog", "task-123", "run-456", "background")
+
+        assert calls == ["free", "launch"]
+
     @pytest.mark.parametrize(
         "command",
         [
