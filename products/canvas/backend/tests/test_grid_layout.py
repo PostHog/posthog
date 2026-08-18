@@ -290,7 +290,7 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
         assert len(placements) == 1
         seeded = placements[0]
         assert seeded["status"] == "live"
-        assert (seeded["w"], seeded["h"]) == (3, 5)
+        assert (seeded["w"], seeded["h"]) == (2, 3)
 
         with team_scope(self.team.id):
             component = Canvas.objects.for_team(self.team.id).get(id=seeded["component"])
