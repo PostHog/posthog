@@ -32,32 +32,67 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
     const baselineRight = baselineActiveItem.x + baselineActiveItem.w
     const activeRight = activeItem.x + activeItem.w
     const expandingRight = activeRight > baselineRight
+    const expandingLeft = activeItem.x < baselineActiveItem.x
 
-    if (!expandingRight) {
-        return layout
-    }
-
-    const neighbor = baseline
-        .filter((item) => item.i !== activeItemId && !item.static && sharesRow(item))
-        .sort((first, second) => first.x - second.x)
-        .find((item) => item.x >= baselineRight && item.x < activeRight)
-
-    if (!neighbor) {
-        return layout
-    }
-
-    const nextWidth = neighbor.x + neighbor.w - activeRight
-    if (nextWidth < (neighbor.minW ?? 1)) {
-        return layout
-    }
-
-    return layout.map((item) => {
-        if (item.i !== neighbor.i) {
-            return item
+    if (expandingRight) {
+        let rightNeighbor: LayoutItem | undefined
+        for (const item of baseline) {
+            if (
+                item.i !== activeItemId &&
+                !item.static &&
+                sharesRow(item) &&
+                item.x >= baselineRight &&
+                item.x < activeRight &&
+                (!rightNeighbor || item.x < rightNeighbor.x)
+            ) {
+                rightNeighbor = item
+            }
         }
 
-        return { ...item, x: activeRight, y: neighbor.y, w: nextWidth }
-    })
+        if (rightNeighbor) {
+            const nextWidth = rightNeighbor.x + rightNeighbor.w - activeRight
+            if (nextWidth >= (rightNeighbor.minW ?? 1)) {
+                return layout.map((item) => {
+                    if (item.i !== rightNeighbor.i) {
+                        return item
+                    }
+
+                    return { ...item, x: activeRight, y: rightNeighbor.y, w: nextWidth }
+                })
+            }
+        }
+    }
+
+    if (expandingLeft) {
+        let leftNeighbor: LayoutItem | undefined
+        for (const item of baseline) {
+            if (
+                item.i !== activeItemId &&
+                !item.static &&
+                sharesRow(item) &&
+                item.x < baselineActiveItem.x &&
+                item.x + item.w > activeItem.x &&
+                (!leftNeighbor || item.x > leftNeighbor.x)
+            ) {
+                leftNeighbor = item
+            }
+        }
+
+        if (leftNeighbor) {
+            const nextWidth = activeItem.x - leftNeighbor.x
+            if (nextWidth >= (leftNeighbor.minW ?? 1)) {
+                return layout.map((item) => {
+                    if (item.i !== leftNeighbor.i) {
+                        return item
+                    }
+
+                    return { ...item, y: leftNeighbor.y, w: nextWidth }
+                })
+            }
+        }
+    }
+
+    return layout
 }
 
 function itemsOverlap(first: LayoutItem, second: LayoutItem): boolean {

@@ -41,4 +41,19 @@ describe('dashboard resize compactor', () => {
 
         expect(neighbor).toMatchObject(expectedNeighbor)
     })
+
+    it('shrinks the left neighbor when the active tile expands left', () => {
+        const leftBaseline: Layout = [
+            { i: 'neighbor', x: 0, y: 0, w: 6, h: 4, minW: 2 },
+            { i: 'active', x: 6, y: 0, w: 6, h: 4, minW: 2 },
+        ]
+        const layout: Layout = [
+            { i: 'neighbor', x: 0, y: 4, w: 6, h: 4, minW: 2 },
+            { i: 'active', x: 4, y: 0, w: 8, h: 4, minW: 2 },
+        ]
+
+        const neighbor = resizeNeighborToFitRow(layout, leftBaseline, 'active').find((item) => item.i === 'neighbor')
+
+        expect(neighbor).toMatchObject({ x: 0, y: 0, w: 4 })
+    })
 })
