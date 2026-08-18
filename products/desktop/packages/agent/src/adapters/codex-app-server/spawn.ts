@@ -69,6 +69,9 @@ export interface CodexAppServerProcessOptions {
   processCallbacks?: ProcessSpawnedCallback;
 }
 
+/** Idle time on a gateway SSE stream before codex abandons it and retries, in cloud sandboxes. */
+export const SANDBOX_STREAM_IDLE_TIMEOUT_MS = 90_000;
+
 export interface CodexAppServerProcess {
   process: ChildProcess;
   stdin: Writable;
@@ -169,6 +172,19 @@ export function buildAppServerArgs(
       args.push(
         "-c",
         `model_providers.posthog.http_headers=${tomlInlineTable(options.httpHeaders)}`,
+      );
+    }
+
+    // Gateway response streams occasionally go silent mid-generation and stay
+    // open. Codex only retries once the stream has been idle for
+    // stream_idle_timeout_ms (default 300000), so each stall costs a cloud run
+    // five minutes of wall clock and sandbox occupancy. A shorter idle timeout
+    // bounds that cost; the retry re-issues the request. Cloud-only because a
+    // desktop user can see and interrupt a hung turn themselves.
+    if (environment.IS_SANDBOX) {
+      args.push(
+        "-c",
+        `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`,
       );
     }
   }
