@@ -1,8 +1,8 @@
 export interface CohortMembershipRepository {
     /**
-     * Returns cohort_id -> is_member for every requested cohort; a cohort without a
-     * membership row is a non-member. Deliberately no degraded implementation: a failed
-     * lookup must surface as an error, never silently answer non-member.
+     * The full set of cohort ids the person is currently a member of. Deliberately no
+     * degraded implementation: a failed lookup must surface as an error, never silently
+     * answer non-member.
      */
-    getMemberships(teamId: number, personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>>
+    getMemberCohortIds(teamId: number, personUuid: string): Promise<number[]>
 }

@@ -27,20 +27,15 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
         private lookupTimeoutMs: number = DEFAULT_LOOKUP_TIMEOUT_MS
     ) {}
 
-    async getMemberships(teamId: number, personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>> {
-        if (cohortIds.length === 0) {
-            return new Map()
-        }
-
+    async getMemberCohortIds(teamId: number, personUuid: string): Promise<number[]> {
         const queryPromise = this.postgres.query<{ cohort_id: string }>(
             PostgresUse.BEHAVIORAL_COHORTS_RW,
             `SELECT cohort_id
              FROM cohort_membership
              WHERE team_id = $1
                AND person_id = $2
-               AND cohort_id = ANY($3)
                AND in_cohort = true`,
-            [teamId, personUuid, cohortIds],
+            [teamId, personUuid],
             'fetchCohortMemberships'
         )
 
@@ -67,7 +62,6 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
         })
 
         // BIGINT columns come back from pg as strings
-        const memberIds = new Set(result.rows.map((row) => Number(row.cohort_id)))
-        return new Map(cohortIds.map((id) => [id, memberIds.has(id)]))
+        return result.rows.map((row) => Number(row.cohort_id))
     }
 }

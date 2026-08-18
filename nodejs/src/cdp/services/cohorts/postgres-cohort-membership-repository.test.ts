@@ -26,35 +26,25 @@ describe('PostgresCohortMembershipRepository', () => {
         repository = new PostgresCohortMembershipRepository(postgres)
     })
 
-    it('resolves membership from cohort_membership rows, scoped to the team', async () => {
+    it('returns the cohorts the person is currently in, scoped to the team', async () => {
         const teamId = 2
         const personUuid = new UUIDT().toString()
         await insertCohortMemberships(postgres, [
             { team_id: teamId, cohort_id: 101, person_id: personUuid, in_cohort: true },
-            { team_id: teamId, cohort_id: 102, person_id: personUuid, in_cohort: false },
-            { team_id: teamId + 1, cohort_id: 103, person_id: personUuid, in_cohort: true },
+            { team_id: teamId, cohort_id: 102, person_id: personUuid, in_cohort: false }, // person left
+            { team_id: teamId + 1, cohort_id: 103, person_id: personUuid, in_cohort: true }, // another team, must not leak
+            { team_id: teamId, cohort_id: 104, person_id: personUuid, in_cohort: true },
         ])
 
-        const result = await repository.getMemberships(teamId, personUuid, [101, 102, 103, 104])
+        const result = await repository.getMemberCohortIds(teamId, personUuid)
 
-        expect(result).toEqual(
-            new Map([
-                [101, true],
-                [102, false], // person left
-                [103, false], // another team, must not leak
-                [104, false], // no row
-            ])
-        )
+        expect(result.sort()).toEqual([101, 104])
     })
 
-    it('short-circuits on an empty cohort id list without querying', async () => {
-        const querySpy = jest.spyOn(postgres, 'query')
+    it('returns an empty set for a person the pipeline never wrote a row for', async () => {
+        const result = await repository.getMemberCohortIds(2, new UUIDT().toString())
 
-        const result = await repository.getMemberships(2, new UUIDT().toString(), [])
-
-        expect(result).toEqual(new Map())
-        expect(querySpy).not.toHaveBeenCalled()
-        querySpy.mockRestore()
+        expect(result).toEqual([])
     })
 
     it('rejects with a retriable timeout error when the lookup hangs', async () => {
@@ -63,7 +53,7 @@ describe('PostgresCohortMembershipRepository', () => {
             const hangingRouter = { query: () => new Promise(() => {}) } as unknown as PostgresRouter
             const hangingRepository = new PostgresCohortMembershipRepository(hangingRouter, 500)
 
-            const lookup = hangingRepository.getMemberships(2, new UUIDT().toString(), [1])
+            const lookup = hangingRepository.getMemberCohortIds(2, new UUIDT().toString())
             const assertion = expect(lookup).rejects.toThrow(CohortMembershipLookupTimeoutError)
             jest.advanceTimersByTime(500)
             await assertion
