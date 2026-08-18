@@ -6284,6 +6284,7 @@ export namespace Schemas {
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -39582,9 +39583,38 @@ export namespace Schemas {
     }
 
     /**
+     * Cancel in-flight invocations of a workflow. Provide exactly one selector.
+     */
+    export interface HogInvocationCancelRequest {
+      /**
+         * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.
+         * @minItems 1
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+      /** Cancel every in-flight invocation of this workflow, including parked delays and waits. */
+      all?: boolean;
+    }
+
+    /**
+     * Response from the cancel endpoint. Cancellation is asynchronous: this call flags runs, and
+     * the workflow workers terminate them shortly after (immediately for parked runs, at the next
+     * step boundary for runs mid-execution). A run stays 'running' in listings until that happens.
+     */
+    export interface HogInvocationCancelResponse {
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** Matching in-flight runs not yet flagged. Non-zero on very large workflows; call again. */
+      remaining: number;
+      /** True when no matching in-flight runs remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `running` - running
      * * `succeeded` - succeeded
      * * `failed` - failed
+     * * `canceled` - canceled
      */
     export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
 
@@ -39593,6 +39623,7 @@ export namespace Schemas {
       Running: 'running',
       Succeeded: 'succeeded',
       Failed: 'failed',
+      Canceled: 'canceled',
     } as const;
 
     /**
@@ -42489,6 +42520,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
@@ -42540,6 +42572,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export interface IntegrationAccessRequest {
@@ -42590,7 +42623,8 @@ export namespace Schemas {
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
-       * * `vercel` - Vercel */
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /**
          * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -88430,6 +88464,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind;
     /**
@@ -88492,6 +88527,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
     export type IntegrationsChannelsRetrieveParams = {
