@@ -27,7 +27,7 @@ MAX_ODATA_PAGES = 200
 ACTIVITY_EVENTS_ENDPOINT = "activity_events"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PowerBiAdminEndpointConfig:
     name: str
     # Path under BASE_URL.

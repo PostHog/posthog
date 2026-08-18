@@ -33,7 +33,7 @@ ADMIN_API_DENIED_ERROR = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PowerBiAdminResumeConfig:
     """Cursor for whichever endpoint the job is walking.
 
