@@ -6,6 +6,7 @@ import { useService } from "@posthog/di/react";
 import type { TaskThreadMessage } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
@@ -76,13 +77,20 @@ export function useTaskThread(
 export function usePostTaskThreadMessage(taskId: string | undefined) {
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
+  const { markAsViewed } = useTaskViewed();
   const mutation = useMutation({
     mutationFn: async (content: string) => {
       if (!client || !taskId) throw new Error("Not authenticated");
       return client.createTaskThreadMessage(taskId, content);
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+    onSuccess: () => {
+      // Your own message counts as activity on the task, and the server has no actor to compare
+      // it against — so without this the row you just posted in comes back unread.
+      if (taskId) markAsViewed(taskId);
+      return queryClient.invalidateQueries({
+        queryKey: taskThreadQueryKey(taskId),
+      });
+    },
   });
   return { postMessage: mutation.mutateAsync, isPosting: mutation.isPending };
 }
@@ -91,13 +99,18 @@ export function usePostTaskThreadMessageToAgent(taskId: string | undefined) {
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
   const service = useService<TaskThreadService>(TASK_THREAD_SERVICE);
+  const { markAsViewed } = useTaskViewed();
   const mutation = useMutation({
     mutationFn: async (content: string) => {
       if (!client || !taskId) throw new Error("Not authenticated");
       return service.postMessageToAgent(client, taskId, content);
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: taskThreadQueryKey(taskId) }),
+    onSuccess: () => {
+      if (taskId) markAsViewed(taskId);
+      return queryClient.invalidateQueries({
+        queryKey: taskThreadQueryKey(taskId),
+      });
+    },
   });
   return {
     postMessageToAgent: mutation.mutateAsync,

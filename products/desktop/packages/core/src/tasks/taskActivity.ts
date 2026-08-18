@@ -12,6 +12,29 @@ export interface TaskActivityInput {
   latest_run?: { updated_at: string };
 }
 
+/**
+ * The newest timestamp a run carries, or 0 for a task that has never run.
+ *
+ * `completed_at` is in the max because runs written by older servers persisted the terminal time
+ * without their own `updated_at`, so they finish with a `completed_at` that is later. `created_at`
+ * is deliberately absent: `auto_now` sets `updated_at` on insert, so it can never exceed it.
+ *
+ * A structural parameter type because `/tasks/summaries/` returns a run with only `status` and
+ * `environment` — a caller on that endpoint gets 0 here rather than a wrong claim.
+ */
+export function runActivityTimestamp(
+  run:
+    | { updated_at?: string | null; completed_at?: string | null }
+    | null
+    | undefined,
+): number {
+  if (!run) return 0;
+  return Math.max(
+    Date.parse(run.updated_at ?? "") || 0,
+    Date.parse(run.completed_at ?? "") || 0,
+  );
+}
+
 export function taskActivityTimestamp(
   task: Pick<TaskActivityInput, "created_at" | "updated_at" | "latest_run">,
   sortMode: TaskActivitySortMode,

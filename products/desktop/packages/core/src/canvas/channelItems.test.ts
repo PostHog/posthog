@@ -1,5 +1,6 @@
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
+import type { TaskTimestamp } from "../sidebar/buildSidebarData";
 import {
   buildChannelItems,
   type ChannelItemFilters,
@@ -76,6 +77,45 @@ describe("buildChannelItems", () => {
       ],
     });
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
+  });
+
+  // `updated_at` alone only moves on the coarse events the server bumps a task on, so a session
+  // whose run is working — or whose activity this device saw before the next poll — has to be able
+  // to outrank a task with a newer `updated_at` and nothing happening.
+  it.each<{
+    term: string;
+    mover: Task;
+    facts: Readonly<Record<string, TaskTimestamp>>;
+  }>([
+    {
+      term: "the latest run's own update",
+      mover: task({
+        id: "mover",
+        updated_at: new Date(1_000).toISOString(),
+        latest_run: {
+          updated_at: new Date(9_000).toISOString(),
+        } as Task["latest_run"],
+      }),
+      facts: {},
+    },
+    {
+      term: "this device's local activity mark",
+      mover: task({ id: "mover", updated_at: new Date(1_000).toISOString() }),
+      facts: { mover: { lastViewedAt: null, lastActivityAt: 9_000 } },
+    },
+  ])("orders a session by $term", ({ mover, facts }) => {
+    const items = build({
+      feedTasks: [
+        task({ id: "stale", updated_at: new Date(5_000).toISOString() }),
+        mover,
+      ],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: facts,
+        workspaceModeByTaskId: new Map(),
+      },
+    });
+    expect(items.map((i) => i.id)).toEqual(["mover", "stale"]);
   });
 
   it("drops archived tasks but keeps canvases", () => {
@@ -172,6 +212,15 @@ describe("buildChannelItems", () => {
         task({ id: "asking" }),
         task({ id: "unread" }),
         task({ id: "quiet" }),
+        // A working run reorders the list but says nothing about what you've read: the yellow dot
+        // still answers to the task's own `updated_at`, which here predates the last look.
+        task({
+          id: "running",
+          updated_at: new Date(500).toISOString(),
+          latest_run: {
+            updated_at: new Date(9_000).toISOString(),
+          } as Task["latest_run"],
+        }),
       ],
       sessionFacts: {
         needsInputTaskIds: new Set(["asking"]),
@@ -179,14 +228,20 @@ describe("buildChannelItems", () => {
         // never opened has no timestamp and is not unread.
         viewedTimestamps: {
           unread: { lastViewedAt: 1_000, lastActivityAt: null },
+          running: { lastViewedAt: 1_000, lastActivityAt: null },
         },
         workspaceModeByTaskId: new Map(),
       },
     });
-    expect(items.map((i) => [i.id, i.needsInput, i.unread])).toEqual([
+    expect(
+      items
+        .map((i) => [i.id, i.needsInput, i.unread])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    ).toEqual([
       ["asking", true, false],
-      ["unread", false, true],
       ["quiet", false, false],
+      ["running", false, false],
+      ["unread", false, true],
     ]);
   });
 

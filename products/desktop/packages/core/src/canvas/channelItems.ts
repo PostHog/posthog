@@ -8,7 +8,12 @@ import type {
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
+import {
+  isTaskUnread,
+  type TaskTimestamp,
+  taskLastActivityAt,
+} from "../sidebar/buildSidebarData";
+import { runActivityTimestamp } from "../tasks/taskActivity";
 import type { DashboardRecord } from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
@@ -19,6 +24,7 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  /** When it last moved, for the recent-activity sort. See `channelItemTimestamp`. */
   ts: number;
   /** When it was first made, for the created-first sort. */
   createdAt: number;
@@ -112,6 +118,26 @@ function sourceOf(task: Task): string | null {
   return origin && origin !== SELF_ORIGIN ? origin : null;
 }
 
+/**
+ * When a session last moved, from everything one client can see: the backend's `updated_at` (which
+ * the server bumps on the discrete events — a run starting or finishing, a turn completing, a
+ * thread message), its latest run's own timestamps (which keep moving between those events), and
+ * this device's local activity mark (which runs ahead of the 5s feed poll).
+ *
+ * `|| 0` on the first term because `taskLastActivityAt` parses with `new Date`, which yields NaN
+ * for an unparseable string — and a NaN `ts` both breaks the sort comparison and produces a
+ * garbage day header in `groupChannelItems`.
+ */
+function channelItemTimestamp(
+  task: Task,
+  timestamp: TaskTimestamp | undefined,
+): number {
+  return Math.max(
+    taskLastActivityAt(task.updated_at, timestamp) || 0,
+    runActivityTimestamp(task.latest_run),
+  );
+}
+
 export function buildChannelItems({
   dashboards,
   feedTasks,
@@ -156,7 +182,10 @@ export function buildChannelItems({
             kind: "task" as const,
             id: task.id,
             title: task.title || "Untitled task",
-            ts: Date.parse(task.updated_at) || 0,
+            ts: channelItemTimestamp(
+              task,
+              sessionFacts.viewedTimestamps[task.id],
+            ),
             createdAt: Date.parse(task.created_at) || 0,
             pinned: pinnedTaskIds.has(task.id),
             rawStatus: task.latest_run?.status ?? null,

@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta
+
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
@@ -9,12 +12,14 @@ from posthog.models import Comment, Organization, OrganizationMembership, Team, 
 from posthog.models.scoping import team_scope
 
 from products.tasks.backend.facade.api import (
+    create_thread_message,
     list_mentions,
     list_thread_messages,
     post_artifact_thread_update,
     post_canvas_created_thread_update,
     post_commits_pushed_thread_update,
     post_pr_created_thread_update,
+    project_thread_message_activity,
     record_comment_activity,
     set_task_run_output,
     update_task_run,
@@ -49,6 +54,36 @@ class TestAgentThreadUpdates(TestCase):
 
     def _messages(self, task: Task) -> list[TaskThreadMessage]:
         return list(TaskThreadMessage.objects.for_team(self.team.id).filter(task=task).order_by("created_at"))
+
+    def _age_task(self, delta: timedelta) -> datetime:
+        """Age the task's `updated_at` past `auto_now`, which `.update()` doesn't trigger."""
+        aged = django_timezone.now() + delta
+        Task.objects.filter(pk=self.task.pk).update(updated_at=aged)
+        return aged
+
+    def test_thread_message_bumps_task_activity(self) -> None:
+        stale = self._age_task(-timedelta(hours=1))
+
+        with team_scope(self.team.id):
+            create_thread_message(self.task.id, self.team.id, self.user.id, content="ping")
+
+        self.assertGreater(Task.objects.get(pk=self.task.pk).updated_at, stale)
+
+    def test_a_late_thread_message_does_not_reorder_the_task_backwards(self) -> None:
+        # A message stamped in the past — a retried projection, or a write that raced the clock.
+        # The task's place in a recent-activity list may only ever move forward.
+        message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            author=self.user,
+            content="late",
+            created_at=django_timezone.now() - timedelta(hours=2),
+        )
+        fresh = self._age_task(timedelta(0))
+
+        project_thread_message_activity(message)
+
+        self.assertEqual(Task.objects.get(pk=self.task.pk).updated_at, fresh)
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_pr_created_posts_authorless_artifact_message(self, _flag) -> None:
