@@ -48,7 +48,10 @@ export function ArtifactChip({
         onClick={onOpen}
         disabled={disabled || !onOpen}
         aria-label={name ? `Open ${name}` : undefined}
-        className="min-w-0"
+        // Quill's base button is `shrink-0`; restore shrinking so a long name
+        // truncates inside a narrow message or activity row instead of pushing
+        // the download half out of reach.
+        className="min-w-0 shrink"
         variant="outline"
       >
         {typeof name === "string" && <FileIcon filename={name} size={12} />}
