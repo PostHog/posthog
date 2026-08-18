@@ -33,9 +33,9 @@ BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 
 
-def _owner_only_billing_enabled(user: User, organization: Organization) -> bool:
+def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
     if not user.distinct_id:
-        return False
+        return None
 
     try:
         return posthog_feature_flag_enabled(
@@ -45,7 +45,7 @@ def _owner_only_billing_enabled(user: User, organization: Organization) -> bool:
         )
     except Exception as e:
         capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return False
+        return None
 
 
 def user_has_billing_access(user: User, organization: Organization) -> bool:
@@ -59,7 +59,8 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if membership.level < OrganizationMembership.Level.ADMIN:
         return False
 
-    return not _owner_only_billing_enabled(user, organization)
+    # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
+    return _owner_only_billing_enabled(user, organization) is False
 
 
 class HasBillingAccess(permissions.BasePermission):
