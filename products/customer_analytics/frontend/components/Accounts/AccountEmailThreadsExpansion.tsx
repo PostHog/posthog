@@ -207,6 +207,7 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
                 controlled: true,
                 pageSize: PAGE_SIZE,
                 currentPage: page,
+                useUrl: false,
                 entryCount: count,
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),

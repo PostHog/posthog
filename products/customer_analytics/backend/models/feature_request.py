@@ -47,7 +47,7 @@ class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
 class FeatureRequest(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     title = models.CharField(max_length=400)
-    description = models.TextField()
+    description = models.TextField(blank=True, default="")
     status = models.CharField(
         max_length=32,
         choices=FeatureRequestStatus.choices,

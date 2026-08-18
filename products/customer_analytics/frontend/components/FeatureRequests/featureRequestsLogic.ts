@@ -24,6 +24,7 @@ import {
 } from '../../generated/api'
 import type {
     AccountApi,
+    FeatureRequestAccountApi,
     FeatureRequestApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
@@ -208,6 +209,7 @@ export interface featureRequestsLogicValues {
     savingProductArea: boolean
     savingRequestChanges: boolean
     searchQuery: string
+    selectedAccount: FeatureRequestAccountApi | null
     statusFilter: FeatureRequestStatusEnumApi[]
     submitDisabledReason: string | undefined
     submittingRequest: boolean
@@ -408,6 +410,9 @@ export interface featureRequestsLogicActions {
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     }
+    setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => {
+        selectedAccount: FeatureRequestAccountApi | null
+    }
     setSubmittingRequest: (submittingRequest: boolean) => {
         submittingRequest: boolean
     }
@@ -442,7 +447,10 @@ export interface featureRequestsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentTeamId: (currentTeam: TeamPublicType | TeamType | null) => string
         activeProductAreas: (productAreas: FeatureRequestProductAreaApi[]) => FeatureRequestProductAreaApi[]
-        accountOptions: (accounts: AccountApi[]) => {
+        accountOptions: (
+            accounts: AccountApi[],
+            selectedAccount: FeatureRequestAccountApi | null
+        ) => {
             key: string
             label: string
         }[]
@@ -460,14 +468,12 @@ export interface featureRequestsLogicMeta {
         }[]
         submitDisabledReason: (
             title: string,
-            description: string,
             accountId: string | null,
             productAreaIds: string[],
             submittingRequest: boolean
         ) => string | undefined
         editDisabledReason: (
             editTitle: string,
-            editDescription: string,
             editAccountId: string | null,
             editProductAreaIds: string[],
             savingRequestChanges: boolean
@@ -521,6 +527,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setTitle: (title: string) => ({ title }),
         setDescription: (description: string) => ({ description }),
         setAccountId: (accountId: string | null) => ({ accountId }),
+        setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => ({ selectedAccount }),
         setAccountSearch: (accountSearch: string) => ({ accountSearch }),
         setProductAreaIds: (productAreaIds: string[]) => ({ productAreaIds }),
         setIdempotencyKey: (idempotencyKey: string) => ({ idempotencyKey }),
@@ -681,6 +688,15 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         accountSearch: ['', { setAccountSearch: (_, { accountSearch }) => accountSearch }],
+        selectedAccount: [
+            null as FeatureRequestAccountApi | null,
+            {
+                setSelectedAccount: (_, { selectedAccount }) => selectedAccount,
+                openEditRequest: (_, { featureRequest }) => featureRequest.account,
+                closeCreateRequest: () => null,
+                closeEditRequest: () => null,
+            },
+        ],
         accountsError: [
             null as string | null,
             {
@@ -861,9 +877,17 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 productAreas.filter((area) => area.is_active),
         ],
         accountOptions: [
-            (selectors) => [selectors.accounts],
-            (accounts: AccountApi[]): { key: string; label: string }[] =>
-                accounts.map((account) => ({ key: account.id, label: account.name })),
+            (selectors) => [selectors.accounts, selectors.selectedAccount],
+            (
+                accounts: AccountApi[],
+                selectedAccount: FeatureRequestAccountApi | null
+            ): { key: string; label: string }[] => {
+                const displayAccounts =
+                    selectedAccount && !accounts.some((account) => account.id === selectedAccount.id)
+                        ? [selectedAccount, ...accounts]
+                        : accounts
+                return displayAccounts.map((account) => ({ key: account.id, label: account.name }))
+            },
         ],
         productAreaOptions: [
             (selectors) => [selectors.activeProductAreas],
@@ -889,14 +913,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         submitDisabledReason: [
             (selectors) => [
                 selectors.title,
-                selectors.description,
                 selectors.accountId,
                 selectors.productAreaIds,
                 selectors.submittingRequest,
             ],
             (
                 title: string,
-                description: string,
                 accountId: string | null,
                 productAreaIds: string[],
                 submittingRequest: boolean
@@ -906,9 +928,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 if (!title.trim()) {
                     return 'Enter a title'
-                }
-                if (!description.trim()) {
-                    return 'Enter a description'
                 }
                 if (!accountId) {
                     return 'Select an account'
@@ -922,14 +941,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         editDisabledReason: [
             (selectors) => [
                 selectors.editTitle,
-                selectors.editDescription,
                 selectors.editAccountId,
                 selectors.editProductAreaIds,
                 selectors.savingRequestChanges,
             ],
             (
                 editTitle: string,
-                editDescription: string,
                 editAccountId: string | null,
                 editProductAreaIds: string[],
                 savingRequestChanges: boolean
@@ -939,9 +956,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 if (!editTitle.trim()) {
                     return 'Enter a title'
-                }
-                if (!editDescription.trim()) {
-                    return 'Enter a description'
                 }
                 if (!editAccountId) {
                     return 'Select an account'
@@ -1041,6 +1055,16 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             actions.setIdempotencyKey(newIdempotencyKey())
             actions.loadAccounts('')
             actions.loadProductAreas()
+        },
+        setAccountId: ({ accountId }) => {
+            actions.setSelectedAccount(
+                accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
+            )
+        },
+        setEditAccountId: ({ editAccountId }) => {
+            actions.setSelectedAccount(
+                editAccountId ? (values.accounts.find((account) => account.id === editAccountId) ?? null) : null
+            )
         },
         setAccountSearch: async ({ accountSearch }, breakpoint) => {
             await breakpoint(300)
