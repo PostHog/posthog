@@ -247,8 +247,13 @@ interface CloudTaskWatcher {
   bufferedResumeUpdates: CloudTaskUpdatePayload[];
   processCloudUpdate: (update: CloudTaskUpdatePayload) => void;
   subscription: { unsubscribe: () => void };
+  /** Bumped on every attach, so a replaced subscription's late callbacks are ignored. */
+  subscriptionGeneration: number;
   subscriptionRecoveryAttempts: number;
   subscriptionRecoveryTimeoutId: ReturnType<typeof setTimeout> | null;
+  subscriptionRecoveryInFlight: boolean;
+  /** An error that arrived mid-recovery, retried once that recovery settles. */
+  subscriptionRecoveryQueued: boolean;
   subscriptionErrorSurfaced: boolean;
   onStatusChange?: () => void;
 }
@@ -6301,8 +6306,11 @@ export class SessionService {
       bufferedResumeUpdates: [],
       processCloudUpdate,
       subscription: { unsubscribe: () => undefined },
+      subscriptionGeneration: 0,
       subscriptionRecoveryAttempts: 0,
       subscriptionRecoveryTimeoutId: null,
+      subscriptionRecoveryInFlight: false,
+      subscriptionRecoveryQueued: false,
       subscriptionErrorSurfaced: false,
       onStatusChange,
     };
@@ -6314,6 +6322,7 @@ export class SessionService {
       taskId,
       runId,
       startToken,
+      watcher.subscriptionGeneration,
     );
 
     if (shouldHydrateSession) {
@@ -6799,7 +6808,15 @@ export class SessionService {
     taskId: string,
     runId: string,
     startToken: number,
+    generation: number,
   ): { unsubscribe: () => void } {
+    // Recovery replaces the subscription while the watcher stays current, so
+    // the generation is what tells a live handler from one belonging to the
+    // subscription we just discarded.
+    const isCurrentSubscription = () =>
+      this.isCurrentCloudTaskWatcher(taskId, runId, startToken) &&
+      this.cloudTaskWatchers.get(taskId)?.subscriptionGeneration === generation;
+
     return this.d.trpc.cloudTask.onUpdate.subscribe(
       { taskId, runId },
       {
@@ -6816,13 +6833,12 @@ export class SessionService {
           activeWatcher.processCloudUpdate(update);
         },
         onError: (err: unknown) => {
+          if (!isCurrentSubscription()) return;
           this.d.log.error("Cloud task subscription error", { taskId, err });
           this.scheduleCloudSubscriptionRecovery(taskId, runId);
         },
         onComplete: () => {
-          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
-            return;
-          }
+          if (!isCurrentSubscription()) return;
           this.d.log.warn(
             "Cloud task subscription ended without an error, updates stop until the task is reopened",
             { taskId, runId },
@@ -6848,6 +6864,14 @@ export class SessionService {
   ): void {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher || watcher.runId !== runId) return;
+    // A running recovery already rebuilds the subscription. Queue the failure
+    // for it to retry rather than starting a second, overlapping recovery: the
+    // main-process watcher is reference counted, so two watch calls against one
+    // teardown leave it running forever.
+    if (watcher.subscriptionRecoveryInFlight) {
+      watcher.subscriptionRecoveryQueued = true;
+      return;
+    }
     if (watcher.subscriptionRecoveryTimeoutId) return;
 
     const delay = getBackoffDelay(
@@ -6869,11 +6893,15 @@ export class SessionService {
     const startToken = watcher.startToken;
 
     watcher.subscriptionRecoveryAttempts += 1;
+    watcher.subscriptionRecoveryInFlight = true;
+    watcher.subscriptionRecoveryQueued = false;
     watcher.subscription.unsubscribe();
+    watcher.subscriptionGeneration += 1;
     watcher.subscription = this.attachCloudTaskSubscription(
       taskId,
       runId,
-      watcher.startToken,
+      startToken,
+      watcher.subscriptionGeneration,
     );
 
     try {
@@ -6906,7 +6934,18 @@ export class SessionService {
         err,
       });
       this.maybeSurfaceCloudSubscriptionError(taskId, runId);
-      this.scheduleCloudSubscriptionRecovery(taskId, runId);
+      watcher.subscriptionRecoveryQueued = true;
+    } finally {
+      watcher.subscriptionRecoveryInFlight = false;
+      // Either this attempt failed, or the rebuilt subscription died while the
+      // watch call was still in flight. Both mean the stream is still down.
+      if (
+        watcher.subscriptionRecoveryQueued &&
+        this.isCurrentCloudTaskWatcher(taskId, runId, startToken)
+      ) {
+        watcher.subscriptionRecoveryQueued = false;
+        this.scheduleCloudSubscriptionRecovery(taskId, runId);
+      }
     }
   }
 

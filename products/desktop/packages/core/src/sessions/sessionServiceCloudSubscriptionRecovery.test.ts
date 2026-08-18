@@ -9,6 +9,7 @@ const RUN_ID = "run-1";
 type SubscriptionHandlers = {
   onData: (data: CloudTaskUpdatePayload) => void;
   onError?: (err: unknown) => void;
+  onComplete?: () => void;
 };
 
 function makeSession(): AgentSession {
@@ -288,5 +289,55 @@ describe("SessionService cloud subscription recovery", () => {
     subscriptions[1].handlers.onError?.(new Error("stream died again"));
     await vi.advanceTimersByTimeAsync(1_000);
     expect(subscriptions).toHaveLength(3);
+  });
+
+  it("queues one retry instead of racing a second recovery", async () => {
+    const { service, subscriptions, watchMutate } = createHarness();
+    watchTask(service);
+    await flushMicrotasks();
+
+    let resolveWatch = () => {};
+    watchMutate.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWatch = () => resolve();
+        }),
+    );
+
+    subscriptions[0].handlers.onError?.(new Error("stream died"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(subscriptions).toHaveLength(2);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
+
+    // The rebuilt subscription dies while its watch call is still in flight.
+    // Recovering again now would leave the reference-counted main-process
+    // watcher with two watch calls against one teardown.
+    subscriptions[1].handlers.onError?.(new Error("stream died again"));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(subscriptions).toHaveLength(2);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
+
+    resolveWatch();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(subscriptions).toHaveLength(3);
+    expect(watchMutate).toHaveBeenCalledTimes(3);
+  });
+
+  it("ignores callbacks from a subscription recovery replaced", async () => {
+    const { service, subscriptions, watchMutate } = createHarness();
+    watchTask(service);
+    await flushMicrotasks();
+
+    subscriptions[0].handlers.onError?.(new Error("stream died"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(subscriptions).toHaveLength(2);
+
+    subscriptions[0].handlers.onError?.(new Error("late error"));
+    subscriptions[0].handlers.onComplete?.();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(subscriptions).toHaveLength(2);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
   });
 });
