@@ -9007,6 +9007,7 @@ export const externalDataSources = [
     'DeelFlows',
     'Hootsuite',
     'WisprFlow',
+    'SamCart',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

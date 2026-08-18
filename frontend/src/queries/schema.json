@@ -25685,7 +25685,8 @@
                 "Zitadel",
                 "DeelFlows",
                 "Hootsuite",
-                "WisprFlow"
+                "WisprFlow",
+                "SamCart"
             ],
             "type": "string"
         },
@@ -29341,7 +29342,8 @@
                 "postgresql",
                 "aws-s3",
                 "s3-compatible",
-                "snowflake"
+                "snowflake",
+                "youtube-analytics"
             ],
             "type": "string"
         },
