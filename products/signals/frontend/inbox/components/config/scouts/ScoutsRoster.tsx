@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonInput,
     LemonMenu,
+    LemonSegmentedButton,
     LemonSkeleton,
     LemonTable,
     LemonTag,
@@ -33,7 +34,7 @@ import {
     scoutCadenceLabel,
     scoutSubtitle,
 } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT_LABEL, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
@@ -108,9 +109,9 @@ export function ScoutsRoster(): JSX.Element {
             <RosterGroups />
             <div className="flex flex-col gap-1 px-6 py-4">
                 <span className="text-xs text-muted">
-                    Run counts cover each scout's last 3 days, so scouts on different schedules stay comparable. New
-                    scouts are created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your
-                    PostHog project.
+                    Run counts cover each scout's {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay
+                    comparable. New scouts are created as <span className="font-mono text-[11px]">signals-scout-*</span>{' '}
+                    skills in your PostHog project.
                 </span>
                 <ScoutHelperSkillLinks />
             </div>
@@ -205,11 +206,21 @@ function RosterStats(): JSX.Element {
 }
 
 function RosterFilters(): JSX.Element {
-    const { scoutSearch, scoutTagOptions, activeScoutTags } = useValues(scoutFleetLogic)
-    const { setScoutSearch, setScoutTagFilter } = useActions(scoutFleetLogic)
+    const { scoutSearch, scoutEnabledFilter, scoutTagOptions, activeScoutTags } = useValues(scoutFleetLogic)
+    const { setScoutSearch, setScoutEnabledFilter, setScoutTagFilter } = useActions(scoutFleetLogic)
 
     return (
         <div className="ml-auto flex flex-wrap items-center gap-2">
+            <LemonSegmentedButton
+                size="small"
+                value={scoutEnabledFilter}
+                onChange={setScoutEnabledFilter}
+                options={[
+                    { value: 'all', label: 'All' },
+                    { value: 'enabled', label: 'On' },
+                    { value: 'disabled', label: 'Off' },
+                ]}
+            />
             <LemonInput
                 type="search"
                 size="small"

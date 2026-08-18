@@ -11,7 +11,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, scoutCadenceLabel } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
@@ -87,7 +87,7 @@ export function ScoutDetailHeader({
                     value={next ? <TZLabel time={next.toISOString()} /> : <span className="text-muted">—</span>}
                     label="Next run"
                 />
-                <Metric value={rollup?.runCount ?? 0} label="Runs · 3d" />
+                <Metric value={rollup?.runCount ?? 0} label={`Runs · last ${SCOUT_RUNS_PER_SCOUT}`} />
                 <Metric value={authored} label="Reports filed" />
                 <Metric value={learnedCount} label="Learned" />
                 <Metric value={noteCount} label="Told" />

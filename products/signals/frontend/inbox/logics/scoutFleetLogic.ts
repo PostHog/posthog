@@ -35,6 +35,8 @@ import {
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import { groupScouts, scoutGroup, ScoutGroupBucket, ScoutGroupKey } from '../utils/scoutGroups'
+
+export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -119,7 +121,11 @@ export interface scoutFleetLogicValues {
     fleetFindingsSummaryLoading: boolean
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
+    manualRunScoutIds: string[]
     rollups: Map<string, ScoutRollup>
+    rosterBuckets: ScoutGroupBucket[]
+    rosterGroupCounts: Record<ScoutGroupKey, number>
+    rosterPlacement: Record<string, ScoutGroupKey>
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -127,16 +133,13 @@ export interface scoutFleetLogicValues {
     }
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
-    manualRunScoutIds: string[]
-    rosterBuckets: ScoutGroupBucket[]
-    rosterPlacement: Record<string, ScoutGroupKey>
-    rosterGroupCounts: Record<ScoutGroupKey, number>
     scoutConfigs: SignalScoutConfig[] | null
-    scoutSearch: string
     scoutConfigsLoading: boolean
+    scoutEnabledFilter: ScoutEnabledFilter
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
+    scoutSearch: string
     scoutTagOptions: ScoutTagOption[]
     selectedScoutTags: string[]
     updatingScoutIds: string[]
@@ -229,11 +232,14 @@ export interface scoutFleetLogicActions {
     runScoutNow: (configId: string) => {
         configId: string
     }
+    runScoutNowFinished: (configId: string) => {
+        configId: string
+    }
     setRosterPlacement: (placement: Record<string, ScoutGroupKey>) => {
         placement: Record<string, ScoutGroupKey>
     }
-    runScoutNowFinished: (configId: string) => {
-        configId: string
+    setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
+        filter: ScoutEnabledFilter
     }
     setScoutSearch: (search: string) => {
         search: string
@@ -293,6 +299,7 @@ export interface scoutFleetLogicMeta {
             rollups: Map<string, ScoutRollup>,
             activeScoutTags: string[],
             scoutSearch: string,
+            scoutEnabledFilter: ScoutEnabledFilter,
             rosterPlacement: Record<string, ScoutGroupKey>
         ) => ScoutGroupBucket[]
         rosterGroupCounts: (
@@ -346,6 +353,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
         setScoutSearch: (search: string) => ({ search }),
+        setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
         runScoutNow: (configId: string) => ({ configId }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         setRosterPlacement: (placement: Record<string, ScoutGroupKey>) => ({ placement }),
@@ -494,6 +502,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 setScoutSearch: (_, { search }) => search,
             },
         ],
+        scoutEnabledFilter: [
+            'all' as ScoutEnabledFilter,
+            {
+                setScoutEnabledFilter: (_, { filter }) => filter,
+            },
+        ],
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -618,12 +632,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
          * Watching, so the two stay in step.
          */
         rosterBuckets: [
-            (s) => [s.scoutConfigs, s.rollups, s.activeScoutTags, s.scoutSearch, s.rosterPlacement],
+            (s) => [
+                s.scoutConfigs,
+                s.rollups,
+                s.activeScoutTags,
+                s.scoutSearch,
+                s.scoutEnabledFilter,
+                s.rosterPlacement,
+            ],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
                 rollups: Map<string, ScoutRollup>,
                 activeScoutTags: string[],
                 scoutSearch: string,
+                scoutEnabledFilter: ScoutEnabledFilter,
                 rosterPlacement: Record<string, ScoutGroupKey>
             ): ScoutGroupBucket[] => {
                 const query = scoutSearch.trim().toLowerCase()
@@ -634,6 +656,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         prettifyScoutSkillName(a.skill_name).localeCompare(prettifyScoutSkillName(b.skill_name))
                     )
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
+                    .filter(
+                        (config) =>
+                            scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
+                    )
                     .filter(
                         (config) =>
                             !query ||
