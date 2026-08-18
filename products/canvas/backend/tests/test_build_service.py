@@ -4,7 +4,9 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -400,6 +402,28 @@ class TestCleanup(BuildServiceBaseTest):
         assert str(aged[2].id) in kept  # newest other ready build (instant rollback)
         assert str(published.id) not in kept  # aged past retention, unprotected
         assert pruned == 1
+
+    def test_cleanup_join_reads_only_the_published_pointer_from_canvas(self):
+        # The sweep only needs canvas.published_build_id, so its join must not
+        # SELECT the whole posthog_canvas row. A wide join breaks the task during
+        # a deploy whenever a new Canvas column exists in code before its
+        # migration lands, so guard the narrowed column list here.
+        published = self._publish()
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        old = timezone.now() - build_service.SUCCESSFUL_BUILD_RETENTION - timedelta(days=1)
+        CanvasBuild.objects.unscoped().filter(id=published.id).update(finished_at=old)
+
+        with CaptureQueriesContext(connection) as captured:
+            build_service.cleanup_canvas_builds()
+
+        join_sql = next(
+            q["sql"] for q in captured.captured_queries if "posthog_canvas_build" in q["sql"] and "JOIN" in q["sql"]
+        )
+        assert '"posthog_canvas"."published_build_id"' in join_sql
+        assert '"posthog_canvas"."name"' not in join_sql
 
 
 class TestLegacySourcePreservation(BuildServiceBaseTest):

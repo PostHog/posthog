@@ -1176,6 +1176,9 @@ def cleanup_canvas_builds() -> int:
             | Q(status=CanvasBuild.STATUS_READY, finished_at__lt=now - SUCCESSFUL_BUILD_RETENTION)
         )
         .select_related("canvas")
+        # Load only the columns the loop reads, so the join stops depending on
+        # the full Canvas table shape and survives future Canvas columns.
+        .only("canvas_id", "artifact_object_prefix", "manifest", "canvas__published_build_id")
         .order_by("canvas_id", "-created_at")
     )
     protected: dict[str, set[str]] = {}
