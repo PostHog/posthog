@@ -1,5 +1,5 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Spinner } from "@posthog/quill";
+import { Spinner, Text } from "@posthog/quill";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { useQueryClient } from "@tanstack/react-query";
@@ -53,6 +53,23 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
   );
 
   if (!artifact) {
+    // No artifact and no build coming: an endless spinner here hides a broken
+    // widget — the checklist a fresh home seeds hits this when its build fails.
+    const newestBuild = lifecycle?.builds[0];
+    const buildDead =
+      lifecycle &&
+      !publishedBuild &&
+      (!newestBuild || newestBuild.buildStatus === "failed");
+    if (buildDead) {
+      return (
+        <div className="flex h-full w-full items-center justify-center p-3 text-center">
+          <Text size="sm">
+            This widget failed to build. Open its component canvas to see the
+            diagnostics.
+          </Text>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full w-full items-center justify-center">
         <Spinner />
