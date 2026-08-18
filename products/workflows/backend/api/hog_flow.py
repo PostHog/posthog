@@ -2875,6 +2875,11 @@ class HogFlowViewSet(
             hog_flow_id = str(hog_flow.id)
         except Http404:
             hog_flow = None
+            # The row is gone, so get_object's per-object access check never ran. Require
+            # project-wide workflow editor access instead - without this, a member whose editor
+            # access came from per-object grants could cancel any deleted flow's runs by UUID.
+            if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+                raise exceptions.NotFound()
             try:
                 hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
             except (ValueError, KeyError):

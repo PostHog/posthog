@@ -1787,10 +1787,7 @@ describe('CDP API', () => {
                 "another workflow's token",
                 () => ({ Authorization: `Bearer ${mintCancelToken(team.id, new UUIDT().toString())}` }),
             ],
-            [
-                "another team's token",
-                () => ({ Authorization: `Bearer ${mintCancelToken(team.id + 1, cancelFlowId)}` }),
-            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintCancelToken(team.id + 1, cancelFlowId)}` })],
             [
                 // The cancel purpose shares its signing key with reschedule_parked, so the audience
                 // is the only thing keeping a reschedule token out of cancel.
