@@ -1088,6 +1088,27 @@ describe("buildConversationItems", () => {
       expect(distinctContexts.size).toBe(4);
     });
 
+    it("keeps item ids distinct across implicit turns that share a timestamp", () => {
+      // Entries with a missing or unparseable timestamp all resolve to one `ts`.
+      // The virtualizer keys its measurement cache and its prepend anchor on the
+      // item id, so a duplicate anchors older history onto the wrong row.
+      const events = [
+        userPromptMsg(1, 1, "use a monitor"),
+        agentMessageMsg(2, "Monitor is running."),
+        turnCompleteMsg(3),
+        agentMessageMsg(10, "ping 1 received."),
+        backgroundTurnCompleteMsg(10),
+        agentMessageMsg(10, "ping 2 received."),
+        backgroundTurnCompleteMsg(10),
+      ];
+
+      const ids = buildConversationItems(events, true).items.map(
+        (item) => item.id,
+      );
+
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+
     it("computes a real duration for an implicit turn once a background reply completes it", () => {
       const events = [
         userPromptMsg(1, 1, "use a monitor"),

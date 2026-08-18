@@ -366,19 +366,26 @@ export function VirtualThreadScrollBody({
       canLoad: canLoadOlderRef.current,
       isLoading: isLoadingOlderRef.current,
       scrollTop: el.scrollTop,
+      maxScrollTop: el.scrollHeight - el.clientHeight,
     });
     loadOlderArmedRef.current = next.armed;
     if (next.load) onLoadOlderHistoryRef.current?.();
   }, []);
 
-  // Keyed on the cursor rather than the in-flight flag: the cursor moves only
-  // when a page lands, so arming here cannot retry a failure. A viewport parked
-  // at the very top produces no scroll events, hence the timer.
+  // Arming belongs to the scroll handler, so one gesture buys one page. This
+  // only covers what a gesture cannot reach: the first cursor the body sees, and
+  // a viewport parked with no scroll room, which emits no scroll events at all.
+  // Arming on every cursor move would instead chain page after page, because a
+  // page of collapsed tool rows lands the viewport back inside the threshold.
   useEffect(() => {
-    canLoadOlderRef.current =
-      olderHistoryCursor > 0 && onLoadOlderHistory != null;
-    loadOlderArmedRef.current = canLoadOlderRef.current;
-    if (!loadOlderArmedRef.current) return;
+    const canLoad = olderHistoryCursor > 0 && onLoadOlderHistory != null;
+    const becameAvailable = canLoad && !canLoadOlderRef.current;
+    canLoadOlderRef.current = canLoad;
+    if (!canLoad) {
+      loadOlderArmedRef.current = false;
+      return;
+    }
+    if (becameAvailable) loadOlderArmedRef.current = true;
     const id = window.setTimeout(maybeLoadOlderHistory, 250);
     return () => window.clearTimeout(id);
   }, [olderHistoryCursor, onLoadOlderHistory, maybeLoadOlderHistory]);

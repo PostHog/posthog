@@ -124,16 +124,27 @@ export interface OlderHistoryLoadState {
  * that fails or comes back empty leaves the cursor where it was, so nothing re-arms the loader until
  * the reader scrolls back out and in — otherwise the arming timer would retry a failing request
  * every few hundred milliseconds for as long as the thread sat near the top.
+ *
+ * A window that does not fill the viewport is the one case with no gesture to wait for: it emits no
+ * scroll events at all, so it stays armed and keeps paging until there is something to scroll.
  */
 export function nextOlderHistoryLoadState(
   armed: boolean,
-  input: { canLoad: boolean; isLoading: boolean; scrollTop: number },
+  input: {
+    canLoad: boolean;
+    isLoading: boolean;
+    scrollTop: number;
+    /** Largest `scrollTop` the viewport can reach; 0 when the window does not fill it. */
+    maxScrollTop: number;
+  },
 ): OlderHistoryLoadState {
   if (!input.canLoad) return { armed: false, load: false };
   if (input.scrollTop > OLDER_HISTORY_LOAD_THRESHOLD_PX) {
     return { armed: true, load: false };
   }
-  if (!armed || input.isLoading) return { armed, load: false };
+  if (input.isLoading) return { armed, load: false };
+  if (input.maxScrollTop <= 0) return { armed: false, load: true };
+  if (!armed) return { armed, load: false };
   return { armed: false, load: true };
 }
 

@@ -307,36 +307,80 @@ describe("nextThreadFollowState", () => {
 describe("nextOlderHistoryLoadState", () => {
   const AT_TOP = 0;
   const AWAY = OLDER_HISTORY_LOAD_THRESHOLD_PX + 1;
+  // Enough room to scroll back out of the threshold band, so a gesture is possible.
+  const SCROLLABLE = OLDER_HISTORY_LOAD_THRESHOLD_PX * 4;
 
   it.each([
     [
       "spends the armed gesture on reaching the threshold",
       true,
-      { canLoad: true, isLoading: false, scrollTop: AT_TOP },
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
       { armed: false, load: true },
     ],
     [
       "will not retry a failed load while the viewport stays at the top",
       false,
-      { canLoad: true, isLoading: false, scrollTop: AT_TOP },
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
+      { armed: false, load: false },
+    ],
+    [
+      "will not chain a second page after one lands at the top",
+      false,
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: OLDER_HISTORY_LOAD_THRESHOLD_PX,
+        maxScrollTop: SCROLLABLE,
+      },
       { armed: false, load: false },
     ],
     [
       "re-arms once the reader scrolls back out of the threshold",
       false,
-      { canLoad: true, isLoading: false, scrollTop: AWAY },
+      {
+        canLoad: true,
+        isLoading: false,
+        scrollTop: AWAY,
+        maxScrollTop: SCROLLABLE,
+      },
       { armed: true, load: false },
     ],
     [
       "holds the armed gesture while a page is still in flight",
       true,
-      { canLoad: true, isLoading: true, scrollTop: AT_TOP },
+      {
+        canLoad: true,
+        isLoading: true,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
       { armed: true, load: false },
+    ],
+    [
+      "keeps paging a window that leaves the viewport nothing to scroll",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: AT_TOP, maxScrollTop: 0 },
+      { armed: false, load: true },
     ],
     [
       "disarms once the whole transcript is loaded",
       true,
-      { canLoad: false, isLoading: false, scrollTop: AT_TOP },
+      {
+        canLoad: false,
+        isLoading: false,
+        scrollTop: AT_TOP,
+        maxScrollTop: SCROLLABLE,
+      },
       { armed: false, load: false },
     ],
   ])("%s", (_name, armed, input, expected) => {
