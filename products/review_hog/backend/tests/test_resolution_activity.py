@@ -14,7 +14,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
-from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import RESOLUTION_MAX_ATTEMPTS
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
@@ -23,15 +23,18 @@ from products.review_hog.backend.reviewer.persistence import load_thread_verdict
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_RESOLUTION_SKILL_NAME
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
+    FailResolutionInput,
     ResolutionRunResult,
     ResolveThreadsInput,
     _append_run_note,
     _append_task_run,
     _deliver_side_effects,
+    _fail_resolution,
     _prepare_run,
     _PreparedRun,
     resolve_threads_activity,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task
 
@@ -331,6 +334,44 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert stored.resolved is False
         # Restricted commits are real pushed commits: the restriction gates delivery, not the audit log.
         assert ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id, type="commit").exists()
+
+    def test_fail_resolution_idles_the_report_and_marks_where_it_stopped(self) -> None:
+        # The workflow-level crash cleanup: it must count only delivered threads against the queued
+        # work-list, and a crash before anything was queued must not edit (or create) a comment —
+        # the create-on-demand path would post a spurious "stopped at 0/0" otherwise.
+        report = self._report()
+        ReviewReportArtefact.append_resolution_run(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ResolutionRunArtefact(total=3, thread_ids=["PRRT_1", "PRRT_2", "PRRT_3"]),
+            attribution=ArtefactAttribution.system(),
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(outcome="fixed", reply_posted=True),
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict(thread_id="PRRT_2", outcome="fixed", reply_posted=False),
+        )
+
+        with patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment:
+            _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=123))
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
+        assert "stopped at 1/3" in status_comment.call_args.args[2]
+
+        # Crash before prepare queued anything: no run anchor, so no section to replace.
+        report.pr_number = 124
+        report.status = ReviewReport.Status.ACTIVE
+        report.save(update_fields=["pr_number", "status"])
+        ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id).delete()
+        with patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment:
+            _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=124))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
+        assert status_comment.call_count == 0
 
     def test_run_note_names_delivery_failures(self) -> None:
         # A token-expiry tail must be visible in the durable run note, not just worker logs.

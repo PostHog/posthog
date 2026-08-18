@@ -95,6 +95,7 @@ resolving (delivered verdicts — `reply_posted` — counted against the queue, 
 The PR-comment counters likewise count only threads whose GitHub writes landed (`delivered_outcomes`); judged-but-undelivered threads join the closing tally's "couldn't handle" count instead.
 The reviews API exposes it as the row's `resolution` field ("Resolving comments · 6/10" / "Resolution didn't finish · stopped at 6/10" in the scene),
 the PR status comment carries a marker-delimited resolution section (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
+with a patched workflow-level backstop (`fail_resolution_activity`, fired from `ResolvePRWorkflow`'s except) covering the deaths the activity handler can't see — prepare failures, timeouts, cancellation, worker death — by idling the report and writing the failed section from the persisted work-list,
 and each queued thread's opening comment gets a best-effort 👀 reaction (queue marker; never removed).
 The **busy-guard** (`temporal/client.py::workflow_running`, fail-open describe on the deterministic ids) refuses a review start while the PR's `resolve-pr` runs and a standalone resolution while `review-pr` runs —
 Temporal's same-id joining can't see across the two workflows; the chained post-publish dispatch is exempt by construction.

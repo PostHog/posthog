@@ -51,7 +51,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_thread_verdict,
     upsert_review_report,
 )
-from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, resolution_states
 from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
     continue_sandbox_session,
@@ -731,6 +731,46 @@ def _persist_turn_verdict_row(
     return verdict
 
 
+@frozen
+class FailResolutionInput:
+    team_id: int
+    owner: str
+    repo: str
+    pr_number: int
+
+
+def _fail_resolution(input: FailResolutionInput) -> None:
+    report = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(repository=f"{input.owner}/{input.repo}", pr_number=input.pr_number)
+        .first()
+    )
+    if report is None:
+        return
+    _idle_report(input.team_id, str(report.id))
+    state = resolution_states(input.team_id, [report]).get(str(report.id))
+    if state is None:
+        # No live run to report on: nothing was queued, the run already wrote its closing note, or
+        # a newer review turn owns the row — so there is no stale "Resolving comments" section either.
+        return
+    update_resolution_status_comment(
+        input.team_id,
+        str(report.id),
+        render_resolution_failed_section(done=state.done, total=state.total),
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def fail_resolution_activity(input: FailResolutionInput) -> None:
+    """Terminal-failure cleanup the workflow fires when the resolution activity dies without
+    reaching its own handler (a prepare failure, a timeout, cancellation, or worker death): return
+    the report to rest and replace a stale "Resolving comments" section with the failed one, counted
+    from the persisted work-list — the same derivation the UI row shows."""
+    await database_sync_to_async(_fail_resolution, thread_sensitive=False)(input)
+
+
 @temporalio.workflow.defn(name="resolve-pr")
 class ResolvePRWorkflow:
     """Setup activities → the single long resolution-session activity. Deterministic id per PR."""
@@ -758,22 +798,44 @@ class ResolvePRWorkflow:
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
-        result: ResolutionRunResult = await workflow.execute_activity(
-            resolve_threads_activity,
-            ResolveThreadsInput(
-                team_id=inputs.team_id,
-                user_id=inputs.user_id,
-                acting_user_id=inputs.acting_user_id,
-                owner=inputs.owner,
-                repo=inputs.repo,
-                pr_number=inputs.pr_number,
-                pr_url=inputs.pr_url,
-                trigger_source=inputs.trigger_source,
-            ),
-            start_to_close_timeout=_RESOLUTION_TIMEOUT,
-            heartbeat_timeout=_RESOLUTION_HEARTBEAT,
-            retry_policy=_RESOLUTION_RETRY,
-        )
+        try:
+            result: ResolutionRunResult = await workflow.execute_activity(
+                resolve_threads_activity,
+                ResolveThreadsInput(
+                    team_id=inputs.team_id,
+                    user_id=inputs.user_id,
+                    acting_user_id=inputs.acting_user_id,
+                    owner=inputs.owner,
+                    repo=inputs.repo,
+                    pr_number=inputs.pr_number,
+                    pr_url=inputs.pr_url,
+                    trigger_source=inputs.trigger_source,
+                ),
+                start_to_close_timeout=_RESOLUTION_TIMEOUT,
+                heartbeat_timeout=_RESOLUTION_HEARTBEAT,
+                retry_policy=_RESOLUTION_RETRY,
+            )
+        except Exception:
+            # The activity's own handler misses prepare failures, timeouts, cancellation, and worker
+            # death — only this workflow-level cleanup survives those, so a dead run never reads as
+            # resolving forever (mirrors the review workflow's fail_status_comment_activity).
+            # Best-effort so the cleanup can never mask the original error.
+            if workflow.patched("fail-resolution-cleanup-2026-08"):
+                try:
+                    await workflow.execute_activity(
+                        fail_resolution_activity,
+                        FailResolutionInput(
+                            team_id=inputs.team_id,
+                            owner=inputs.owner,
+                            repo=inputs.repo,
+                            pr_number=inputs.pr_number,
+                        ),
+                        start_to_close_timeout=_FETCH_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not run the resolution failure cleanup")
+            raise
         if result.skipped_reason:
             workflow.logger.info(f"Resolution stage skipped: {result.skipped_reason}")
         else:

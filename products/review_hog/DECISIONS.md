@@ -3821,6 +3821,16 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
   didn't finish · stopped at N/M". GitHub: partial failures flow into the final tally ("couldn't handle 2");
   hard crashes get a best-effort failure edit (reusing the review's `fail_status_comment` pattern). Closes the
   silent-death mode observed on #78061.
+- **Workflow-level failure cleanup** (PR-review follow-up, 2026-08-18). The activity's final-attempt failure
+  edit misses three death modes: `_prepare_run` failures (before its `try` opens), timeout/cancellation
+  (`CancelledError` is a `BaseException`), and worker death (no handler runs) — all of which left the GitHub
+  comment saying "Resolving comments" forever (the UI half self-heals via staleness). `ResolvePRWorkflow` now
+  wraps the resolution activity and fires a best-effort `fail_resolution_activity` before re-raising, gated
+  behind `workflow.patched("fail-resolution-cleanup-2026-08")` for in-flight runs. The cleanup locates the
+  report by `(team, repo, pr_number)` (the workflow never learns the report id on failure), idles it, and
+  derives stopped-at counts via `resolution_states` — the exact numbers the UI row shows; no live run anchor
+  means no comment edit, so a pre-queue crash can't spawn a spurious "stopped at 0/0" comment. The
+  activity-level edit stays as the fast path. Mirrors the review workflow's `fail_status_comment_activity`.
 - **👀 reaction marks queued threads.** Added right after work-list classification, triage-queued threads only
   (so 👀 = "in this run's queue"), best-effort, and left in place afterwards (removal doubles API calls for no
   real gain). Reactions send no notifications. Rejected: placeholder "working on it" comments — double
