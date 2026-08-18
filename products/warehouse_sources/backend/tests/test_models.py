@@ -963,6 +963,24 @@ class TestBackfillFloor(BaseTest):
         # the data went, so it has to outlive the same reset.
         assert "incremental_field_last_value" not in schema.sync_type_config
 
+    def test_permanent_deletion_skips_the_floor_lookup(self) -> None:
+        # Source deletion wipes every schema, and those schemas never sync again. Reading a floor
+        # there costs a query per table for a value nothing will use, and a failed read would raise
+        # past the S3 cleanup and leave the files orphaned.
+        schema = self._schema("segments.date")
+        table = MagicMock(columns={"segments_date": {}}, deleted=False, row_count=5000)
+        table.get_min_value_for_column.return_value = None
+
+        with (
+            patch.object(ExternalDataSchema, "table", table),
+            patch.object(schema, "folder_path", return_value="folder"),
+            patch("products.data_warehouse.backend.facade.api.get_s3_client") as s3,
+        ):
+            schema.delete_table(stash_floor=False)
+
+        assert not table.get_min_value_for_column.called
+        assert s3.called
+
     @parameterized.expand([("table_holds_rows", 5000, True), ("table_is_empty", 0, False)])
     def test_unreadable_floor_leaves_a_populated_table_alone(
         self, _name: str, row_count: int, expect_raise: bool

@@ -939,14 +939,20 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = timezone.now()
         self.save()
 
-    def delete_table(self):
+    def delete_table(self, *, stash_floor: bool = True):
+        """Wipe this schema's synced data.
+
+        `stash_floor` records where the data started so a later sync can resume there, which costs a
+        query over the table. Pass False when the schema is going away for good and will never read
+        it back.
+        """
         # s3fs/boto3 at module scope would load at app population — only this method needs them
         from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
         if self.table is not None:
-            # Must run before the S3 delete below, because it reads the synced data to find where
-            # the table's history started.
-            self.stash_backfill_floor()
+            if stash_floor:
+                # Before the S3 delete below, because it reads the synced data.
+                self.stash_backfill_floor()
 
             try:
                 client = get_s3_client()
