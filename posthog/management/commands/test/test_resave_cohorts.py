@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import override_settings
 
 from posthog.models.team.team import Team
 
@@ -508,3 +511,59 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_b[2].cohort_type == "realtime"
         assert cohorts_b[3].cohort_type is None  # Cannot be realtime because it references a static cohort
         assert cohorts_b[4].cohort_type == "realtime"
+
+
+class TestResaveCohortsCommandTeamSelection(BaseTest):
+    def test_team_ids_processes_only_the_listed_teams(self):
+        team_a: Team = self.team
+        team_b: Team = Team.objects.create(organization=self.organization)
+        team_c: Team = Team.objects.create(organization=self.organization)
+
+        cohort_b = Cohort.objects.create(team=team_b, name="rt_b", filters=_make_realtime_filters())
+        cohort_c = Cohort.objects.create(team=team_c, name="rt_c", filters=_make_realtime_filters())
+        Cohort.objects.filter(id__in=[cohort_b.id, cohort_c.id]).update(condition_type=None)
+
+        call_command("resave_cohorts", team_ids=f"{team_a.id},{team_b.id}")
+
+        cohort_b.refresh_from_db()
+        cohort_c.refresh_from_db()
+        assert cohort_b.condition_type is not None
+        assert cohort_c.condition_type is None
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    def test_realtime_allowlist_processes_allowlisted_teams(self):
+        cohort = Cohort.objects.create(team=self.team, name="rt", filters=_make_realtime_filters())
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None)
+
+        call_command("resave_cohorts", realtime_allowlist=True)
+
+        cohort.refresh_from_db()
+        assert cohort.condition_type is not None
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_realtime_allowlist_matching_no_teams_fails(self):
+        with pytest.raises(CommandError, match="matches no teams"):
+            call_command("resave_cohorts", realtime_allowlist=True)
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    def test_conflicting_team_selectors_fail(self):
+        with pytest.raises(CommandError, match="only one of"):
+            call_command("resave_cohorts", team_id=self.team.id, realtime_allowlist=True)
+
+
+class TestResaveCohortsCommandConditionTypeVerification(BaseTest):
+    def test_realtime_cohort_left_unclassified_fails_the_command(self):
+        cohort = Cohort.objects.create(team=self.team, name="rt", filters=_make_realtime_filters())
+        # Filters the validator rejects, so the resave cannot recompute a condition_type for it
+        Cohort.objects.filter(id=cohort.id).update(
+            cohort_type="realtime", condition_type=None, filters={"properties": {}}
+        )
+
+        with pytest.raises(CommandError, match=f"realtime cohorts still have a null condition_type: {cohort.id}"):
+            call_command("resave_cohorts", team_id=self.team.id)
+
+    def test_unclassifiable_non_realtime_cohort_does_not_fail_the_command(self):
+        cohort = Cohort.objects.create(team=self.team, name="batch", filters=_make_realtime_filters())
+        Cohort.objects.filter(id=cohort.id).update(cohort_type=None, condition_type=None, filters={"properties": {}})
+
+        call_command("resave_cohorts", team_id=self.team.id)

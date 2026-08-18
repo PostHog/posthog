@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import structlog
 
@@ -10,10 +10,14 @@ from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
 
 logger = structlog.get_logger(__name__)
+
+# How many unclassified cohort ids to name in the failure output before summarizing the rest.
+UNCLASSIFIED_REPORT_LIMIT = 20
 
 
 @frozen
@@ -23,6 +27,7 @@ class CohortResaveStats:
     errors: int
     validation_errors: int
     prospective_realtime: int
+    realtime_unclassified: tuple[int, ...]
 
 
 class Command(BaseCommand):
@@ -33,6 +38,16 @@ class Command(BaseCommand):
             "--team-id",
             type=int,
             help="Team ID to process; if omitted, processes all teams.",
+        )
+        parser.add_argument(
+            "--team-ids",
+            type=str,
+            help="Comma-separated team IDs to process.",
+        )
+        parser.add_argument(
+            "--realtime-allowlist",
+            action="store_true",
+            help="Process the teams matched by REALTIME_COHORT_TEAM_ALLOWLIST.",
         )
         parser.add_argument(
             "--batch-size",
@@ -48,26 +63,25 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         # Parse CLI arguments
-        team_id = options.get("team_id")
+        team_ids, scope = self._resolve_teams(options)
         dry_run: bool = bool(options.get("dry_run"))
         batch_size: int = int(options.get("batch_size") or 500)
 
         # Log start of operation
         logger.info(
             "cohort_resave_started",
-            team_id=team_id,
+            team_ids=team_ids,
             dry_run=dry_run,
             batch_size=batch_size,
-            scope="single_team" if team_id else "all_teams",
+            scope=scope,
         )
-        scope = f"team {team_id}" if team_id else "all teams"
         dry_run_label = " (dry run)" if dry_run else ""
         self.stdout.write(f"Starting cohort resave for {scope}, batch_size={batch_size}{dry_run_label}")
 
         # Get teams to process
         teams_qs = Team.objects.all().order_by("id")
-        if team_id:
-            teams_qs = teams_qs.filter(id=team_id)
+        if team_ids is not None:
+            teams_qs = teams_qs.filter(id__in=team_ids)
 
         # Track global stats
         global_total = 0
@@ -75,6 +89,7 @@ class Command(BaseCommand):
         global_errors = 0
         global_validation_errors = 0
         global_prospective_realtime = 0
+        global_realtime_unclassified: list[int] = []
         teams_processed = 0
         total_teams = teams_qs.count()
 
@@ -96,6 +111,7 @@ class Command(BaseCommand):
             global_errors += stats.errors
             global_validation_errors += stats.validation_errors
             global_prospective_realtime += stats.prospective_realtime
+            global_realtime_unclassified.extend(stats.realtime_unclassified)
 
             # Log team completion
             if stats.total > 0:
@@ -131,6 +147,7 @@ class Command(BaseCommand):
             validation_error_count=global_validation_errors,
             change_percentage=change_pct,
             realtime_percentage=realtime_pct,
+            realtime_unclassified_count=len(global_realtime_unclassified),
         )
         self.stdout.write("")
         final_style = self.style.WARNING if (global_errors > 0 or global_validation_errors > 0) else self.style.SUCCESS
@@ -144,6 +161,62 @@ class Command(BaseCommand):
             )
         )
 
+        if global_realtime_unclassified:
+            self._fail_on_unclassified_realtime(global_realtime_unclassified)
+
+    def _fail_on_unclassified_realtime(self, cohort_ids: list[int]) -> None:
+        """Refuse to report success while a realtime cohort still has a null `condition_type`.
+
+        The realtime membership gate reads a null `condition_type` as "no behavioral condition", so
+        an unclassified realtime cohort silently evaluates as if it had none.
+        """
+        shown = ", ".join(str(cohort_id) for cohort_id in cohort_ids[:UNCLASSIFIED_REPORT_LIMIT])
+        remainder = len(cohort_ids) - UNCLASSIFIED_REPORT_LIMIT
+        if remainder > 0:
+            shown += f", and {remainder} more"
+        raise CommandError(
+            f"{len(cohort_ids)} realtime cohorts still have a null condition_type: {shown}. "
+            "Fix their filters and rerun before treating the team as classified."
+        )
+
+    def _resolve_teams(self, options: dict[str, Any]) -> tuple[list[int] | None, str]:
+        """Resolve the team selector into explicit ids, or None for every team."""
+        team_id: int | None = options.get("team_id")
+        raw_team_ids: str | None = options.get("team_ids")
+        realtime_allowlist: bool = bool(options.get("realtime_allowlist"))
+
+        selectors = [name for name, given in (("--team-id", team_id), ("--team-ids", raw_team_ids)) if given]
+        if realtime_allowlist:
+            selectors.append("--realtime-allowlist")
+        if len(selectors) > 1:
+            raise CommandError(f"Pass only one of {', '.join(selectors)}")
+
+        if team_id:
+            return [team_id], f"team {team_id}"
+
+        if raw_team_ids:
+            try:
+                parsed = [int(part.strip()) for part in raw_team_ids.split(",") if part.strip()]
+            except ValueError as err:
+                raise CommandError(f"--team-ids must be a comma-separated list of integers: {err}")
+            if not parsed:
+                raise CommandError("--team-ids matched no team ids")
+            return parsed, f"{len(parsed)} teams"
+
+        if realtime_allowlist:
+            allowed = [
+                candidate
+                for candidate in Team.objects.order_by("id").values_list("id", flat=True)
+                if is_realtime_cohort_team(candidate)
+            ]
+            # An allowlist that matches nothing would resave nothing and still report success, which
+            # during a rollout reads the same as "every cohort is classified".
+            if not allowed:
+                raise CommandError("REALTIME_COHORT_TEAM_ALLOWLIST matches no teams")
+            return allowed, f"{len(allowed)} realtime-allowlisted teams"
+
+        return None, "all teams"
+
     def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> CohortResaveStats:
         """Process all cohorts for a single team."""
         # Initialize stats for this team
@@ -152,6 +225,7 @@ class Command(BaseCommand):
         errors = 0
         validation_errors = 0
         prospective_realtime = 0
+        realtime_unclassified: list[int] = []
 
         # Get all cohorts for this team using pagination
         base_qs = Cohort.objects.filter(team=team).order_by("id")
@@ -187,6 +261,10 @@ class Command(BaseCommand):
                 continue
 
             total += 1
+            # Snapshot what the database holds, so a cohort left unclassified by a failed save is
+            # still judged on its persisted state rather than the in-memory values below.
+            stored_cohort_type = cohort.cohort_type
+            stored_condition_type = cohort.condition_type
             try:
                 # Skip cohorts without filters (nothing to recompute)
                 if not cohort.filters:
@@ -201,6 +279,8 @@ class Command(BaseCommand):
                 # If validation failed but we got the original filters back, log the issue and skip
                 if validation_error_list:
                     validation_errors += 1
+                    if stored_cohort_type == CohortType.REALTIME and stored_condition_type is None:
+                        realtime_unclassified.append(cohort.id)
                     logger.warning(
                         "cohort_validation_skipped",
                         cohort_id=cohort.id,
@@ -260,6 +340,8 @@ class Command(BaseCommand):
                     changed += 1
             except Exception as err:
                 errors += 1
+                if stored_cohort_type == CohortType.REALTIME and stored_condition_type is None:
+                    realtime_unclassified.append(cohort.id)
                 logger.error(
                     "cohort_resave_error",
                     cohort_id=cohort.id,
@@ -274,6 +356,7 @@ class Command(BaseCommand):
             errors=errors,
             validation_errors=validation_errors,
             prospective_realtime=prospective_realtime,
+            realtime_unclassified=tuple(realtime_unclassified),
         )
 
     def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
