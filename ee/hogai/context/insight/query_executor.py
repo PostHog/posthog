@@ -148,14 +148,14 @@ class AssistantQueryExecutor:
         self._user = user
         self._event_source = event_source
 
-    async def arun_and_format_query(
+    async def arun_format_and_capture(
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, dict]:
         """
         Run a query and format the results with detailed fallback information.
 
@@ -166,9 +166,11 @@ class AssistantQueryExecutor:
                           - CALCULATE_BLOCKING_ALWAYS in tests
 
         Returns:
-            Tuple of (formatted results as string, whether fallback was used)
+            Tuple of (formatted results as string, whether fallback was used, raw response)
             - formatted results: Query results formatted for AI consumption
             - fallback used: True if JSON fallback was used due to formatting errors
+            - raw response: The response dict, for callers that need the columns and rows
+              themselves rather than the formatted text
 
         Raises:
             Exception: If query execution fails with descriptive error messages
@@ -176,7 +178,7 @@ class AssistantQueryExecutor:
         start_time = time.time()
         query_type = type(query).__name__
         if debug_timing:
-            logger.warning(f"{TIMING_LOG_PREFIX} Starting arun_and_format_query for {query_type}")
+            logger.warning(f"{TIMING_LOG_PREFIX} Starting arun_format_and_capture for {query_type}")
 
         try:
             active_tags = get_query_tags()
@@ -206,9 +208,9 @@ class AssistantQueryExecutor:
                 if debug_timing:
                     logger.warning(
                         f"{TIMING_LOG_PREFIX} _compress_results completed in {format_elapsed:.3f}s, "
-                        f"total arun_and_format_query: {total_elapsed:.3f}s"
+                        f"total arun_format_and_capture: {total_elapsed:.3f}s"
                     )
-                return formatted_results, False  # No fallback used
+                return formatted_results, False, response_dict  # No fallback used
             except Exception as err:
                 if not isinstance(err, NotImplementedError):
                     capture_exception(err, properties={"tag": "max_ai"})
@@ -222,12 +224,31 @@ class AssistantQueryExecutor:
                         f"{TIMING_LOG_PREFIX} Fallback JSON formatting completed in {fallback_elapsed:.3f}s, "
                         f"total with fallback: {total_elapsed:.3f}s"
                     )
-                return fallback_results, True  # Fallback was used
+                return fallback_results, True, response_dict  # Fallback was used
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
-                logger.exception(f"{TIMING_LOG_PREFIX} arun_and_format_query failed after {elapsed:.3f}s")
+                logger.exception(f"{TIMING_LOG_PREFIX} arun_format_and_capture failed after {elapsed:.3f}s")
             raise
+
+    async def arun_and_format_query(
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        execution_mode: Optional[ExecutionMode] = None,
+        insight_id=None,
+        debug_timing=False,
+        truncate_results: bool = True,
+    ) -> tuple[str, bool]:
+        """Run a query and format the results. See `arun_format_and_capture` for the variant that
+        also hands back the raw response."""
+        formatted, fallback_used, _ = await self.arun_format_and_capture(
+            query,
+            execution_mode,
+            insight_id=insight_id,
+            debug_timing=debug_timing,
+            truncate_results=truncate_results,
+        )
+        return formatted, fallback_used
 
     @async_to_sync
     async def run_and_format_query(
