@@ -4086,10 +4086,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f'Cannot remove variants from a feature flag that is linked to running experiment(s): "My experiment" (ID: {exp.id}). Please stop the experiment(s) before removing variants.'
+            == f"Cannot remove variant(s) 'control', 'test' from a feature flag that is linked to running experiment(s): \"My experiment\" (ID: {exp.id}). Please stop the experiment(s) before removing variants."
         )
         flag.refresh_from_db()
         assert flag.filters["multivariate"] == self.EXPERIMENT_FLAG_FILTERS["multivariate"]
+
+    def test_rename_variant_blocked_with_running_experiment(self):
+        # A rename is a drop plus an add of a variant key, so it must be blocked too.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rename-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        renamed = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "treatment", "rollout_percentage": 50},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": renamed})
+        assert response.status_code == 400
+        assert "Cannot remove variant(s) 'test'" in response.json()["detail"]
+
+    def test_add_variant_and_change_rollout_allowed_with_running_experiment(self):
+        # Shipping a winner rewrites rollouts to 100/0 and keeps every key — additions
+        # and rollout changes must pass.
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="exp-rollout-flag", filters=self.EXPERIMENT_FLAG_FILTERS
+        )
+        Experiment.objects.create(
+            team=self.team, created_by=self.user, feature_flag=flag, name="My experiment", start_date=now()
+        )
+        reshaped = {
+            **self.EXPERIMENT_FLAG_FILTERS,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 0},
+                    {"key": "test", "rollout_percentage": 100},
+                    {"key": "extra", "rollout_percentage": 0},
+                ]
+            },
+        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": reshaped})
+        assert response.status_code == 200, response.content
 
     @parameterized.expand(
         [

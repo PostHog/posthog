@@ -1630,24 +1630,30 @@ class FeatureFlagSerializer(
         if early_exit and not previously_enabled and not self._is_early_exit_enabled():
             raise serializers.ValidationError("early_exit is not available for this organization.")
 
-        # A running experiment reads its variants from this flag, so a save that strips
-        # them breaks the experiment's exposure and results queries. Mirrors the deletion
-        # guard in update(): draft/stopped/completed experiments don't block, so a flag
-        # can still be simplified to boolean once its experiment is over. Checked on the
-        # merged state — partial updates that don't touch multivariate keep the stored
-        # variants and pass through.
+        # A running experiment reads its variants from this flag, so a save that drops any
+        # of its variant keys (a rename counts: it's a drop plus an add) breaks the
+        # experiment's exposure and results queries. Adding variants and changing rollout
+        # percentages stay allowed — shipping a winner rolls out 100/0 without dropping
+        # keys. Mirrors the deletion guard in update(): draft/stopped/completed experiments
+        # don't block, so a flag can still be simplified once its experiment is over.
+        # Checked on the merged state — partial updates that don't touch multivariate keep
+        # the stored variants and pass through.
         if self.instance is not None:
-            stored_variants = ((self.instance.filters or {}).get("multivariate") or {}).get("variants") or []
-            merged_variants = (merged.get("multivariate") or {}).get("variants") or []
-            if stored_variants and not merged_variants:
+            stored_keys = [
+                v.get("key") for v in ((self.instance.filters or {}).get("multivariate") or {}).get("variants") or []
+            ]
+            merged_keys = {v.get("key") for v in (merged.get("multivariate") or {}).get("variants") or []}
+            removed_keys = [k for k in stored_keys if k not in merged_keys]
+            if removed_keys:
                 running_experiments = [
                     exp for exp in self.instance.experiment_set.filter(deleted=False) if exp.is_running
                 ]
                 if running_experiments:
                     experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
+                    removed = ", ".join(f"'{k}'" for k in removed_keys)
                     raise serializers.ValidationError(
-                        f"Cannot remove variants from a feature flag that is linked to running experiment(s): "
-                        f"{experiment_names}. Please stop the experiment(s) before removing variants."
+                        f"Cannot remove variant(s) {removed} from a feature flag that is linked to running "
+                        f"experiment(s): {experiment_names}. Please stop the experiment(s) before removing variants."
                     )
 
         # The normalization and the two contextual checks below ran on every write before
