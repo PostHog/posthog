@@ -576,15 +576,38 @@ export type ForecastConditionTypeApi = (typeof ForecastConditionTypeApi)[keyof t
 export const ForecastConditionTypeApi = {
     FutureBreach: 'future_breach',
     BandDeviation: 'band_deviation',
+    TargetByDate: 'target_by_date',
+} as const
+
+export type ForecastSensitivityApi = (typeof ForecastSensitivityApi)[keyof typeof ForecastSensitivityApi]
+
+export const ForecastSensitivityApi = {
+    Forecast: 'forecast',
+    BestCase: 'best_case',
+} as const
+
+export type ForecastTargetDirectionApi = (typeof ForecastTargetDirectionApi)[keyof typeof ForecastTargetDirectionApi]
+
+export const ForecastTargetDirectionApi = {
+    AtLeast: 'at_least',
+    AtMost: 'at_most',
 } as const
 
 export interface ForecastConfigApi {
     condition: ForecastConditionTypeApi
     engine?: 'prophet'
-    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30. */
+    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval. */
     horizon?: number | null
     /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
     interval_width?: number | null
+    /** Which line the comparison reads. Defaults to best_case. Ignored by band_deviation. */
+    sensitivity?: ForecastSensitivityApi | null
+    /** Value the metric must reach or stay under (target_by_date only). */
+    target?: number | null
+    /** ISO date the target must be met by (target_by_date only). */
+    target_date?: string | null
+    /** Which side of `target` is acceptable (target_by_date only). */
+    target_direction?: ForecastTargetDirectionApi | null
     type?: 'ForecastConfig'
 }
 
