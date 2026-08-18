@@ -417,6 +417,19 @@ function buildMissingAttachmentNotice(count: number): string {
   );
 }
 
+/**
+ * The codex session's LLM auth, taken from the resolved gateway env. Codex must
+ * never read the raw run credential directly: on the Go-gateway path the bearer
+ * is the per-run scoped token, and the run's own OAuth token belongs to a team
+ * with no gateway wallet, so presenting it gets every call refused.
+ */
+export function codexAuthFromGatewayEnv(env: GatewayEnv): {
+  apiBaseUrl: string;
+  apiKey: string;
+} {
+  return { apiBaseUrl: env.openaiBaseUrl, apiKey: env.openaiApiKey };
+}
+
 export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
@@ -1745,8 +1758,7 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              apiBaseUrl: gatewayEnv.openaiBaseUrl,
-              apiKey: this.config.apiKey,
+              ...codexAuthFromGatewayEnv(gatewayEnv),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the

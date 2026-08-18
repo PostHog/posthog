@@ -43,7 +43,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
 }
 
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
-_SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom"})
+_SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
 _SCOUT_STAGE_PREFIX = "scout:"
 
 _MINT_ATTEMPTS = 3
@@ -77,6 +77,24 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
+def _token_ttl_seconds() -> int:
+    """Token lifetime, structurally longer than any capped run.
+
+    An explicit setting wins; otherwise derive from the run-duration cap plus a
+    settle buffer so a capped run can never outlive its token mid-run (a token
+    expiring under a live run fails every remaining LLM call with no fallback).
+    A disabled run cap derives the gateway's 24h mint maximum. Interactive
+    sessions are exempt from the cap and could still outlive the token; only
+    capped background products are routed today. Clamped to the gateway's mint
+    bounds (60s..24h).
+    """
+    configured = int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS or 0)
+    if configured <= 0:
+        run_cap = int(getattr(settings, "TASKS_MAX_RUN_DURATION_SECONDS", 0) or 0)
+        configured = run_cap + 3600 if run_cap > 0 else 86400
+    return max(60, min(configured, 86400))
+
+
 def mint_scoped_token(*, ai_product: str, team_id: int) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -90,7 +108,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int) -> str | None:
 
     body: dict[str, Any] = {
         "cap_usd": str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD),
-        "ttl_seconds": int(settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS),
+        "ttl_seconds": _token_ttl_seconds(),
         "product": ai_product,
         "obo": str(team_id),
     }
@@ -107,11 +125,15 @@ def mint_scoped_token(*, ai_product: str, team_id: int) -> str | None:
             last_error = str(e)
         else:
             if response.status_code == 200:
-                token = response.json().get("token")
+                try:
+                    token = response.json().get("token")
+                    last_error = "mint response had no token"
+                except (ValueError, AttributeError):
+                    token = None
+                    last_error = "mint response was not a JSON object"
                 if token:
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
-                last_error = "mint response had no token"
             elif response.status_code in (429,) or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
             else:

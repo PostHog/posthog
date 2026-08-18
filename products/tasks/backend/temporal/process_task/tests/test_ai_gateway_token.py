@@ -22,7 +22,7 @@ class TestResolveSandboxAiProduct:
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
-            ("signal_report", "custom", "signals_custom"),
+            ("signal_report", "custom_agent", "signals_custom_agent"),
             ("signal_report", None, "signals"),
             ("signal_report", "match", "signals"),
             ("loop", None, "posthog_code"),
@@ -62,7 +62,7 @@ class TestSandboxProductRouted:
         assert not sandbox_product_routed("posthog_code", None, "signals_scout")
 
     def test_whitespace_and_blank_entries_tolerated(self):
-        assert sandbox_product_routed("signals_custom", "custom", " , signals_custom , ")
+        assert sandbox_product_routed("signals_custom_agent", "custom_agent", " , signals_custom_agent , ")
 
 
 @pytest.fixture
@@ -129,6 +129,36 @@ class TestMintScopedToken:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             assert mint_scoped_token(ai_product="signals_scout", team_id=123) is None
         post.assert_not_called()
+
+    def test_non_json_200_degrades_instead_of_raising(self, mint_settings):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.side_effect = ValueError("not json")
+        response.text = "<html>proxy error</html>"
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post",
+                return_value=response,
+            ),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
+        ):
+            assert mint_scoped_token(ai_product="signals_scout", team_id=123) is None
+
+    def test_ttl_derives_from_run_cap_when_unset(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 3 * 60 * 60
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(200, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 3 * 60 * 60 + 3600
+
+    def test_ttl_clamps_to_gateway_max_when_run_cap_disabled(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
+        mint_settings.TASKS_MAX_RUN_DURATION_SECONDS = 0
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(200, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="signals_scout", team_id=123) == "phe_abc"
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
 
 class TestAiGatewayEnvVars:
