@@ -13,6 +13,7 @@ import {
   createEmptyPiExtensionTaskState,
   type PiExtensionTaskState,
 } from "@posthog/core/pi-runtime/piExtensionStore";
+import { canPromptPiSession } from "@posthog/core/pi-runtime/piSessionAccess";
 import {
   PiOperationError,
   type PiSessionController,
@@ -68,6 +69,7 @@ import {
   getPiPendingConfig,
   usePiPendingConfigStore,
 } from "./piPendingConfigStore";
+import { ReadOnlySessionNotice } from "./ReadOnlySessionNotice";
 
 const log = logger.scope("pi-session-view");
 
@@ -476,6 +478,10 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     currentUser?.uuid && task.created_by?.uuid
       ? currentUser.uuid === task.created_by.uuid
       : undefined;
+  const promptDisabledForOwnership = !canPromptPiSession(
+    task.created_by?.uuid,
+    currentUser?.uuid,
+  );
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
@@ -723,7 +729,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
             )}
           </>
         )}
-        {mcpPermission ? (
+        {promptDisabledForOwnership ? (
+          <ReadOnlySessionNotice />
+        ) : mcpPermission ? (
           isMcpPermissionResponding ? (
             <Skeleton className="h-24 w-full" />
           ) : (
