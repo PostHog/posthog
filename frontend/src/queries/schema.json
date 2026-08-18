@@ -26146,7 +26146,7 @@
             "type": "object"
         },
         "ForecastConditionType": {
-            "enum": ["future_breach", "band_deviation"],
+            "enum": ["future_breach", "band_deviation", "target_by_date"],
             "type": "string"
         },
         "ForecastConfig": {
@@ -26161,11 +26161,27 @@
                 },
                 "horizon": {
                     "$ref": "#/definitions/integer",
-                    "description": "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30."
+                    "description": "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
                 },
                 "interval_width": {
                     "description": "Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).",
                     "type": "number"
+                },
+                "sensitivity": {
+                    "$ref": "#/definitions/ForecastSensitivity",
+                    "description": "Which line the comparison reads. Defaults to best_case. Ignored by band_deviation."
+                },
+                "target": {
+                    "description": "Value the metric must reach or stay under (target_by_date only).",
+                    "type": "number"
+                },
+                "target_date": {
+                    "description": "ISO date the target must be met by (target_by_date only).",
+                    "type": "string"
+                },
+                "target_direction": {
+                    "$ref": "#/definitions/ForecastTargetDirection",
+                    "description": "Which side of `target` is acceptable (target_by_date only)."
                 },
                 "type": {
                     "const": "ForecastConfig",
@@ -26177,6 +26193,14 @@
         },
         "ForecastEngineType": {
             "const": "prophet",
+            "type": "string"
+        },
+        "ForecastSensitivity": {
+            "enum": ["forecast", "best_case"],
+            "type": "string"
+        },
+        "ForecastTargetDirection": {
+            "enum": ["at_least", "at_most"],
             "type": "string"
         },
         "FormDismissPayload": {

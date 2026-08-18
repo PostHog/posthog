@@ -29,7 +29,7 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
-from products.alerts.backend.forecasting.engine import MAX_FORECAST_HORIZON, validate_forecast_interval
+from products.alerts.backend.forecasting.engine import validate_forecast_horizon_and_width, validate_forecast_interval
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -213,14 +213,6 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
-def validate_forecast_horizon_and_width(parsed: ForecastConfig) -> None:
-    """Shared by the save path and the simulate_forecast endpoint so their bounds can't drift."""
-    if parsed.horizon is not None and not (1 <= parsed.horizon <= MAX_FORECAST_HORIZON):
-        raise ValueError(f"Forecast horizon must be between 1 and {MAX_FORECAST_HORIZON}")
-    if parsed.interval_width is not None and not (0 < parsed.interval_width < 1):
-        raise ValueError("Forecast interval_width must be between 0 and 1 (e.g. 0.8 or 0.95)")
-
-
 def _validate_forecast_config(
     forecast_config: dict, kind: str | None, query: dict, threshold_config: dict | None
 ) -> None:
@@ -232,11 +224,11 @@ def _validate_forecast_config(
         raise ValueError(
             f"Alert has invalid forecast config (engine/condition/horizon/interval_width): {forecast_config}"
         )
-    validate_forecast_horizon_and_width(parsed)
     try:
         trends_query = TrendsQuery.model_validate(query)
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+    validate_forecast_horizon_and_width(parsed, trends_query.interval)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):

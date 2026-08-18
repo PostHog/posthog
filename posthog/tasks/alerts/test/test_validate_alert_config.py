@@ -553,7 +553,7 @@ class TestForecastConfigValidation:
     @parameterized.expand(
         [
             ("horizon_zero", {**VALID_FORECAST, "horizon": 0}, "horizon"),
-            ("horizon_too_big", {**VALID_FORECAST, "horizon": 31}, "horizon"),
+            ("horizon_reaches_past_the_cap", {**VALID_FORECAST, "horizon": 200}, "at most 6 months"),
             ("bad_interval_width", {**VALID_FORECAST, "interval_width": 1.5}, "interval_width"),
             ("unknown_engine", {**VALID_FORECAST, "engine": "chronos"}, "engine"),
             ("unknown_condition", {**VALID_FORECAST, "condition": "nope"}, "condition"),
@@ -644,21 +644,49 @@ class TestForecastConfigValidation:
 
     @parameterized.expand(
         [
-            ("hour", "hour"),
-            ("day", "day"),
-            ("week", "week"),
-            ("month", "month"),
+            ("hour", "hour", 7),
+            ("day", "day", 7),
+            ("week", "week", 7),
+            # 7 monthly intervals would reach 213 days, past the 6 month cap.
+            ("month", "month", 6),
         ]
     )
-    def test_forecast_accepts_supported_intervals(self, _name: str, interval: str) -> None:
+    def test_forecast_accepts_supported_intervals(self, _name: str, interval: str, horizon: int) -> None:
         validate_alert_config(
             {**TRENDS_QUERY, "interval": interval},
             {"type": "absolute_value"},
             TRENDS_CONFIG,
             ABS_THRESHOLD,
             calculation_interval="daily",
-            forecast_config=VALID_FORECAST,
+            forecast_config={**VALID_FORECAST, "horizon": horizon},
         )
+
+    @parameterized.expand(
+        [
+            # The same horizon reaches very different distances, which is why the cap is a duration.
+            ("7 weeks is fine", "week", 7, True),
+            ("7 months reaches 213 days", "month", 7, False),
+            ("6 months is the most that fits", "month", 6, True),
+        ]
+    )
+    def test_horizon_cap_binds_by_reach_not_count(
+        self, _name: str, interval: str, horizon: int, accepted: bool
+    ) -> None:
+        def run() -> None:
+            validate_alert_config(
+                {**TRENDS_QUERY, "interval": interval},
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config={**VALID_FORECAST, "horizon": horizon},
+            )
+
+        if accepted:
+            run()
+        else:
+            with pytest.raises(ValueError, match="at most 6 months"):
+                run()
 
     @parameterized.expand(
         [

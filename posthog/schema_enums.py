@@ -2665,6 +2665,17 @@ class FilterLogicalOperator(StrEnum):
 class ForecastConditionType(StrEnum):
     FUTURE_BREACH = "future_breach"
     BAND_DEVIATION = "band_deviation"
+    TARGET_BY_DATE = "target_by_date"
+
+
+class ForecastSensitivity(StrEnum):
+    FORECAST = "forecast"
+    BEST_CASE = "best_case"
+
+
+class ForecastTargetDirection(StrEnum):
+    AT_LEAST = "at_least"
+    AT_MOST = "at_most"
 
 
 class FunnelConversionMetric(StrEnum):
