@@ -1,4 +1,5 @@
 import asyncio
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import structlog
@@ -23,6 +24,7 @@ def cascade_posthog_code_repository_activity(
     event_text: str,
     user_id: int,
     thread_messages: list[dict[str, str]] | None = None,
+    mention_ts: str | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
@@ -33,11 +35,16 @@ def cascade_posthog_code_repository_activity(
 
     The discovery agent this preempts reads the whole thread, so the fast path must too:
     a mention-only read sends every ask whose link sits in an earlier message to a
-    sandbox run that then finds the repo in text the fast path skipped.
+    sandbox run that then finds the repo in text the fast path skipped. Only messages at
+    or before ``mention_ts`` may name the repo, though: the snapshot is taken when the
+    activity runs, so it can contain replies posted after the mention, and letting those
+    win the newest-first scan would let any channel participant redirect someone else's
+    ask by pasting a repo link right after it.
 
-    ``thread_messages`` defaults to ``None`` for backwards compatibility with calls
-    recorded before the parameter existed: if a worker drains an activity task scheduled
-    by an older workflow, the call still binds and degrades to the mention-only behavior.
+    ``thread_messages`` and ``mention_ts`` default to ``None`` for backwards
+    compatibility with calls recorded before the parameters existed: if a worker drains
+    an activity task scheduled by an older workflow, the call still binds and degrades
+    to the mention-only behavior.
     """
     from posthog.models.integration import Integration
 
@@ -60,7 +67,7 @@ def cascade_posthog_code_repository_activity(
     if len(all_repos) == 1:
         return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
 
-    outcome = _resolve_explicit_repo(event_text, thread_messages or [], all_repos)
+    outcome = _resolve_explicit_repo(event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos)
     # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
     logger.info(
         "posthog_code_cascade_outcome",
@@ -68,6 +75,24 @@ def cascade_posthog_code_repository_activity(
         integration_id=inputs.integration_id,
     )
     return outcome
+
+
+def _messages_at_or_before(messages: list[dict[str, str]], mention_ts: str | None) -> list[dict[str, str]]:
+    """Messages eligible as repo-selection evidence: posted at or before the mention.
+
+    Fail-closed: without a parseable bound, or for a message without a parseable ``ts``,
+    the message contributes nothing and resolution degrades to the mention text alone.
+    """
+
+    def at_or_before(ts: str, bound: str) -> bool:
+        try:
+            return Decimal(ts) <= Decimal(bound)
+        except InvalidOperation:
+            return False
+
+    if not mention_ts:
+        return []
+    return [message for message in messages if at_or_before(message.get("ts", ""), mention_ts)]
 
 
 def _resolve_explicit_repo(

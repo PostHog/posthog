@@ -90,9 +90,14 @@ class TestCascadeTeamInstall(TestCase):
                 "link_sits_in_the_thread_and_the_mention_carries_none",
                 "<@BOT> is this one flaky?",
                 [
-                    {"user": "amy", "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again"},
-                    {"user": "bo", "text": "<@BOT> is this one flaky?"},
+                    {
+                        "user": "amy",
+                        "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again",
+                        "ts": "1.000000",
+                    },
+                    {"user": "bo", "text": "<@BOT> is this one flaky?", "ts": "2.000000"},
                 ],
+                "auto",
                 "posthog/posthog-js",
                 "explicit_thread_mention",
             ),
@@ -100,17 +105,44 @@ class TestCascadeTeamInstall(TestCase):
                 "mention_names_a_repo_the_thread_did_not",
                 "<@BOT> look at posthog/posthog instead",
                 [
-                    {"user": "amy", "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again"},
-                    {"user": "bo", "text": "<@BOT> look at posthog/posthog instead"},
+                    {
+                        "user": "amy",
+                        "text": "https://github.com/posthog/posthog-js/actions/runs/2 failed again",
+                        "ts": "1.000000",
+                    },
+                    {"user": "bo", "text": "<@BOT> look at posthog/posthog instead", "ts": "2.000000"},
                 ],
+                "auto",
                 "posthog/posthog",
                 "explicit_mention",
+            ),
+            (
+                "link_posted_after_the_mention_cannot_select_the_repo",
+                "<@BOT> is this one flaky?",
+                [
+                    {"user": "bo", "text": "<@BOT> is this one flaky?", "ts": "2.000000"},
+                    {
+                        "user": "mallory",
+                        "text": "https://github.com/posthog/posthog-js/actions/runs/2",
+                        "ts": "3.000000",
+                    },
+                ],
+                "agent_needed",
+                None,
+                "needs_agent",
             ),
         ]
     )
     @patch("products.slack_app.backend.api.UserGitHubIntegration")
-    def test_the_thread_resolves_a_repo_the_mention_left_out(
-        self, _name, event_text, thread_messages, expected_repository, expected_reason, mock_user_github_class
+    def test_thread_evidence_counts_only_up_to_the_mention(
+        self,
+        _name,
+        event_text,
+        thread_messages,
+        expected_mode,
+        expected_repository,
+        expected_reason,
+        mock_user_github_class,
     ):
         from posthog.models.user_integration import UserIntegration
 
@@ -129,9 +161,9 @@ class TestCascadeTeamInstall(TestCase):
         mock_user_github_class.return_value = mock_user_github
 
         outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id), event_text, self.user.id, thread_messages
+            _make_inputs(self.slack_integration.id, self.user.id), event_text, self.user.id, thread_messages, "2.000000"
         )
 
-        assert outcome.mode == "auto"
+        assert outcome.mode == expected_mode
         assert outcome.repository == expected_repository
         assert outcome.reason == expected_reason

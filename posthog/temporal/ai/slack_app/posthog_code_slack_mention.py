@@ -182,6 +182,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 event.get("text", ""),
                 user_id,
                 thread_messages,
+                event.get("ts"),
             )
 
             if cascade.mode == "auto":
