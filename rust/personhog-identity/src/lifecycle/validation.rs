@@ -145,17 +145,17 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
             "target_distinct_id exceeds {MAX_DISTINCT_ID_LENGTH} characters"
         )));
     }
+    if is_distinct_id_illegal(&request.target_distinct_id) {
+        return Err(Status::invalid_argument(
+            "target_distinct_id is an illegal distinct id",
+        ));
+    }
     // Postgres cannot store NUL in text: an unresolved NUL target would
     // reach the establish path and fail person creation with an internal
     // error on every attempt.
     if request.target_distinct_id.contains('\u{0000}') {
         return Err(Status::invalid_argument(
             "target_distinct_id must not contain NUL",
-        ));
-    }
-    if is_distinct_id_illegal(&request.target_distinct_id) {
-        return Err(Status::invalid_argument(
-            "target_distinct_id is an illegal distinct id",
         ));
     }
     if request.sources.is_empty() {
