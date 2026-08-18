@@ -928,7 +928,7 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
-    # Facade-only: the "Create AI task" action's endpoint creates tasks through
+    # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks",
 ]
