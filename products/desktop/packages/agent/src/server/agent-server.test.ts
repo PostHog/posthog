@@ -1700,24 +1700,28 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     // Codex registers servers under sanitized keys (its name pattern rejects
-    // e.g. spaces), so the always-ask gate must match the sanitized form too.
-    it("relays a codex tool call whose relayed-server name codex sanitized", async () => {
-      const testServer = exposeCloudClient(createServer());
-      testServer.config.relayMcpServers = ["My Slack"];
-      testServer.session = { hasDesktopConnected: true };
-      const relaySpy = vi
-        .spyOn(testServer, "relayPermissionToClient")
-        .mockResolvedValue({
-          outcome: { outcome: "selected", optionId: "allow_once" },
-        });
+    // e.g. spaces) and suffixes collisions, so the always-ask gate must match
+    // both forms; missing the suffixed one auto-runs a relayed local tool.
+    it.each([["My_Slack"], ["My_Slack_2"]])(
+      "relays a codex tool call for a relayed server reported as %j",
+      async (reportedKey) => {
+        const testServer = exposeCloudClient(createServer());
+        testServer.config.relayMcpServers = ["My Slack"];
+        testServer.session = { hasDesktopConnected: true };
+        const relaySpy = vi
+          .spyOn(testServer, "relayPermissionToClient")
+          .mockResolvedValue({
+            outcome: { outcome: "selected", optionId: "allow_once" },
+          });
 
-      const { requestPermission } = testServer.createCloudClient(basePayload);
-      await requestPermission(
-        codexPermissionRequestFor("My_Slack", "send_message"),
-      );
+        const { requestPermission } = testServer.createCloudClient(basePayload);
+        await requestPermission(
+          codexPermissionRequestFor(reportedKey, "send_message"),
+        );
 
-      expect(relaySpy).toHaveBeenCalledOnce();
-    });
+        expect(relaySpy).toHaveBeenCalledOnce();
+      },
+    );
 
     it("denies a relayed-server tool call instead of auto-approving when no client is reachable", async () => {
       const testServer = exposeCloudClient(createServer());

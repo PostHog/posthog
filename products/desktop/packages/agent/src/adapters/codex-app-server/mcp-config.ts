@@ -50,6 +50,26 @@ function uniqueCodexMcpServerName(name: string, taken: Set<string>): string {
 }
 
 /**
+ * Whether a codex-reported server key can belong to the server named `name`.
+ * {@link toCodexMcpServers} registers `codexMcpServerName(name)` or, after a
+ * collision, that base plus `_<n>`, and the assignment depends on the order
+ * and content of the whole server list, which consumers of codex-reported
+ * keys (the relay always-ask gate) do not see. Accepting every form the
+ * assignment can produce keeps those consumers fail-closed: a false positive
+ * (two raw names that share a sanitized base) asks for approval, never
+ * skips it.
+ */
+export function codexKeyMatchesMcpServerName(
+  key: string,
+  name: string,
+): boolean {
+  if (key === name) return true;
+  const base = codexMcpServerName(name);
+  if (key === base) return true;
+  return key.startsWith(`${base}_`) && /^\d+$/.test(key.slice(base.length + 1));
+}
+
+/**
  * Translates the ACP `McpServer[]` into the shape Codex's app-server expects under
  * `config.mcp_servers` — ACP encodes env/headers as `{ name, value }[]`, Codex
  * wants plain string maps, and keys must satisfy codex's server-name pattern
