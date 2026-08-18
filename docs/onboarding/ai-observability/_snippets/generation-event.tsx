@@ -513,11 +513,11 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Number of tokens written to cache (Anthropic-specific)
+                                    <em>(Optional)</em> Number of tokens written to cache
                                     <br />
-                                    When both TTL-specific counts are present, PostHog uses them instead of this
-                                    aggregate. The aggregate should equal their sum; if either count is missing, PostHog
-                                    uses the aggregate.
+                                    For Anthropic events, PostHog uses the TTL-specific counts instead of this aggregate
+                                    when both are present. The aggregate should equal their sum. If either count is
+                                    missing, PostHog uses the aggregate.
                                 </p>
                             </td>
                         </tr>

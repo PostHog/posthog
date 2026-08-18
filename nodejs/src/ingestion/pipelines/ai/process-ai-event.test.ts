@@ -903,20 +903,22 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeGreaterThan(0)
         })
 
-        it('handles custom pricing with cache read tokens for OpenAI', () => {
+        it('handles custom pricing with cache read and write tokens for OpenAI', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001
             event.properties!.$ai_output_token_price = 0.002
             event.properties!.$ai_cache_read_token_price = 0.0005
+            event.properties!.$ai_cache_write_token_price = 0.00125
             event.properties!.$ai_input_tokens = 100
             event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_cache_creation_input_tokens = 20
             event.properties!.$ai_output_tokens = 50
 
             const result = processAiEvent(event)
 
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.085, 6)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.185, 6)
         })
 
         it('handles custom pricing with cache tokens for Anthropic', () => {
@@ -1079,9 +1081,8 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
         })
 
-        // Every optional price OpenAI events consume is garbage at once, so dropping
-        // the coercion on any single one puts it back in front of js-big-decimal. The
-        // cache-write rates only apply to Anthropic events, covered separately below.
+        // Several optional prices are invalid at once, so dropping the coercion on
+        // any single one puts it back in front of js-big-decimal.
         it('ignores unusable optional prices and keeps custom pricing', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001
@@ -1106,8 +1107,8 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
         })
 
-        // Only the Anthropic path consumes the cache-write rates, and only when the
-        // 5m/1h breakdown is present does it consume both of them.
+        // Only the Anthropic TTL path consumes the 1-hour cache-write rate, and only
+        // when both TTL counts are present.
         it('ignores unusable cache write prices on an Anthropic event', () => {
             event.properties!.$ai_model = 'claude-sonnet-4'
             event.properties!.$ai_provider = 'anthropic'
