@@ -45,7 +45,7 @@ class TestPipelineNotificationSubscriptions(APIBaseTest):
         destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "exports"}
         )
-        batch_export = BatchExport.objects.create(team=team, name="Nightly export", destination=destination)  # type: ignore
+        batch_export = BatchExport.objects.create(team=team, name="Nightly export", destination=destination)
         plugin = Plugin.objects.create(organization=team.organization)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=team, enabled=True, order=1)
         return {
