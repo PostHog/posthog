@@ -2916,7 +2916,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
             # The insight node under the InsightVizNode wrapper; empty on the saved-insight path,
             # and on a malformed query that never got past validation.
-            source = query.get("source") if isinstance(query, dict) and isinstance(query.get("source"), dict) else {}
+            raw_source = query.get("source") if isinstance(query, dict) else None
+            source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
                 distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
                 event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
