@@ -1,8 +1,26 @@
-node "all" {
+node "events" {
   macros = {
-    hostClusterRole = "data"
+    hostClusterRole = "events"
     hostClusterType = "online"
-    replica         = "ch1"
+    replica         = "events"
+    shard           = "01"
+  }
+}
+
+node "medium" {
+  macros = {
+    hostClusterRole = "medium"
+    hostClusterType = "online"
+    replica         = "medium"
+    shard           = "01"
+  }
+}
+
+node "small" {
+  macros = {
+    hostClusterRole = "small"
+    hostClusterType = "online"
+    replica         = "small"
     shard           = "01"
   }
 }
@@ -2588,6 +2606,33 @@ database "posthog" {
       broker_list = "msk_cluster"
       topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state'"
       group_name  = "kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state'"
+      format      = "kafka_format = 'JSONEachRow'"
+    }
+  }
+
+  table "kafka_error_tracking_issue_fingerprint_embeddings" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "model_name" {
+      type = "LowCardinality(String)"
+    }
+    column "embedding_version" {
+      type = "Int64"
+    }
+    column "fingerprint" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "embeddings" {
+      type = "Array(Float64)"
+    }
+    engine "kafka" {
+      broker_list = "msk_cluster"
+      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings'"
+      group_name  = "kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings'"
       format      = "kafka_format = 'JSONEachRow'"
     }
   }
@@ -7183,292 +7228,6 @@ SQL
       max_rows   = 1000000
       min_bytes  = 10000000
       max_bytes  = 100000000
-    }
-  }
-
-  table "query_log_archive_old" {
-    column "hostname" {
-      type = "LowCardinality(String)"
-    }
-    column "user" {
-      type = "LowCardinality(String)"
-    }
-    column "query_id" {
-      type = "String"
-    }
-    column "initial_query_id" {
-      type = "String"
-    }
-    column "is_initial_query" {
-      type = "UInt8"
-    }
-    column "type" {
-      type = "Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)"
-    }
-    column "event_date" {
-      type = "Date"
-    }
-    column "event_time" {
-      type = "DateTime"
-    }
-    column "event_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_start_time" {
-      type = "DateTime"
-    }
-    column "query_start_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_duration_ms" {
-      type = "UInt64"
-    }
-    column "read_rows" {
-      type = "UInt64"
-    }
-    column "read_bytes" {
-      type = "UInt64"
-    }
-    column "written_rows" {
-      type = "UInt64"
-    }
-    column "written_bytes" {
-      type = "UInt64"
-    }
-    column "result_rows" {
-      type = "UInt64"
-    }
-    column "result_bytes" {
-      type = "UInt64"
-    }
-    column "memory_usage" {
-      type = "UInt64"
-    }
-    column "peak_threads_usage" {
-      type = "UInt64"
-    }
-    column "current_database" {
-      type = "LowCardinality(String)"
-    }
-    column "query" {
-      type = "String"
-    }
-    column "formatted_query" {
-      type = "String"
-    }
-    column "normalized_query_hash" {
-      type = "UInt64"
-    }
-    column "query_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "exception_code" {
-      type = "Int32"
-    }
-    column "exception_name" {
-      type  = "String"
-      alias = "errorCodeToName(exception_code)"
-    }
-    column "exception" {
-      type = "String"
-    }
-    column "stack_trace" {
-      type = "String"
-    }
-    column "ProfileEvents_RealTimeMicroseconds" {
-      type = "Int64"
-    }
-    column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3Clients" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3DeleteObjects" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CopyObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3ListObjects" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3HeadObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3GetObjectAttributes" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CreateMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3UploadPartCopy" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3UploadPart" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3AbortMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CompleteMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3PutObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3GetObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_ReadBufferFromS3Bytes" {
-      type = "Int64"
-    }
-    column "ProfileEvents_WriteBufferFromS3Bytes" {
-      type = "Int64"
-    }
-    column "ProfileEvents" {
-      type = "Map(String, UInt64)"
-    }
-    column "lc_workflow" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_id" {
-      type = "String"
-    }
-    column "lc_route_id" {
-      type = "String"
-    }
-    column "lc_access_method" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_api_key_label" {
-      type = "String"
-    }
-    column "lc_api_key_mask" {
-      type = "String"
-    }
-    column "lc_query_type" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_product" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_chargeable" {
-      type = "Bool"
-    }
-    column "lc_name" {
-      type = "String"
-    }
-    column "lc_request_name" {
-      type = "String"
-    }
-    column "lc_client_query_id" {
-      type = "String"
-    }
-    column "lc_org_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "lc_user_id" {
-      type = "Int64"
-    }
-    column "lc_is_impersonated" {
-      type = "Bool"
-    }
-    column "lc_session_id" {
-      type = "String"
-    }
-    column "lc_dashboard_id" {
-      type = "Int64"
-    }
-    column "lc_insight_id" {
-      type = "Int64"
-    }
-    column "lc_cohort_id" {
-      type = "Int64"
-    }
-    column "lc_batch_export_id" {
-      type = "String"
-    }
-    column "lc_experiment_id" {
-      type = "Int64"
-    }
-    column "lc_experiment_feature_flag_key" {
-      type = "String"
-    }
-    column "lc_alert_config_id" {
-      type = "String"
-    }
-    column "lc_feature" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_table_id" {
-      type = "String"
-    }
-    column "lc_warehouse_query" {
-      type = "Bool"
-    }
-    column "lc_person_on_events_mode" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_service_name" {
-      type = "String"
-    }
-    column "lc_workload" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_query__kind" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_query__query" {
-      type = "String"
-    }
-    column "lc_query" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_namespace" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_type" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_id" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_run_id" {
-      type = "String"
-    }
-    column "lc_temporal__activity_type" {
-      type = "String"
-    }
-    column "lc_temporal__activity_id" {
-      type = "String"
-    }
-    column "lc_temporal__attempt" {
-      type = "Int64"
-    }
-    column "lc_dagster__job_name" {
-      type = "String"
-    }
-    column "lc_dagster__run_id" {
-      type = "String"
-    }
-    column "lc_dagster__owner" {
-      type = "String"
-    }
-    column "lc_modifiers" {
-      type = "String"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_query_log_archive"
-      sharding_key    = "cityHash64(query_id)"
     }
   }
 
@@ -15139,6 +14898,41 @@ SQL
     }
   }
 
+  table "writable_error_tracking_issue_fingerprint_embeddings" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "model_name" {
+      type = "LowCardinality(String)"
+    }
+    column "embedding_version" {
+      type = "Int64"
+    }
+    column "fingerprint" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3, 'UTC')"
+    }
+    column "embeddings" {
+      type = "Array(Float64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "error_tracking_issue_fingerprint_embeddings"
+    }
+  }
+
   table "writable_error_tracking_issue_fingerprint_overrides" {
     column "team_id" {
       type = "Int64"
@@ -16721,6 +16515,9 @@ SQL
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
@@ -16737,9 +16534,6 @@ SQL
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -17068,292 +16862,6 @@ SQL
       remote_database = "posthog"
       remote_table    = "sharded_sessions"
       sharding_key    = "sipHash64(session_id)"
-    }
-  }
-
-  table "writable_sharded_query_log_archive" {
-    column "hostname" {
-      type = "LowCardinality(String)"
-    }
-    column "user" {
-      type = "LowCardinality(String)"
-    }
-    column "query_id" {
-      type = "String"
-    }
-    column "initial_query_id" {
-      type = "String"
-    }
-    column "is_initial_query" {
-      type = "UInt8"
-    }
-    column "type" {
-      type = "Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)"
-    }
-    column "event_date" {
-      type = "Date"
-    }
-    column "event_time" {
-      type = "DateTime"
-    }
-    column "event_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_start_time" {
-      type = "DateTime"
-    }
-    column "query_start_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_duration_ms" {
-      type = "UInt64"
-    }
-    column "read_rows" {
-      type = "UInt64"
-    }
-    column "read_bytes" {
-      type = "UInt64"
-    }
-    column "written_rows" {
-      type = "UInt64"
-    }
-    column "written_bytes" {
-      type = "UInt64"
-    }
-    column "result_rows" {
-      type = "UInt64"
-    }
-    column "result_bytes" {
-      type = "UInt64"
-    }
-    column "memory_usage" {
-      type = "UInt64"
-    }
-    column "peak_threads_usage" {
-      type = "UInt64"
-    }
-    column "current_database" {
-      type = "LowCardinality(String)"
-    }
-    column "query" {
-      type = "String"
-    }
-    column "formatted_query" {
-      type = "String"
-    }
-    column "normalized_query_hash" {
-      type = "UInt64"
-    }
-    column "query_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "exception_code" {
-      type = "Int32"
-    }
-    column "exception_name" {
-      type  = "String"
-      alias = "errorCodeToName(exception_code)"
-    }
-    column "exception" {
-      type = "String"
-    }
-    column "stack_trace" {
-      type = "String"
-    }
-    column "ProfileEvents_RealTimeMicroseconds" {
-      type = "Int64"
-    }
-    column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3Clients" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3DeleteObjects" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CopyObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3ListObjects" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3HeadObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3GetObjectAttributes" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CreateMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3UploadPartCopy" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3UploadPart" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3AbortMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3CompleteMultipartUpload" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3PutObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_S3GetObject" {
-      type = "Int64"
-    }
-    column "ProfileEvents_ReadBufferFromS3Bytes" {
-      type = "Int64"
-    }
-    column "ProfileEvents_WriteBufferFromS3Bytes" {
-      type = "Int64"
-    }
-    column "ProfileEvents" {
-      type = "Map(String, UInt64)"
-    }
-    column "lc_workflow" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_id" {
-      type = "String"
-    }
-    column "lc_route_id" {
-      type = "String"
-    }
-    column "lc_access_method" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_api_key_label" {
-      type = "String"
-    }
-    column "lc_api_key_mask" {
-      type = "String"
-    }
-    column "lc_query_type" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_product" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_chargeable" {
-      type = "Bool"
-    }
-    column "lc_name" {
-      type = "String"
-    }
-    column "lc_request_name" {
-      type = "String"
-    }
-    column "lc_client_query_id" {
-      type = "String"
-    }
-    column "lc_org_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "lc_user_id" {
-      type = "Int64"
-    }
-    column "lc_is_impersonated" {
-      type = "Bool"
-    }
-    column "lc_session_id" {
-      type = "String"
-    }
-    column "lc_dashboard_id" {
-      type = "Int64"
-    }
-    column "lc_insight_id" {
-      type = "Int64"
-    }
-    column "lc_cohort_id" {
-      type = "Int64"
-    }
-    column "lc_batch_export_id" {
-      type = "String"
-    }
-    column "lc_experiment_id" {
-      type = "Int64"
-    }
-    column "lc_experiment_feature_flag_key" {
-      type = "String"
-    }
-    column "lc_alert_config_id" {
-      type = "String"
-    }
-    column "lc_feature" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_table_id" {
-      type = "String"
-    }
-    column "lc_warehouse_query" {
-      type = "Bool"
-    }
-    column "lc_person_on_events_mode" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_service_name" {
-      type = "String"
-    }
-    column "lc_workload" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_query__kind" {
-      type = "LowCardinality(String)"
-    }
-    column "lc_query__query" {
-      type = "String"
-    }
-    column "lc_query" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_namespace" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_type" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_id" {
-      type = "String"
-    }
-    column "lc_temporal__workflow_run_id" {
-      type = "String"
-    }
-    column "lc_temporal__activity_type" {
-      type = "String"
-    }
-    column "lc_temporal__activity_id" {
-      type = "String"
-    }
-    column "lc_temporal__attempt" {
-      type = "Int64"
-    }
-    column "lc_dagster__job_name" {
-      type = "String"
-    }
-    column "lc_dagster__run_id" {
-      type = "String"
-    }
-    column "lc_dagster__owner" {
-      type = "String"
-    }
-    column "lc_modifiers" {
-      type = "String"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_query_log_archive"
-      sharding_key    = "cityHash64(query_id)"
     }
   }
 
@@ -18204,6 +17712,51 @@ SQL
     }
     column "version" {
       type = "Int64"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "error_tracking_issue_fingerprint_embeddings_mv" {
+    to_table = "posthog.writable_error_tracking_issue_fingerprint_embeddings"
+    query    = <<SQL
+SELECT
+  team_id,
+  model_name,
+  embedding_version,
+  fingerprint,
+  _timestamp AS inserted_at,
+  embeddings,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_fingerprint_embeddings
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "model_name" {
+      type = "LowCardinality(String)"
+    }
+    column "embedding_version" {
+      type = "Int64"
+    }
+    column "fingerprint" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "Nullable(DateTime)"
+    }
+    column "embeddings" {
+      type = "Array(Float64)"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
