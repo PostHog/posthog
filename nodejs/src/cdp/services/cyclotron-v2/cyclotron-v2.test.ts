@@ -828,6 +828,65 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
             })
 
+            it("parentRunId mode: flags the run's resolver job and children, and nothing beyond the run", async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                // The resolver orchestration job and its children share parent_run_id but
+                // sit on different queues - one selector must flag all of them.
+                const resolverId = await seedParked(functionId, { queueName: 'orchestration', parentRunId })
+                const parkedChildId = await seedParked(functionId, { parentRunId })
+                const runningChildId = await seedParked(functionId, { parentRunId })
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningChildId])
+                const otherRunId = await seedParked(functionId, { parentRunId: uuidv7() })
+                const otherTeamId = await seedParked(functionId, { parentRunId, teamId: 2 })
+
+                const result = await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                expect(result).toEqual({ marked: 3, remaining: 0, done: true })
+                // Parked rows (resolver included) are flagged AND woken; the running child is
+                // flagged in place, its wake pulled forward by the worker's release.
+                const resolver = await queryJob(resolverId)
+                expect(resolver.cancel_requested_at).not.toBeNull()
+                expect(new Date(resolver.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect((await queryJob(parkedChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(runningChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(otherRunId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
+            })
+
+            it('rejects an empty parentRunId instead of widening to the whole workflow', async () => {
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), parentRunId: '' })).rejects.toThrow(
+                    /non-empty/
+                )
+            })
+
+            it('bulkCreateAndCheckIn refuses the page when a cancel flag landed while the worker held the job', async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, parentRunId })
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+
+                // The mid-page window: the flag lands after the worker dequeued (and checked)
+                // the job but before it commits the page it is building.
+                await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                const result = await job.bulkCreateAndCheckIn({
+                    newJobs: [{ teamId: 1, queueName: QUEUE, functionId, parentRunId }],
+                    selfDisposition: { kind: 'reschedule', scheduledAt: FAR_FUTURE() },
+                })
+
+                expect(result).toEqual({ newJobIds: [], cancelRequested: true })
+                // Nothing committed: no child row, and the self row kept its state.
+                expect(await totalJobCount()).toBe(1)
+                const row = await queryJob(id)
+                expect(row.status).toBe('running')
+                // The job is still held - the caller disposes of it.
+                await job.cancel()
+                expect((await queryJob(id)).status).toBe('canceled')
+            })
+
             it('reports remaining and done=false when the chunk budget runs out, and the next call finishes', async () => {
                 const functionId = uuidv7()
                 await Promise.all(Array.from({ length: 3 }, () => seedParked(functionId)))
@@ -889,6 +948,7 @@ describe('Cyclotron V2', () => {
             it.each([
                 ['no selector', {}],
                 ['two selectors', { jobIds: [uuidv7()], all: true }],
+                ['two selectors (parentRunId and all)', { parentRunId: uuidv7(), all: true }],
             ])('rejects a call with %s instead of guessing scope', async (_name, selector) => {
                 await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), ...selector })).rejects.toThrow(
                     /exactly one selector/
