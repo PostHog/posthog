@@ -40,88 +40,56 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    def test_hybrid_query_disabled_by_default(self) -> None:
+    def _late_identification_sessions(self) -> tuple[str, str]:
+        """Record one session while anonymous, then a second after the person identifies by email.
+
+        Returns the (before, after) session ids.
+        """
+        anonymous_id = "anonymous_user_456"
+        identified_id = "identified_user_456"
+        session_id_before = "session_before_identification_456"
+        session_id_after = "session_after_identification_456"
+
+        produce_replay_summary(
+            distinct_id=anonymous_id,
+            session_id=session_id_before,
+            first_timestamp=self.an_hour_ago - relativedelta(minutes=10),
+            team_id=self.team.id,
+        )
+        create_event(
+            anonymous_id,
+            self.an_hour_ago - relativedelta(minutes=10),
+            team=self.team,
+            event_name="$pageview",
+            properties={"$session_id": session_id_before},
+        )
+
+        create_person(
+            team=self.team,
+            distinct_ids=[anonymous_id, identified_id],
+            properties={"email": "user@example.com"},
+        )
+
+        produce_replay_summary(
+            distinct_id=identified_id,
+            session_id=session_id_after,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            identified_id,
+            self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={"$session_id": session_id_after},
+        )
+        return session_id_before, session_id_after
+
+    def test_finds_sessions_from_before_identification_by_default(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
-            anonymous_id = "anonymous_user_123"
-            identified_id = "identified_user_123"
-            session_id_after = "session_after_identification"
+            session_id_before, session_id_after = self._late_identification_sessions()
 
-            create_person(
-                team=self.team,
-                distinct_ids=[anonymous_id, identified_id],
-                properties={"email": "user@example.com"},
-            )
-
-            produce_replay_summary(
-                distinct_id=identified_id,
-                session_id=session_id_after,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-            create_event(
-                identified_id,
-                self.an_hour_ago,
-                team=self.team,
-                event_name="$pageview",
-                properties={"$session_id": session_id_after},
-            )
-
-            self._assert_query_matches_session_ids(
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "user@example.com",
-                            "type": "person",
-                            "operator": "exact",
-                        }
-                    ]
-                },
-                [session_id_after],
-            )
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_enabled_finds_sessions(self, mock_feature_enabled) -> None:
-        with freeze_time("2021-08-21T20:00:00.000Z"):
-            anonymous_id = "anonymous_user_456"
-            identified_id = "identified_user_456"
-            session_id_before = "session_before_identification_456"
-            session_id_after = "session_after_identification_456"
-
-            produce_replay_summary(
-                distinct_id=anonymous_id,
-                session_id=session_id_before,
-                first_timestamp=self.an_hour_ago - relativedelta(minutes=10),
-                team_id=self.team.id,
-            )
-            create_event(
-                anonymous_id,
-                self.an_hour_ago - relativedelta(minutes=10),
-                team=self.team,
-                event_name="$pageview",
-                properties={"$session_id": session_id_before},
-            )
-
-            create_person(
-                team=self.team,
-                distinct_ids=[anonymous_id, identified_id],
-                properties={"email": "user@example.com"},
-            )
-
-            produce_replay_summary(
-                distinct_id=identified_id,
-                session_id=session_id_after,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-            create_event(
-                identified_id,
-                self.an_hour_ago,
-                team=self.team,
-                event_name="$pageview",
-                properties={"$session_id": session_id_after},
-            )
-
+            # The reported symptom: filtering by email must include the anonymous session too.
             self._assert_query_matches_session_ids(
                 {
                     "properties": [
@@ -137,7 +105,27 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_finds_all_person_sessions(self, mock_feature_enabled) -> None:
+    def test_kill_switch_restores_incomplete_poe_path(self, mock_feature_enabled) -> None:
+        with freeze_time("2021-08-21T20:00:00.000Z"):
+            _session_id_before, session_id_after = self._late_identification_sessions()
+
+            # With the kill switch on, the cheaper PoE path only matches events that already
+            # carried the email, so the anonymous session drops out.
+            self._assert_query_matches_session_ids(
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "user@example.com",
+                            "type": "person",
+                            "operator": "exact",
+                        }
+                    ]
+                },
+                [session_id_after],
+            )
+
+    def test_hybrid_query_finds_all_person_sessions(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             distinct_id_1 = "distinct_1"
             distinct_id_2 = "distinct_2"
@@ -208,11 +196,10 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 [session_id_1, session_id_2, session_id_3],
             )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_skips_negative_operators(self, mock_feature_enabled) -> None:
+    def test_hybrid_query_skips_negative_operators(self) -> None:
         """
         Test that _should_use_hybrid_query returns False when person property filters
-        have negative operators, even when the feature flag is enabled.
+        have negative operators, even though the path is on by default.
         """
         # Test with IS_NOT operator
         query_with_is_not = RecordingsQuery(
