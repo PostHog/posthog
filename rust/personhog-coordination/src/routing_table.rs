@@ -706,6 +706,7 @@ impl RoutingTable {
         // already at Complete arrive as a normal Put event through the
         // watch loop below.
         let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
+        let mut acks = Vec::new();
         for handoff in handoffs {
             if matches!(
                 handoff.phase,
@@ -724,23 +725,25 @@ impl RoutingTable {
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
 
-                // Only write a FreezeAck while still in Freezing — once
-                // the coordinator advanced past Freezing, the freeze
-                // quorum has been collected and a late ack would be
-                // either redundant or, worse, mistakenly counted toward
-                // a future handoff for the same partition.
+                // Only ack while still in Freezing — once the
+                // coordinator advanced, the quorum has been collected
+                // and a late ack is redundant (quorum evaluation matches
+                // on handoff_id, so it can never count elsewhere).
                 if handoff.phase == HandoffPhase::Freezing {
-                    let ack = RouterFreezeAck {
+                    acks.push(RouterFreezeAck {
                         router_name: self.config.router_name.clone(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
                         acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
-                    };
-                    self.store.put_freeze_ack(&ack).await?;
+                    });
                 }
             }
         }
+        // One batched write after every stash above is open: a restart
+        // during a fleet-wide freeze otherwise pays one round trip per
+        // frozen partition, serially, with the freeze quorum waiting.
+        self.store.put_freeze_acks(&acks).await?;
 
         let assignments = self.store.list_assignments().await?;
         // Live registrations overlay assignment-carried addresses: an
@@ -908,17 +911,18 @@ impl RoutingTable {
                 }
                 msg = stream.message() => {
                     let resp = util::live_watch_response(msg?, "handoff")?;
+                    let mut acks = Vec::new();
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
                                 if Self::handle_handoff_put(
                                     event,
-                                    store.as_ref(),
                                     &table,
                                     &addresses,
                                     &handler,
                                     &lanes,
                                     &router_name,
+                                    &mut acks,
                                 ).await?
                                 {
                                     progress.store(true, Ordering::SeqCst);
@@ -949,6 +953,11 @@ impl RoutingTable {
                             }
                         }
                     }
+                    // One write per response, after every event's stash
+                    // is open: a response carrying a plan's worth of
+                    // freezes costs one round trip instead of one per
+                    // partition.
+                    store.put_freeze_acks(&acks).await?;
                 }
             }
         }
@@ -992,6 +1001,7 @@ impl RoutingTable {
 
         let handoffs = store.list_handoffs().await?;
         let mut constrained: HashSet<u32> = HashSet::new();
+        let mut acks = Vec::new();
         for handoff in &handoffs {
             constrained.insert(handoff.partition);
             match handoff.phase {
@@ -1001,14 +1011,13 @@ impl RoutingTable {
                         .begin_stash(handoff.partition, &handoff.new_owner)
                         .await?;
                     if handoff.phase == HandoffPhase::Freezing {
-                        let ack = RouterFreezeAck {
+                        acks.push(RouterFreezeAck {
                             router_name: router_name.to_string(),
                             partition: handoff.partition,
                             acked_at: util::now_seconds(),
                             acked_at_ms: 0,
                             handoff_id: handoff.handoff_id.clone(),
-                        };
-                        store.put_freeze_ack(&ack).await?;
+                        });
                     }
                 }
                 HandoffPhase::Complete => {
@@ -1040,6 +1049,10 @@ impl RoutingTable {
                 }
             }
         }
+
+        // One batched write after every stash above is open; deferring
+        // an ack only delays the quorum, never lies to it.
+        store.put_freeze_acks(&acks).await?;
 
         let assignments = store.list_assignments().await?;
         for assignment in assignments {
@@ -1074,12 +1087,12 @@ impl RoutingTable {
 
     async fn handle_handoff_put(
         event: &etcd_client::Event,
-        store: &PersonhogStore,
         table: &Arc<RwLock<HashMap<u32, String>>>,
         addresses: &Arc<StdRwLock<HashMap<String, String>>>,
         handler: &Arc<dyn StashHandler>,
         lanes: &Arc<DrainLanes>,
         router_name: &str,
+        acks: &mut Vec<RouterFreezeAck>,
     ) -> Result<bool> {
         let handoff: HandoffState = match parse_watch_value(event) {
             Ok(h) => h,
@@ -1113,18 +1126,19 @@ impl RoutingTable {
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
 
-                // Only write a FreezeAck in Freezing — routers can arrive
-                // late, observe a later phase, and must not re-ack a
-                // quorum that has already cleared.
+                // Only ack in Freezing — routers can arrive late,
+                // observe a later phase, and must not re-ack a quorum
+                // that has already cleared. Collected, not written: the
+                // watch loop flushes one batch per response, after every
+                // event's stash is open.
                 if handoff.phase == HandoffPhase::Freezing {
-                    let ack = RouterFreezeAck {
+                    acks.push(RouterFreezeAck {
                         router_name: router_name.to_string(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
                         acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
-                    };
-                    store.put_freeze_ack(&ack).await?;
+                    });
                 }
             }
             HandoffPhase::Complete => {

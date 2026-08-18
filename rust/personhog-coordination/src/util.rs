@@ -505,6 +505,7 @@ pub fn preregister_router_coordination_metrics() {
         )
         .increment(0);
     }
+    metrics::counter!("personhog_coordination_freeze_acks_written_total").increment(0);
 }
 
 #[cfg(test)]

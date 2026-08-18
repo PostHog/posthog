@@ -5701,6 +5701,44 @@ async fn a_cached_absent_membership_still_requires_every_live_router() {
     }
 }
 
+/// A batch of freeze acks lands every key, across the transaction
+/// chunk boundary.
+///
+/// Acks are written in chunks of at most 128 ops — etcd's default
+/// transaction ceiling — so the regression worth pinning is the tail:
+/// a batch one chunk past the boundary that quietly drops its last
+/// chunk leaves quorum members unacked and every affected freeze
+/// parked at its deadline.
+#[tokio::test]
+async fn a_freeze_ack_batch_lands_every_key_across_the_chunk_boundary() {
+    let prefix = format!("/test-ack-batch-{}/", uuid::Uuid::new_v4());
+    let store = store_at(ETCD_ENDPOINT, &prefix).await;
+
+    let acks: Vec<RouterFreezeAck> = (0u32..130)
+        .map(|partition| RouterFreezeAck {
+            router_name: "batch-router".to_string(),
+            partition,
+            acked_at: 0,
+            acked_at_ms: 0,
+            handoff_id: format!("h-{partition}"),
+        })
+        .collect();
+    store.put_freeze_acks(&acks).await.expect("batch write");
+
+    for partition in [0u32, 127, 128, 129] {
+        let listed = store.list_freeze_acks(partition).await.expect("list acks");
+        assert_eq!(listed.len(), 1, "partition {partition} must carry its ack");
+        assert_eq!(listed[0].handoff_id, format!("h-{partition}"));
+        assert!(
+            listed[0].acked_at_ms > 0,
+            "the store stamps the batch's clock"
+        );
+    }
+
+    // An empty batch is a no-op, not an error.
+    store.put_freeze_acks(&[]).await.expect("empty batch");
+}
+
 /// A membership already read is answered from memory, not read again.
 ///
 /// This is the whole point of holding it: every frozen partition of one

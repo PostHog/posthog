@@ -460,6 +460,35 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
+    /// One transaction per chunk of acks in place of one round trip per
+    /// ack: a plan freezing hundreds of partitions has every router
+    /// acking each of them, and serial puts hold the freeze quorum on
+    /// the slowest router's whole sequence. Chunked at etcd's default
+    /// `--max-txn-ops` so a batch never outgrows a server on defaults.
+    /// An empty batch costs nothing.
+    pub async fn put_freeze_acks(&self, acks: &[RouterFreezeAck]) -> Result<()> {
+        const MAX_TXN_OPS: usize = 128;
+        for chunk in acks.chunks(MAX_TXN_OPS) {
+            count_call("put_freeze_acks");
+            let mut ops = Vec::with_capacity(chunk.len());
+            for ack in chunk {
+                let key = self.key(StoreKey::FreezeAck {
+                    partition: ack.partition,
+                    router: &ack.router_name,
+                });
+                // The store stamps the millisecond clock so span metrics
+                // never depend on each writer remembering to.
+                let mut stamped = ack.clone();
+                stamped.acked_at_ms = assignment_coordination::util::now_millis();
+                ops.push(TxnOp::put(key, serde_json::to_vec(&stamped)?, None));
+            }
+            metrics::counter!("personhog_coordination_freeze_acks_written_total")
+                .increment(chunk.len() as u64);
+            self.inner.txn(Txn::new().and_then(ops)).await?;
+        }
+        Ok(())
+    }
+
     pub async fn list_freeze_acks(&self, partition: u32) -> Result<Vec<RouterFreezeAck>> {
         count_call("list_freeze_acks");
         let key = self.key(StoreKey::FreezeAcksForPartition(partition));
