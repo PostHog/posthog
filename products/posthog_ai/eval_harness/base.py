@@ -13,6 +13,7 @@ from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
+from .harness.kernel_sandboxes import reclaim_kernels
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import EvalCaseResult, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
@@ -377,10 +378,20 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         raise
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
-            result = await asyncio.wait_for(
-                run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
-                timeout=ctx.per_case_timeout_seconds,
-            )
+            try:
+                result = await asyncio.wait_for(
+                    run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
+                    timeout=ctx.per_case_timeout_seconds,
+                )
+            finally:
+                # Still inside the slot: a notebook python or duckdb cell provisions a
+                # kernel sandbox of its own, and nothing else reclaims it. A timed-out
+                # case is exactly the one most likely to have left one running. One
+                # indexed query for every case that never touched a notebook.
+                await reclaim_kernels(
+                    sandbox_context.team_id,
+                    keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
+                )
         return result, seed_result
 
     async def _post_process(

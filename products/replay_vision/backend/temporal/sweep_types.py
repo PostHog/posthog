@@ -46,11 +46,26 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     deep_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Horizon the deep pass covered; None when it didn't run or its batch saturated.
     deep_swept_through: dt.datetime | None = None
+    # Last row of the fetched batch, before negative-filter exclusion dropped any of it. Dropping rows
+    # must not regress or stall the keyset. None on pre-deploy histories and on empty batches, where
+    # the workflow falls back to deriving the position from `candidates`/`swept_through`.
+    keyset_end: dt.datetime | None = None
+    keyset_session_id: str = ""
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
     scanner_id: UUID
     team_id: int
+
+
+class CheckScannerBudgetInputs(BaseModel, frozen=True):
+    scanner_id: UUID
+    team_id: int
+
+
+class CheckScannerBudgetOutput(BaseModel, frozen=True):
+    # Defaults to not-capped so a replayed history missing this field decodes to "keep sweeping".
+    capped: bool = False
 
 
 class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):

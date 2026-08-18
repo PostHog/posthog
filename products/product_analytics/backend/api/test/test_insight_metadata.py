@@ -6,7 +6,13 @@ import openai
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.llm.completions import OpenAICompletion
+
 MOCK_PATH = "products.product_analytics.backend.api.insight_metadata.hit_openai"
+
+
+def _completion(content: str) -> OpenAICompletion:
+    return OpenAICompletion(content=content, prompt_tokens=10, completion_tokens=20)
 
 
 def _make_query(source: dict) -> dict:
@@ -26,7 +32,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_returns_name_and_description(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Daily Pageviews", "description": "Tracks daily page views."}')
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
@@ -36,7 +42,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
     @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch(MOCK_PATH)
     def test_generation_is_tagged_billable(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Daily Pageviews", "description": "Tracks daily page views."}')
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
@@ -71,7 +77,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
         # Timeouts are surfaced distinctly from the generic parse/failure path so they can be told apart.
         assert "too long" in response.json()["detail"]
 
-    @patch(MOCK_PATH, return_value=("not valid json at all", 10, 20))
+    @patch(MOCK_PATH, return_value=_completion("not valid json at all"))
     def test_unparseable_response_retries_then_returns_500(self, mock_openai):
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
@@ -81,7 +87,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_missing_description_is_tolerated(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Daily Pageviews"}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Daily Pageviews"}')
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
@@ -90,7 +96,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_forwards_json_mode_and_timeout(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Daily Pageviews", "description": "Tracks daily page views."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Daily Pageviews", "description": "Tracks daily page views."}')
         response = self.client.post(self.url, {"query": _trends_query()}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
@@ -141,7 +147,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
     )
     @patch(MOCK_PATH)
     def test_accepts_various_query_types(self, _name, query, mock_openai):
-        mock_openai.return_value = ('{"name": "Test Name", "description": "Test description."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test Name", "description": "Test description."}')
         response = self.client.post(self.url, {"query": query}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
@@ -150,10 +156,8 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_actors_query_returns_name_and_description(self, mock_openai):
-        mock_openai.return_value = (
-            '{"name": "Persons Who Performed Pageviews", "description": "List of persons who performed pageviews."}',
-            10,
-            20,
+        mock_openai.return_value = _completion(
+            '{"name": "Persons Who Performed Pageviews", "description": "List of persons who performed pageviews."}'
         )
         actors_query = {
             "kind": "ActorsQuery",
@@ -189,7 +193,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_actors_funnel_step_context_in_prompt(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test", "description": "Test."}')
         actors_query = {
             "kind": "ActorsQuery",
             "source": {
@@ -218,7 +222,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_actors_lifecycle_status_in_prompt(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test", "description": "Test."}')
         actors_query = {
             "kind": "ActorsQuery",
             "source": {
@@ -245,7 +249,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_actors_narrows_to_selected_series(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test", "description": "Test."}')
         actors_query = {
             "kind": "ActorsQuery",
             "source": {
@@ -275,7 +279,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_actors_breakdown_value_in_prompt(self, mock_openai):
-        mock_openai.return_value = ('{"name": "Test", "description": "Test."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test", "description": "Test."}')
         actors_query = {
             "kind": "ActorsQuery",
             "source": {
@@ -304,10 +308,8 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_events_query_returns_name_and_description(self, mock_openai):
-        mock_openai.return_value = (
-            '{"name": "Recent Events", "description": "Raw events from the last hour."}',
-            10,
-            20,
+        mock_openai.return_value = _completion(
+            '{"name": "Recent Events", "description": "Raw events from the last hour."}'
         )
         events_query = {
             "kind": "EventsQuery",
@@ -325,11 +327,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_events_query_with_event_filter(self, mock_openai):
-        mock_openai.return_value = (
-            '{"name": "Pageview Events", "description": "Recent pageview events."}',
-            10,
-            20,
-        )
+        mock_openai.return_value = _completion('{"name": "Pageview Events", "description": "Recent pageview events."}')
         events_query = {
             "kind": "EventsQuery",
             "select": ["*", "event", "timestamp"],
@@ -344,10 +342,8 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_events_query_with_property_filters(self, mock_openai):
-        mock_openai.return_value = (
-            '{"name": "Chrome Pageviews", "description": "Pageviews from Chrome browser."}',
-            10,
-            20,
+        mock_openai.return_value = _completion(
+            '{"name": "Chrome Pageviews", "description": "Pageviews from Chrome browser."}'
         )
         events_query = {
             "kind": "EventsQuery",
@@ -367,10 +363,8 @@ class TestGenerateInsightMetadata(APIBaseTest):
 
     @patch(MOCK_PATH)
     def test_events_query_with_cohort_filter(self, mock_openai):
-        mock_openai.return_value = (
-            '{"name": "Pageviews Last Hour for Real Persons", "description": "Pageviews filtered to the Real persons cohort."}',
-            10,
-            20,
+        mock_openai.return_value = _completion(
+            '{"name": "Pageviews Last Hour for Real Persons", "description": "Pageviews filtered to the Real persons cohort."}'
         )
         events_query = {
             "kind": "EventsQuery",
@@ -431,7 +425,7 @@ class TestGenerateInsightMetadata(APIBaseTest):
     )
     @patch(MOCK_PATH)
     def test_query_prompt_content(self, _name, query, expected_in_prompt, mock_openai):
-        mock_openai.return_value = ('{"name": "Test name", "description": "Test description."}', 10, 20)
+        mock_openai.return_value = _completion('{"name": "Test name", "description": "Test description."}')
         response = self.client.post(self.url, {"query": query}, format="json")
 
         assert response.status_code == status.HTTP_200_OK

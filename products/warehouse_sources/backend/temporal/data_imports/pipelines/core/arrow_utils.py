@@ -95,9 +95,45 @@ class SchemaColumnTypeChangedException(Exception):
     `integer` → `bigint`) after the Delta table was already created with the narrower type.
     delta-rs cannot widen an existing column in place, so retrying is futile — the table must
     be reset and fully re-synced to adopt the new type.
+
+    ``column_name`` / ``stored_type`` / ``incoming_type`` are populated only where a clean
+    stored-to-incoming type pair exists (the cast failure in ``evolve_pyarrow_schema``). The
+    value-driven raises (decimal overflow, nullability drift) leave them ``None``, which keeps
+    those cases out of automatic widening recovery by construction (see
+    ``auto_widen_resync.maybe_schedule_auto_widen_resync``).
     """
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        column_name: str | None = None,
+        stored_type: pa.DataType | None = None,
+        incoming_type: pa.DataType | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.column_name = column_name
+        self.stored_type = stored_type
+        self.incoming_type = incoming_type
+
+
+def is_safe_numeric_widening(stored_type: pa.DataType, incoming_type: pa.DataType) -> bool:
+    """Whether a stored-to-incoming column type change is mechanically recoverable by a reset
+    and full re-sync, with no human judgement needed.
+
+    "Safe" means both sides are plain numeric types, so a re-sync deterministically adopts the
+    source's new type, which is the exact outcome the manual "Reset" remedy produces. That deliberately
+    includes transitions that aren't strict range widenings (int8 → uint8) and int64 → float64
+    (lossy above 2^53): the source already emits values of the new type either way, so an
+    automatic reset can never lose anything the manual reset would have kept. Transitions
+    involving non-numeric types (string, bool, decimal, temporal, nested) need human judgement
+    and stay manual.
+    """
+    return (
+        (pa.types.is_integer(stored_type) or pa.types.is_floating(stored_type))
+        and (pa.types.is_integer(incoming_type) or pa.types.is_floating(incoming_type))
+        and stored_type != incoming_type
+    )
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -341,7 +377,10 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     raise SchemaColumnTypeChangedException(
                         f"Source column type changed: '{delta_field.name}' has values that no longer "
                         f"fit its stored type {delta_field.type} (incoming data is now "
-                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type.",
+                        column_name=delta_field.name,
+                        stored_type=delta_field.type,
+                        incoming_type=incoming_column.type,
                     ) from e
 
                 incoming_table = incoming_table.set_column(
@@ -824,6 +863,11 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
     if issubclass(type_, datetime.time) and isinstance(value, datetime.time):
         return pa.time64("us")
+
+    # UUID values are stringified later in `_process_batch`; declare the field as string here so a
+    # UUID column absent from the provided schema doesn't crash while its field is being appended.
+    if issubclass(type_, uuid.UUID):
+        return pa.string()
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 

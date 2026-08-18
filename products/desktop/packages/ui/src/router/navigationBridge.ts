@@ -51,13 +51,6 @@ export function navigateToChannel(channelId: string): void {
   });
 }
 
-export function navigateToChannelArtifacts(channelId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/artifacts",
-    params: { channelId },
-  });
-}
-
 export function navigateToChannelTask(channelId: string, taskId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/website/$channelId/tasks/$taskId",
