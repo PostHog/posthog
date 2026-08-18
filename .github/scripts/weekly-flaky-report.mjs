@@ -261,36 +261,27 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
             .find(Boolean) || null
 }
 
-// One question for both systems: is this failure already suppressed, so the queue should not ask
-// anyone to act on it? Returns null while the test still fails CI.
+// One question for both systems: is this failure suppressed, and since when? Suppressed tests
+// stay in the table so it shows the full flake cost, not just the unsuppressed tail.
 //
-// Trunk with masking off is the one case that is marked but not suppressed: Trunk called the test
-// flaky, CI still goes red on it, so it stays in the queue carrying a label.
-function testStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
+// Trunk with masking off is marked but not suppressed: Trunk called the test flaky, CI still goes
+// red on it, so it reads 'flagged' rather than a quarantine date.
+function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
     return (item) => {
         // Both counts are seven-day aggregates and the endpoint counts a quarantined run
         // separately from a failed one, so a park that ended inside the window leaves the
         // quarantined count set while CI fails on the test again. The unquarantined failures
-        // decide: with any of them the test is still red and still work.
+        // decide: with any of them the test is red again and not suppressed.
         const quarantineFile = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0
         if (quarantineFile && !item.failed_run_count) {
-            return { parked: true }
+            return 'file'
         }
         const trunk = trunkFor(item)
         if (!trunk) {
             return null
         }
-        return { parked: masksCi }
+        return masksCi ? String(trunk.quarantinedAt).slice(0, 10) : 'flagged'
     }
-}
-
-// Parked tests leave the queue: a suppressed failure does not fail CI, so nobody has to act on it.
-//
-// Dropping them has to precede clustering. A cluster's selector is a bare file path, which can
-// never match a test id, so collapsing first buries parked tests in a row that then ranks as if
-// CI still failed on them.
-function buildQueue(candidates, statusFor) {
-    return collapseClusters(candidates.filter((item) => !statusFor(item)?.parked))
 }
 
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
@@ -342,8 +333,8 @@ async function buildRunnerReports(
 ) {
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
-            const statusFor = testStatusFor(await getTrunk(runner))
-            const queue = buildQueue(candidates, statusFor)
+            const statusFor = quarantineStatusFor(await getTrunk(runner))
+            const queue = collapseClusters(candidates)
             const extrasFor = await getEnrichment(runner, queue)
             return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor }
         })
@@ -360,9 +351,6 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
         const testCell = repoPath
             ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        // Anything parked has already left the table, so the only status a row can carry is
-        // Trunk having flagged a test that still fails CI.
-        const flagged = statusFor(item) ? ' (Trunk flagged)' : ''
         const logLinks = evidence.map(({ runId, jobId }, index) => ({
             url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
             text: String(index + 1),
@@ -370,7 +358,8 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
         return [
             testCell,
             cell(RUNNER_LABELS[item.runner] || item.runner),
-            cell(owner.replace(/^team-/, '') + flagged),
+            cell(owner.replace(/^team-/, '')),
+            cell(statusFor(item) || '-'),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
             logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
@@ -394,22 +383,22 @@ function buildBlocks(now, rows) {
                 { align: 'left' },
                 { align: 'left' },
                 { align: 'left' },
+                { align: 'left' },
                 { align: 'right' },
                 { align: 'right' },
                 { align: 'left' },
             ],
             rows: [
-                [cell('test'), cell('runner'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')],
+                [
+                    cell('test'),
+                    cell('runner'),
+                    cell('owner'),
+                    cell('quarantined'),
+                    cell('rescued'),
+                    cell('fails'),
+                    cell('logs'),
+                ],
                 ...rows,
-            ],
-        },
-        {
-            type: 'context',
-            elements: [
-                {
-                    type: 'mrkdwn',
-                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
-                },
             ],
         },
     ]
@@ -459,7 +448,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
-    buildQueue,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -467,8 +455,8 @@ export {
     fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    quarantineStatusFor,
     REPORT_RUNNERS,
     selectReportCandidates,
     tableRows,
-    testStatusFor,
 }
