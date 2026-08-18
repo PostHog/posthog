@@ -656,7 +656,13 @@ mod tests {
             .await
             .expect_err("malformed wrapper must error");
         assert!(
-            matches!(err, FlagError::DataParsingErrorWithContext(_)),
+            matches!(
+                err,
+                FlagError::InternalError {
+                    code: "flag_data_parsing_error",
+                    ..
+                }
+            ),
             "expected DataParsingErrorWithContext, got {err:?}"
         );
     }

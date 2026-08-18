@@ -56,8 +56,26 @@ pub enum ClientFacingError {
 pub enum FlagError {
     #[error(transparent)]
     ClientFacing(#[from] ClientFacingError),
-    #[error("Internal error: {0}")]
-    Internal(String),
+    /// Internal server fault (500). `code` is the stable string surfaced as
+    /// `reason.code` in the flags response and as the canonical-log error code,
+    /// so treat it as part of the public contract. Build one with the
+    /// constructors below rather than inline, so a code never drifts.
+    ///
+    /// The field is `cause`, not `source`: thiserror treats a field literally
+    /// named `source` as `#[source]`, and `anyhow::Error` does not implement
+    /// `std::error::Error`, so that combination will not compile.
+    #[error("{cause}")]
+    InternalError {
+        code: &'static str,
+        cause: anyhow::Error,
+    },
+    /// Transient dependency failure (503) where retrying may succeed. Carries the
+    /// same `code` contract as [`FlagError::InternalError`].
+    #[error("{cause}")]
+    Unavailable {
+        code: &'static str,
+        cause: anyhow::Error,
+    },
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")]
@@ -80,13 +98,6 @@ pub enum FlagError {
     NoAuthenticationProvided,
     #[error("Row not found in postgres")]
     RowNotFound,
-    /// Data parsing error with context about what failed.
-    /// This is an internal error (500) indicating data corruption or schema mismatch,
-    /// not a service availability issue.
-    #[error("Failed to parse flag data: {0}")]
-    DataParsingErrorWithContext(String),
-    #[error("redis unavailable")]
-    RedisUnavailable,
     #[error("database unavailable")]
     DatabaseUnavailable,
     #[error("Failed to fetch hash key override for experience continuity")]
@@ -115,14 +126,6 @@ pub enum FlagError {
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
     DependencyCycle(DependencyType, i64),
-    #[error("Person not found")]
-    PersonNotFound,
-    #[error("Cache miss - data not found in cache")]
-    CacheMiss,
-    #[error("Failed to parse data")]
-    DataParsingError,
-    #[error("Parallel batch evaluation task panicked")]
-    BatchEvaluationPanicked,
     #[error("Rayon semaphore acquisition timed out after {0}ms")]
     RayonSemaphoreTimeout(u64),
     #[error(transparent)]
@@ -135,6 +138,59 @@ pub enum FlagError {
 }
 
 impl FlagError {
+    /// A generic internal fault. Attach context at the call site so the log
+    /// carries the failing operation: `FlagError::internal(e.context("..."))`.
+    pub fn internal(cause: impl Into<anyhow::Error>) -> Self {
+        FlagError::InternalError {
+            code: "internal_error",
+            cause: cause.into(),
+        }
+    }
+
+    /// Flag definition data that could not be parsed, which means corruption or a
+    /// schema mismatch rather than an availability problem, so it stays a 500.
+    pub fn flag_data_parsing(details: impl std::fmt::Display) -> Self {
+        FlagError::InternalError {
+            code: "flag_data_parsing_error",
+            cause: anyhow::anyhow!("Failed to parse flag data: {details}"),
+        }
+    }
+
+    pub fn data_parsing(cause: impl Into<anyhow::Error>) -> Self {
+        FlagError::InternalError {
+            code: "data_parsing_error",
+            cause: cause.into().context("Failed to parse data"),
+        }
+    }
+
+    pub fn batch_evaluation_panicked() -> Self {
+        FlagError::InternalError {
+            code: "batch_evaluation_panicked",
+            cause: anyhow::anyhow!("Parallel batch evaluation task panicked"),
+        }
+    }
+
+    pub fn redis_unavailable(cause: impl Into<anyhow::Error>) -> Self {
+        FlagError::Unavailable {
+            code: "redis_unavailable",
+            cause: cause.into().context("redis unavailable"),
+        }
+    }
+
+    pub fn cache_miss() -> Self {
+        FlagError::Unavailable {
+            code: "cache_miss",
+            cause: anyhow::anyhow!("Cache miss - data not found in cache"),
+        }
+    }
+
+    pub fn person_not_found() -> Self {
+        FlagError::Unavailable {
+            code: "person_not_found",
+            cause: anyhow::anyhow!("Person not found"),
+        }
+    }
+
     /// Returns (error_code, status_code) for this error.
     ///
     /// This consolidates error classification in one place to ensure consistency
@@ -171,29 +227,23 @@ impl FlagError {
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 
+            // Bucketed errors carry their own stable code.
+            FlagError::InternalError { code, .. } => (code, 500),
+            FlagError::Unavailable { code, .. } => (code, 503),
+
             // Internal server errors (500)
-            FlagError::Internal(_) => ("internal_error", 500),
             FlagError::DatabaseError(_, _) => ("database_error", 500),
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
-            FlagError::DataParsingError => ("data_parsing_error", 500),
-            FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
             FlagError::RayonSemaphoreTimeout(_) => ("rayon_semaphore_timeout", 504),
             FlagError::RemoteConfigDecryptFailed(_) => ("remote_config_decrypt_failed", 500),
 
-            // Data parsing errors (500) - internal errors, not service unavailability
-            FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
-
             // Service unavailable errors (503) - transient issues, retry may help
-            FlagError::RedisUnavailable => ("redis_unavailable", 503),
             FlagError::DatabaseUnavailable => ("database_unavailable", 503),
             FlagError::TimeoutError(_) => ("timeout", 503),
-            FlagError::CacheMiss => ("cache_miss", 503),
-            // Cache misses for person/cohort data - transient, data may be populated soon
-            FlagError::PersonNotFound => ("person_not_found", 503),
 
             // Cookieless errors (mixed)
             FlagError::CookielessError(err) => match err {
@@ -341,11 +391,22 @@ impl IntoResponse for FlagError {
                 }
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
-            FlagError::Internal(msg) => {
-                tracing::error!("Internal server error: {}", msg);
+            FlagError::InternalError { code, cause } => {
+                // `{cause:?}` prints the whole anyhow chain, which is the point of
+                // the bucket: the variant no longer names the failure, the chain does.
+                tracing::error!(error_code = code, "Internal server error: {cause:?}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "An internal server error occurred. Please try again later or contact support if the problem persists.".to_string(),
+                )
+            }
+            FlagError::Unavailable { code, cause } => {
+                // 503s are transient by definition, so these stay at warn to keep
+                // error dashboards meaningful during a dependency blip.
+                tracing::warn!(error_code = code, "Service dependency unavailable: {cause:?}");
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "A service dependency is temporarily unavailable. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::RequestDecodingError(msg) => {
@@ -421,20 +482,6 @@ impl IntoResponse for FlagError {
                 };
                 return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
-            FlagError::DataParsingErrorWithContext(ref details) => {
-                tracing::error!("Data parsing error: {}", details);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to parse flag configuration data. This may indicate a misconfigured feature flag. Please check your flag definitions or contact support.".to_string(),
-                )
-            }
-            FlagError::RedisUnavailable => {
-                tracing::error!("Redis unavailable: {:?}", self);
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Our cache service is currently unavailable. This is likely a temporary issue. Please try again later.".to_string(),
-                )
-            }
             FlagError::DatabaseUnavailable => {
                 tracing::error!("Database unavailable: {:?}", self);
                 (
@@ -483,22 +530,6 @@ impl IntoResponse for FlagError {
             FlagError::HashKeyOverrideError => {
                 tracing::error!("Failed to fetch hash key override for experience continuity");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch hash key override for experience continuity. Please try again later.".to_string())
-            }
-            FlagError::PersonNotFound => {
-                tracing::warn!("Person not found in cache");
-                (StatusCode::SERVICE_UNAVAILABLE, "Person data not yet available. This is a temporary issue while data is being populated. Please try again.".to_string())
-            }
-            FlagError::CacheMiss => {
-                tracing::error!("Cache miss - required data not found in cache");
-                (StatusCode::SERVICE_UNAVAILABLE, "Required data not found in cache. This is likely a temporary issue. Please try again later.".to_string())
-            }
-            FlagError::DataParsingError => {
-                tracing::error!("Failed to parse data");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string())
-            }
-            FlagError::BatchEvaluationPanicked => {
-                tracing::error!("Parallel batch evaluation task panicked");
-                (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred during flag evaluation. Please try again later.".to_string())
             }
             FlagError::RayonSemaphoreTimeout(ms) => {
                 tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
@@ -575,15 +606,13 @@ impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
             CustomRedisError::NotFound => FlagError::TokenValidationError,
-            CustomRedisError::ParseError(details) => {
-                FlagError::DataParsingErrorWithContext(format!(
-                    "Redis data parsing failed: {}",
-                    simplify_serde_error(&details)
-                ))
-            }
+            CustomRedisError::ParseError(details) => FlagError::flag_data_parsing(format!(
+                "Redis data parsing failed: {}",
+                simplify_serde_error(&details)
+            )),
             CustomRedisError::Timeout => FlagError::TimeoutError(Some("Redis timeout".to_string())),
-            CustomRedisError::InvalidConfiguration(_) | CustomRedisError::Redis(_) => {
-                FlagError::RedisUnavailable
+            e @ (CustomRedisError::InvalidConfiguration(_) | CustomRedisError::Redis(_)) => {
+                FlagError::redis_unavailable(e)
             }
         }
     }
@@ -643,10 +672,12 @@ impl From<sqlx::Error> for FlagError {
 impl From<HyperCacheError> for FlagError {
     fn from(e: HyperCacheError) -> Self {
         match e {
-            HyperCacheError::CacheMiss => FlagError::CacheMiss,
+            HyperCacheError::CacheMiss => FlagError::cache_miss(),
             HyperCacheError::Redis(redis_error) => FlagError::from(redis_error),
-            HyperCacheError::S3(_) => FlagError::CacheMiss,
-            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => FlagError::DataParsingError,
+            HyperCacheError::S3(_) => FlagError::cache_miss(),
+            e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_)) => {
+                FlagError::data_parsing(e)
+            }
             HyperCacheError::Timeout(_) => {
                 FlagError::TimeoutError(Some("cache_timeout".to_string()))
             }
@@ -662,11 +693,11 @@ mod tests {
     #[test]
     fn test_is_5xx() {
         // Test 5XX errors
-        assert!(FlagError::Internal("test".to_string()).is_5xx());
+        assert!(FlagError::internal(anyhow::anyhow!("test")).is_5xx());
         assert!(FlagError::DatabaseUnavailable.is_5xx());
-        assert!(FlagError::RedisUnavailable.is_5xx());
+        assert!(FlagError::redis_unavailable(anyhow::anyhow!("connection refused")).is_5xx());
         assert!(FlagError::TimeoutError(None).is_5xx());
-        assert!(FlagError::BatchEvaluationPanicked.is_5xx());
+        assert!(FlagError::batch_evaluation_panicked().is_5xx());
         assert!(FlagError::RayonSemaphoreTimeout(800).is_5xx());
         assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
 
@@ -859,7 +890,7 @@ mod tests {
             FlagError::ClientFacing(ClientFacingError::TokenRateLimited),
             FlagError::ClientFacing(ClientFacingError::BillingLimit),
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
-            FlagError::Internal("test".to_string()),
+            FlagError::internal(anyhow::anyhow!("test")),
             FlagError::RequestDecodingError("test".to_string()),
             serde_json::from_str::<String>("invalid json")
                 .unwrap_err()
@@ -876,18 +907,18 @@ mod tests {
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
-            FlagError::DataParsingErrorWithContext("test parse error".to_string()),
-            FlagError::RedisUnavailable,
+            FlagError::flag_data_parsing("test parse error"),
+            FlagError::redis_unavailable(anyhow::anyhow!("connection refused")),
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
-            FlagError::PersonNotFound,
-            FlagError::CacheMiss,
-            FlagError::DataParsingError,
-            FlagError::BatchEvaluationPanicked,
+            FlagError::person_not_found(),
+            FlagError::cache_miss(),
+            FlagError::data_parsing(anyhow::anyhow!("bad payload")),
+            FlagError::batch_evaluation_panicked(),
             FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
@@ -938,9 +969,12 @@ mod tests {
         );
 
         // 5xx errors (server errors)
-        assert_eq!(FlagError::Internal("".into()).status_code(), 500);
+        assert_eq!(FlagError::internal(anyhow::anyhow!("")).status_code(), 500);
         assert_eq!(FlagError::DatabaseUnavailable.status_code(), 503);
-        assert_eq!(FlagError::RedisUnavailable.status_code(), 503);
+        assert_eq!(
+            FlagError::redis_unavailable(anyhow::anyhow!("connection refused")).status_code(),
+            503
+        );
         assert_eq!(FlagError::TimeoutError(None).status_code(), 503);
         assert_eq!(
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).status_code(),
@@ -948,7 +982,7 @@ mod tests {
         );
         assert_eq!(FlagError::RowNotFound.status_code(), 500);
         // Cache miss errors are now 503 (transient)
-        assert_eq!(FlagError::PersonNotFound.status_code(), 503);
+        assert_eq!(FlagError::person_not_found().status_code(), 503);
         // Semaphore timeout is 504 (gateway timeout for ingress retry)
         assert_eq!(FlagError::RayonSemaphoreTimeout(800).status_code(), 504);
     }
@@ -972,10 +1006,10 @@ mod tests {
 
         // Server errors should be 5xx
         let server_errors = vec![
-            FlagError::Internal("".into()),
+            FlagError::internal(anyhow::anyhow!("")),
             FlagError::RowNotFound,
             FlagError::CohortFiltersParsingError,
-            FlagError::DataParsingError,
+            FlagError::data_parsing(anyhow::anyhow!("bad payload")),
         ];
         for error in server_errors {
             let status = error.status_code();
@@ -987,22 +1021,22 @@ mod tests {
     fn test_error_code_consistency_with_is_5xx() {
         // Verify that status_code() >= 500 matches is_5xx() for ALL 5xx errors
         let errors_5xx = vec![
-            FlagError::Internal("test".to_string()),
+            FlagError::internal(anyhow::anyhow!("test")),
             FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
             FlagError::RowNotFound,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::CohortFiltersParsingError,
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
-            FlagError::DataParsingError,
-            FlagError::BatchEvaluationPanicked,
+            FlagError::data_parsing(anyhow::anyhow!("bad payload")),
+            FlagError::batch_evaluation_panicked(),
             FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
-            FlagError::DataParsingErrorWithContext("test".to_string()),
-            FlagError::RedisUnavailable,
+            FlagError::flag_data_parsing("test"),
+            FlagError::redis_unavailable(anyhow::anyhow!("connection refused")),
             FlagError::DatabaseUnavailable,
             FlagError::TimeoutError(None),
-            FlagError::CacheMiss,
-            FlagError::PersonNotFound,
+            FlagError::cache_miss(),
+            FlagError::person_not_found(),
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
         ];
 
@@ -1027,14 +1061,17 @@ mod tests {
         assert!(FlagError::RowNotFound.is_token_not_found());
 
         // Transient infrastructure errors should NOT be treated as "not found"
-        assert!(!FlagError::CacheMiss.is_token_not_found());
-        assert!(!FlagError::RedisUnavailable.is_token_not_found());
+        assert!(!FlagError::cache_miss().is_token_not_found());
+        assert!(
+            !FlagError::redis_unavailable(anyhow::anyhow!("connection refused"))
+                .is_token_not_found()
+        );
         assert!(!FlagError::DatabaseUnavailable.is_token_not_found());
         assert!(!FlagError::TimeoutError(None).is_token_not_found());
         assert!(!FlagError::TimeoutError(Some("pool_timeout".to_string())).is_token_not_found());
         assert!(!FlagError::DatabaseError(sqlx::Error::PoolTimedOut, None).is_token_not_found());
-        assert!(!FlagError::Internal("serialization failed".to_string()).is_token_not_found());
-        assert!(!FlagError::DataParsingError.is_token_not_found());
+        assert!(!FlagError::internal(anyhow::anyhow!("serialization failed")).is_token_not_found());
+        assert!(!FlagError::data_parsing(anyhow::anyhow!("bad payload")).is_token_not_found());
     }
 
     #[test]
@@ -1062,7 +1099,7 @@ mod tests {
             "database_unavailable"
         );
         assert_eq!(
-            FlagError::RedisUnavailable.error_code(),
+            FlagError::redis_unavailable(anyhow::anyhow!("connection refused")).error_code(),
             "redis_unavailable"
         );
     }
@@ -1080,7 +1117,7 @@ mod tests {
             FlagError::ClientFacing(ClientFacingError::TokenRateLimited),
             FlagError::ClientFacing(ClientFacingError::BillingLimit),
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
-            FlagError::Internal("test".to_string()),
+            FlagError::internal(anyhow::anyhow!("test")),
             FlagError::RequestDecodingError("test".to_string()),
             serde_json::from_str::<String>("invalid json")
                 .unwrap_err()
@@ -1097,18 +1134,18 @@ mod tests {
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
-            FlagError::DataParsingErrorWithContext("test parse error".to_string()),
-            FlagError::RedisUnavailable,
+            FlagError::flag_data_parsing("test parse error"),
+            FlagError::redis_unavailable(anyhow::anyhow!("connection refused")),
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
-            FlagError::PersonNotFound,
-            FlagError::CacheMiss,
-            FlagError::DataParsingError,
-            FlagError::BatchEvaluationPanicked,
+            FlagError::person_not_found(),
+            FlagError::cache_miss(),
+            FlagError::data_parsing(anyhow::anyhow!("bad payload")),
+            FlagError::batch_evaluation_panicked(),
             FlagError::HashKeyOverrideError,
             FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(),

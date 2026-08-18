@@ -110,7 +110,7 @@ impl FeatureFlagList {
                 wrapper.flags.len(),
                 team_id
             );
-            return Err(FlagError::DataParsingErrorWithContext(format!(
+            return Err(FlagError::flag_data_parsing(format!(
                 "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
                 wrapper.flags.len()
             )));
@@ -181,7 +181,7 @@ impl FeatureFlagList {
                     team_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {e}"))
+                FlagError::internal(anyhow::Error::new(e).context("Database query error"))
             })?;
 
         let flags: Vec<FeatureFlag> = flags_row
@@ -1112,7 +1112,10 @@ mod tests {
         let result = FeatureFlagList::from_wrapper(Some(wrapper), 1);
         assert!(matches!(
             result,
-            Err(FlagError::DataParsingErrorWithContext(_))
+            Err(FlagError::InternalError {
+                code: "flag_data_parsing_error",
+                ..
+            })
         ));
     }
 
