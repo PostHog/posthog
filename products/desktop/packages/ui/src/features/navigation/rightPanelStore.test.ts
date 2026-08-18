@@ -59,6 +59,7 @@ describe("resolveArtifactMark", () => {
     count: number;
     seen: number | undefined;
     isShowingArtifacts: boolean;
+    ready: boolean;
     markSeen: boolean;
     hasNew: boolean;
   }>([
@@ -67,6 +68,7 @@ describe("resolveArtifactMark", () => {
       count: 3,
       seen: undefined,
       isShowingArtifacts: false,
+      ready: true,
       markSeen: true,
       hasNew: false,
     },
@@ -75,6 +77,7 @@ describe("resolveArtifactMark", () => {
       count: 4,
       seen: 3,
       isShowingArtifacts: false,
+      ready: true,
       markSeen: false,
       hasNew: true,
     },
@@ -83,6 +86,7 @@ describe("resolveArtifactMark", () => {
       count: 4,
       seen: 3,
       isShowingArtifacts: true,
+      ready: true,
       markSeen: true,
       hasNew: false,
     },
@@ -91,13 +95,30 @@ describe("resolveArtifactMark", () => {
       count: 2,
       seen: 3,
       isShowingArtifacts: false,
+      ready: true,
       markSeen: false,
       hasNew: false,
     },
-  ])("$name", ({ count, seen, isShowingArtifacts, markSeen, hasNew }) => {
-    expect(resolveArtifactMark({ count, seen, isShowingArtifacts })).toEqual({
-      markSeen,
-      hasNew,
-    });
-  });
+    {
+      // The count reads zero before a manifest source loads; taking it as seen
+      // would make the real files look new once they arrive.
+      name: "a count still loading is not taken as seen",
+      count: 0,
+      seen: undefined,
+      isShowingArtifacts: false,
+      ready: false,
+      markSeen: false,
+      hasNew: false,
+    },
+  ])(
+    "$name",
+    ({ count, seen, isShowingArtifacts, ready, markSeen, hasNew }) => {
+      expect(
+        resolveArtifactMark({ count, seen, isShowingArtifacts, ready }),
+      ).toEqual({
+        markSeen,
+        hasNew,
+      });
+    },
+  );
 });

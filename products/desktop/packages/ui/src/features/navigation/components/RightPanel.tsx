@@ -217,6 +217,9 @@ function useNewArtifacts(
     count,
     seen,
     isShowingArtifacts: active === "artifacts",
+    // The count reads zero until the task resolves and a manifest source lands.
+    // Not ready yet means don't take that zero as the seen baseline.
+    ready: task !== null,
   });
 
   useEffect(() => {
