@@ -231,10 +231,8 @@ def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-        DataWarehouseTable,
-        WarehouseColumnStatistics,
-    )
+    from products.warehouse_sources.backend.facade.api import list_column_statistics  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     try:
         with team_scope(team_id):
@@ -261,16 +259,12 @@ def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
                 materialized_view_ids[view_name] = str(view_id)
             # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
             # profiled appear; everything else stays absent (NULL in the catalog).
-            for (
-                table_id,
-                column_name,
-                null_fraction,
-                min_value,
-                max_value,
-            ) in WarehouseColumnStatistics.objects.values_list(
-                "table_id", "column_name", "null_fraction", "min_value", "max_value"
-            ):
-                column_stats[(str(table_id), column_name)] = (null_fraction, min_value, max_value)
+            for stats in list_column_statistics(team_id):
+                column_stats[(str(stats.table_id), stats.column_name)] = (
+                    stats.null_fraction,
+                    stats.min_value,
+                    stats.max_value,
+                )
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
