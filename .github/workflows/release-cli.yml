@@ -317,6 +317,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -363,7 +364,7 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - release
             - plan-release
@@ -407,6 +408,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -545,6 +547,8 @@ jobs:
               run: |
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
                   echo "dist ran successfully"
+
+                  node .github/scripts/patch-cli-npm-installer.mjs target/distrib dist-manifest.json
 
                   # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"

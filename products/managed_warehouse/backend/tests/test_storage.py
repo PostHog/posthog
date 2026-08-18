@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.managed_warehouse.backend.storage import (
     _DELTA_LOG_VERSION_RE,
+    AwsCredentials,
     DuckLakeStorageConfig,
     _collect_delta_log_keys,
     normalize_endpoint,
@@ -166,7 +167,9 @@ class TestDuckLakeStorageConfigProduction:
         monkeypatch.setattr("products.managed_warehouse.backend.storage._get_django_settings", lambda: mock_settings)
         monkeypatch.setattr(
             "products.managed_warehouse.backend.storage._get_boto3_credentials",
-            lambda: ("ASIAACCESSKEY", "secretkey123", "sessiontoken456"),
+            lambda: AwsCredentials(
+                access_key="ASIAACCESSKEY", secret_key="secretkey123", session_token="sessiontoken456"
+            ),
         )
 
         config = DuckLakeStorageConfig.from_runtime()
@@ -194,7 +197,7 @@ class TestDuckLakeStorageConfigProduction:
         monkeypatch.setattr("products.managed_warehouse.backend.storage._get_django_settings", lambda: mock_settings)
         monkeypatch.setattr(
             "products.managed_warehouse.backend.storage._get_boto3_credentials",
-            lambda: ("AKIAACCESSKEY", "secretkey789", None),
+            lambda: AwsCredentials(access_key="AKIAACCESSKEY", secret_key="secretkey789"),
         )
 
         config = DuckLakeStorageConfig.from_runtime()
@@ -450,16 +453,22 @@ class TestDeltaLogVersionRegex:
 
 
 class TestGetDeltaSnapshotFiles:
-    def test_returns_version_and_data_keys(self, monkeypatch):
+    def test_returns_version_data_keys_and_workload(self, monkeypatch):
         import sys
         import types
 
+        mock_add_actions = MagicMock()
+        mock_add_actions.schema.names = ["size_bytes", "num_records"]
+        mock_add_actions.column.side_effect = lambda name: MagicMock(
+            to_pylist=MagicMock(return_value=[100, 200] if name == "size_bytes" else [10, 20])
+        )
         mock_dt = MagicMock()
         mock_dt.version.return_value = 3
         mock_dt.file_uris.return_value = [
             "s3://customer-bucket/data/table/part-00000.parquet",
             "s3://customer-bucket/data/table/part-00001.parquet",
         ]
+        mock_dt.get_add_actions.return_value = mock_add_actions
 
         mock_delta_table_cls = MagicMock(return_value=mock_dt)
         mock_deltalake = types.ModuleType("deltalake")
@@ -473,15 +482,16 @@ class TestGetDeltaSnapshotFiles:
             },
         )
 
-        from products.managed_warehouse.backend.storage import _get_delta_snapshot_files
+        from products.managed_warehouse.backend.storage import DeltaTableSnapshotWorkload, _get_delta_snapshot
 
-        version, keys = _get_delta_snapshot_files(
+        version, keys, workload = _get_delta_snapshot(
             "s3://customer-bucket/data/table",
             team_id=123,
             organization_id="org-123",
         )
         assert version == 3
         assert keys == ["data/table/part-00000.parquet", "data/table/part-00001.parquet"]
+        assert workload == DeltaTableSnapshotWorkload(file_count=2, row_count=30, byte_count=300)
 
         mock_delta_table_cls.assert_called_once_with(
             table_uri="s3://customer-bucket/data/table",
@@ -492,15 +502,17 @@ class TestGetDeltaSnapshotFiles:
 class TestStageDeltaTable:
     @patch("boto3.client")
     def test_copies_only_pinned_version_files(self, mock_boto3_client, monkeypatch):
-        mock_get_snapshot_files = MagicMock(
+        from products.managed_warehouse.backend.storage import DeltaTableSnapshotWorkload
+
+        workload = DeltaTableSnapshotWorkload(file_count=2, row_count=30, byte_count=300)
+        mock_get_snapshot = MagicMock(
             return_value=(
                 2,
                 ["data/table/part-00000.parquet", "data/table/part-00001.parquet"],
+                workload,
             )
         )
-        monkeypatch.setattr(
-            "products.managed_warehouse.backend.storage._get_delta_snapshot_files", mock_get_snapshot_files
-        )
+        monkeypatch.setattr("products.managed_warehouse.backend.storage._get_delta_snapshot", mock_get_snapshot)
 
         mock_s3 = MagicMock()
         mock_s3.get_paginator.return_value = _mock_paginator(
@@ -516,16 +528,19 @@ class TestStageDeltaTable:
         )
         mock_boto3_client.return_value = mock_s3
 
-        from products.managed_warehouse.backend.storage import stage_delta_table
+        from products.managed_warehouse.backend.storage import StagedDeltaTable, stage_delta_table_with_workload
 
-        result = stage_delta_table(
+        result = stage_delta_table_with_workload(
             source_uri="s3://customer-bucket/data/table",
             catalog_bucket="catalog-bucket",
             organization_id="org-123",
         )
 
-        assert result == "s3://catalog-bucket/__posthog_staging/data/table"
-        mock_get_snapshot_files.assert_called_once_with(
+        assert result == StagedDeltaTable(
+            staging_uri="s3://catalog-bucket/__posthog_staging/data/table",
+            workload=workload,
+        )
+        mock_get_snapshot.assert_called_once_with(
             "s3://customer-bucket/data/table",
             storage_config=None,
             team_id=None,

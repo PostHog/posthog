@@ -3,7 +3,6 @@ import {
   ChatsCircleIcon,
   ClockCounterClockwiseIcon,
   type IconProps,
-  PackageIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -24,7 +23,6 @@ export type ChannelPageKey =
   | "home"
   | "context"
   | "loops"
-  | "artifacts"
   | "canvases"
   | "history";
 
@@ -35,7 +33,6 @@ export const CHANNEL_PAGES: Record<
   home: { label: "Feed", Icon: ChatsCircleIcon },
   context: { label: "Context", Icon: BookOpenTextIcon },
   loops: { label: "Loops", Icon: LoopIcon },
-  artifacts: { label: "Artifacts", Icon: PackageIcon },
   canvases: { label: "Canvases", Icon: ShapesIcon },
   history: { label: "Recents", Icon: ClockCounterClockwiseIcon },
 };

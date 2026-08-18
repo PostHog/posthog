@@ -1,5 +1,5 @@
 import { Lightning, Stack } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -25,7 +25,7 @@ export function steerQueueTooltip(
     return `Queue: holds messages until the current turn ends. ${shortcut} to switch to Steer.`;
   }
   return supportsNativeSteer
-    ? `Steer: injects your message mid-turn at the next tool boundary. ${shortcut} to switch to Queue.`
+    ? `Steer: applies your message at the next safe boundary. The current command may keep running until then. ${shortcut} to switch to Queue.`
     : `Steer: interrupts the current turn and resends with your message. ${shortcut} to switch to Queue.`;
 }
 
@@ -63,7 +63,20 @@ export function SteerQueueToggle({ taskId }: SteerQueueToggleProps) {
             <Stack size={12} />
           )}
         </span>
-        <span className={colorClass}>{label}</span>
+        {/* Both labels stack in one grid cell, so the button is always as wide
+            as the longer of them. Sized by the label alone, toggling modes
+            would shove the rest of the toolbar sideways. */}
+        <span className="grid">
+          <span aria-hidden className="invisible col-start-1 row-start-1">
+            Steer
+          </span>
+          <span aria-hidden className="invisible col-start-1 row-start-1">
+            Queue
+          </span>
+          <span className={cn("col-start-1 row-start-1", colorClass)}>
+            {label}
+          </span>
+        </span>
       </Button>
     </Tooltip>
   );

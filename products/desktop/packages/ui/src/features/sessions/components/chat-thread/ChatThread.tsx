@@ -4,9 +4,11 @@ import {
   Copy,
   FileText,
   Scroll,
+  ThumbsDown,
+  ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
-import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -37,8 +39,12 @@ import {
   useChatMessageScrollerScrollable,
   useChatMessageScrollerVisibility,
 } from "@posthog/quill";
-import type { AcpMessage, AgentConversationEvent } from "@posthog/shared";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import type {
+  AcpMessage,
+  AgentConversationEvent,
+  AgentTurnFeedbackSentiment,
+} from "@posthog/shared";
+import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
@@ -48,7 +54,6 @@ import type {
   BuildResult,
   ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   ChatMarkdown,
   ChatStreamingMarkdown,
@@ -69,8 +74,14 @@ import {
   completedTurnTimestamp,
   countFlatRows,
   type FlatThreadRow,
+  FOLLOWING_END,
   flattenTurnRows,
+  keyTurnRows,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
+  sampleThreadScroll,
+  type ThreadFollowState,
   type ThreadItem,
   type ThreadScrollResume,
   type TurnRow,
@@ -78,7 +89,10 @@ import {
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
-import { copyFromContextMenu } from "@posthog/ui/features/sessions/components/copyContextTarget";
+import {
+  copyFromContextMenu,
+  getSelectionWithin,
+} from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitActionMessage";
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
@@ -96,8 +110,8 @@ import { SessionUpdateView } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
-  CHAT_CONTENT_GUTTER,
   CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
@@ -109,6 +123,7 @@ import {
 import {
   useSessionViewActions,
   useShowRawLogs,
+  useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
@@ -120,6 +135,7 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { track } from "@posthog/ui/shell/analytics";
 import {
   DIFF_WORKER_FACTORY,
   type DiffWorkerFactory,
@@ -144,6 +160,12 @@ function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   return (
     item.type === "session_update" && item.update.sessionUpdate === "tool_call"
   );
+}
+
+function isSessionUpdateItem(
+  item: ConversationItem,
+): item is SessionUpdateItem {
+  return item.type === "session_update";
 }
 
 /**
@@ -178,21 +200,66 @@ function isInvisibleItem(item: ConversationItem): boolean {
 }
 
 /**
- * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
- * broken by any *visible* non-tool item (prose, thought, status) so groups follow reading order;
- * invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run. A lone
- * tool call passes through untouched — it stays a single marker, matching the legacy thread.
+ * A thought joins a tool run instead of breaking it, because between two calls it narrates the
+ * stretch of work the run already stands for. The group's body still lists it in order. Prose to
+ * the user (`agent_message_chunk`) does break a run, since that is addressed to the reader rather
+ * than describing the work.
  */
+function isThoughtItem(item: ConversationItem): boolean {
+  return (
+    item.type === "session_update" &&
+    item.update.sessionUpdate === "agent_thought_chunk"
+  );
+}
+
+/**
+ * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
+ * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
+ * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
+ * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
+ * thoughts ride along a run, they never make one.
+ */
+/**
+ * Item arrays for settled runs, keyed on the run's (stable) first item.
+ *
+ * Grouping re-runs over the whole thread on every streamed chunk, so a completed run produces a
+ * fresh array with identical contents each time. New identity defeats `ToolGroup`'s `memo`, which
+ * makes every settled group above the live one re-render per chunk. Handing back the previous
+ * array lets them skip the render.
+ *
+ * Only safe once the run's turn is complete, because a live tool's status is mutated in place on
+ * its resolved `ToolCall`: reusing an array mid-turn would leave a spinner on a tool that has
+ * since finished. `len` covers a run that gains items before it settles.
+ */
+const settledRunItems = new WeakMap<
+  ConversationItem,
+  { len: number; items: SessionUpdateItem[] }
+>();
+
+function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
+  if (!run.at(-1)?.turnContext.turnComplete) return run;
+  const key = run[0];
+  const cached = settledRunItems.get(key);
+  if (cached && cached.len === run.length) return cached.items;
+  settledRunItems.set(key, { len: run.length, items: run });
+  return run;
+}
+
 function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   const out: ThreadItem[] = [];
-  // The buffer holds the active run: tool items plus any invisible items interleaved with them.
+  // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
+  // items interleaved with either.
   let buffer: ConversationItem[] = [];
   let toolCount = 0;
 
   const flush = () => {
     if (toolCount >= 2) {
-      const tools = buffer.filter(isToolCallItem);
-      out.push({ type: "tool_group", id: tools[0].id, tools });
+      out.push({
+        type: "tool_group",
+        // Keyed on the first tool call so the id survives thoughts appending around it.
+        id: buffer.filter(isToolCallItem)[0].id,
+        items: stableRunItems(buffer.filter(isSessionUpdateItem)),
+      });
     } else {
       out.push(...buffer);
     }
@@ -204,8 +271,8 @@ function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
     if (isToolCallItem(item)) {
       buffer.push(item);
       toolCount++;
-    } else if (isInvisibleItem(item)) {
-      // Don't break the run; carry it along (it renders nothing wherever it lands).
+    } else if (isInvisibleItem(item) || isThoughtItem(item)) {
+      // Don't break the run; carry it along in order.
       buffer.push(item);
     } else {
       flush();
@@ -262,56 +329,143 @@ function formatTimestamp(ts: number): string {
 }
 
 /**
- * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the whole turn. Rendered right-aligned under agent-side content — the end-aligned user bubble
- * keeps its own footer — inside a `group` container, so it fades in only while that turn is
- * hovered. Once per turn rather than per row, which was too noisy.
+ * Hover-revealed footer under a completed agent turn: the turn's timestamp, a button copying the
+ * agent response, and thumbs to rate it. Rendered right-aligned under agent-side content — the
+ * end-aligned user bubble keeps its own footer — inside a `group` container, so it fades in only
+ * while that turn is hovered. Once per turn rather than per row, which was too noisy.
+ *
+ * A rated turn keeps its footer on screen, so the reader can see which thumb they picked without
+ * hovering to find out.
  */
 function TurnFooter({
+  turnId,
   timestamp,
   copyText,
 }: {
+  turnId: string;
   timestamp?: number;
   copyText?: string;
 }) {
+  const sentiment = useTurnFeedback(turnId);
   if (timestamp == null) return null;
   return (
-    <ChatMessageFooter className="mt-2 items-center justify-end gap-1 pl-0 opacity-0 transition-opacity group-hover:opacity-100">
+    <ChatMessageFooter
+      className={cn(
+        "mt-2 items-center justify-end gap-1 pl-0 transition-opacity",
+        sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+      )}
+    >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
+      <TurnFeedback turnId={turnId} sentiment={sentiment} />
     </ChatMessageFooter>
   );
 }
 
 /**
- * Shared copy affordance for the message and turn footers. Stays muted whether idle or just-copied —
- * the icon swap is the confirmation, so the row never lights up in a colour the thread doesn't use
- * elsewhere.
+ * Thumbs on a completed agent turn, next to the copy button rather than behind the right-click
+ * menu — rating a reply is a thing you do to the message, not to the text you happen to have
+ * highlighted.
+ *
+ * The rating submits on the first click and is analytics-only: it never changes the session, so
+ * there is nothing to confirm. Re-clicking the lit thumb is a no-op rather than a second identical
+ * event; switching thumbs records the new sentiment.
  */
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const { copied, copy } = useCopy();
-  const [hovered, setHovered] = useState(false);
+function TurnFeedback({
+  turnId,
+  sentiment,
+}: {
+  turnId: string;
+  sentiment: AgentTurnFeedbackSentiment | null;
+}) {
+  const taskId = useSessionTaskId();
+  const { setTurnFeedback } = useSessionViewActions();
+
+  const rate = (next: AgentTurnFeedbackSentiment) => {
+    if (sentiment === next) return;
+    setTurnFeedback(turnId, next);
+    track(ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK, {
+      task_id: taskId,
+      turn_id: turnId,
+      sentiment: next,
+    });
+  };
+
   return (
-    // Held open for the life of the `copied` window so the confirmation lands even when the click
-    // moves the pointer off the button; hover drives it the rest of the time.
-    <Tooltip open={copied || hovered} onOpenChange={setHovered}>
+    <>
+      <FooterIconButton label="Good response" onClick={() => rate("positive")}>
+        <ThumbsUp
+          size={12}
+          weight={sentiment === "positive" ? "fill" : undefined}
+        />
+      </FooterIconButton>
+      <FooterIconButton label="Bad response" onClick={() => rate("negative")}>
+        <ThumbsDown
+          size={12}
+          weight={sentiment === "negative" ? "fill" : undefined}
+        />
+      </FooterIconButton>
+    </>
+  );
+}
+
+/**
+ * Shared icon affordance for the message and turn footers. Stays muted whether idle or active — the
+ * icon carries the state, so the row never lights up in a colour the thread doesn't use elsewhere.
+ */
+function FooterIconButton({
+  label,
+  tooltip,
+  open,
+  onOpenChange,
+  onClick,
+  children,
+}: {
+  label: string;
+  /** Defaults to `label`; pass it separately when the tooltip has to say more than the button is. */
+  tooltip?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip open={open} onOpenChange={onOpenChange}>
       <TooltipTrigger
         render={
           <Button
             variant="default"
             size="icon-xs"
             aria-label={label}
-            onClick={() => copy(value)}
+            onClick={onClick}
             className="text-muted-foreground hover:text-foreground"
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {children}
           </Button>
         }
       />
-      <TooltipContent>{copied ? "Copied!" : label}</TooltipContent>
+      <TooltipContent>{tooltip ?? label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const { copied, copy } = useCopy();
+  const [hovered, setHovered] = useState(false);
+  return (
+    // Held open for the life of the `copied` window so the confirmation lands even when the click
+    // moves the pointer off the button; hover drives it the rest of the time.
+    <FooterIconButton
+      label={label}
+      tooltip={copied ? "Copied!" : label}
+      open={copied || hovered}
+      onOpenChange={setHovered}
+      onClick={() => copy(value)}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </FooterIconButton>
   );
 }
 
@@ -408,7 +562,7 @@ function UserBubble({
                   icon={<FileText size={12} />}
                   label={`${
                     channelContext.mention.name
-                      ? `#${channelContext.mention.name} `
+                      ? `${channelDisplayLabel(channelContext.mention.name)} `
                       : ""
                   }CONTEXT.md`}
                   onClick={
@@ -506,6 +660,10 @@ function UserBubble({
  * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
  * in the session where the toggle went missing.
  *
+ * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
+ * outside the app. The whole message is the fallback for a right-click with nothing selected, and
+ * stays reachable without the menu through the footer's copy button.
+ *
  * The write goes through {@link copyFromContextMenu}: a synchronous write from a closing menu
  * rejects while focus is still being restored, and both outcomes surface as toasts — a silent
  * failure would leave the clipboard's previous contents where the user believes the message is.
@@ -519,20 +677,27 @@ function MessageContextMenu({
 }) {
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
+  const [selection, setSelection] = useState<string | null>(null);
   return (
     <ContextMenu>
-      <ContextMenuTrigger className="select-text" render={children} />
+      <ContextMenuTrigger
+        className="select-text"
+        onContextMenu={(event) =>
+          setSelection(getSelectionWithin(event.currentTarget))
+        }
+        render={children}
+      />
       <ContextMenuContent>
         <ContextMenuItem
           onClick={() =>
-            copyFromContextMenu(value, {
+            copyFromContextMenu(selection ?? value, {
               onSuccess: () => toast.success("Copied"),
               onError: () => toast.error("Couldn't copy"),
             })
           }
         >
           <Copy size={14} />
-          Copy message
+          {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
@@ -569,9 +734,9 @@ const AgentProse = memo(function AgentProse({
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
               {isStreaming ? (
-                <ChatStreamingMarkdown content={smoothed} />
+                <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
-                <ChatMarkdown content={text} />
+                <ChatMarkdown content={text} renderObjectTags />
               )}
             </ChatBubbleContent>
           </ChatBubble>
@@ -596,12 +761,12 @@ function ThreadItemBody({
   keyboardFocused?: boolean;
 }) {
   if (item.type === "tool_group") {
-    const context = item.tools[0]?.turnContext;
+    const context = item.items[0]?.turnContext;
     const turnStreaming =
       !!context && !context.turnComplete && !context.turnCancelled;
     return (
       <ToolGroup
-        tools={item.tools}
+        items={item.items}
         mayStillGrow={isTrailing && turnStreaming}
       />
     );
@@ -663,12 +828,9 @@ const ThreadRow = memo(function ThreadRow({
           ))}
         </div>
         <TurnFooter
+          turnId={item.id}
           timestamp={completedTurnTimestamp(item)}
-          copyText={
-            buildTurnCopyText(
-              item.prompt ? [item.prompt, ...item.items] : item.items,
-            ) ?? undefined
-          }
+          copyText={buildTurnCopyText(item.items) ?? undefined}
         />
       </ChatMessageScrollerItem>
     );
@@ -690,7 +852,7 @@ const ThreadRow = memo(function ThreadRow({
 });
 
 /**
- * Keeps the view pinned to the bottom from prompt submit until the user scrolls away.
+ * Keeps the view pinned to the bottom until the user scrolls away, re-arming on each prompt submit.
  *
  * The engine's own follow mode isn't enough on its own:
  * - It only re-engages within `scrollEdgeThreshold` of the exact bottom, so a submit from anywhere
@@ -701,10 +863,20 @@ const ThreadRow = memo(function ThreadRow({
  *   autoscrolling" and silently demote itself to `free-scrolling` mid-reply. While armed, any
  *   commit that leaves content below the fold re-issues `scrollToEnd` to recapture follow.
  *
- * User scroll intent (wheel, touch, pointer, keys — same signals the engine listens to) disarms
- * the pin; the next submit or the scroll-to-bottom button re-engages following.
+ * It arms on mount so a thread the reader is only watching — a cloud task streaming into a command
+ * center panel, with no prompt sent from here — still follows. Scrolling upward disarms it, which
+ * is the half the engine gets wrong: the engine re-derives follow from scroll position and so
+ * overrules the gesture. Scrolling back down to the end re-arms it, a submit or the
+ * scroll-to-bottom button re-arms it from anywhere.
  */
-function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
+function ThreadAutoFollow({
+  items,
+  followRef,
+}: {
+  items: ConversationItem[];
+  /** Owned by the body so the scroll-to-bottom button can re-arm the pin too. */
+  followRef: RefObject<ThreadFollowState>;
+}) {
   const { scrollToEnd } = useChatMessageScroller();
   const { end } = useChatMessageScrollerScrollable();
   const lastItem = items.at(-1);
@@ -714,7 +886,6 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     [items],
   );
   const prevCountRef = useRef(userMessageCount);
-  const armedRef = useRef(false);
   const probeRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
@@ -722,35 +893,55 @@ function ThreadAutoFollow({ items }: { items: ConversationItem[] }) {
     prevCountRef.current = userMessageCount;
     if (previous === 0 || userMessageCount <= previous) return;
     if (lastItem?.type !== "user_message") return;
-    armedRef.current = true;
+    followRef.current = FOLLOWING_END;
     scrollToEnd({ behavior: "auto" });
-  }, [userMessageCount, lastItem, scrollToEnd]);
+  }, [userMessageCount, lastItem, scrollToEnd, followRef]);
 
   useEffect(() => {
     const viewport = probeRef.current
       ?.closest('[data-slot="chat-message-scroller"]')
       ?.querySelector('[data-slot="chat-message-scroller-viewport"]');
-    if (!viewport) return;
-    const disarm = () => {
-      armedRef.current = false;
+    if (!(viewport instanceof HTMLElement)) return;
+
+    // An upward gesture too small to register as a direction change below still means the reader
+    // is reading, not following.
+    const leaveEnd = () => {
+      if (followRef.current.leftEnd || viewport.scrollTop <= 0) return;
+      followRef.current = { following: false, leftEnd: true };
     };
-    const events = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
-    for (const event of events) {
-      viewport.addEventListener(event, disarm, { passive: true });
-    }
+    const onWheel = (event: Event) => {
+      if ((event as WheelEvent).deltaY < 0) leaveEnd();
+    };
+    const onKeyDown = (event: Event) => {
+      if (SCROLL_UP_KEYS.has((event as KeyboardEvent).key)) leaveEnd();
+    };
+    // Direction, not position: the reader who scrolls back to the bottom while the agent keeps
+    // appending never lands on the exact end, so following has to resume from the gesture.
+    let lastScrollTop = viewport.scrollTop;
+    const onScroll = () => {
+      const sample = sampleThreadScroll(viewport, lastScrollTop);
+      lastScrollTop = viewport.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: true });
+    viewport.addEventListener("touchmove", leaveEnd, { passive: true });
+    viewport.addEventListener("keydown", onKeyDown, { passive: true });
+    viewport.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      for (const event of events) {
-        viewport.removeEventListener(event, disarm);
-      }
+      viewport.removeEventListener("wheel", onWheel);
+      viewport.removeEventListener("touchmove", leaveEnd);
+      viewport.removeEventListener("keydown", onKeyDown);
+      viewport.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [followRef]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-check on every streamed change — `end` alone doesn't re-notify while it stays true across commits.
   useEffect(() => {
-    if (armedRef.current && end) {
+    if (followRef.current.following && end) {
       scrollToEnd({ behavior: "auto" });
     }
-  }, [items, end, scrollToEnd]);
+  }, [items, end, scrollToEnd, followRef]);
 
   return <span ref={probeRef} className="hidden" aria-hidden="true" />;
 }
@@ -903,41 +1094,39 @@ function ThreadScrollBody({
   keyboardFocusedMessageId,
   onUserInteract,
   resumeStateRef,
+  autoFollowRef,
 }: {
   items: ConversationItem[];
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
-  /** Status row (duration / context usage) pinned as the last item in the thread. */
-  footer?: ReactNode;
+  /** Status row (duration / diff stats) pinned as the last item in the thread. */
+  footer?: ReactElement;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
   onUserInteract?: () => void;
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
+  autoFollowRef: RefObject<ThreadFollowState>;
 }) {
-  const keyedRows = useMemo(() => {
-    let userTurn = 0;
-    return rows.map((item) => ({
-      item,
-      key: item.type === "user_message" ? `user-turn-${userTurn++}` : item.id,
-    }));
-  }, [rows]);
+  const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
-  // mirroring the legacy ConversationView container.
+  // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
+  // width the query basis for everything inside it — the panel is resizable and splittable, so the
+  // viewport says nothing useful about how much room a row actually has.
   return (
     <ChatMessageScroller
-      className="group/thread"
+      className="@container/thread group/thread"
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
-      <ThreadAutoFollow items={items} />
+      <ThreadAutoFollow items={items} followRef={autoFollowRef} />
       <ThreadScrollStateRecorder stateRef={resumeStateRef} />
       <ChatMessageScrollerViewport>
         <ChatMessageScrollerContent
           className="gap-4 py-4 pb-8"
           density="default"
-          style={{ paddingInline: CHAT_CONTENT_GUTTER }}
+          style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}
         >
           {keyedRows.map(({ item, key }) => (
             <ThreadRow
@@ -957,7 +1146,12 @@ function ThreadScrollBody({
           )}
         </ChatMessageScrollerContent>
       </ChatMessageScrollerViewport>
-      <ChatMessageScrollerButton />
+      {/* Re-arms the pin as well as scrolling: the button is the reader saying "follow again". */}
+      <ChatMessageScrollerButton
+        onClick={() => {
+          autoFollowRef.current = FOLLOWING_END;
+        }}
+      />
     </ChatMessageScroller>
   );
 }
@@ -1004,8 +1198,9 @@ const FlatRowView = memo(
           isTrailing={row.isTrailingInTurn}
           keyboardFocused={keyboardFocused}
         />
-        {row.turnTimestamp != null && (
+        {row.turnId != null && row.turnTimestamp != null && (
           <TurnFooter
+            turnId={row.turnId}
             timestamp={row.turnTimestamp}
             copyText={row.turnCopyText}
           />
@@ -1035,14 +1230,22 @@ const FlatRowView = memo(
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
 interface SharedChatThreadProps {
+  /**
+   * Fold each run of tool calls into one collapsible row. Defaults to true.
+   *
+   * Embedded surfaces (the live-agent chat preview) pass false: they are short, they are the whole
+   * point of the pane they sit in, and folding the agent's work behind a chip there hides the only
+   * thing there is to look at.
+   */
+  groupToolCalls?: boolean;
   isPromptPending: boolean | null;
   promptStartedAt?: number | null;
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  usage?: ContextUsage | null;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1055,12 +1258,35 @@ export interface ChatThreadProps extends SharedChatThreadProps {
 function ThreadScrollRequestBridge({
   taskId,
   jumpToMessage,
+  onFocusMessage,
+  autoFollowRef,
 }: {
   taskId?: string;
-  jumpToMessage?: (id: string) => void;
+  jumpToMessage?: (id: string) => boolean;
+  /** Marks the arrived-at message, so a jump from another pane lands as visibly as the
+   *  keyboard's own. Without it the thread moves and nothing says where to. */
+  onFocusMessage?: (id: string) => void;
+  autoFollowRef?: RefObject<ThreadFollowState>;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
-  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage);
+  const jump = jumpToMessage ?? scrollToMessage;
+  const handleRequest = useCallback(
+    (id: string) => {
+      // A jump is the reader choosing a spot, so following lets go before the scroll rather
+      // than in reaction to it: the scroll event that would release it arrives a frame late,
+      // by which point following has already pulled the thread back down.
+      if (autoFollowRef)
+        autoFollowRef.current = { following: false, leftEnd: true };
+      // Both jumps answer false while the target row is absent (from the element registry,
+      // or from the row index), and the caller retries, so only claim the focus once the
+      // thread actually moved.
+      const landed = jump(id);
+      if (landed) onFocusMessage?.(id);
+      return landed;
+    },
+    [jump, onFocusMessage, autoFollowRef],
+  );
+  useThreadScrollRequest(taskId, handleRequest);
   return null;
 }
 
@@ -1109,13 +1335,14 @@ interface ChatThreadRendererProps extends SharedChatThreadProps {
 function ChatThreadRenderer({
   conversationItems,
   footerEvents,
+  groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
   repoPath,
   task,
   taskId,
-  usage,
   footerState,
+  hasPendingPermission,
   promptRecallRef,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
@@ -1137,8 +1364,8 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolRuns(items)),
-    [items],
+    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
+    [items, groupToolCalls],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and
@@ -1234,15 +1461,14 @@ function ChatThreadRenderer({
 
   const footer = (
     <>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <ChatThreadFooter
         events={footerEvents}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         task={task}
         taskId={taskId}
-        usage={usage}
         footerState={footerState}
+        hasPendingPermission={hasPendingPermission}
       />
     </>
   );
@@ -1258,9 +1484,13 @@ function ChatThreadRenderer({
     [renderItem, keyboardFocusedMessageId],
   );
 
+  // Lives here rather than in the plain body so a jump from another pane can drop the pin
+  // before it scrolls.
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+
   // The nav layer sits beside the scroll body so it can be handed the windowed body's jump
   // implementation — the engine's `scrollToMessage` only reaches mounted rows.
-  const renderNav = (jumpToMessage?: (id: string) => void) => (
+  const renderNav = (jumpToMessage?: (id: string) => boolean) => (
     <>
       <ThreadKeyboardNav
         items={items}
@@ -1274,6 +1504,9 @@ function ChatThreadRenderer({
       <ThreadScrollRequestBridge
         taskId={taskId}
         jumpToMessage={jumpToMessage}
+        onFocusMessage={setKeyboardFocusedMessageId}
+        // Only the plain body needs it: the windowed body's own jump drops its pin.
+        autoFollowRef={jumpToMessage ? undefined : autoFollowRef}
       />
     </>
   );
@@ -1290,11 +1523,12 @@ function ChatThreadRenderer({
             // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
             autoScroll={!virtualized}
             defaultScrollPosition="end"
-            // Default is 8px: with the thread's bottom padding you're rarely that close, so
-            // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
-            // never re-engage. Within this band the engine recaptures follow on the next content
-            // change; deliberate upward flicks travel past it and stay free-scrolling.
-            scrollEdgeThreshold={100}
+            // `scrollEdgeThreshold` is left at the engine's tight default on purpose. The engine
+            // re-enters "following-bottom" on *every* scroll event taken within the band, which
+            // overrides the free-scrolling its own wheel handler just set — so a wide band traps a
+            // reader scrolling up out of the bottom, and streamed content yanks them back each
+            // frame. `ThreadAutoFollow` is what keeps the thread pinned across the band's width;
+            // unlike the engine it only lets go on a real gesture.
             scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
           >
             {virtualized ? (
@@ -1310,6 +1544,7 @@ function ChatThreadRenderer({
             ) : (
               <>
                 <ThreadScrollBody
+                  autoFollowRef={autoFollowRef}
                   items={items}
                   rows={rows}
                   renderItem={renderItem}

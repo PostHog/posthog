@@ -1,6 +1,12 @@
-import type { StoredLogEntry } from "@posthog/shared";
+import type {
+  McpServerConnection,
+  McpToolApprovalState,
+  McpToolPolicy,
+  StoredLogEntry,
+} from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
+  ArtifactSource,
   ArtifactType,
   PostHogAPIConfig,
   StoredEntry,
@@ -17,6 +23,7 @@ const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.versio
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
+  source?: ArtifactSource;
   content: string;
   /** Encoding of `content`. With "base64" the backend stores the decoded bytes. */
   content_encoding?: "utf-8" | "base64";
@@ -26,6 +33,7 @@ export interface TaskArtifactUploadPayload {
 export interface TaskArtifactPrepareUploadPayload {
   name: string;
   type: ArtifactType;
+  source?: ArtifactSource;
   size: number;
   content_type?: string;
 }
@@ -34,6 +42,7 @@ export interface PreparedTaskArtifactUpload {
   id: string;
   name: string;
   type: ArtifactType;
+  source?: ArtifactSource;
   size: number;
   content_type?: string;
   storage_path: string;
@@ -51,6 +60,7 @@ export interface TaskArtifactFinalizeUploadPayload {
   id: string;
   name: string;
   type: ArtifactType;
+  source?: ArtifactSource;
   storage_path: string;
   content_type?: string;
 }
@@ -175,6 +185,82 @@ export class PostHogAPIClient {
     return this.apiRequest<Task>(`/api/projects/${teamId}/tasks/${taskId}/`);
   }
 
+  async getMcpRuntimeConfiguration(
+    servers: McpServerConnection[],
+  ): Promise<{ servers: McpServerConnection[]; policies: McpToolPolicy[] }> {
+    const resolved = await Promise.all(
+      servers.map(async (server) => {
+        const installationId = this.mcpInstallationId(server.url);
+        if (!installationId) {
+          return { server, policies: [] };
+        }
+
+        try {
+          const response = await this.apiRequest<{
+            results?: Array<{
+              tool_name: string;
+              approval_state?: McpToolApprovalState;
+              description?: string;
+            }>;
+          }>(
+            `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+          );
+          const policies = (response.results ?? []).flatMap((tool) =>
+            tool.approval_state
+              ? [
+                  {
+                    serverName: server.name,
+                    toolName: tool.tool_name,
+                    installationId,
+                    approvalState: tool.approval_state,
+                    ...(tool.description
+                      ? { description: tool.description }
+                      : {}),
+                  } satisfies McpToolPolicy,
+                ]
+              : [],
+          );
+          return { server, policies };
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    return {
+      servers: resolved.flatMap((entry) => (entry ? [entry.server] : [])),
+      policies: resolved.flatMap((entry) => entry?.policies ?? []),
+    };
+  }
+
+  async approveMcpTool(
+    installationId: string,
+    toolName: string,
+  ): Promise<void> {
+    await this.apiRequest(
+      `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/${encodeURIComponent(toolName)}/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ approval_state: "approved" }),
+      },
+    );
+  }
+
+  private mcpInstallationId(url: string): string | null {
+    try {
+      const serverUrl = new URL(url);
+      if (serverUrl.origin !== new URL(this.baseUrl).origin) {
+        return null;
+      }
+      const match = serverUrl.pathname.match(
+        /\/mcp_server_installations\/([^/]+)\/proxy\/?$/,
+      );
+      return match?.[1] ? decodeURIComponent(match[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getTaskRun(taskId: string, runId: string): Promise<TaskRun> {
     const teamId = this.getTeamId();
     return this.apiRequest<TaskRun>(
@@ -194,6 +280,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     payload: TaskRunUpdate,
+    signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
     return this.apiRequest<TaskRun>(
@@ -201,6 +288,7 @@ export class PostHogAPIClient {
       {
         method: "PATCH",
         body: JSON.stringify(payload),
+        signal,
       },
     );
   }
@@ -409,10 +497,14 @@ export class PostHogAPIClient {
   }
 
   /** Signal reports the given task is associated with (via report task associations). */
-  async getSignalReportIdsForTask(taskId: string): Promise<string[]> {
+  async getSignalReportIdsForTask(
+    taskId: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> {
     const teamId = this.getTeamId();
     const response = await this.apiRequest<{ results?: { id: string }[] }>(
       `/api/projects/${teamId}/signals/reports/?task_id=${encodeURIComponent(taskId)}&limit=100`,
+      { signal },
     );
     return (response.results ?? []).map((r) => r.id);
   }
@@ -425,6 +517,7 @@ export class PostHogAPIClient {
     reportId: string,
     taskId: string,
     body: { artefact_type: string; content: Record<string, unknown> },
+    signal?: AbortSignal,
   ): Promise<void> {
     const teamId = this.getTeamId();
     await this.apiRequest(
@@ -433,6 +526,7 @@ export class PostHogAPIClient {
         method: "POST",
         body: JSON.stringify(body),
         headers: { "X-PostHog-Task-Id": taskId },
+        signal,
       },
     );
   }

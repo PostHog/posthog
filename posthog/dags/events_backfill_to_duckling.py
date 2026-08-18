@@ -40,7 +40,7 @@ import dataclasses
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from django.db import DatabaseError
@@ -92,8 +92,15 @@ from products.managed_warehouse.backend.facade.api import (
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
-from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
+from products.managed_warehouse.backend.facade.client import (
+    ServiceCredential,
+    ServiceCredentialUnavailable,
+    make_duckgres_conninfo,
+    mint_service_credential,
+    refresh_service_credential,
+)
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
@@ -224,10 +231,10 @@ def _resolve_table_names(team_id: int) -> tuple[str, str]:
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     A team without a row (legacy single-team ducklings) keeps the shared table names.
     """
-    events_table, persons_table = resolve_events_persons_tables(team_id)
-    _validate_identifier(events_table)
-    _validate_identifier(persons_table)
-    return events_table, persons_table
+    tables = resolve_events_persons_tables(team_id)
+    _validate_identifier(tables.events_table)
+    _validate_identifier(tables.persons_table)
+    return tables.events_table, tables.persons_table
 
 
 def _resolve_duckling_target(team_id: int) -> DucklingTarget:
@@ -299,6 +306,57 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     )
 
 
+def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredential | None:
+    """Mint one org-scoped per-credential service credential for this session,
+    or None to fall back.
+
+    The CP creates a fresh grant and returns its credential ID and secret.
+    The fixed principal is audit metadata, so concurrent backfills mint
+    independent credentials. Reconnects retain the credential ID and refresh
+    only the grant owned by this session.
+
+    Fallback to org-root (None) is deliberate and transitional: a CP that is
+    unreachable, an org whose team row hasn't been created yet, or dev-mode
+    env-var duckgres all degrade to the legacy root credential so the backfill
+    keeps working while the service-credential path rolls out. Log loudly on
+    every fallback — this is exactly the drift we want visible during the
+    transition (the end state is root-access removed from Django entirely).
+    """
+    try:
+        credential = mint_service_credential(
+            target.organization_id,
+            target.team_id,
+            principal="dagster:events-backfill",
+        )
+        if not credential.credential_secret:
+            raise ServiceCredentialUnavailable(
+                f"service credential for org={target.organization_id} team={target.team_id} "
+                "carries no credential_secret"
+            )
+        logger.info(
+            "duckling_service_credential_minted",
+            team_id=target.team_id,
+            organization_id=target.organization_id,
+            credential_id=credential.credential_id,
+            expires_at=credential.expires_at.isoformat(),
+        )
+        return credential
+    except Exception as exc:
+        # Broad on purpose: the rollout policy is "keep the backfill working,"
+        # and the failure modes a rollout actually hits (new CP deploys,
+        # settings/import hiccups, unexpected error shapes) are precisely the
+        # ones that don't arrive as ServiceCredentialUnavailable. The loud
+        # event name is the alert handle for this transitional period.
+        logger.warning(
+            "duckling_service_credential_unavailable_falling_back_to_root",
+            team_id=target.team_id,
+            organization_id=target.organization_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
 @retry(
     # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
     # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
@@ -307,14 +365,16 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     # or the CP giving up after its block): the delay cap must exceed one full
     # attempt so a second one can actually run, hence 780s (~2 attempts) rather
     # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
-    # This guards only the initial connect; a worker that drops mid-statement is
+    # This guards only the initial connect; a worker that drops mid-session is
     # handled separately by _DuckgresSession's reconnect-and-retry.
     stop=stop_after_delay(780) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
 )
-def _connect_duckgres(target: DucklingTarget) -> psycopg.Connection[Any]:
+def _connect_duckgres(
+    target: DucklingTarget, service_credential: ServiceCredential | None = None
+) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
     Each org runs its own duckgres process on the duckling side; it auto-attaches
@@ -328,10 +388,17 @@ def _connect_duckgres(target: DucklingTarget) -> psycopg.Connection[Any]:
     connect_timeout to become ready (worker pod may need a fresh node), so we
     retry the connect rather than failing the partition on the first timeout.
     `psycopg.errors.ConnectionTimeout` is an `OperationalError` subclass.
+
+    When `service_credential` is provided the connection authenticates as the
+    team's canonical ``posthog_team_<id>_rw`` project_user login (team-scoped)
+    rather than the org-root credential. See
+    ``products/managed_warehouse/backend/service_credentials.py``.
     """
     conninfo = make_duckgres_conninfo(
         target.team_id,
         organization_id=target.organization_id,
+        service_credential=service_credential,
+        application_name="events-backfill",
     )
     conn = psycopg.connect(
         conninfo,
@@ -477,7 +544,10 @@ class _DuckgresSession:
     def __init__(self, context: AssetExecutionContext, target: DucklingTarget) -> None:
         self._context = context
         self._target = target
-        self._conn = _connect_duckgres(target)
+        # Keep one org-scoped credential ID for the session so reconnects
+        # refresh that grant instead of minting a different credential.
+        self._service_credential = _mint_backfill_service_credential(target)
+        self._conn = _connect_duckgres(target, service_credential=self._service_credential)
 
     @property
     def conn(self) -> psycopg.Connection[Any]:
@@ -536,12 +606,30 @@ class _DuckgresSession:
         assert last_exc is not None  # only reached after a recoverable-error break
         raise last_exc
 
+    # Reconnects refresh the held credential when it is (nearly) expired — a
+    # long-running session's TTL may lapse mid-run, and the CP rotates the
+    # hash on the first mint touch after lapse.
+    _CREDENTIAL_REFRESH_WINDOW = timedelta(minutes=2)
+
     def _reconnect(self) -> None:
         try:
             self._conn.close()
         except Exception:
             pass
-        self._conn = _connect_duckgres(self._target)
+        cred = self._service_credential
+        if cred is not None and cred.expires_at - datetime.now(UTC) < self._CREDENTIAL_REFRESH_WINDOW:
+            logger.info(
+                "duckling_service_credential_refreshing_on_reconnect",
+                team_id=self._target.team_id,
+                organization_id=self._target.organization_id,
+                credential_id=cred.credential_id,
+                expires_at=cred.expires_at.isoformat(),
+            )
+            # Refresh by credential ID so reconnects cannot rotate another
+            # run's grant, even when both runs share the same audit principal.
+            cred = refresh_service_credential(self._target.organization_id, cred.credential_id)
+            self._service_credential = cred
+        self._conn = _connect_duckgres(self._target, service_credential=cred)
 
     def close(self) -> None:
         try:
@@ -663,6 +751,13 @@ EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES = 32 * ONE_GB_IN_BYTES
 PARQUET_WRITER_SETTINGS: dict[str, Any] = {
     "output_format_parquet_row_group_size_bytes": DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES,
     "output_format_parquet_row_group_size": 250_000,  # secondary cap; binds for narrow persons rows
+}
+
+# Grace hash uses this limit to grow spill buckets before the query-wide memory limit,
+# leaving headroom for FINAL and the Parquet writers.
+PERSONS_JOIN_SETTINGS: dict[str, Any] = {
+    "join_algorithm": "grace_hash",
+    "max_bytes_in_join": 10 * ONE_GB_IN_BYTES,
 }
 
 # Shared concurrency key across events + persons backfills. Each duckling
@@ -2173,7 +2268,8 @@ def export_persons_to_duckling_s3(
     """
 
     # Bound per-partition writer memory like the events export (see PARQUET_WRITER_SETTINGS).
-    export_settings = settings.copy()
+    export_settings = PERSONS_JOIN_SETTINGS.copy()
+    export_settings.update(settings)
     export_settings.update(PARQUET_WRITER_SETTINGS)
 
     context.log.info(f"Exporting persons for {info} ({row_count} persons → {fanout} file(s)) to {s3_glob}")
@@ -2228,7 +2324,8 @@ def export_persons_full_to_duckling_s3(
     # No date filtering - export all persons for the team
     # Full exports need more memory due to FINAL + JOIN on large datasets
     # Also enable external sorting to spill to disk if memory is still exceeded
-    full_export_settings = settings.copy()
+    full_export_settings = PERSONS_JOIN_SETTINGS.copy()
+    full_export_settings.update(settings)
     full_export_settings.update(PARQUET_WRITER_SETTINGS)  # bound per-partition writer memory
     full_export_settings.update(
         {
@@ -2369,11 +2466,12 @@ def register_persons_files_with_duckling(
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
-    team_id, _ = parse_partition_key_dates(context.partition_key)
+    team_id, dates = parse_partition_key_dates(context.partition_key)
     if config.dry_run:
         _run_duckling_events_backfill(context, config)
         return
 
+    mode = "monthly" if len(dates) > 1 else "daily"
     run_id = context.run.run_id
     record_backfill_started(
         team_id=team_id,
@@ -2381,24 +2479,29 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         partition_key=context.partition_key,
         run_id=run_id,
     )
-    try:
-        _run_duckling_events_backfill(context, config)
-    except Exception as error:
+    with track_duckling_backfill(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        mode=mode,
+    ):
+        try:
+            _run_duckling_events_backfill(context, config)
+        except Exception as error:
+            record_backfill_finished(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                partition_key=context.partition_key,
+                run_id=run_id,
+                error=error,
+            )
+            raise
+
         record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
             partition_key=context.partition_key,
             run_id=run_id,
-            error=error,
         )
-        raise
-
-    record_backfill_finished(
-        team_id=team_id,
-        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
-        partition_key=context.partition_key,
-        run_id=run_id,
-    )
 
 
 def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
@@ -2550,6 +2653,14 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
                 "bucket": target.bucket,
             }
         )
+        if not config.dry_run:
+            record_duckling_backfill_workload(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                mode="monthly" if len(dates) > 1 else "daily",
+                files_registered=total_registered,
+                partitions_exported=days_exported,
+            )
 
         context.log.info(
             f"Completed duckling backfill for team_id={team_id}: "
@@ -2589,24 +2700,30 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         partition_key=partition_key,
         run_id=run_id,
     )
-    try:
-        _run_duckling_persons_backfill(context, config)
-    except Exception as error:
+    mode = "full" if is_full_export_partition(partition_key) else "daily"
+    with track_duckling_backfill(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        mode=mode,
+    ):
+        try:
+            _run_duckling_persons_backfill(context, config)
+        except Exception as error:
+            record_backfill_finished(
+                team_id=team_id,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                partition_key=partition_key,
+                run_id=run_id,
+                error=error,
+            )
+            raise
+
         record_backfill_finished(
             team_id=team_id,
             dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
             partition_key=partition_key,
             run_id=run_id,
-            error=error,
         )
-        raise
-
-    record_backfill_finished(
-        team_id=team_id,
-        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
-        partition_key=partition_key,
-        run_id=run_id,
-    )
 
 
 def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
@@ -2749,6 +2866,14 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                     "bucket": target.bucket,
                 }
             )
+            if not config.dry_run:
+                record_duckling_backfill_workload(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    mode="full",
+                    files_registered=files_registered,
+                    partitions_exported=int(bool(s3_glob)),
+                )
 
             context.log.info(
                 f"Completed duckling persons full backfill for team_id={team_id}: {files_registered} files registered"
@@ -2827,6 +2952,14 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                     "bucket": target.bucket,
                 }
             )
+            if not config.dry_run:
+                record_duckling_backfill_workload(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    mode="daily",
+                    files_registered=total_registered,
+                    partitions_exported=days_exported,
+                )
 
             context.log.info(
                 f"Completed duckling persons daily backfill for team_id={team_id}: "

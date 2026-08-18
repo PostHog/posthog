@@ -147,6 +147,20 @@ export function emptyConfig(): McpConfig {
   return mcpConfigSchema.parse({});
 }
 
+export function mergeRuntimeServers(
+  config: McpConfig,
+  runtimeServers: Record<string, McpServerConfig> | undefined,
+): McpConfig {
+  if (!runtimeServers || Object.keys(runtimeServers).length === 0) {
+    return config;
+  }
+
+  return {
+    ...config,
+    mcpServers: { ...config.mcpServers, ...runtimeServers },
+  };
+}
+
 async function readJsonFile(path: string): Promise<unknown | null> {
   let text: string;
   try {

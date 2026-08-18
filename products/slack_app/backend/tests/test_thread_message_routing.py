@@ -6,12 +6,19 @@ from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 
 
 class TestRouteThreadMessage(TestCase):
@@ -87,6 +94,15 @@ class TestRouteThreadMessage(TestCase):
             task=self.task,
             task_run=self.task_run,
             mentioning_slack_user_id="U_ALICE",
+        )
+
+        # Follow-ups are off until the thread creator turns them on, so every
+        # routing test that expects a dispatch needs Alice opted in. The
+        # mode-specific tests below overwrite this row.
+        self.creator_settings = SlackSettings.objects.create(
+            slack_workspace_id="T_SLACK",
+            slack_user_id="U_ALICE",
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
 
         # All routing tests assume the per-org feature flag is on. The
@@ -349,6 +365,40 @@ class TestRouteThreadMessage(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_start.assert_called_once()
         assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+    # --- Thread creator's follow-up mode ----------------------------------
+
+    def _set_creator_mode(self, mode: str | None) -> None:
+        self.creator_settings.untagged_followup_mode = mode
+        self.creator_settings.save(update_fields=["untagged_followup_mode"])
+
+    @parameterized.expand(
+        [
+            ("auto_other_person", UntaggedFollowupMode.AUTO, "U_BOB", True),
+            # `ask` still dispatches here: the prompt is raised inside the workflow,
+            # once the classifier has judged the reply worth forwarding.
+            ("ask_other_person", UntaggedFollowupMode.ASK, "U_BOB", True),
+            ("ask_creator", UntaggedFollowupMode.ASK, "U_ALICE", True),
+            ("never_other_person", UntaggedFollowupMode.NEVER, "U_BOB", False),
+            # `never` means nobody, the creator included.
+            ("never_creator", UntaggedFollowupMode.NEVER, "U_ALICE", False),
+            # Never picked: the feature is opt-in, so an untouched row behaves as `never`.
+            ("unset", None, "U_BOB", False),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_webhook_dispatches_unless_the_creator_switched_followups_off(self, _name, mode, author, expect_workflow):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        self._set_creator_mode(mode)
+        with patch(
+            "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+        ) as mock_start:
+            result = self._route(self._make_event(user=author))
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is True
 
     # --- Symmetry with the app_mention path -------------------------------
 

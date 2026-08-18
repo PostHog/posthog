@@ -6,24 +6,27 @@ exercise the real orchestration + the real fan-out children without touching the
 
 import json
 import uuid
+from typing import ClassVar
 
 import pytest
 
 import temporalio.worker
+import temporalio.workflow
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
-    FinalizeStatusCommentInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
@@ -32,6 +35,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RemoveTriggerLabelInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -40,7 +44,11 @@ from products.review_hog.backend.temporal.activities import (
     ValidateChunkInput,
     ValidateChunkResult,
 )
-from products.review_hog.backend.temporal.types import ReviewPRWorkflowInputs
+from products.review_hog.backend.temporal.types import (
+    ResolvePRWorkflowInputs,
+    ReviewPRWorkflowInputs,
+    resolve_pr_workflow_id,
+)
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -49,6 +57,17 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 _REVIEW_URL = "https://github.com/o/r/pull/7#pullrequestreview-1"
+
+
+@temporalio.workflow.defn(name="resolve-pr")
+class StubResolvePRWorkflow:
+    # Module-level because temporalio rejects workflow classes defined inside a function
+    # ("Local classes unsupported"). `_run_full_review_pr_workflow` clears this list per run.
+    dispatches: ClassVar[list[tuple[int | None, int | None, str]]] = []
+
+    @temporalio.workflow.run
+    async def run(self, inputs: ResolvePRWorkflowInputs) -> None:
+        StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
 
 
 def _stage_kwargs() -> dict:
@@ -81,6 +100,8 @@ async def _run_full_review_pr_workflow(
     selection: PerspectiveSelectionDTO | None = None,
     fail_selection: bool = False,
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
+    resolve_comments_setting: bool = False,
+    input_resolve_comments: bool | None = None,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -95,6 +116,8 @@ async def _run_full_review_pr_workflow(
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    finalize_will_publish: list[bool] = []
+    remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -105,6 +128,10 @@ async def _run_full_review_pr_workflow(
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
     # the RESOLVED value, not the None workflow input) — guards each per-user selection seam.
     load_user_ids: list[int | None] = []
+    # Each chained resolution dispatch, as (pr_number, acting_user_id, trigger_source) — recorded by
+    # the module-level stub `resolve-pr` child. resolve_comments_setting feeds the acting-user
+    # snapshot; input_resolve_comments is the per-run override on the workflow input.
+    StubResolvePRWorkflow.dispatches.clear()
 
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
@@ -137,6 +164,7 @@ async def _run_full_review_pr_workflow(
             urgency_threshold="must_fix",
             review_inbox_prs=review_inbox_prs,
             resolved_from="override",
+            resolve_comments=resolve_comments_setting,
         )
 
     @activity.defn(name="sync_review_skills_activity")
@@ -209,6 +237,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
+        finalize_will_publish.append(input.will_publish)
         return None
 
     @activity.defn(name="publish_review_activity")
@@ -216,6 +245,10 @@ async def _run_full_review_pr_workflow(
         publish_calls.append(input.pr_number)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
+
+    @activity.defn(name="remove_trigger_label_activity")
+    async def remove_label(input: RemoveTriggerLabelInput) -> None:
+        remove_label_calls.append(input.pr_number)
 
     @activity.defn(name="append_code_review_artefact_activity")
     async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
@@ -256,6 +289,7 @@ async def _run_full_review_pr_workflow(
                 ReviewPRWorkflow,
                 ReviewPerspectivesWorkflow,
                 ValidateIssuesWorkflow,
+                StubResolvePRWorkflow,
             ],
             activities=[
                 validate_integration,
@@ -273,6 +307,7 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
+                remove_label,
                 append_receipt,
                 post_status,
                 finalize_status,
@@ -296,12 +331,23 @@ async def _run_full_review_pr_workflow(
                         trigger_source=trigger_source,
                         signal_report_id=signal_report_id,
                         head_branch=input_head_branch,
+                        resolve_comments=input_resolve_comments,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )
             except WorkflowFailureError:
                 failed = True
+            # The dispatch is fire-and-forget (ABANDON): the parent completes without awaiting the
+            # child, so its recording task may not have been polled yet. Awaiting the child's result
+            # by its deterministic id (while the worker is still up) forces it; NOT_FOUND means the
+            # dispatch never happened.
+            if meta_pr_number is not None:
+                child_id = resolve_pr_workflow_id(team_id=1, owner="o", repo="r", pr_number=meta_pr_number)
+                try:
+                    await env.client.get_workflow_handle(child_id).result()
+                except RPCError:
+                    pass
 
     return {
         "result": result,
@@ -310,11 +356,14 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "finalize_will_publish": finalize_will_publish,
+        "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
         "track_failed": track_failed_calls,
+        "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
     }
 
 
@@ -336,6 +385,9 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     assert {c[4] for c in wave} == {()}  # the wave itself gets no cross-perspective context
     assert sorted(recorded["validate"]) == [1, 2]  # one session per chunk-with-issues
     assert recorded["publish"] == []  # publish=False → never posts to GitHub
+    # No publish stage means finalize keeps the idle write; deferring it here would strand the
+    # report ACTIVE forever (nothing downstream ever restores rest on a no-publish run).
+    assert recorded["finalize_will_publish"] == [False]
     # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
     # the perspective, blind-spots, and validation loads — the per-user selection seam for each.
     assert recorded["load_user_ids"] == [3, 3, 3]
@@ -388,6 +440,9 @@ async def test_review_pr_workflow_falls_back_to_dense_when_selection_fails():
 async def test_review_pr_workflow_publishes_only_when_publish_true():
     recorded = await _run_full_review_pr_workflow(publish=True)
     assert recorded["publish"] == [7]  # publish=True → posts the review back to the PR
+    # Publishing runs defer the idle write to the publish stage; dropping the flag re-opens the
+    # window where a poll sees the run at rest with "Not published" still true and freezes on it.
+    assert recorded["finalize_will_publish"] == [True]
     # The acting user's threshold snapshot (not the dataclass default) reaches both consumers, so
     # body counts and posted comments gate on the same set.
     assert recorded["thresholds"] == [("body", "must_fix"), ("publish", "must_fix")]
@@ -395,6 +450,60 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_completion():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label")
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_failure():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label", fail_dedup=True)
+    assert recorded["failed"] is True
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
+    assert recorded["remove_label"] == []
+
+
+@parameterized.expand(
+    [
+        # (name, publish, resolve_comments_setting, input_resolve_comments, expect_dispatch)
+        # The default posture: a publishing review chains resolution when the acting user's
+        # setting is on (reviewing includes resolving)...
+        ("setting_on_chains_after_publish", True, True, None, True),
+        # ...their opt-out is the off switch...
+        ("setting_off_skips", True, False, None, False),
+        # ...the UI's "review without resolving" pins a single run off despite the setting...
+        ("ui_review_only_override_pins_off", True, True, False, False),
+        # ...an explicit True forces the chain (the input override outranks everything)...
+        ("explicit_true_forces", False, False, True, True),
+        # ...and an unpublished (eval/CLI) review must never write to the PR off the setting alone.
+        ("unpublished_run_never_chains_by_setting", False, True, None, False),
+    ]
+)
+@pytest.mark.asyncio
+async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
+    _name, publish, resolve_comments_setting, input_resolve_comments, expect_dispatch
+):
+    # A miswired gate here either spams real PRs with replies/commits from eval runs, or silently
+    # kills the resolution stage while every review still looks green.
+    recorded = await _run_full_review_pr_workflow(
+        publish=publish,
+        resolve_comments_setting=resolve_comments_setting,
+        input_resolve_comments=input_resolve_comments,
+    )
+    if expect_dispatch:
+        # The dispatch carries the RESOLVED acting user (their criteria skill applies) and the
+        # original trigger source, keyed to the PR the fetch resolved.
+        assert recorded["resolve_dispatches"] == [(7, 3, "manual")]
+    else:
+        assert recorded["resolve_dispatches"] == []
 
 
 @pytest.mark.asyncio
@@ -516,10 +625,13 @@ async def test_review_pr_workflow_branch_target_stores_without_publishing():
         input_pr_number=None,
         input_head_branch="feat",
         meta_pr_number=None,
+        resolve_comments_setting=True,
     )
     assert recorded["split"] == [1]
     assert recorded["publish"] == []
     assert recorded["receipts"] == [("stored", None)]
+    # Review threads live on PRs: with no PR resolved there is nothing to chain, setting or not.
+    assert recorded["resolve_dispatches"] == []
 
 
 @pytest.mark.asyncio
@@ -551,6 +663,12 @@ def test_review_pr_workflow_inputs_deserialize_old_payloads():
     assert inputs.trigger_source == "manual"
     assert inputs.signal_report_id is None
     assert inputs.head_branch is None
+    # The chained-dispatch gate's replay contract: a pre-field input decodes to None (follow the
+    # setting) and a pre-field acting-user snapshot decodes to False (the skip value), so no old
+    # history can reach the dispatch command on replay. Flipping either default breaks every
+    # in-flight review with a Non Deterministic Error on deploy.
+    assert inputs.resolve_comments is None
+    assert ResolveActingUserResult(acting_user_id=3).resolve_comments is False
 
 
 async def _run_validate_workflow(*, issue_ids: list[str], validate_chunk) -> int:

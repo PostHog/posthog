@@ -12,7 +12,7 @@ import { forwardRef, useState } from "react";
 // user describes what they want and the agent builds + publishes the canvas. No
 // repo is picked up front — the agent attaches one lazily only if it needs it.
 // Used both for the first build (empty canvas) and for follow-up edits
-// (currentCode passed in).
+// (isEdit passed in).
 //
 // Shares the task composer's editor (PromptInput) so it matches it exactly — @
 // for files, / for skills, ↑↓ for history — but renders a blank toolbar for now:
@@ -27,7 +27,9 @@ export const FreeformGenerateBar = forwardRef<
     channelName: string;
     name: string;
     templateId?: string;
-    currentCode?: string;
+    /** Whether the canvas already has published source. The agent re-reads the
+     * live source through the canvas tools, so this is purely the edit signal. */
+    isEdit?: boolean;
     // Keys the editor's draft/command state; distinct per canvas.
     sessionId: string;
     onStarted?: (taskId: string) => void;
@@ -39,7 +41,6 @@ export const FreeformGenerateBar = forwardRef<
     channelName,
     name,
     templateId,
-    currentCode,
     sessionId,
     onStarted,
   },
@@ -49,13 +50,6 @@ export const FreeformGenerateBar = forwardRef<
     channelId,
     channelName,
   });
-
-  // On a FIRST build we seed the agent with a known-good starter scaffold by
-  // default (faster, more consistent than authoring from scratch). Uncheck to
-  // opt out and have the agent build from a blank canvas. Only meaningful on an
-  // empty canvas, so the toggle is hidden in edit mode.
-  const isEdit = !!currentCode?.trim();
-  const [useStarter, setUseStarter] = useState(true);
 
   // Generation always runs in the cloud, except the dev-only picker below lets a
   // local build of these features be tested before it's merged to the cloud env.
@@ -69,8 +63,6 @@ export const FreeformGenerateBar = forwardRef<
       name,
       templateId,
       instruction,
-      currentCode,
-      useStarter: !isEdit && useStarter,
       workspaceMode,
     });
     if (taskId) onStarted?.(taskId);
@@ -89,19 +81,6 @@ export const FreeformGenerateBar = forwardRef<
         hideDefaultToolbar
         onSubmit={(text) => void run(text)}
       />
-      {!isEdit && (
-        <label className="flex cursor-pointer select-none items-center gap-1.5 self-start px-1 text-muted-foreground text-xs">
-          <input
-            type="checkbox"
-            className="cursor-pointer"
-            checked={useStarter}
-            disabled={isStarting}
-            onChange={(e) => setUseStarter(e.target.checked)}
-          />
-          Start from scaffold (faster, more consistent — uncheck to build from
-          scratch)
-        </label>
-      )}
       {/* Dev-only: pick local vs cloud so a local build can be tested pre-merge. */}
       {import.meta.env.DEV && (
         <Tooltip>

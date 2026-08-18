@@ -1,3 +1,4 @@
+import re
 import datetime
 from typing import Optional
 
@@ -47,10 +48,14 @@ def toUnixTimestamp(date, timezone: Optional[str] = None):
             year=date["year"], month=date["month"], day=date["day"], tzinfo=pytz.timezone(timezone or "UTC")
         ).timestamp()
 
-    date = datetime.datetime.fromisoformat(date)
-    if timezone:
-        date = date.astimezone(pytz.timezone(timezone))
-    return date.timestamp()
+    # A naive string is anchored to `timezone` (UTC when unset), matching Rust's
+    # `naive_to_seconds(s, zone)` and TypeScript's `fromISO(input, {zone})`. It used to be parsed
+    # naive and then `.astimezone`d, which is a no-op for aware input and resolves naive input in the
+    # *host's* timezone — so the answer depended on where the process happened to be running.
+    parsed = _parse_date_like(date, timezone)
+    if parsed is None:
+        raise ValueError(f"Could not parse date: {date}")
+    return parsed.timestamp()
 
 
 def fromUnixTimestamp(timestamp: int | float):
@@ -74,11 +79,84 @@ def toTimeZone(date: dict, timezone: str):
     }
 
 
+# [0-9] and never \d: Python's re treats \d as any Unicode decimal digit, which int() then happily
+# parses — so e.g. an all-Arabic-Indic-digit date was a valid instant here and rejected by the
+# other two VMs. See the canonical grammar in the Rust STL.
+DATE_LIKE = re.compile(
+    r"""^([0-9]{4})-([0-9]{2})-([0-9]{2})
+        (?:
+            [Tt\ ]([01][0-9]|2[0-3]):([0-5][0-9])
+            (?::([0-5][0-9])(?:[.,]([0-9]{1,9}))?)?
+            (Z|z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?
+        )?\Z""",
+    re.VERBOSE,
+)
+
+
+def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[datetime.datetime]:
+    """An aware ``datetime`` for a string matching the shared date-like grammar, else None.
+
+    The canonical copy of the grammar lives above ``parse_datetime_to_seconds`` in
+    ``rust/common/hogvm/src/stl.rs``; ``common/hogvm/typescript/src/stl/date.ts`` (``parseDateLike``)
+    is the third implementation. Change all three together.
+
+    Deliberately not ``datetime.fromisoformat``, which accepts the compact ``20240101`` and ISO-week
+    ``2024-W05`` forms that neither of the other two VMs do. More importantly, ``fromisoformat``
+    returns a *naive* datetime for input carrying no zone, and ``naive.timestamp()`` resolves it in
+    the **host's** timezone — so the Python VM's answer for ``toDateTime('2026-07-01')`` depended on
+    where it happened to be running, and disagreed with TypeScript and Rust (both UTC-anchored) by
+    the local UTC offset. ``tzinfo`` is always set here, so the result is host-independent.
+
+    ``timezone`` applies only to input carrying no zone of its own; an explicit offset or ``Z`` pins
+    the absolute instant regardless.
+    """
+    match = DATE_LIKE.match(input.strip())
+    if not match:
+        return None
+    year, month, day, hour, minute, second, fraction, offset = match.groups()
+    # Sub-millisecond digits are truncated, not rounded, to match luxon and Rust's `timestamp_millis`.
+    # Python's `datetime` keeps microseconds, which surfaced as a `result_mismatch` against the Node
+    # baseline (see `datetime_to_seconds` in the Rust STL).
+    microsecond = int(fraction[:3].ljust(3, "0")) * 1000 if fraction else 0
+
+    try:
+        if offset in ("Z", "z"):
+            tzinfo: datetime.tzinfo = datetime.UTC
+        elif offset:
+            digits = offset[1:].replace(":", "")
+            delta = datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:4] or 0))
+            tzinfo = datetime.timezone(-delta if offset[0] == "-" else delta)
+        else:
+            tzinfo = pytz.timezone(timezone or "UTC")
+
+        naive = datetime.datetime(
+            int(year), int(month), int(day), int(hour or 0), int(minute or 0), int(second or 0), microsecond
+        )
+    except ValueError:
+        # Out-of-range calendar date (2024-02-30) or year 0. The tz construction is inside the `try`
+        # deliberately: an offset the regex admits but `datetime.timezone` rejects must return None
+        # like any other parse failure — this function is called from `unify_comparison_types` on
+        # every comparison opcode, where a bare ValueError would escape the VM entirely rather than
+        # leaving the operands uncoerced. (An unknown zone *name* still raises — pytz's
+        # UnknownTimeZoneError is a KeyError — matching the natives' pre-existing behavior; only
+        # they pass a zone, never the comparison path.)
+        return None
+    # `localize` rather than `tzinfo=` — pytz zones carry a historical LMT offset that only
+    # `localize` resolves to the right one for the date in question. `is_dst=True` picks the first
+    # of an ambiguous pair during a DST fold, matching Rust's `LocalResult::Ambiguous(dt, _)` and
+    # luxon; pytz's default (`is_dst=False`) would pick the second and land an hour off.
+    localize = getattr(tzinfo, "localize", None)
+    return localize(naive, is_dst=True) if localize else naive.replace(tzinfo=tzinfo)
+
+
 def toDate(input):
     if isinstance(input, int) or isinstance(input, float):
         dt = datetime.datetime.fromtimestamp(input)
     else:
-        dt = datetime.datetime.fromisoformat(input)
+        parsed = _parse_date_like(input)
+        if parsed is None:
+            raise ValueError(f"Could not parse date: {input}")
+        dt = parsed
     return {
         "__hogDate__": True,
         "year": dt.year,
@@ -91,12 +169,21 @@ def toDateTime(input):
     if isinstance(input, int) or isinstance(input, float):
         dt = float(input)
     else:
-        dt = datetime.datetime.fromisoformat(input).timestamp()
+        parsed = _parse_date_like(input)
+        if parsed is None:
+            raise ValueError(f"Could not parse date: {input}")
+        dt = parsed.timestamp()
     return {
         "__hogDateTime__": True,
         "dt": dt,
         "zone": "UTC",
     }
+
+
+def date_string_to_seconds(input: str) -> Optional[float]:
+    """Epoch seconds for a date-like string, parsed the same way `toDateTime` would, else None."""
+    parsed = _parse_date_like(input)
+    return parsed.timestamp() if parsed else None
 
 
 # From ClickHouse to Python

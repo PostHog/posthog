@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 
 import psycopg
 
+from posthog.dataclasses import frozen
+
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     default_bucket_region,
@@ -50,7 +52,14 @@ def _get_django_settings():
         return None
 
 
-def _get_boto3_credentials() -> tuple[str, str, str | None]:
+@frozen
+class AwsCredentials:
+    access_key: str
+    secret_key: str = dataclasses.field(repr=False)
+    session_token: str | None = dataclasses.field(default=None, repr=False)
+
+
+def _get_boto3_credentials() -> AwsCredentials:
     """Fetch AWS credentials via boto3.
 
     This is a workaround for DuckDB's CREDENTIAL_CHAIN not supporting
@@ -60,8 +69,7 @@ def _get_boto3_credentials() -> tuple[str, str, str | None]:
     See: https://github.com/duckdb/duckdb-aws/issues/31
 
     Returns:
-        Tuple of (access_key, secret_key, session_token).
-        session_token may be None for static credentials.
+        AwsCredentials; session_token may be None for static credentials.
     """
     import boto3
 
@@ -72,10 +80,10 @@ def _get_boto3_credentials() -> tuple[str, str, str | None]:
     frozen = credentials.get_frozen_credentials()
     if frozen.access_key is None or frozen.secret_key is None:
         raise RuntimeError("AWS credentials missing access_key or secret_key")
-    return frozen.access_key, frozen.secret_key, frozen.token
+    return AwsCredentials(access_key=frozen.access_key, secret_key=frozen.secret_key, session_token=frozen.token)
 
 
-def _get_cross_account_credentials(role_arn: str, external_id: str | None = None) -> tuple[str, str, str]:
+def _get_cross_account_credentials(role_arn: str, external_id: str | None = None) -> AwsCredentials:
     """Assume a cross-account IAM role and return temporary credentials.
 
     Args:
@@ -83,7 +91,7 @@ def _get_cross_account_credentials(role_arn: str, external_id: str | None = None
         external_id: Optional external ID for the role assumption (recommended for security)
 
     Returns:
-        Tuple of (access_key, secret_key, session_token)
+        AwsCredentials with a session token from the assumed role.
     """
     import boto3
 
@@ -98,7 +106,9 @@ def _get_cross_account_credentials(role_arn: str, external_id: str | None = None
 
     response = sts.assume_role(**assume_role_kwargs)
     creds = response["Credentials"]
-    return creds["AccessKeyId"], creds["SecretAccessKey"], creds["SessionToken"]
+    return AwsCredentials(
+        access_key=creds["AccessKeyId"], secret_key=creds["SecretAccessKey"], session_token=creds["SessionToken"]
+    )
 
 
 def normalize_endpoint(endpoint: str) -> tuple[str, bool]:
@@ -224,14 +234,14 @@ class DuckLakeStorageConfig:
             # Workaround: DuckDB's CREDENTIAL_CHAIN doesn't support IRSA (Web Identity Token).
             # Fetch credentials via boto3 which properly supports IRSA.
             # See: https://github.com/duckdb/duckdb-aws/issues/31
-            access_key, secret_key, session_token = _get_boto3_credentials()
+            creds = _get_boto3_credentials()
             secret_parts = [
                 "TYPE S3",
-                f"KEY_ID '{ducklake_escape(access_key)}'",
-                f"SECRET '{ducklake_escape(secret_key)}'",
+                f"KEY_ID '{ducklake_escape(creds.access_key)}'",
+                f"SECRET '{ducklake_escape(creds.secret_key)}'",
             ]
-            if session_token:
-                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+            if creds.session_token:
+                secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(creds.session_token)}'")
             if self.region:
                 secret_parts.append(f"REGION '{ducklake_escape(self.region)}'")
             return f"CREATE OR REPLACE SECRET {secret_name} ({', '.join(secret_parts)})"
@@ -254,9 +264,8 @@ class DuckLakeStorageConfig:
         self,
         secret_name: str,
         scope: str,
-        access_key: str,
-        secret_key: str,
-        session_token: str | None = None,
+        *,
+        credentials: AwsCredentials,
         region: str | None = None,
     ) -> str:
         """Generate a scoped DuckDB CREATE SECRET statement.
@@ -267,9 +276,7 @@ class DuckLakeStorageConfig:
         Args:
             secret_name: Unique name for this secret
             scope: S3 bucket scope (e.g., 's3://bucket-name')
-            access_key: AWS access key
-            secret_key: AWS secret key
-            session_token: Optional session token for temporary credentials
+            credentials: AWS credentials for the scoped secret
             region: AWS region (defaults to self.region)
 
         Returns:
@@ -281,11 +288,11 @@ class DuckLakeStorageConfig:
 
         secret_parts = [
             "TYPE S3",
-            f"KEY_ID '{ducklake_escape(access_key)}'",
-            f"SECRET '{ducklake_escape(secret_key)}'",
+            f"KEY_ID '{ducklake_escape(credentials.access_key)}'",
+            f"SECRET '{ducklake_escape(credentials.secret_key)}'",
         ]
-        if session_token:
-            secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(session_token)}'")
+        if credentials.session_token:
+            secret_parts.append(f"SESSION_TOKEN '{ducklake_escape(credentials.session_token)}'")
         secret_parts.append(f"REGION '{ducklake_escape(effective_region)}'")
         secret_parts.append(f"SCOPE '{ducklake_escape(scope)}'")
 
@@ -420,16 +427,14 @@ def configure_cross_account_connection(
     # Set up destination credentials (via cross-account role assumption)
     if destinations:
         for i, dest in enumerate(destinations):
-            access_key, secret_key, session_token = _get_cross_account_credentials(
+            creds = _get_cross_account_credentials(
                 dest.role_arn,
                 external_id=dest.external_id,
             )
             secret_sql = source_storage_config.to_duckdb_scoped_secret_sql(
                 secret_name=f"ducklake_s3_dest_{i}",
                 scope=f"s3://{dest.bucket_name}",
-                access_key=access_key,
-                secret_key=secret_key,
-                session_token=session_token,
+                credentials=creds,
                 region=dest.region,
             )
             conn.execute(secret_sql)
@@ -511,10 +516,66 @@ def get_deltalake_storage_options(
 STAGING_PREFIX = "__posthog_staging"
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DeltaTableSnapshotWorkload:
+    file_count: int
+    row_count: int | None
+    byte_count: int | None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class StagedDeltaTable:
+    staging_uri: str
+    workload: DeltaTableSnapshotWorkload
+
+
 def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     """Place source key path under __posthog_staging/ in the catalog bucket."""
     key_path = urlparse(source_uri).path.lstrip("/")
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
+
+
+def _get_delta_snapshot(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> tuple[int, list[str], DeltaTableSnapshotWorkload]:
+    import deltalake
+
+    delta_table = deltalake.DeltaTable(
+        table_uri=source_uri,
+        storage_options=get_deltalake_storage_options(
+            storage_config=storage_config,
+            team_id=team_id,
+            organization_id=organization_id,
+        ),
+    )
+    version = delta_table.version()
+    data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
+
+    add_actions = delta_table.get_add_actions(flatten=True)
+    column_names = add_actions.schema.names
+
+    byte_count: int | None = None
+    if "size_bytes" in column_names:
+        sizes = add_actions.column("size_bytes").to_pylist()
+        if all(size is not None for size in sizes):
+            byte_count = sum(sizes)
+
+    row_count: int | None = None
+    if "num_records" in column_names:
+        record_counts = add_actions.column("num_records").to_pylist()
+        if all(record_count is not None for record_count in record_counts):
+            row_count = sum(record_counts)
+
+    workload = DeltaTableSnapshotWorkload(
+        file_count=len(data_keys),
+        row_count=row_count,
+        byte_count=byte_count,
+    )
+    return version, data_keys, workload
 
 
 def _get_delta_snapshot_files(
@@ -524,20 +585,10 @@ def _get_delta_snapshot_files(
     team_id: int | None = None,
     organization_id: str | None = None,
 ) -> tuple[int, list[str]]:
-    """Pin to the current Delta table version and return its data file S3 keys.
-
-    Opens the Delta table at *source_uri* using the deltalake library (which
-    reads the transaction log atomically), records the current version, and
-    converts the absolute ``file_uris()`` into plain S3 object keys.
-
-    Returns:
-        (version, data_file_keys) — version is the Delta log version that was
-        read; data_file_keys are S3 keys (no ``s3://bucket/`` prefix) for the
-        data files that belong to that version's snapshot.
-    """
+    """Pin to the current Delta table version and return its data file S3 keys."""
     import deltalake
 
-    dt = deltalake.DeltaTable(
+    delta_table = deltalake.DeltaTable(
         table_uri=source_uri,
         storage_options=get_deltalake_storage_options(
             storage_config=storage_config,
@@ -545,12 +596,25 @@ def _get_delta_snapshot_files(
             organization_id=organization_id,
         ),
     )
-    version = dt.version()
-    keys: list[str] = []
-    for uri in dt.file_uris():
-        parsed = urlparse(uri)
-        keys.append(parsed.path.lstrip("/"))
-    return version, keys
+    version = delta_table.version()
+    data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
+    return version, data_keys
+
+
+def get_delta_table_snapshot_workload(
+    source_uri: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> DeltaTableSnapshotWorkload:
+    _, _, workload = _get_delta_snapshot(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    return workload
 
 
 _DELTA_LOG_VERSION_RE = re.compile(r"^(\d{20})\.")
@@ -598,14 +662,36 @@ def stage_delta_table(
     team_id: int | None = None,
     organization_id: str | None = None,
 ) -> str:
-    """Copy a version-pinned Delta table snapshot to the catalog bucket under __posthog_staging/.
+    """Copy a version-pinned Delta table snapshot to the catalog staging prefix."""
+    version, data_keys = _get_delta_snapshot_files(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    return _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
 
-    Pins to the current Delta table version via the deltalake library, then
-    copies only the data files and log entries for that version (or earlier).
-    This prevents inconsistency when a new transaction commits during the copy.
 
-    Returns the staging URI for the Delta table.
-    """
+def stage_delta_table_with_workload(
+    source_uri: str,
+    catalog_bucket: str,
+    *,
+    storage_config: DuckLakeStorageConfig | None = None,
+    team_id: int | None = None,
+    organization_id: str | None = None,
+) -> StagedDeltaTable:
+    """Stage a version-pinned Delta table and return its transaction-log workload."""
+    version, data_keys, workload = _get_delta_snapshot(
+        source_uri,
+        storage_config=storage_config,
+        team_id=team_id,
+        organization_id=organization_id,
+    )
+    staging_uri = _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
+    return StagedDeltaTable(staging_uri=staging_uri, workload=workload)
+
+
+def _copy_delta_snapshot_to_staging(source_uri: str, catalog_bucket: str, version: int, data_keys: list[str]) -> str:
     from concurrent.futures import ThreadPoolExecutor
 
     import boto3
@@ -616,17 +702,8 @@ def stage_delta_table(
     if not source_prefix.endswith("/"):
         source_prefix += "/"
 
-    version, data_keys = _get_delta_snapshot_files(
-        source_uri,
-        storage_config=storage_config,
-        team_id=team_id,
-        organization_id=organization_id,
-    )
-
     s3 = boto3.client("s3")
-
     log_keys = _collect_delta_log_keys(s3, source_bucket, source_prefix, version)
-
     objects_to_copy = data_keys + log_keys
 
     def copy_one(key: str) -> None:
@@ -699,8 +776,13 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
-def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
-    """Open a psycopg connection to a duckgres server."""
+def connect_to_duckgres(server: DuckgresServer, *, application_name: str = "posthog") -> psycopg.Connection:
+    """Open a psycopg connection to a duckgres server.
+
+    ``application_name`` is a caller-identifying slug echoed into duckgres's
+    analytics events, so callers should pass one instead of relying on the
+    ``"posthog"`` default.
+    """
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -708,6 +790,7 @@ def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
         user=server.username,
         password=server.password,
         autocommit=True,
+        application_name=application_name,
     )
 
 

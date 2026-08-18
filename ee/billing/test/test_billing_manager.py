@@ -6,6 +6,7 @@ import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.billing.billing_manager import (
@@ -424,6 +426,29 @@ class TestBillingManager(BaseTest):
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert self.team.logs_settings == {"retention_days": 14}
 
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
+        organization = self.organization
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "available_product_features": [
+                {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}
+            ]
+        }
+
+        BillingManager(license).update_available_product_features(organization)
+
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 12
+
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(
         self, update_org_billing_quotas_mock: MagicMock
@@ -660,6 +685,100 @@ class TestBillingManager(BaseTest):
             BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
 
         assert "Open invoices must be resolved first" in str(context.exception)
+
+    def test_update_org_details_persists_has_active_subscription(self):
+        organization = self.organization
+        billing_status = {
+            "customer": {
+                "has_active_subscription": False,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is False
+
+    def test_update_org_details_missing_key_keeps_existing_has_active_subscription(self):
+        organization = self.organization
+        organization.has_active_subscription = False
+        organization.save()
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is False
+
+    @parameterized.expand(
+        [
+            ("downgrade", True, False),
+            ("upgrade", False, True),
+        ]
+    )
+    def test_update_org_details_syncs_has_active_subscription_transition(self, _name, before, after):
+        organization = self.organization
+        organization.has_active_subscription = before
+        organization.save()
+        billing_status = {
+            "customer": {
+                "has_active_subscription": after,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is after
+
+    @parameterized.expand(
+        [
+            ("active_trial_counts_as_paid", "2027-01-01T00:00:00Z", True),
+            ("expired_trial_counts_as_free", "2026-01-01T00:00:00Z", False),
+            ("naive_timestamp_treated_as_utc", "2027-01-01T00:00:00", True),
+        ]
+    )
+    def test_update_org_details_trial_handling(self, _name, free_trial_until, expected):
+        organization = self.organization
+        billing_status = {
+            "customer": {
+                "has_active_subscription": False,
+                "free_trial_until": free_trial_until,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        with freeze_time("2026-08-13"):
+            BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is expected
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):
@@ -1412,11 +1531,13 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
 
         mock_get.assert_called_once()
+        assert mock_get.call_args.kwargs["timeout"] == (5, 30)
         get_params = mock_get.call_args[1]["params"]
         assert get_params["teams_map"] == '{"1": "Team A"}'
         assert get_params["start_date"] == "2025-01-01"
 
         mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["timeout"] == (5, 30)
         post_json = mock_post.call_args[1]["json"]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"

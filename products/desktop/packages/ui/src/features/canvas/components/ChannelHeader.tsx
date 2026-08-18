@@ -35,7 +35,7 @@ export function ChannelHeader({
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   // Every channel surface renders this header, so mark the channel read here.
-  useMarkChannelSeen(channelName);
+  useMarkChannelSeen(channelId);
 
   // Channels-layout off keeps the header it has always had: the channel pill
   // plus the section tab strip, no breadcrumb. Delete this branch when the

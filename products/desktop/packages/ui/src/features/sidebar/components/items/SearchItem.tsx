@@ -15,7 +15,7 @@ export function SearchItem({ onClick, depth = 0 }: SearchItemProps) {
       icon={<MagnifyingGlass size={16} />}
       label="Search"
       onClick={onClick}
-      endContent={<SidebarKbdHint keys={SHORTCUTS.COMMAND_MENU} />}
+      endHint={<SidebarKbdHint keys={SHORTCUTS.COMMAND_MENU} />}
     />
   );
 }

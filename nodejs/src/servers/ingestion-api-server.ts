@@ -20,6 +20,7 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PubSub } from '~/common/utils/pubsub'
@@ -43,7 +44,6 @@ import {
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -106,6 +106,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
@@ -146,6 +147,16 @@ const batchCapacityRejections = new Counter({
 const batchesInFlight = new Gauge({
     name: 'ingestion_api_batches_in_flight',
     help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
+})
+
+// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
+// several-fold with consumer batching and routing, so a batch count says little
+// about how much work a pod is holding. Events in flight is invariant to how the
+// consumer slices a batch, which keeps a scaling target stable across dispatcher
+// tuning changes.
+const eventsInFlight = new Gauge({
+    name: 'ingestion_api_events_in_flight',
+    help: 'Number of events in accepted batches currently being processed by the ingestion API',
 })
 
 /**
@@ -235,7 +246,7 @@ export class IngestionApiServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -246,6 +257,7 @@ export class IngestionApiServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -285,7 +297,9 @@ export class IngestionApiServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
 
-        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
         this.ingestionProducerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
@@ -308,7 +322,6 @@ export class IngestionApiServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
-            teamManager,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -385,7 +398,6 @@ export class IngestionApiServer implements NodeServer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs: ingestionOutputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -397,8 +409,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
-                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -416,10 +427,13 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,
@@ -467,9 +481,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
-        // Tracks whether this batch was accepted, so the `finally` only
-        // decrements the in-flight gauge for batches that incremented it.
-        let inFlight = false
+        // Event count of this batch once accepted, or null while it is not.
+        // Holding the count (rather than a bool) makes the `finally` decrement
+        // exactly what was incremented, even if `messages` is out of scope.
+        let inFlight: number | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -513,7 +528,8 @@ export class IngestionApiServer implements NodeServer {
             // Batch accepted into the pipeline — it now occupies a concurrent
             // slot until processing completes below.
             batchesInFlight.inc()
-            inFlight = true
+            eventsInFlight.inc(messages.length)
+            inFlight = messages.length
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -551,8 +567,9 @@ export class IngestionApiServer implements NodeServer {
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
-            if (inFlight) {
+            if (inFlight !== null) {
                 batchesInFlight.dec()
+                eventsInFlight.dec(inFlight)
             }
         }
     }

@@ -60,6 +60,16 @@ python manage.py setup_local_api_key --add-scopes llm_gateway:read
 `--add-scopes` merges into existing scopes without removing any.
 `--scopes` replaces all scopes on the key.
 
+## Database access
+
+The gateway connects to the PostHog Postgres as a least-privilege role whose SELECT
+grants are a per-table allowlist maintained in posthog-cloud-infra. The tables the
+gateway reads are declared in `src/llm_gateway/db/required_tables.py`, and
+`tests/test_required_tables.py` binds that declaration to the SQL in the package.
+`/_readiness` verifies the connected role holds every declared grant on every probe,
+so a revoked grant unreadies serving pods as well as new rollouts. To add a table
+read, land the grant in every environment first, then declare the table.
+
 ## User attribution
 
 When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.
@@ -200,10 +210,15 @@ To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallba
 Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
 Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
-## GLM backends
+## Inference-provider routing
 
-GLM is served under the public model id `@cf/zai-org/glm-5.2` on every surface (Anthropic Messages, chat/completions, Responses).
-Which backend serves a request is a gateway-internal decision made in `src/llm_gateway/glm_routing.py`:
+The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
+
+- **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
+- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind the `tasks-glm-baseten-inference` flag. Do not enable the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
+- **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
+
+Provider configuration:
 
 - **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
@@ -246,6 +261,19 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
+
+`posthog_code` additionally requires a PostHog Desktop entitlement. The OAuth application
+allowlist only proves the token was issued to the Desktop app, which any user can obtain via the
+consent flow, so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
+`has_tasks_access`: the `tasks` flag or a redeemed invite) and rejects with
+`403 code_access_required`. Server-minted sandbox tokens (carrying `internal_run:read`) are
+exempt, since their run already passed Django's own gate.
+
+The check fails closed: anything but an explicit `has_access: true` from Django (a 4xx, a 5xx, a
+timeout, a malformed payload) is a denial, since a caller can induce lookup failures by flooding
+cold-cache requests. Grants cache for 15 minutes and denials for 60 seconds, so a Django blip
+locks an entitled user out for at most a minute after their cached grant expires.
+`LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
 ### Adding a new product
 
