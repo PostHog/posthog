@@ -55,10 +55,16 @@ export interface BillingUsageResponse {
 }
 
 const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label: string }> = {
-    'PostHog Desktop token credits': { divisor: 100, label: 'PostHog Desktop token spend (USD)' },
-    'Sandbox compute credits': { divisor: 100, label: 'Cloud compute spend (USD)' },
-    'Sandbox compute CPU millicore-seconds': { divisor: 1_000, label: 'Cloud compute CPU (core-seconds)' },
-    'Sandbox compute memory MiB-seconds': { divisor: 1_024, label: 'Cloud compute memory (GiB-seconds)' },
+    posthog_code_token_credits_used_in_period: { divisor: 100, label: 'PostHog Desktop token spend (USD)' },
+    sandbox_compute_credits_used_in_period: { divisor: 100, label: 'Cloud compute spend (USD)' },
+    sandbox_compute_cpu_millicore_seconds_in_period: {
+        divisor: 1_000,
+        label: 'Cloud compute CPU (core-seconds)',
+    },
+    sandbox_compute_memory_mib_seconds_in_period: {
+        divisor: 1_024,
+        label: 'Cloud compute memory (GiB-seconds)',
+    },
 }
 
 export const convertDesktopUsageSeries = (
@@ -66,7 +72,8 @@ export const convertDesktopUsageSeries = (
 ): BillingUsageResponse['results'][number] => {
     const usageType = Array.isArray(series.breakdown_value) ? series.breakdown_value[0] : series.breakdown_value
     const conversion = usageType ? DESKTOP_USAGE_SERIES_CONVERSIONS[usageType] : undefined
-    const labelPrefix = usageType && series.label.endsWith(usageType) ? series.label.slice(0, -usageType.length) : ''
+    const labelSeparatorIndex = series.label.lastIndexOf('::')
+    const labelPrefix = labelSeparatorIndex === -1 ? '' : series.label.slice(0, labelSeparatorIndex + 2)
     return conversion
         ? {
               ...series,
