@@ -19,7 +19,6 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from products.canvas.backend.models import CanvasSourceVersion
 from products.signals.backend.implementation_pr import PrCloseReason
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
 from products.signals.backend.report_embeddings import (
@@ -28,7 +27,6 @@ from products.signals.backend.report_embeddings import (
     render_report_document,
 )
 from products.signals.backend.tasks import close_dismissed_report_pr
-from products.tasks.backend.models import TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -39,9 +37,9 @@ _SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Sta
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
-@receiver(post_save, sender=TaskThreadMessage)
+@receiver(post_save, sender="tasks.TaskThreadMessage")
 def mark_report_canvas_collaborative_from_message(
-    sender: type[TaskThreadMessage], instance: TaskThreadMessage, created: bool, **kwargs: Any
+    sender: type[object], instance: Any, created: bool, **kwargs: Any
 ) -> None:
     if created:
         SignalReportCanvas.objects.for_team(instance.team_id).filter(discussion_task_id=instance.task_id).update(
@@ -50,9 +48,9 @@ def mark_report_canvas_collaborative_from_message(
         )
 
 
-@receiver(post_save, sender=CanvasSourceVersion)
+@receiver(post_save, sender="canvas.CanvasSourceVersion")
 def mark_report_canvas_collaborative_from_version(
-    sender: type[CanvasSourceVersion], instance: CanvasSourceVersion, created: bool, **kwargs: Any
+    sender: type[object], instance: Any, created: bool, **kwargs: Any
 ) -> None:
     if not created or instance.task_id is None:
         return
