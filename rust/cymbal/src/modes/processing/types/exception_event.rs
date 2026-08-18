@@ -224,8 +224,12 @@ impl<S> ExceptionEvent<S> {
     /// Fill a property the event did not send. Cymbal derives properties that SDKs also report,
     /// and an SDK read them off the running app, so a value already on the event is the better one
     /// and is left alone.
+    ///
+    /// A null counts as not sent, because SDKs do send one. The React Native SDK spreads its app
+    /// properties into every event whether or not the platform could supply them, so an Expo app
+    /// that cannot read its own version sends `"$app_version": null`.
     pub(crate) fn set_property_if_absent(&mut self, key: &str, value: Value) {
-        if !self.props.contains_key(key) {
+        if matches!(self.props.get(key), None | Some(Value::Null)) {
             self.props.insert(key.to_string(), value);
         }
     }

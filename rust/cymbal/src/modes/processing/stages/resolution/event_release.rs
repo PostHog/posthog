@@ -319,6 +319,17 @@ mod tests {
         );
         assert_eq!(mobile.properties()["$app_version"], json!("1.0"));
         assert_eq!(mobile.properties()["$app_build"], json!(7));
+
+        // The React Native SDK spreads its app properties into every event whether or not the
+        // platform supplied them, so an Expo app that cannot read its own version sends explicit
+        // nulls. A null is not a value the SDK observed, so it does not block the backfill.
+        let mut expo = parsed_event(json!({
+            "$app_namespace": null, "$app_version": null, "$app_build": null
+        }));
+        backfill_app_properties(&mut expo, &release("my-app", "1.2.3+42"));
+        assert_eq!(expo.properties()["$app_namespace"], json!("my-app"));
+        assert_eq!(expo.properties()["$app_version"], json!("1.2.3"));
+        assert_eq!(expo.properties()["$app_build"], json!("42"));
     }
 
     const TEAM_ID: TeamId = 1;
