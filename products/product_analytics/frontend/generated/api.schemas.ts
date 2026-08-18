@@ -7667,6 +7667,8 @@ export interface HeatmapSettingsApi {
     valueColumn?: string | null
     xAxisColumn?: string | null
     xAxisLabel?: string | null
+    /** How to order the X-axis columns. When unset, columns keep the order the query returned them in. */
+    xAxisSortOrder?: HeatmapSortOrderApi | null
     yAxisColumn?: string | null
     yAxisLabel?: string | null
 }
