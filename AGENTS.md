@@ -61,13 +61,6 @@ Examples:
 - `chore(ci): update GitHub Actions workflow`
 - `chore: update AGENTS.md instructions`
 
-### Before opening a PR
-
-In Claude Code, run `/simplify` on a non-trivial agent-authored diff before opening the PR.
-It is a built-in cleanup pass that applies behavior-preserving refinements (reuse, simplification, efficiency) to the changed code.
-Run it before final tests and `ci:preflight`, since it edits the working tree.
-Skip it for small mechanical changes.
-
 ### PR descriptions
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
