@@ -701,6 +701,25 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_registration_does_not_overwrite_a_partner_created_mid_fetch(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        # An admin registers and restricts the client through a separate row read, the way it
+        # looks to a registration whose metadata fetch overlapped the edit. `existing` still
+        # says non-partner, so only the locked read can tell the defaults not to land.
+        admin_copy = OAuthApplication.objects.get(pk=existing.pk)
+        admin_copy.is_provisioning_partner = True
+        admin_copy.save(update_fields=["is_provisioning_partner"])
+        admin_copy.update_provisioning(active=False, can_create_accounts=False)
+
+        app = apply_provisioning_defaults(existing)
+
+        app.refresh_from_db()
+        self.assertFalse(app.provisioning.active)
+        self.assertFalse(app.provisioning.can_create_accounts)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registration_does_not_restore_a_capability_revoked_mid_fetch(self, mock_get, _url_mock):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)

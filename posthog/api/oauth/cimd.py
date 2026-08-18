@@ -877,7 +877,9 @@ def _register_partner_if_declared(
     declared, so a caller further out would have to take the request's word for it.
 
     Already-registered partners are left alone, so re-registering can neither reinstate a
-    partner an admin deactivated nor re-apply the defaults over its current config.
+    partner an admin deactivated nor re-apply the defaults over its current config. The check
+    here only saves the lock; ``apply_provisioning_defaults`` repeats it on the locked row,
+    which is what settles a registration racing an admin promoting the same client.
     """
     if not register_provisioning or app.is_provisioning_partner:
         return
@@ -1119,13 +1121,15 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
 def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
-    Respects the `disabled` kill switch - returns the app untouched rather than re-enabling a
-    partner an admin has explicitly disabled.
+    Only ever promotes a client that is not a partner yet, and respects the `disabled` kill
+    switch: an app that is either already registered or explicitly disabled comes back untouched,
+    rather than having the defaults laid over the config it has now.
 
-    Locks and re-reads the config first. Registration runs after a network fetch of the metadata
-    document, so the caller's copy of the app can be seconds or minutes old, and layering the
-    defaults over that copy would write back a capability - or a cleared kill switch - that an
-    admin revoked while the fetch was in flight.
+    Both of those are decided on the locked row, not the caller's. Registration runs after a
+    network fetch of the metadata document, so the copy it hands in can be seconds or minutes
+    old, and an admin can promote and restrict the client inside that window. Deciding from the
+    stale copy would write back a capability - or a cleared kill switch - that the admin revoked
+    while the fetch was in flight.
 
     Promotion to confidential happens in the same write. A partner that publishes a key set has
     to present an assertion, and the bare-client_id path stays open to a public app, so an app
@@ -1136,9 +1140,13 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
         app._provisioning_config = current._provisioning_config
+        if current.is_provisioning_partner:
+            # Registered since the caller read the row, so this is no longer the promotion it
+            # looked like then, and the defaults would land on top of a config an admin set.
+            app.is_provisioning_partner = True
+            return app
         if app.provisioning.disabled:
             return app
-        became_partner = not current.is_provisioning_partner
         app.is_provisioning_partner = True
         app.provisioning = _cimd_provisioning_defaults_for(app)
         updated_fields = ["is_provisioning_partner", "_provisioning_config"]
@@ -1148,20 +1156,18 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             updated_fields.append("client_type")
         app.save(update_fields=updated_fields)
 
-    # A partner appearing without an admin creating it is the event worth watching for abuse,
-    # so it fires on the transition only - re-running the defaults over an existing partner is
-    # not a new partner.
-    if became_partner:
-        posthoganalytics.capture(
-            distinct_id=app.cimd_metadata_url or str(app.pk),
-            event="cimd_provisioning_partner_registered",
-            properties={
-                "cimd_url": app.cimd_metadata_url,
-                "client_name": app.name,
-                "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
-                "is_verified": app.organization_id is not None,
-                "organization_id": str(app.organization_id) if app.organization_id else None,
-            },
-        )
+    # A partner appearing without an admin creating it is the event worth watching for abuse.
+    # Only the promotion reaches here, so it fires on the transition and nowhere else.
+    posthoganalytics.capture(
+        distinct_id=app.cimd_metadata_url or str(app.pk),
+        event="cimd_provisioning_partner_registered",
+        properties={
+            "cimd_url": app.cimd_metadata_url,
+            "client_name": app.name,
+            "app_id": str(app.pk),
+            "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
+            "is_verified": app.organization_id is not None,
+            "organization_id": str(app.organization_id) if app.organization_id else None,
+        },
+    )
     return app
