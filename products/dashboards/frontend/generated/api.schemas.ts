@@ -6436,7 +6436,6 @@ export interface ActorsQueryApi {
               | CohortPropertyFilterApi
               | HogQLPropertyFilterApi
               | EmptyPropertyFilterApi
-              | BehavioralPropertyFilterApi
           )[]
         | null
     kind?: 'ActorsQuery'
@@ -6453,7 +6452,6 @@ export interface ActorsQueryApi {
               | CohortPropertyFilterApi
               | HogQLPropertyFilterApi
               | EmptyPropertyFilterApi
-              | BehavioralPropertyFilterApi
           )[]
         | PropertyGroupFilterValueApi
         | null
