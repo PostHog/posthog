@@ -219,17 +219,18 @@ const renderUsageLimitMessage = (
     handleCtaClick?: () => void
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
+        const currentLimit = Number(featureAvailableOnOrg.limit)
+        const nextPlanLimit = Number(featureInfoOnNextPlan?.limit)
+        // Only upsell the next plan when it actually grants more of this feature than the current limit.
+        const nextPlanOffersMore =
+            Number.isFinite(nextPlanLimit) && (!Number.isFinite(currentLimit) || nextPlanLimit > currentLimit)
         return (
             <div>
                 <p>
-                    You've reached your usage limit for{' '}
+                    You've reached your usage limit for <b>{featureInfo.name}</b>.
                     <Tooltip title={featureInfo.description}>
-                        <span>
-                            <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-secondary" />
-                        </span>
+                        <IconInfo className="ml-1 text-secondary" />
                     </Tooltip>
-                    .
                 </p>
                 <p className="p-4 border rounded border-primary bg-primary">
                     <b>Your current plan limit:</b>{' '}
@@ -239,10 +240,9 @@ const renderUsageLimitMessage = (
                 </p>
                 {featureInfo.key === AvailableFeature.ORGANIZATIONS_PROJECTS && !isAddonProduct ? (
                     <>
-                        {featureInfoOnNextPlan?.limit && (
+                        {nextPlanOffersMore && (
                             <p>
-                                Please enter your credit card details to create up to{' '}
-                                <b>{featureInfoOnNextPlan?.limit} projects</b>.
+                                Please enter your credit card details to create up to <b>{nextPlanLimit} projects</b>.
                             </p>
                         )}
                         <p className="mb-4 text-xs italic text-secondary">

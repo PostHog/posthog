@@ -33,9 +33,13 @@ export function UpgradeModal(): JSX.Element {
                             <HedgehogRemoteWork />
                         </div>
                         <p className="max-w-140 mb-4">
-                            You've reached your usage limit for <b>projects</b>. To create more than{' '}
-                            <b>{projectLimit} projects</b>, you need to subscribe to the Boost, Scale, or Enterprise
-                            plan.
+                            You've reached your usage limit for <b>projects</b>. To create more{' '}
+                            {projectLimit != null && (
+                                <>
+                                    than <b>{projectLimit} </b>
+                                </>
+                            )}
+                            projects, you need to subscribe to the Boost, Scale, or Enterprise plan.
                         </p>
                         <LemonButton
                             type="primary"
