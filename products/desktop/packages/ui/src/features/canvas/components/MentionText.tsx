@@ -11,7 +11,7 @@ import type { MentionChip } from "@posthog/core/message-editor/content";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import { Chip } from "@posthog/quill";
 import { splitMentionSegments } from "@posthog/shared";
-import { useCommentEmojis } from "@posthog/ui/features/canvas/hooks/useCommentEmojis";
+import { useCommentEmojiList } from "@posthog/ui/features/canvas/components/CommentEmojiProvider";
 import { splitCustomEmojiSegments } from "@posthog/ui/features/canvas/utils/emojiSuggestions";
 import { splitLinkSegments } from "@posthog/ui/features/canvas/utils/linkify";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
@@ -85,7 +85,7 @@ export function MentionText({
   currentUserEmail?: string | null;
   className?: string;
 }) {
-  const { data: customEmojis = [] } = useCommentEmojis();
+  const customEmojis = useCommentEmojiList();
   // Key each segment by its character offset — stable for a given content.
   const segments = useMemo(() => {
     let offset = 0;

@@ -2,7 +2,7 @@ import { RobotIcon } from "@phosphor-icons/react";
 import { Avatar, AvatarFallback, InputGroup } from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { useCommentEmojis } from "@posthog/ui/features/canvas/hooks/useCommentEmojis";
+import { useCommentEmojiList } from "@posthog/ui/features/canvas/components/CommentEmojiProvider";
 import {
   type EmojiSuggestion,
   filterEmojiSuggestions,
@@ -93,7 +93,7 @@ export function MentionComposer({
   // Esc hides the popup until the current trigger exits; a new trigger re-arms it.
   const [dismissed, setDismissed] = useState(false);
   const [emojiDismissed, setEmojiDismissed] = useState(false);
-  const { data: customEmojis = [] } = useCommentEmojis();
+  const customEmojis = useCommentEmojiList();
 
   const open = !!session && !dismissed && session.items.length > 0;
   const emojiOpen =
@@ -111,30 +111,46 @@ export function MentionComposer({
   // The suggestion plugin's callbacks close over refs so they always see the
   // latest props and popup state.
   const membersRef = useRef(members);
-  membersRef.current = members;
   const customEmojisRef = useRef(customEmojis);
-  customEmojisRef.current = customEmojis;
   const allowAgentMentionRef = useRef(allowAgentMention);
-  allowAgentMentionRef.current = allowAgentMention;
   const onValueChangeRef = useRef(onValueChange);
-  onValueChangeRef.current = onValueChange;
   const onSubmitRef = useRef(onSubmit);
-  onSubmitRef.current = onSubmit;
   const onMentionInsertRef = useRef(onMentionInsert);
-  onMentionInsertRef.current = onMentionInsert;
   const openRef = useRef(open);
-  openRef.current = open;
   const emojiOpenRef = useRef(emojiOpen);
-  emojiOpenRef.current = emojiOpen;
   const sessionRef = useRef(session);
-  sessionRef.current = session;
   const emojiSessionRef = useRef(emojiSession);
-  emojiSessionRef.current = emojiSession;
   const highlightedRef = useRef(highlightedIndex);
-  highlightedRef.current = highlightedIndex;
   const highlightedEmojiRef = useRef(highlightedEmojiIndex);
-  highlightedEmojiRef.current = highlightedEmojiIndex;
   const lastValueRef = useRef(value);
+
+  useEffect(() => {
+    membersRef.current = members;
+    customEmojisRef.current = customEmojis;
+    allowAgentMentionRef.current = allowAgentMention;
+    onValueChangeRef.current = onValueChange;
+    onSubmitRef.current = onSubmit;
+    onMentionInsertRef.current = onMentionInsert;
+    openRef.current = open;
+    emojiOpenRef.current = emojiOpen;
+    sessionRef.current = session;
+    emojiSessionRef.current = emojiSession;
+    highlightedRef.current = highlightedIndex;
+    highlightedEmojiRef.current = highlightedEmojiIndex;
+  }, [
+    allowAgentMention,
+    customEmojis,
+    emojiOpen,
+    emojiSession,
+    highlightedEmojiIndex,
+    highlightedIndex,
+    members,
+    onMentionInsert,
+    onSubmit,
+    onValueChange,
+    open,
+    session,
+  ]);
 
   const editor = useEditor(
     {

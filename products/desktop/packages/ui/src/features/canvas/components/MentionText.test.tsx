@@ -12,8 +12,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelTask: vi.fn(),
 }));
 
-vi.mock("@posthog/ui/features/canvas/hooks/useCommentEmojis", () => ({
-  useCommentEmojis: () => ({ data: commentEmojis }),
+vi.mock("@posthog/ui/features/canvas/components/CommentEmojiProvider", () => ({
+  useCommentEmojiList: () => commentEmojis,
 }));
 
 vi.mock("@posthog/ui/utils/urls", () => ({

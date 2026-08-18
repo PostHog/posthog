@@ -13,6 +13,7 @@ import { InviteCodeScreen } from "@posthog/ui/features/auth/components/InviteCod
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
+import { CommentEmojiProvider } from "@posthog/ui/features/canvas/components/CommentEmojiProvider";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
@@ -234,7 +235,9 @@ function App({ devToolbar }: AppProps) {
         <div className="flex h-screen flex-col">
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {isAuthenticated ? (
-              <AnimatePresence mode="wait">{content}</AnimatePresence>
+              <CommentEmojiProvider>
+                <AnimatePresence mode="wait">{content}</AnimatePresence>
+              </CommentEmojiProvider>
             ) : (
               content
             )}
