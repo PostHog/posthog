@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type CanvasBuildLifecycle,
   type CanvasBuildRecord,
+  canvasBuildRecordSchema,
   currentHeadBuildFailure,
   hasActiveCanvasBuild,
   historicalCanvasBuild,
@@ -37,6 +38,32 @@ function lifecycle(builds: CanvasBuildRecord[]): CanvasBuildLifecycle {
 }
 
 describe("canvas build lifecycle", () => {
+  // The builder freezes project.capabilities into the manifest verbatim, and
+  // a project declares only the capabilities it uses. A partial manifest must
+  // parse with deny-by-default fills — an unparseable record is silently
+  // dropped, which rendered a ready build as "failed to build" on grid tiles.
+  it("parses a manifest declaring only the capabilities the project uses", () => {
+    const parsed = canvasBuildRecordSchema.parse({
+      ...build("b1", "ready"),
+      manifest: {
+        entryHtml: "index.html",
+        assets: [],
+        dependencies: { react: "19.0.0" },
+        canvasSdkVersion: "0.1.0",
+        capabilities: {
+          posthog: { state: ["user"] },
+          network: { origins: [] },
+        },
+      },
+    });
+    expect(parsed.manifest?.capabilities.posthog).toMatchObject({
+      insights: [],
+      inlineQueries: false,
+      captureEvents: [],
+      state: ["user"],
+    });
+  });
+
   // hasActiveCanvasBuild drives the polling interval: a wrong answer either
   // polls forever or stops while a build is still running.
   it.each([
