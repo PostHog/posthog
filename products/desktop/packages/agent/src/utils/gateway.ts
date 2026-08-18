@@ -95,7 +95,7 @@ const SIGNALS_STAGE_PRODUCTS = new Set([
   "research",
   "implementation",
   "repo_selection",
-  "custom",
+  "custom_agent",
 ]);
 
 /**

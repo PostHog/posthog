@@ -333,15 +333,22 @@ describe("resolveGatewayTarget", () => {
     ).toBe(false);
   });
 
-  it("routes the custom stage when signals_custom is listed", () => {
+  it("routes the custom_agent stage when signals_custom_agent is listed", () => {
     expect(
       resolveGatewayTarget({
         product: "signals",
-        aiStage: "custom",
+        aiStage: "custom_agent",
         posthogHost: PY_HOST,
-        env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: "signals_custom" },
+        env: {
+          AI_GATEWAY_URL: GO,
+          AI_GATEWAY_PRODUCTS: "signals_custom_agent",
+        },
       }),
-    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "signals_custom" });
+    ).toEqual({
+      baseUrl: GO,
+      isAiGateway: true,
+      aiProduct: "signals_custom_agent",
+    });
   });
 
   it("honours an LLM_GATEWAY_URL override on the unrouted path", () => {
@@ -364,7 +371,7 @@ describe("resolveAiProduct", () => {
     ["research", "signals_research"],
     ["implementation", "signals_implementation"],
     ["repo_selection", "signals_repo_selection"],
-    ["custom", "signals_custom"],
+    ["custom_agent", "signals_custom_agent"],
   ])("maps the signals %s stage to %s", (aiStage, expected) => {
     expect(resolveAiProduct({ product: "signals", aiStage })).toBe(expected);
   });
