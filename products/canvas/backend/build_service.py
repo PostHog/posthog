@@ -528,6 +528,19 @@ def publish_grid_layout(
     live the moment the head advances. Raises CanvasVersionConflict or
     ObjectStorageError.
     """
+    # Lock-free fail-fast, mirroring the file-project publish: reject a stale
+    # publish before paying for the upload, so a doomed patch does not leave an
+    # orphaned, unreferenced source object behind. Conflicts are routine on this
+    # path (an agent filling a box and a user dragging widgets guard against each
+    # other), so this is the common case, not a rare race. The commit transaction
+    # re-checks authoritatively under the head lock in _claim_canvas_head.
+    if has_expected_version:
+        with team_scope(canvas.team_id):
+            current = Canvas.objects.for_team(canvas.team_id).only("current_source_version_id").get(pk=canvas.pk)
+            current_id = str(current.current_source_version_id) if current.current_source_version_id else None
+            expected = str(expected_version_id) if expected_version_id else None
+            if current_id != expected:
+                raise CanvasVersionConflict(current_id)
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, layout)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
