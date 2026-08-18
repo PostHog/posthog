@@ -16,15 +16,12 @@ export function useInboxSourceFilterOptions(
 ): InboxSourceOption[] {
   const { data: configs } = useSignalSourceConfigs();
 
-  return useMemo(
-    () =>
-      filterInboxSourceOptions(
-        configs &&
-          new Set(
-            configs.filter((c) => c.enabled).map((c) => c.source_product),
-          ),
-        selected,
-      ),
-    [configs, selected],
-  );
+  return useMemo(() => {
+    if (!configs) return filterInboxSourceOptions(undefined, selected);
+    const enabled = new Set<string>();
+    for (const config of configs) {
+      if (config.enabled) enabled.add(config.source_product);
+    }
+    return filterInboxSourceOptions(enabled, selected);
+  }, [configs, selected]);
 }

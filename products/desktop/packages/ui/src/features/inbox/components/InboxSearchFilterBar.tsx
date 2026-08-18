@@ -16,7 +16,7 @@ import {
 import { useInboxSourceFilterOptions } from "@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { Flex, Popover } from "@radix-ui/themes";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useMemo } from "react";
 
 interface InboxSearchFilterBarProps {
   searchPlaceholder?: string;
@@ -50,6 +50,10 @@ export function InboxSearchFilterBar({
   );
 
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter);
+  const selectedSources = useMemo(
+    () => new Set(sourceProductFilter),
+    [sourceProductFilter],
+  );
 
   const activeSort = INBOX_SORT_OPTIONS.find(
     (option) =>
@@ -86,7 +90,7 @@ export function InboxSearchFilterBar({
             onClick={clearSourceProductFilter}
           />
           {sourceOptions.map((option) => {
-            const isActive = sourceProductFilter.includes(option.value);
+            const isActive = selectedSources.has(option.value);
             return (
               <button
                 key={option.value}
