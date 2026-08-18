@@ -24,7 +24,9 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
+    derive_mention_workflow_id,
 )
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 
 def test_format_author_token_builds_labeled_mention():
@@ -460,3 +462,30 @@ class TestBuildThreadContextUpdateBlock:
         ]
         block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
         assert block == snapshot
+
+
+class TestDeriveMentionWorkflowId:
+    """The id doubles as the queue workflow's dedupe key, so a confirmed
+    re-dispatch has to look different from the pass that raised the prompt —
+    otherwise clicking "Yes, take a look" is swallowed as a redelivery."""
+
+    def _inputs(self, **overrides) -> PostHogCodeSlackMentionWorkflowInputs:
+        fields = {
+            "event": {"channel": "C001", "ts": "1001.0000"},
+            "integration_id": 1,
+            "slack_team_id": "T_SLACK",
+            "slack_event_id": "Ev123",
+            "user_id": 1,
+            **overrides,
+        }
+        return PostHogCodeSlackMentionWorkflowInputs(**fields)
+
+    def test_confirmed_redispatch_gets_its_own_id(self):
+        original = derive_mention_workflow_id(self._inputs(untagged_followup=True))
+        confirmed = derive_mention_workflow_id(self._inputs(untagged_followup=True, untagged_followup_confirmed=True))
+        assert original != confirmed
+        assert confirmed.startswith(original)
+
+    def test_id_is_stable_without_a_slack_event_id(self):
+        inputs = self._inputs(slack_event_id=None)
+        assert derive_mention_workflow_id(inputs) == "posthog-code-mention-T_SLACK:C001:1001.0000"

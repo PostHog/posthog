@@ -143,6 +143,10 @@ class DayRange:
     start: datetime.datetime
     end: datetime.datetime
 
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
+
 
 def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
@@ -616,7 +620,8 @@ def _build_template_context(
                 resource_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
                     with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                        access = user_access_control.access_level_for_resource(resource)
+                        resource_access[resource] = access.access_level if access else None
                 posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
