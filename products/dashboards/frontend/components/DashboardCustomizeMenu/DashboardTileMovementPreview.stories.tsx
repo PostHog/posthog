@@ -4,7 +4,7 @@ import { DashboardTileMovementPreview } from './DashboardTileMovementPreview'
 
 const meta: Meta<typeof DashboardTileMovementPreview> = {
     component: DashboardTileMovementPreview,
-    title: 'Products/Dashboards/Dashboard tile movement preview',
+    title: 'Products/Dashboards/Dashboard customization/Tile movement',
 }
 
 export default meta
