@@ -1,7 +1,8 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from posthog.schema import ForecastConfig, InsightThreshold, IntervalType, TrendsQuery
+from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, IntervalType, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -103,6 +104,65 @@ def _evaluate_band_deviation(
     )
 
 
+def _evaluate_future_breach_values(
+    *,
+    yhat: list[float],
+    lower: list[float],
+    upper: list[float],
+    dates: list[str],
+    bounds: InsightsThresholdBounds,
+    sensitivity: str,
+    label: str,
+    horizon: int,
+    interval_value: str | None = None,
+    fallback_value: float | None = None,
+    decomposition: Callable[[int], str] = lambda _i: "",
+) -> AlertEvaluationResult:
+    """Fire on the first predicted point that crosses a bound. Split out from the fit so the
+    sensitivity matrix is testable without an engine.
+
+    `best_case` reads the edge that keeps the metric on the acceptable side, which is the lower
+    edge against a ceiling and the upper edge against a floor, so it always fires later.
+    """
+    best_case = sensitivity == ForecastSensitivity.BEST_CASE.value
+    against_upper = lower if best_case else yhat
+    against_lower = upper if best_case else yhat
+
+    for i in range(len(yhat)):
+        breach_date = dates[i][:10]
+        if bounds.upper is not None and against_upper[i] > bounds.upper:
+            predicted = against_upper[i]
+            message = (
+                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
+                f"is more than the upper threshold ({bounds.upper}){decomposition(i)}"
+            )
+        elif bounds.lower is not None and against_lower[i] < bounds.lower:
+            predicted = against_lower[i]
+            message = (
+                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
+                f"is less than the lower threshold ({bounds.lower}){decomposition(i)}"
+            )
+        else:
+            continue
+        return AlertEvaluationResult(
+            value=predicted,
+            breaches=[message],
+            interval=interval_value,
+            triggered_metadata={
+                "forecast": {
+                    "breach_date": dates[i],
+                    "predicted_value": predicted,
+                    "lower": lower[i],
+                    "upper": upper[i],
+                    "horizon": horizon,
+                    "sensitivity": sensitivity,
+                }
+            },
+        )
+
+    return AlertEvaluationResult(value=fallback_value, breaches=[], interval=interval_value)
+
+
 def _evaluate_future_breach(
     dates: list[str],
     values: list[float],
@@ -113,8 +173,8 @@ def _evaluate_future_breach(
     interval_type: IntervalType | None,
     threshold: InsightThreshold | None,
 ) -> AlertEvaluationResult:
-    """Fit on the full history, predict `horizon` intervals, fire if the point forecast crosses
-    the threshold bounds."""
+    """Fit on the full history, predict `horizon` intervals, fire if the forecast crosses the
+    threshold bounds."""
     interval_value = interval_type.value if interval_type else None
     horizon = _resolve_horizon(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
@@ -122,42 +182,35 @@ def _evaluate_future_breach(
     if bounds is None or (bounds.lower is None and bounds.upper is None):
         return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
 
-    for i, predicted in enumerate(forecast.yhat):
-        breach_date = forecast.dates[i][:10]
-        if bounds.upper is not None and predicted > bounds.upper:
-            message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is more than the upper threshold ({bounds.upper}){_decomposition_suffix(forecast, i)}"
-            )
-        elif bounds.lower is not None and predicted < bounds.lower:
-            message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is less than the lower threshold ({bounds.lower}){_decomposition_suffix(forecast, i)}"
-            )
-        else:
-            continue
-        return AlertEvaluationResult(
-            value=predicted,
-            breaches=[message],
-            interval=interval_value,
-            triggered_metadata={
-                "forecast": {
-                    "breach_date": forecast.dates[i],
-                    "predicted_value": predicted,
-                    "lower": forecast.lower[i],
-                    "upper": forecast.upper[i],
-                    "horizon": horizon,
-                }
-            },
-        )
-
-    return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
+    return _evaluate_future_breach_values(
+        yhat=forecast.yhat,
+        lower=forecast.lower,
+        upper=forecast.upper,
+        dates=forecast.dates,
+        bounds=bounds,
+        sensitivity=_resolve_sensitivity(forecast_config),
+        label=label,
+        horizon=horizon,
+        interval_value=interval_value,
+        fallback_value=values[-1],
+        decomposition=lambda i: _decomposition_suffix(forecast, i),
+    )
 
 
 def _resolve_sensitivity(forecast_config: dict[str, Any]) -> str:
-    # Unset means best_case: the conservative reading is the default, so an alert stays quiet while
-    # the band is still wide enough for the target to be reachable.
-    return forecast_config.get("sensitivity") or ForecastSensitivity.BEST_CASE.value
+    """Which line the comparison reads. `best_case` is always the edge most favorable to the user,
+    so it always fires later than `forecast`.
+
+    The default depends on the condition. A target has months of runway, so flapping is the failure
+    mode and the conservative reading wins. A breach alert exists for lead time, so defaulting it to
+    the quiet end would blunt the one thing it is for, and it keeps reading the point forecast.
+    """
+    explicit = forecast_config.get("sensitivity")
+    if explicit:
+        return str(explicit)
+    if forecast_config.get("condition") == ForecastConditionType.FUTURE_BREACH.value:
+        return ForecastSensitivity.FORECAST.value
+    return ForecastSensitivity.BEST_CASE.value
 
 
 def _evaluate_target_by_date_values(
