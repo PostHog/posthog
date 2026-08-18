@@ -15,18 +15,35 @@ import { isDirectScoutNote, scoutNoteOriginLabel, scoutNotesLogic } from '../../
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
 const NOTE_MAX_CHARS = 10000
 
+/**
+ * Controlled so LemonTextArea's counter has a value to count; an uncontrolled textarea reports
+ * 0 / max no matter what is typed.
+ */
+function NoteComposer({ onChange }: { onChange: (content: string) => void }): JSX.Element {
+    const [content, setContent] = useState('')
+    return (
+        <LemonTextArea
+            autoFocus
+            value={content}
+            maxLength={NOTE_MAX_CHARS}
+            placeholder="e.g. we shipped a new checkout on Tuesday, watch conversion closely"
+            onChange={(value) => {
+                setContent(value)
+                onChange(value)
+            }}
+        />
+    )
+}
+
 function LeaveNoteDialog({ skillName, onSubmit }: { skillName: string; onSubmit: (content: string) => void }): void {
     let content = ''
     LemonDialog.open({
         title: skillName ? 'Tell this scout something' : 'Tell every scout something',
         description: skillName
-            ? 'It reads this at the start of every run, alongside what it has already learned.'
-            : 'Every scout on this project reads this at the start of every run.',
+            ? 'It picks this up on its next run and folds what it takes from it into what it has learned.'
+            : 'Every scout on this project picks this up on its next run.',
         content: (
-            <LemonTextArea
-                autoFocus
-                maxLength={NOTE_MAX_CHARS}
-                placeholder="e.g. we shipped a new checkout on Tuesday, watch conversion closely"
+            <NoteComposer
                 onChange={(value) => {
                     content = value
                 }}
@@ -101,7 +118,7 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                 </div>
             ) : scoutNotes.length === 0 ? (
                 <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                    Nothing yet. Leave a note to steer what this scout looks at — or dismiss one of its reports with a
+                    Nothing yet. Leave a note to steer what this scout looks at, or dismiss one of its reports with a
                     reason, and that reaches it too.
                 </div>
             ) : (
@@ -120,7 +137,8 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
             )}
 
             <span className="text-xs text-muted">
-                Read at the start of every run.
+                New notes are picked up on the next run and folded into what it has learned. Delete a note once it has
+                done its job.
                 {otherFleetNotes.length > 0 &&
                     ` ${pluralize(otherFleetNotes.length, 'note')} addressed to every scout applies here too.`}
             </span>

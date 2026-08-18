@@ -34,7 +34,12 @@ import {
     scoutCadenceLabel,
     scoutSubtitle,
 } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT_LABEL, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import {
+    prettifyScoutSkillName,
+    SCOUT_ROSTER_WINDOW_LABEL,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
+    ScoutRollup,
+} from '../../../utils/scoutRunsWindow'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
@@ -188,7 +193,7 @@ function RosterHeader(): JSX.Element {
  * rate: every run completing tells you nothing crashed, not that the troop is earning its keep.
  */
 function RosterStats(): JSX.Element {
-    const { rosterGroupCounts, enabledCount, emittedFindingsSummary } = useValues(scoutFleetLogic)
+    const { rosterGroupCounts, enabledCount, emittedFindingsSummary, learnedRecentCount } = useValues(scoutFleetLogic)
 
     return (
         <div className="flex flex-wrap items-center gap-4">
@@ -196,14 +201,24 @@ function RosterStats(): JSX.Element {
                 <Stat value={String(rosterGroupCounts.needs_you)} label="need you" alert />
             )}
             <Stat value={String(enabledCount)} label="on patrol" />
-            <Tooltip title="New reports your scouts filed across their recent runs.">
+            <Tooltip title={`Runs your scouts made in the ${SCOUT_ROSTER_WINDOW_LABEL}, quiet ones included.`}>
+                <span>
+                    <Stat value={String(emittedFindingsSummary.runCount)} label="runs" />
+                </span>
+            </Tooltip>
+            <Tooltip title={`New reports your scouts filed in the ${SCOUT_ROSTER_WINDOW_LABEL}.`}>
                 <span>
                     <Stat value={String(emittedFindingsSummary.authoredReportCount)} label="reports filed" />
                 </span>
             </Tooltip>
-            <Tooltip title="Existing reports your scouts added to across their recent runs.">
+            <Tooltip title={`Existing reports your scouts added to in the ${SCOUT_ROSTER_WINDOW_LABEL}.`}>
                 <span>
                     <Stat value={String(emittedFindingsSummary.editedReportCount)} label="reports edited" />
+                </span>
+            </Tooltip>
+            <Tooltip title={`Scratchpad entries your scouts wrote or refreshed in the ${SCOUT_ROSTER_WINDOW_LABEL}.`}>
+                <span>
+                    <Stat value={String(learnedRecentCount)} label="learned" />
                 </span>
             </Tooltip>
         </div>

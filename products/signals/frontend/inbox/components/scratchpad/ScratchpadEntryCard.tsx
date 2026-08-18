@@ -37,12 +37,12 @@ function splitKey(key: string): { kind: string | null; body: string } {
 }
 
 /**
- * One scratchpad note the scout fleet has written about this project. Shares the collapse/expand
+ * One scratchpad entry the scout fleet has written about this project. Shares the collapse/expand
  * grammar of the scout emission cards: a header (chevron · kind · key · updated time) that stays
  * visible, a 2-line raw-text preview when collapsed, the full body plus an attribution footer
  * (which scout created it, when, and how long it's been carried forward) when open.
  *
- * The list only carries previews, so a long note's tail arrives on expand — until it lands, the
+ * The list only carries previews, so a long entry's tail arrives on expand — until it lands, the
  * preview stays on screen with a skeleton under it rather than the card going blank.
  */
 export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {

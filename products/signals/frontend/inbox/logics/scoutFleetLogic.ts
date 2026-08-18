@@ -22,6 +22,7 @@ import {
 import type {
     FleetFindingsSummaryApi,
     PatchedSignalScoutConfigUpdateApi,
+    ScratchpadEntryApi,
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
@@ -35,6 +36,7 @@ import {
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import { groupScouts, scoutGroup, ScoutGroupBucket, ScoutGroupKey } from '../utils/scoutGroups'
+import { scratchpadLogic } from './scratchpadLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 import {
@@ -44,6 +46,7 @@ import {
     isSettledRun,
     prettifyScoutSkillName,
     reconcileById,
+    SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
@@ -104,6 +107,7 @@ function computeRosterPlacement(values: {
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    scratchpadEntries: ScratchpadEntryApi[] | null // scratchpadLogic
     activeScoutTags: string[]
     aiConsentDisabledReason: string | null
     customScoutCount: number
@@ -113,6 +117,7 @@ export interface scoutFleetLogicValues {
         count: number
         editedReportCount: number
         latestAt: string | null
+        runCount: number
         scoutCount: number
     }
     enabledCount: number
@@ -121,6 +126,7 @@ export interface scoutFleetLogicValues {
     fleetFindingsSummaryLoading: boolean
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
+    learnedRecentCount: number
     manualRunScoutIds: string[]
     rollups: Map<string, ScoutRollup>
     rosterBuckets: ScoutGroupBucket[]
@@ -292,6 +298,7 @@ export interface scoutFleetLogicMeta {
         ) => FleetSummary | null
         enabledCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
         lastRunAt: (scoutConfigs: SignalScoutConfigApi[] | null) => string | null
+        learnedRecentCount: (scratchpadEntries: ScratchpadEntryApi[] | null) => number
         scoutTagOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutTagOption[]
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
         rosterBuckets: (
@@ -312,6 +319,7 @@ export interface scoutFleetLogicMeta {
             count: number
             editedReportCount: number
             latestAt: string | null
+            runCount: number
             scoutCount: number
         }
         customScoutCount: (scoutConfigs: SignalScoutConfigApi[] | null) => number
@@ -337,7 +345,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     path(['scenes', 'inbox', 'logics', 'scoutFleetLogic']),
 
     connect({
-        values: [aiConsentLogic, ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason']],
+        values: [
+            aiConsentLogic,
+            ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
+            scratchpadLogic,
+            ['entries as scratchpadEntries'],
+        ],
     }),
 
     actions({
@@ -391,7 +404,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsScoutRunsFindingsSummary(String(teamId))
+                    return await signalsScoutRunsFindingsSummary(String(teamId), {
+                        window_hours: SCOUT_ROSTER_WINDOW_HOURS,
+                    })
                 },
             },
         ],
@@ -599,6 +614,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (scoutConfigs: SignalScoutConfig[] | null, rollups: Map<string, ScoutRollup>): FleetSummary | null =>
                 scoutConfigs ? computeFleetSummary(scoutConfigs, rollups) : null,
         ],
+        // Scratchpad entries written or refreshed over the roster window, so "learned" sits on the
+        // same span as the run and report headlines the summary endpoint returns for it.
+        learnedRecentCount: [
+            (s) => [s.scratchpadEntries],
+            (scratchpadEntries: ScratchpadEntryApi[] | null): number => {
+                if (!scratchpadEntries) {
+                    return 0
+                }
+                const windowStart = dayjs().subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours')
+                return scratchpadEntries.filter(
+                    (entry) => entry.updated_at && dayjs(entry.updated_at).isAfter(windowStart)
+                ).length
+            },
+        ],
         enabledCount: [
             (s) => [s.scoutConfigs],
             (scoutConfigs: SignalScoutConfig[] | null): number =>
@@ -709,12 +738,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 scoutCount: number
                 authoredReportCount: number
                 editedReportCount: number
+                runCount: number
                 latestAt: string | null
             } => ({
                 count: fleetFindingsSummary?.count ?? 0,
                 scoutCount: fleetFindingsSummary?.scout_count ?? 0,
                 authoredReportCount: fleetFindingsSummary?.authored_report_count ?? 0,
                 editedReportCount: fleetFindingsSummary?.edited_report_count ?? 0,
+                runCount: fleetFindingsSummary?.run_count ?? 0,
                 latestAt: fleetFindingsSummary?.latest_at ?? null,
             }),
         ],

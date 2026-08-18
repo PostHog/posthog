@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -23,6 +24,25 @@ function Metric({ value, label }: { value: React.ReactNode; label: string }): JS
             <span className="text-sm font-semibold tabular-nums leading-tight">{value}</span>
             <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
         </div>
+    )
+}
+
+/**
+ * Canonical descriptions run to a paragraph. Two lines is enough to recognise the scout; the rest
+ * is there on a click for the reader who wants the full brief.
+ */
+function ScoutDescription({ text }: { text: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <button
+            type="button"
+            className="group w-full cursor-pointer text-left"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+        >
+            <p className={`mb-0 text-sm leading-snug text-secondary ${expanded ? '' : 'line-clamp-2'}`}>{text}</p>
+            <span className="text-xs text-muted group-hover:text-primary">{expanded ? 'Show less' : 'Show more'}</span>
+        </button>
     )
 }
 
@@ -78,9 +98,7 @@ export function ScoutDetailHeader({
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
             </div>
 
-            {config.description && (
-                <p className="mb-0 max-w-4xl text-sm leading-snug text-secondary">{config.description}</p>
-            )}
+            {config.description && <ScoutDescription text={config.description} />}
 
             <div className="flex flex-wrap rounded border border-primary">
                 <Metric value={scoutCadenceLabel(config)} label="Cadence" />

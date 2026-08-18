@@ -187,7 +187,9 @@ export const scoutNotesLogic = kea<scoutNotesLogicType>([
                     skillName: props.skillName || null,
                 })
                 lemonToast.success(
-                    props.skillName ? 'Your scout reads this on its next run' : 'Every scout reads this on its next run'
+                    props.skillName
+                        ? 'Your scout picks this up on its next run'
+                        : 'Every scout picks this up on its next run'
                 )
                 actions.loadNotes()
             } catch (error: any) {

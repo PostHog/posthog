@@ -42,7 +42,7 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
                 <span className="text-xs font-medium uppercase tracking-wide text-default">What it has learned</span>
-                <span className="text-xs text-muted">{pluralize(scoutEntries.length, 'note')}</span>
+                <span className="text-xs text-muted">{pluralize(scoutEntries.length, 'entry', 'entries')}</span>
                 <span className="flex-1" />
                 <LemonButton size="xsmall" type="tertiary" onClick={() => setScratchpadOpen(true)}>
                     All scouts
@@ -55,7 +55,7 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
             </div>
             {scoutEntries.length > visible.length && (
                 <LemonButton size="xsmall" type="tertiary" className="self-start" onClick={() => setShowAll(true)}>
-                    Show all {pluralize(scoutEntries.length, 'note')}
+                    Show all {pluralize(scoutEntries.length, 'entry', 'entries')}
                 </LemonButton>
             )}
         </div>
