@@ -207,6 +207,7 @@ class Command(BaseCommand):
                 definition=definition,
                 user=user_pool[(index + offset) % len(user_pool)],
                 created_by=creator,
+                emit_event=False,
             )
 
     @transaction.atomic

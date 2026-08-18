@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 
@@ -36,20 +38,28 @@ class TestIdentityProviderConfig(BaseTest):
         domain.save()
         return config
 
+    def test_creating_config_populates_uuid_identifiers(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        assert uuid.UUID(str(config.saml_relay_state))
+        assert uuid.UUID(str(config.scim_slug))
+        assert config.saml_relay_state != config.scim_slug
+
     def test_creating_domain_with_idp_config_creates_link(self):
         config = IdentityProviderConfig.objects.create(organization=self.organization)
+        identifiers = (str(config.saml_relay_state), str(config.scim_slug))
         domain = self._create_domain(identity_provider_config=config)
 
         assert LinkedIdentityProviderConfig.objects.filter(
             organization_domain=domain, identity_provider_config=config
         ).exists()
         config.refresh_from_db()
-        assert config.saml_relay_state == str(domain.pk)
-        assert config.scim_slug == str(domain.pk)
+        assert (config.saml_relay_state, config.scim_slug) == identifiers
 
     def test_updating_domain_idp_config_creates_link(self):
         domain = self._create_domain()
         config = IdentityProviderConfig.objects.create(organization=self.organization)
+        identifiers = (str(config.saml_relay_state), str(config.scim_slug))
         domain.identity_provider_config = config
         domain.save()
 
@@ -57,8 +67,7 @@ class TestIdentityProviderConfig(BaseTest):
             organization_domain=domain, identity_provider_config=config
         ).exists()
         config.refresh_from_db()
-        assert config.saml_relay_state == str(domain.pk)
-        assert config.scim_slug == str(domain.pk)
+        assert (config.saml_relay_state, config.scim_slug) == identifiers
 
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore

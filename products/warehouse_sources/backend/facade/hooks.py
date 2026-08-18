@@ -14,24 +14,31 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
     person_property_projection_for,
+    register_data_quality_checks_gate,
     register_emit_signals_gate,
     register_engineering_analytics_view_sync,
     register_person_property_projection,
     register_person_property_sync_recorder,
     register_person_property_sync_sources,
     register_revenue_view_sync,
+    run_revenue_view_sync,
 )
+
+from .contracts import RevenueViewSyncInput
 
 __all__ = [
     "EmitSignalsActivityInputs",
     "PersonPropertySourceProjection",
     "PersonPropertySyncRunRecord",
     "PersonPropertySyncSource",
+    "RevenueViewSyncInput",
     "person_property_projection_for",
+    "register_data_quality_checks_gate",
     "register_emit_signals_gate",
     "register_engineering_analytics_view_sync",
     "register_person_property_projection",
     "register_person_property_sync_recorder",
     "register_person_property_sync_sources",
     "register_revenue_view_sync",
+    "run_revenue_view_sync",
 ]

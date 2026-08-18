@@ -32,8 +32,10 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         useSingleExec: true,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {} as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             organizationId: 'org-request',
             projectId: 'project-request',
@@ -100,6 +102,7 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',
+            $mcp_auth_method: 'personal_api_key',
             mcp_vendor_client: 'ClaudeAI',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
@@ -107,6 +110,23 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
         })
+    })
+
+    it('stamps the surface as `source` so MCP events join product events', async () => {
+        // Without it, $mcp_* events carry no `source` at all and sit outside the breakdown
+        // that measures MCP adoption. The resolution matrix itself is covered in
+        // tests/event-source.test.ts — this only proves the property reaches the event.
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({
+                apiKeyScopes: ['insight:read', 'internal_run:read'],
+                requestContext: { ...makeState().requestContext, mcpConsumer: 'slack' },
+            })
+        )
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.source).toBe('slack')
     })
 
     it('omits session properties when there is no MCP session context', async () => {

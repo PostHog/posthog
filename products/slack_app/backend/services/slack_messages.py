@@ -12,18 +12,30 @@ Also houses ``collect_thread_messages`` (and its cached wrapper) — fetching th
 full thread shape used by the agent context block lives next to the text logic
 it depends on, kept out of ``api.py`` so the pure helpers stay testable in
 isolation.
+
+The outbound half lives here too: the small Block Kit builders and the reply
+footer that says where to open a run and what produced it. All of it is what a
+Slack message is made of, and none of it needs a client, so it stays testable
+without one.
 """
 
 import re
+from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.utils import absolute_uri
 
+from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 
 logger = structlog.get_logger(__name__)
@@ -207,6 +219,95 @@ def _thread_replies_cache_key(integration_id: int, channel: str, thread_ts: str)
     return f"slack_thread_replies:{integration_id}:{channel}:{thread_ts}"
 
 
+def _message_exists_cache_key(channel: str, ts: str) -> str:
+    # Keyed on the Slack coordinates rather than the integration: the message either
+    # exists in that channel or it doesn't, regardless of which install is asking.
+    return f"slack_message_exists:{channel}:{ts}"
+
+
+def slack_message_exists(
+    client: WebClient,
+    channel: str,
+    ts: str,
+    *,
+    ttl: int = THREAD_REPLIES_CACHE_TTL_SECONDS,
+) -> bool:
+    """Whether a Slack message is still there.
+
+    Asked with a one-message window on `ts` itself: Slack answers with that message when
+    it is there and an empty list when it isn't. `conversations.replies` would answer a
+    different question — its result also depends on whether a thread was ever started and
+    on how Slack represents a deleted parent.
+
+    Cached on the same short TTL as the thread snapshot: a burst of relay chunks for one
+    reply collapses onto a single `conversations.history` call, while a message deleted
+    mid-run is noticed within seconds.
+    """
+    key = _message_exists_cache_key(channel, ts)
+    cached = cache.get(key)
+    if cached is not None:
+        return bool(cached)
+
+    try:
+        response = client.conversations_history(channel=channel, latest=ts, oldest=ts, inclusive=True, limit=1)
+        exists = bool(response.get("messages"))
+    except Exception:
+        # Rate limits, transient 5xx, a scope we happen to lack — none of these are
+        # evidence the message is gone, and treating them as such would silence real
+        # replies. Fail open and let the post itself surface any real problem.
+        logger.warning("slack_app_message_exists_probe_failed", channel=channel, ts=ts, exc_info=True)
+        return True
+
+    try:
+        cache.set(key, exists, timeout=ttl)
+    except Exception:
+        logger.warning("slack_app_message_exists_cache_set_failed", channel=channel, ts=ts, exc_info=True)
+    return exists
+
+
+def post_slack_thread_reply(
+    client: WebClient,
+    *,
+    channel: str,
+    thread_ts: str | None,
+    trigger_ts: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Post a reply once confirmed the message it answers still exists.
+
+    The single funnel for every `@PostHog` reply. A deleted prompt has nobody left to
+    answer, and replies to one were seen landing at channel level rather than in the
+    thread. Returns ``None`` when nothing was posted.
+
+    Where the reply goes and what it answers are separate questions. ``thread_ts`` places
+    it — falsy posts at channel root, which some replies do deliberately because a
+    thread-anchored one is invisible to anyone not already reading that thread.
+    ``trigger_ts`` is the message being answered, and defaults to the anchor. Pass it
+    whenever the two differ, or a root-placed reply would go out unchecked.
+
+    With neither set there is nothing to check — a slash command creates no message — so
+    the reply posts unconditionally.
+    """
+    check_ts = trigger_ts or thread_ts
+    if check_ts and not slack_message_exists(client, channel, check_ts):
+        logger.warning(
+            "slack_app_thread_reply_skipped_message_deleted",
+            channel=channel,
+            thread_ts=thread_ts,
+            trigger_ts=trigger_ts,
+        )
+        return None
+    if thread_ts:
+        return client.chat_postMessage(channel=channel, thread_ts=thread_ts, **kwargs)
+    return client.chat_postMessage(channel=channel, **kwargs)
+
+
+# `conversations.replies` answers `thread_not_found` for a ts that no longer resolves to a
+# message; `message_not_found` is carried alongside it because Slack uses that spelling on
+# neighbouring methods and the two mean the same thing here.
+_MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
+
+
 def collect_thread_messages(
     slack: SlackIntegration,
     integration: Integration,
@@ -214,10 +315,23 @@ def collect_thread_messages(
     thread_ts: str,
     our_bot_id: str | None,
 ) -> list[dict[str, str]]:
-    """Fetch thread messages, strip bot mentions, and resolve user display names."""
+    """Fetch thread messages, strip bot mentions, and resolve user display names.
+
+    A thread whose root no longer exists — the user deleted the message that triggered
+    us — comes back empty rather than raising. Callers read an empty thread as "nothing
+    to do"; letting `thread_not_found` escape instead would exhaust the activity's
+    retries and land in the workflow's error handler, which announces the failure in
+    Slack. There is nothing to announce: the prompt was retracted.
+    """
     client = slack.client
     client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    try:
+        thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
+    except SlackApiError as e:
+        if e.response.get("error") not in _MISSING_THREAD_ERRORS:
+            raise
+        logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
+        return []
     raw_messages: list[dict] = thread_response.get("messages", [])
 
     user_cache: dict[str, str] = {}
@@ -317,3 +431,170 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
             thread_ts=thread_ts,
             exc_info=True,
         )
+
+
+# Query param a link we compose can carry to tell our own unfurler to leave it alone
+# (honoured by `parse_posthog_resource_link`).
+UNFURL_OPT_OUT_PARAM = "unfurl"
+
+
+@dataclass(frozen=True)
+class RunFooter:
+    """What a reply can say about the run behind it.
+
+    Constant for the life of a handler, so it is supplied once at construction rather
+    than threaded through every posting method. An empty instance is the "say nothing"
+    case, which is what every caller outside the footer rollout gets.
+    """
+
+    task_url: str | None = None
+    desktop_url: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+
+    def has_content(self) -> bool:
+        """Whether this would render as anything.
+
+        A caller checks it to skip the flag lookups behind a footer that can't appear.
+        Spelled out rather than given as ``__bool__`` so that ``footer or RunFooter()``
+        keeps meaning "None-coalesce" and cannot silently discard a partial instance.
+        """
+        return any((self.task_url, self.desktop_url, self.model))
+
+
+def load_run_footer(run_id: str | UUID | None) -> RunFooter:
+    """Describe a run for the footer.
+
+    Never raises: the footer is the last thing added to an answer that is already
+    written, so failing to describe the run must not cost the reader the answer.
+
+    Describes the run in full, links included. Whether the reader may open them is
+    ``viewer_has_code_access``'s question, asked where the reader is known.
+    """
+    # Deferred so the tasks product stays off this module's import path, matching
+    # `model_catalogue`.
+    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415
+    from products.tasks.backend.facade.run_config import parse_run_state  # noqa: PLC0415
+
+    if not run_id:
+        return RunFooter()
+    try:
+        run = get_task_run(run_id)
+        if run is None:
+            return RunFooter()
+        state = parse_run_state(run.state)
+        return RunFooter(
+            task_url=_task_url(run.team_id, run.task_id, run.id),
+            # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
+            # desktop app when installed and offers a download when not, so a reader without
+            # the app lands somewhere useful instead of a dead link. It also picks the right
+            # scheme (prod vs dev) client-side, which a server-minted scheme link can't.
+            desktop_url=_desktop_bridge_url(run.task_id),
+            model=state.model,
+            reasoning_effort=state.reasoning_effort,
+        )
+    except Exception:
+        logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
+        return RunFooter()
+
+
+def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
+    """The footer as a `context` block, or `None` when there is nothing to say.
+
+    The answer itself is the message, so this is muted rather than competing with the
+    prose. A run with no links and no pinned model contributes no segments and gets no
+    trailing line at all.
+    """
+    segments: list[str] = []
+    if footer.task_url:
+        segments.append(f"<{footer.task_url}|View on web>")
+    if footer.desktop_url:
+        segments.append(f"<{footer.desktop_url}|View on desktop>")
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if configure_url:
+        segments.append(f"<{configure_url}|Configure>")
+    if not segments:
+        return None
+    return context_block(" · ".join(segments))
+
+
+def context_block(text: str) -> dict[str, Any]:
+    """A line of muted supporting text.
+
+    Block Kit has no footer block; `context` is what renders small and grey under the
+    content it describes.
+    """
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
+
+
+def app_home_url(integration: Integration) -> str | None:
+    """Deep link to this install's Home tab, where the model picker lives.
+
+    The native `slack://` form rather than the https `app_redirect` one: the reader is
+    already in Slack, so this opens the tab in place instead of bouncing them through a
+    browser — and Slack doesn't unfurl a non-http scheme, so it costs no preview card.
+
+    Needs the app id (`A…`), which the OAuth exchange already persisted on the
+    integration, so this stays correct even where more than one Slack app is in play. A
+    row installed by some other path may not carry it, which simply means no link.
+    """
+    app_id = (integration.config or {}).get("app_id")
+    if not app_id or not integration.integration_id:
+        return None
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+
+
+def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
+    # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
+    # says what the card would, right next to the link.
+    return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _desktop_bridge_url(task_id: UUID) -> str:
+    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
+    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
+    # the run right beside the link.
+    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _public_url(path: str) -> str:
+    # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
+    # posted into Slack actually reachable.
+    if settings.DEBUG and settings.NGROK_URL:
+        return f"{settings.NGROK_URL.rstrip('/')}{path}"
+    return absolute_uri(path)
+
+
+def workspace_org_ids(slack_team_id: str) -> set:
+    """Organizations connected to this Slack workspace — the scope a Slack identity may
+    resolve a PostHog user within."""
+    return set(
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
+            "team__organization_id", flat=True
+        )
+    )
+
+
+def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
+    """Whether the Slack identity reading this can open a PostHog Code link.
+
+    Asked about the reader rather than the task's creator: the two can differ, and a link
+    is only useful to the person looking at it. Fail closed — an unlinked identity or a
+    flag-service error means no link rather than one that dead-ends.
+    """
+    from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
+    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+
+    if not slack_user_id:
+        return False
+    try:
+        user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=integration.integration_id,
+            candidate_org_ids=workspace_org_ids(integration.integration_id),
+        )
+        return user is not None and has_tasks_access(user)
+    except Exception:
+        logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
+        return False
