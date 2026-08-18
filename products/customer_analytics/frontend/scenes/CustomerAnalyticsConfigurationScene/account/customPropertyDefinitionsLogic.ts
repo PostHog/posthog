@@ -247,6 +247,7 @@ export interface customPropertyDefinitionsLogicValues {
     hasWarehouseSourceOptions: boolean | null
     isCustomPropertyFormSubmitting: boolean
     isCustomPropertyFormValid: boolean
+    mappableColumns: WarehouseColumn[]
     materializedViews: DataWarehouseSavedQuery[]
     modalVisible: boolean
     newWorkflowUrl: string | null
@@ -407,6 +408,9 @@ export interface customPropertyDefinitionsLogicActions {
             search?: string
         }
     }
+    mapAllColumns: () => {
+        value: true
+    }
     openCreateModal: (
         targetType?: CustomPropertyTargetType,
         lockTargetType?: boolean
@@ -504,6 +508,10 @@ export interface customPropertyDefinitionsLogicMeta {
             materializedViews: DataWarehouseSavedQuery[],
             customPropertyForm: CustomPropertyFormValues
         ) => ProfileSourceBinding | null
+        mappableColumns: (
+            selectedTableColumns: WarehouseColumn[],
+            customPropertyForm: CustomPropertyFormValues
+        ) => WarehouseColumn[]
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         columnMappingWarnings: (
@@ -556,6 +564,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => ({ targetTypeFilter }),
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
+        // Fill a mapping row for every column the source exposes that isn't mapped yet. A wide table
+        // is the common case for this feature, and adding twenty rows by hand is the friction it
+        // exists to remove.
+        mapAllColumns: true,
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
         // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
         // guard, keyed by source so triggering one row never re-enables another's in-flight button.
@@ -1015,6 +1027,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return schemaId ? { field: 'external_data_schema', id: schemaId } : null
             },
         ],
+        // Columns a bulk map would add: everything the source exposes except the key column, whose
+        // values identify the person or group rather than describing it, and columns already mapped.
+        mappableColumns: [
+            (s) => [s.selectedTableColumns, s.customPropertyForm],
+            (selectedTableColumns: WarehouseColumn[], form: CustomPropertyFormValues): WarehouseColumn[] => {
+                const keyColumn = form.keyColumn?.trim()
+                const alreadyMapped = new Set(
+                    form.columnMappings.map((mapping) => mapping.column.trim()).filter(Boolean)
+                )
+                return selectedTableColumns.filter(
+                    (column) => column.name !== keyColumn && !alreadyMapped.has(column.name)
+                )
+            },
+        ],
         // The person-target column mappings as the backend's `column_property_map` object.
         serializedColumnPropertyMap: [
             (s) => [s.customPropertyForm],
@@ -1091,6 +1117,25 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        mapAllColumns: () => {
+            if (!values.mappableColumns.length) {
+                return
+            }
+            // Rows the user already started are kept, and the columns behind them are excluded from
+            // mappableColumns, so a bulk map never duplicates or discards hand-entered work. Only the
+            // empty placeholder row drops out.
+            const started = values.customPropertyForm.columnMappings.filter((mapping) => mapping.column.trim())
+            actions.setCustomPropertyFormValue('columnMappings', [
+                ...started,
+                ...values.mappableColumns.map((column) => ({
+                    column: column.name,
+                    // Same name on both sides: it is what the per-row picker already seeds, and a
+                    // rename is a decision for the person, not a default worth guessing at.
+                    property: column.name,
+                    description: column.description ?? '',
+                })),
+            ])
+        },
         openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
             if (targetType) {
