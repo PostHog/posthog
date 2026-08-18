@@ -17,6 +17,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -196,7 +197,10 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         scanner_id=str(backfill.scanner_id),
         seconds_remaining=FIND_BACKFILL_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
     )
-    dispatchable = [c for c in unobserved if c.session_id not in excluded]
+    # Same quarantine as the live sweep: a session past the stuck threshold cannot render, and the
+    # cursor steps over it exactly like an excluded session.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
+    dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
