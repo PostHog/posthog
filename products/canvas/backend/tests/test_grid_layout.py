@@ -161,6 +161,34 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert any(entry["code"] == "edit_target_missing" for entry in response.json()["diagnostics"])
 
+    def test_patch_not_blocked_by_preexisting_invalid_placement(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        doc = layout(placements=[placement(status="live", component=component_id, config={"location": "Lisbon"})])
+        published = self._publish_layout(grid_id, doc)
+        assert published.status_code == status.HTTP_200_OK, published.json()
+        version_id = published.json()["current_version_id"]
+        # The component disappears after placement; the live placement is now
+        # invalid through no fault of the layout's own edits.
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(deleted=True)
+
+        added = self._patch_layout(
+            grid_id,
+            [{"op": "add_placement", "placement": placement(id="p2", x=2)}],
+            expected=version_id,
+        )
+        assert added.status_code == status.HTTP_200_OK, added.json()
+
+        # A patch that introduces a problem of its own is still rejected.
+        worsened = self._patch_layout(
+            grid_id,
+            [{"op": "add_placement", "placement": placement(id="p3", x=4, status="live")}],
+            expected=added.json()["current_version_id"],
+        )
+        assert worsened.status_code == status.HTTP_400_BAD_REQUEST
+        assert any(entry["code"] == "invalid_placement" for entry in worsened.json()["diagnostics"])
+
     def test_live_placement_requires_available_component(self):
         grid_id = self._create_grid()
         unpublished_id = self._create_canvas(kind="component", name="Empty component")

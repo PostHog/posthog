@@ -29,7 +29,13 @@ from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
-from products.canvas.backend.layout import apply_layout_ops, default_layout, validate_layout, validate_layout_references
+from products.canvas.backend.layout import (
+    apply_layout_ops,
+    default_layout,
+    subtract_preexisting_diagnostics,
+    validate_layout,
+    validate_layout_references,
+)
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
@@ -132,6 +138,13 @@ def _grid_rejection(canvas: Canvas) -> Response | None:
     return _wrong_kind_response(
         "Grid canvases are compositions of components; use the layout endpoints, not file source."
     )
+
+
+def _layout_diagnostics(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics = validate_layout(layout)
+    if has_errors(diagnostics):
+        return diagnostics
+    return [*diagnostics, *validate_layout_references(team_id, user_id, layout)]
 
 
 def _non_grid_rejection(canvas: Canvas) -> Response | None:
@@ -1092,13 +1105,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = CanvasLayoutPatchSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            layout = self._read_current_layout(canvas)
+            current = self._read_current_layout(canvas)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's layout is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        layout, diagnostics = apply_layout_ops(layout, payload.validated_data["operations"])
+        layout, diagnostics = apply_layout_ops(current, payload.validated_data["operations"])
         if diagnostics:
             return Response(
                 {
@@ -1115,6 +1128,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prompt=payload.validated_data.get("prompt"),
             has_expected_version=True,
             expected_version_id=payload.validated_data["expected_current_version_id"],
+            baseline_layout=current,
         )
 
     def _publish_layout(
@@ -1126,14 +1140,17 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prompt: str | None,
         has_expected_version: bool,
         expected_version_id: str | None,
+        baseline_layout: dict[str, Any] | None = None,
     ) -> Response:
-        diagnostics = validate_layout(layout)
-        if not has_errors(diagnostics):
-            user = self._request_user()
-            diagnostics = [
-                *diagnostics,
-                *validate_layout_references(self.team_id, user.id if user else None, layout),
-            ]
+        acting_user = self._request_user()
+        acting_user_id = acting_user.id if acting_user else None
+        diagnostics = _layout_diagnostics(self.team_id, acting_user_id, layout)
+        # Patches (which pass their baseline) answer only for the problems they
+        # introduce; publishes replace the whole document and stay strict.
+        if baseline_layout is not None and has_errors(diagnostics):
+            diagnostics = subtract_preexisting_diagnostics(
+                diagnostics, _layout_diagnostics(self.team_id, acting_user_id, baseline_layout)
+            )
         if has_errors(diagnostics):
             return Response(
                 {

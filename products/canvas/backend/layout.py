@@ -11,6 +11,7 @@ visibility, config-vs-schema) live in ``validate_layout_references``.
 """
 
 import re
+from collections import Counter
 from typing import Any, TypeGuard
 from uuid import UUID
 
@@ -345,6 +346,40 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                     )
                 )
     return diagnostics
+
+
+# Placement index labels shift when placements are removed; normalize them so
+# a pre-existing diagnostic still matches after unrelated edits.
+_PLACEMENT_INDEX_RE = re.compile(r"placements\[\d+\]")
+
+
+def _diagnostic_key(diag: dict[str, Any]) -> tuple[Any, Any, str]:
+    return (
+        diag.get("severity"),
+        diag.get("code"),
+        _PLACEMENT_INDEX_RE.sub("placements[]", str(diag.get("message", ""))),
+    )
+
+
+def subtract_preexisting_diagnostics(
+    candidate: list[dict[str, Any]], baseline: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Drop candidate diagnostics already present in the baseline layout.
+
+    A patch is judged on what it changes: problems the canvas already had (a
+    component deleted or republished with a stricter contract after being
+    placed) must not block unrelated edits, or one rotten placement freezes
+    the whole canvas.
+    """
+    remaining = Counter(_diagnostic_key(diag) for diag in baseline)
+    fresh: list[dict[str, Any]] = []
+    for diag in candidate:
+        key = _diagnostic_key(diag)
+        if remaining[key] > 0:
+            remaining[key] -= 1
+            continue
+        fresh.append(diag)
+    return fresh
 
 
 def apply_layout_ops(
