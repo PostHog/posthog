@@ -7854,6 +7854,7 @@ export interface DataWarehouseActivityRecord {
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+export type HeatmapSource = 'server' | 'toolbar'
 
 export interface HeatmapScreenshotType {
     id: number

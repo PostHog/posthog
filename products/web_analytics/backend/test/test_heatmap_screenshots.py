@@ -1,11 +1,15 @@
 from datetime import timedelta
+from io import BytesIO
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 
@@ -15,6 +19,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import HeatmapPreflightBurstRateThrottle
 
+from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapCaptureRequestSerializer
 from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
@@ -450,3 +455,181 @@ class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
         url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
         r = self.client.post(url, **self._auth(key))
         assert r.status_code == 403, r.json()
+
+
+def _jpeg_bytes(width: int = 12, height: int = 12) -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 30)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+@patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+class TestHeatmapToolbarCapture(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _capture(self, **overrides):
+        data = {
+            "image": SimpleUploadedFile("heatmap.jpg", _jpeg_bytes(), content_type="image/jpeg"),
+            "url": "https://app.example.com/dashboard",
+            "width": 1440,
+            "name": "Dashboard",
+        }
+        data.update(overrides)
+        return self.client.post(f"/api/environments/{self.team.id}/saved/capture/", data, format="multipart")
+
+    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(self, mock_task):
+        image_bytes = _jpeg_bytes()
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/capture/",
+            {
+                "image": SimpleUploadedFile("heatmap.jpg", image_bytes, content_type="image/jpeg"),
+                "url": "https://app.example.com/dashboard",
+                "width": 1440,
+                "name": "Dashboard",
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data["source"], "toolbar")
+        self.assertEqual(resp.data["status"], "completed")
+        self.assertEqual(resp.data["type"], "screenshot")
+
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.data_url, "https://app.example.com/dashboard")
+        self.assertEqual(saved.target_widths, [1440])
+        self.assertEqual(saved.created_by, self.user)
+
+        snapshots = list(saved.snapshots.all())
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].width, 1440)
+        snapshot_content = snapshots[0].content
+        assert snapshot_content is not None
+        self.assertEqual(bytes(snapshot_content), image_bytes)
+
+        mock_task.assert_not_called()
+
+        content = self.client.get(
+            f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1440"
+        )
+        self.assertEqual(content.status_code, 200)
+        self.assertEqual(content["Content-Type"], "image/jpeg")
+        self.assertEqual(content.content, image_bytes)
+
+    def test_capture_defaults_name_to_url(self, _mock_task):
+        resp = self._capture(name="")
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data["name"], "https://app.example.com/dashboard")
+
+    @parameterized.expand(
+        [
+            ("wildcard_url", "https://app.example.com/*", _jpeg_bytes()),
+            ("not_an_image", "https://app.example.com/x", b"<html>not a jpeg</html>"),
+        ]
+    )
+    def test_capture_rejects_invalid_input(self, _mock_task, _name, url, content):
+        resp = self._capture(
+            url=url,
+            image=SimpleUploadedFile("heatmap.jpg", content, content_type="image/jpeg"),
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.HEATMAP_SCREENSHOT_MAX_BYTES", 10)
+    def test_capture_rejects_oversized_image(self, _mock_task):
+        resp = self._capture()
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    def test_capture_multi_width_creates_one_heatmap_with_all_widths(self, _mock_task):
+        widths = [320, 768, 1440]
+        images = [_jpeg_bytes(width=w // 100, height=6) for w in widths]
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/capture/",
+            {
+                "images": [SimpleUploadedFile(f"heatmap-{w}.jpg", img, "image/jpeg") for w, img in zip(widths, images)],
+                "widths": widths,
+                "url": "https://app.example.com/dashboard",
+                "name": "Dashboard",
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, 201, resp.data)
+
+        saved = SavedHeatmap.objects.get(id=resp.data["id"])
+        self.assertEqual(saved.source, SavedHeatmap.Source.TOOLBAR)
+        self.assertEqual(saved.target_widths, widths)
+        self.assertEqual(sorted(s.width for s in saved.snapshots.all()), widths)
+
+        for w, img in zip(widths, images):
+            content = self.client.get(
+                f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width={w}"
+            )
+            self.assertEqual(content.status_code, 200)
+            self.assertEqual(content.content, img)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.HEATMAP_SCREENSHOT_MAX_BYTES", 10)
+    def test_capture_multi_width_aborts_whole_capture_when_one_image_oversized(self, _mock_task):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/capture/",
+            {
+                "images": [SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg") for _ in range(3)],
+                "widths": [320, 768, 1440],
+                "url": "https://app.example.com/dashboard",
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    def test_regenerate_blocked_for_toolbar_capture(self, mock_task):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://app.example.com/dashboard",
+            data_url="https://app.example.com/dashboard",
+            target_widths=[1440],
+            type=SavedHeatmap.Type.SCREENSHOT,
+            source=SavedHeatmap.Source.TOOLBAR,
+            status=SavedHeatmap.Status.COMPLETED,
+            created_by=self.user,
+        )
+        resp = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
+        self.assertEqual(resp.status_code, 400)
+        mock_task.assert_not_called()
+
+
+class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("wildcard", "https://app.example.com/*"),
+            ("javascript_scheme", "javascript:alert"),
+            ("ftp_scheme", "ftp://app.example.com/x"),
+            ("no_scheme", "app.example.com/x"),
+        ]
+    )
+    def test_rejects_invalid_url(self, _name: str, url: str) -> None:
+        serializer = SavedHeatmapCaptureRequestSerializer(data={"url": url})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("url", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("mismatched_lengths", [320, 768, 1440], 2, False),
+            ("both_single_and_multi", [320, 768], 2, True),
+        ]
+    )
+    def test_rejects_bad_multi_width_shape(
+        self, _name: str, widths: list[int], n_images: int, add_single: bool
+    ) -> None:
+        data: dict = {
+            "url": "https://app.example.com/dashboard",
+            "images": [SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg") for _ in range(n_images)],
+            "widths": widths,
+        }
+        if add_single:
+            data["image"] = SimpleUploadedFile("single.jpg", _jpeg_bytes(), "image/jpeg")
+            data["width"] = 1024
+        serializer = SavedHeatmapCaptureRequestSerializer(data=data)
+        self.assertFalse(serializer.is_valid())

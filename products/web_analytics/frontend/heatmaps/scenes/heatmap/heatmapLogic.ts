@@ -13,7 +13,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { AccessControlLevel, ActivityScope, HeatmapStatus, HeatmapType } from '~/types'
+import { AccessControlLevel, ActivityScope, HeatmapSource, HeatmapStatus, HeatmapType } from '~/types'
 import type { ExportContext } from '~/types'
 
 import {
@@ -76,6 +76,10 @@ function isValidPageUrl(url: string | null): boolean {
     }
 }
 
+export function computeLockedWidth(source: HeatmapSource, capturedWidths: number[]): number | null {
+    return source === 'toolbar' && capturedWidths.length === 1 ? (capturedWidths[0] ?? null) : null
+}
+
 // Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
 // SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
 export function resolveHeatmapExportUrl(
@@ -113,12 +117,14 @@ export interface heatmapLogicValues {
     isBrowserUrlValid: boolean // heatmapsBrowserLogic
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
+    capturedWidths: number[]
     containerWidth: number | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
     effectiveWidth: number
     generatingScreenshot: boolean
     heatmapId: string | null
+    lockedWidth: number | null
     isDisplayUrlValid: boolean
     isPageUrlDraftValid: boolean
     loading: boolean
@@ -133,6 +139,7 @@ export interface heatmapLogicValues {
     screenshotLoading: boolean
     screenshotUrl: string | null
     sidePanelContext: SidePanelSceneContext | null
+    source: HeatmapSource
     status: HeatmapStatus
     type: HeatmapType
     userAccessLevel: AccessControlLevel | null
@@ -195,6 +202,9 @@ export interface heatmapLogicActions {
     setBlockConsentModals: (value: boolean) => {
         value: boolean
     }
+    setCapturedWidths: (widths: number[]) => {
+        widths: number[]
+    }
     setContainerWidth: (containerWidth: number | null) => {
         containerWidth: number | null
     }
@@ -224,6 +234,9 @@ export interface heatmapLogicActions {
     }
     setType: (type: HeatmapType) => {
         type: HeatmapType
+    }
+    setSource: (source: HeatmapSource) => {
+        source: HeatmapSource
     }
     setUserAccessLevel: (level: AccessControlLevel | null) => {
         level: AccessControlLevel | null
@@ -258,6 +271,7 @@ export interface heatmapLogicMeta {
         desiredNumericWidth: (widthOverride: number, containerWidth: number | null) => number
         effectiveWidth: (desiredNumericWidth: number) => number
         scalePercent: (widthOverride: number, containerWidth: number | null) => number
+        lockedWidth: (source: HeatmapSource, capturedWidths: number[]) => number | null
     }
 }
 
@@ -309,6 +323,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
+        setSource: (source: HeatmapSource) => ({ source }),
         changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
@@ -318,6 +333,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (width?: number) => ({ width }),
         setHeatmapId: (id: string | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        setCapturedWidths: (widths: number[]) => ({ widths }),
         regenerateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
@@ -330,6 +346,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
+        source: ['server' as HeatmapSource, { setSource: (_, { source }) => source }],
         width: [DEFAULT_HEATMAP_WIDTH as number | null, { setWidth: (_, { width }) => width }],
         name: ['New heatmap', { setName: (_, { name }) => name }],
         loading: [false, { setLoading: (_, { loading }) => loading }],
@@ -353,6 +370,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         userAccessLevel: [null as AccessControlLevel | null, { setUserAccessLevel: (_, { level }) => level }],
+        capturedWidths: [[] as number[], { setCapturedWidths: (_, { widths }) => widths }],
     }),
     listeners(({ actions, values, props, cache }) => ({
         changeCaptureMethod: async ({ type }) => {
@@ -390,12 +408,21 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
                 actions.setUserAccessLevel((item.user_access_level ?? null) as AccessControlLevel | null)
                 actions.setType(item.type ?? 'screenshot')
+                const source = (item.source ?? 'server') as HeatmapSource
+                actions.setSource(source)
                 posthog.capture('in-app heatmap viewed', {
                     heatmap_type: item.type,
                     heatmap_status: item.status,
+                    heatmap_source: source,
                 })
                 if (item.type === 'screenshot') {
-                    const desiredWidth = values.widthOverride
+                    const capturedWidths = [...(item.target_widths ?? [])]
+                    actions.setCapturedWidths(capturedWidths)
+                    const lockedWidth = computeLockedWidth(source, capturedWidths)
+                    if (lockedWidth) {
+                        actions.setWindowWidthOverride(lockedWidth)
+                    }
+                    const desiredWidth = lockedWidth ?? values.widthOverride
                     if (item.status === 'completed' && item.has_content) {
                         actions.setScreenshotUrl(
                             getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), item.id, {
@@ -489,6 +516,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         regenerateScreenshot: async () => {
             if (!props.id || !values.heatmapId) {
+                return
+            }
+            if (values.source === 'toolbar') {
+                lemonToast.info('This heatmap was captured from the toolbar. Open it in the toolbar to re-capture it.')
                 return
             }
             actions.setScreenshotError(null)
@@ -632,6 +663,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return Math.round(scale * 100)
             },
         ],
+        lockedWidth: [(s) => [s.source, s.capturedWidths], computeLockedWidth],
     }),
     selectors(({ props }) => ({
         [SIDE_PANEL_CONTEXT_KEY]: [
