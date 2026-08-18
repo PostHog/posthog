@@ -1560,6 +1560,7 @@ export interface sourceWizardLogicActions {
             | 'SalesforceMarketingCloud'
             | 'SalesLoft'
             | 'Salestrics'
+            | 'SamCart'
             | 'Sanity'
             | 'SapConcur'
             | 'SapErp'
