@@ -163,7 +163,7 @@ def welcome_checklist_project() -> dict[str, Any]:
     """The checklist component's source project (kept publishable by a contract test)."""
     project = synthetic_source_project(_CHECKLIST_CODE)
     project["capabilities"] = {"posthog": {"state": ["user"]}, "network": {"origins": []}}
-    project["component"] = {"size": {"defaultW": 2, "defaultH": 3, "minW": 2, "minH": 3}}
+    project["component"] = {"size": {"defaultW": 2, "defaultH": 5, "minW": 2, "minH": 3}}
     return project
 
 
@@ -172,7 +172,7 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
 
     Creates the checklist component in the user's personal channel, queues its
     build, pre-ticks what the account already answers, and publishes the home
-    layout with the component placed 2x3 in the top-left corner. The placement
+    layout with the component placed 2x5 in the top-left corner. The placement
     goes live before the build finishes — the tile shows a spinner until the
     artifact lands, which beats opening onto an empty grid. Raises on failure;
     the caller treats seeding as best-effort.
@@ -217,7 +217,7 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
             "x": 0,
             "y": 0,
             "w": 2,
-            "h": 3,
+            "h": 5,
             "component": str(component.id),
             "version": "latest",
             "prompt": WELCOME_COMPONENT_NAME,
