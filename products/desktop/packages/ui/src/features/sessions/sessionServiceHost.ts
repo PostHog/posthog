@@ -76,9 +76,21 @@ export function shouldEnableSpokenNarration(
 
 /**
  * Narrow the raw flag value to a known variant. An unmatched flag, an
- * unresolved one (flags not loaded yet), or a variant added in PostHog that
- * this build doesn't know about all yield undefined, which leaves the session
- * on the gateway's default provider rather than guessing.
+ * unresolved one, or a variant added in PostHog that this build does not know
+ * about all yield undefined, which leaves the session on the gateway's default
+ * provider rather than guessing.
+ *
+ * posthog-js resolves flags asynchronously, so a session started before the
+ * first load finishes reads undefined and runs on Anthropic. That window is
+ * effectively the first launch after install, because posthog-js restores
+ * cached flags from its persistence layer on init, and this flag matches on
+ * `email`, which only exists once `identify` runs.
+ *
+ * An unresolved variant is deliberately not treated as `control`: the session
+ * sends no `$feature/` property at all, so it drops out of both arms instead of
+ * inflating control. That keeps the comparison honest at the cost of losing a
+ * few early sessions. Waiting for flags here would put a network round trip in
+ * front of every session start and reconnect, which is a worse trade.
  */
 export function resolveBedrockGatewayVariant(
   rawVariant: string | undefined,
