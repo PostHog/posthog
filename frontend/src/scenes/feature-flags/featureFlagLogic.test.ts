@@ -64,6 +64,7 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
     validateFeatureFlagVariantKey,
+    validateVariantRolloutSum,
 } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -2732,6 +2733,26 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
     ])('rejects variant key with $desc', ({ key, error }) => {
         expect(validateFeatureFlagVariantKey(key)).toContain(error)
+    })
+})
+
+describe('validateVariantRolloutSum', () => {
+    // Adding floats leaves artifacts users should never be shown (0.01 + 64.04 + 35 is
+    // 99.05000000000001), and a rejected total must never read as exactly 100.
+    it.each([
+        { percentages: [0.01, 64.04, 35], expected: '99.05' },
+        { percentages: [30.1, 30.1, 30.1], expected: '90.3' },
+        { percentages: [50, 49.99], expected: '99.99' },
+    ])('reports $expected without floating point noise', ({ percentages, expected }) => {
+        const variants = percentages.map((rollout_percentage, index) => ({
+            key: `variant-${index}`,
+            name: '',
+            rollout_percentage,
+        }))
+
+        expect(validateVariantRolloutSum(variants)).toBe(
+            `Percentage rollouts for variants must sum to 100 (currently ${expected}).`
+        )
     })
 })
 

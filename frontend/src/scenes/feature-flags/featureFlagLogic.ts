@@ -481,9 +481,14 @@ export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]):
         return undefined
     }
     const rolloutSum = getVariantRolloutSum(variants)
-    return Math.abs(rolloutSum - 100) <= ROLLOUT_SUM_TOLERANCE
-        ? undefined
-        : `Percentage rollouts for variants must sum to 100 (currently ${rolloutSum}).`
+    if (Math.abs(rolloutSum - 100) <= ROLLOUT_SUM_TOLERANCE) {
+        return undefined
+    }
+    // Adding floats leaves artifacts a person should never be shown: 0.01 + 64.04 + 35 is
+    // 99.05000000000001. Rounding here is finer than the tolerance above, so a total that is
+    // rejected can never read as exactly 100.
+    const displayedSum = parseFloat(rolloutSum.toFixed(10))
+    return `Percentage rollouts for variants must sum to 100 (currently ${displayedSum}).`
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {

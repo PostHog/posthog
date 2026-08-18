@@ -26,7 +26,7 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.queries.base import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
-from products.feature_flags.backend.variant_rollout import variant_rollout_sum_is_100
+from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 DATE_OPERATORS: frozenset[str] = frozenset({"is_date_exact", "is_date_after", "is_date_before"})
 STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
@@ -80,7 +80,7 @@ def check_variant_rollout_sum(filters: Mapping[str, Any]) -> list[Violation]:
             Violation(
                 rule_id="cross_field.variant_rollout_sum_not_100",
                 path="multivariate.variants",
-                message=f"Variant rollout percentages must sum to 100, got {rollout_sum}.",
+                message=f"Variant rollout percentages must sum to 100, got {format_variant_rollout_sum(rollout_sum)}.",
             )
         ]
     return []

@@ -14,3 +14,11 @@ VARIANT_ROLLOUT_SUM_TOLERANCE = 1e-9
 
 def variant_rollout_sum_is_100(rollout_sum: float) -> bool:
     return abs(rollout_sum - 100) <= VARIANT_ROLLOUT_SUM_TOLERANCE
+
+
+def format_variant_rollout_sum(rollout_sum: float) -> float:
+    """Drop the binary artifact so an error message never reads `99.05000000000001`.
+
+    Rounds finer than the tolerance, so a sum that fails the check cannot read as exactly 100.
+    """
+    return round(rollout_sum, 10)
