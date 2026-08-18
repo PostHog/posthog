@@ -806,7 +806,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
-        await self._send_followup_to_sandbox(ci_message, [])
+        await self._send_followup_to_sandbox(ci_message, [], user_originated=False)
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
@@ -2571,6 +2571,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         context: dict[str, Any] | None = None,
         *,
         steer: bool = False,
+        user_originated: bool = True,
     ) -> str | None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
@@ -2619,11 +2620,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     if dedupe_key in self._accepted_message_id_set:
                         self._accepted_message_id_set.discard(dedupe_key)
                         self._accepted_message_ids.remove(dedupe_key)
+                if user_originated:
+                    # A user follow-up can arrive without a message_id, so the card can't hinge on
+                    # one; the generated group still gives the user a failure notice instead of a
+                    # silently frozen conversation. CI nudges skip it because the copy is user-facing.
                     await self._emit_progress(
                         step="followup_delivery",
                         status="failed",
                         label="Couldn't deliver your message",
-                        group=f"followup-delivery:{message_id}",
+                        group=f"followup-delivery:{message_id or workflow.uuid4()}",
                         detail=str(cause_message or e),
                     )
                 return None

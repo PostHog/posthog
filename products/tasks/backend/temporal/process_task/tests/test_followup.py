@@ -143,8 +143,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 class TestFollowupDeliveryFailure:
+    @pytest.mark.parametrize("message_id", ["msg-1", None])
     @pytest.mark.timeout(30, func_only=True)
-    async def test_failed_interactive_followup_keeps_run_alive_and_surfaces_the_failure(self):
+    async def test_failed_interactive_followup_keeps_run_alive_and_surfaces_the_failure(self, message_id):
         _status_updates.clear()
         _progress_events.clear()
 
@@ -184,10 +185,13 @@ class TestFollowupDeliveryFailure:
                 # Let setup activities complete before signaling
                 await asyncio.sleep(2)
 
-                await handle.signal(
-                    ProcessTaskWorkflow.send_followup_message,
-                    args=["test followup", [], "msg-1"],
-                )
+                # A message_id is optional the whole way down: real user follow-ups
+                # (thread comments, first activation message, signal-report replies) reach
+                # this path with none, so the failure card must not hinge on one.
+                signal_args = ["test followup", []]
+                if message_id is not None:
+                    signal_args.append(message_id)
+                await handle.signal(ProcessTaskWorkflow.send_followup_message, args=signal_args)
 
                 result = await handle.result()
 
@@ -197,15 +201,21 @@ class TestFollowupDeliveryFailure:
         inactivity_exits = [(s, timed_out) for s, _, timed_out in _status_updates if timed_out]
         assert inactivity_exits == [("completed", True)]
         delivery_failures = [event for event in _progress_events if event[0] == "followup_delivery"]
-        assert delivery_failures == [
-            (
-                "followup_delivery",
-                "failed",
-                "Couldn't deliver your message",
-                "RuntimeError: Sandbox session is dead",
-                "followup-delivery:msg-1:run-1",
-            )
-        ]
+        assert len(delivery_failures) == 1
+        step, status, label, detail, group = delivery_failures[0]
+        assert (step, status, label, detail) == (
+            "followup_delivery",
+            "failed",
+            "Couldn't deliver your message",
+            "RuntimeError: Sandbox session is dead",
+        )
+        if message_id is not None:
+            assert group == f"followup-delivery:{message_id}:run-1"
+        else:
+            # No id to key on, so the run-id-scoped group carries a generated middle segment.
+            assert group.startswith("followup-delivery:")
+            assert group.endswith(":run-1")
+            assert group != "followup-delivery::run-1"
 
     @pytest.mark.timeout(30, func_only=True)
     async def test_failed_background_followup_marks_run_as_failed_promptly(self):
