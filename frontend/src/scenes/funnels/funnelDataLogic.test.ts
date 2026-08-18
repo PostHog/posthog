@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
+import { FunnelLayout } from 'lib/constants'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -66,6 +67,25 @@ describe('funnelDataLogic', () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 series: [],
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: true,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: false,
+            })
+        })
+
+        it('with layout but missing funnel viz type', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    layout: FunnelLayout.horizontal,
+                },
             }
 
             await expectLogic(logic, () => {
