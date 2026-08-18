@@ -96,6 +96,25 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "select reasoning from system.information_schema.relationship_proposals",
                 {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
+            # The data-quality information_schema tables partition on data_quality access AND on
+            # warehouse object access (their rows are hidden per-object via the caller's denied tables),
+            # so an allowed user's cached check configs / run counts can't leak to a user with less
+            # data_quality OR warehouse access on a cache hit.
+            (
+                "information_schema_data_quality_checks",
+                "select config from system.information_schema.data_quality_checks",
+                {"data_quality", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_data_quality_check_runs",
+                "select failed_row_count from system.information_schema.data_quality_check_runs",
+                {"data_quality", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_data_quality_health",
+                "select health from system.information_schema.data_quality_health",
+                {"data_quality", "warehouse_table", "warehouse_view"},
+            ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
