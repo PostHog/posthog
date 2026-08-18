@@ -1,6 +1,10 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { filterAndSortTasks, taskActivityTimestamp } from "./taskActivity";
+import {
+  filterAndSortTasks,
+  runActivityTimestamp,
+  taskActivityTimestamp,
+} from "./taskActivity";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -50,6 +54,42 @@ describe("taskActivityTimestamp", () => {
     expect(taskActivityTimestamp(task, "updated")).toBe(
       new Date("2026-01-04T00:00:00Z").getTime(),
     );
+  });
+});
+
+describe("runActivityTimestamp", () => {
+  it.each([
+    {
+      what: "the terminal time when it is later than the run's own update",
+      run: {
+        updated_at: "2026-01-02T00:00:00Z",
+        completed_at: "2026-01-04T00:00:00Z",
+      },
+      expected: new Date("2026-01-04T00:00:00Z").getTime(),
+    },
+    {
+      what: "the run's update when it is the later of the two",
+      run: {
+        updated_at: "2026-01-05T00:00:00Z",
+        completed_at: "2026-01-04T00:00:00Z",
+      },
+      expected: new Date("2026-01-05T00:00:00Z").getTime(),
+    },
+    // Callers feed this straight into a Math.max, where a single NaN would swallow every other
+    // term — so a run without timestamps, or with unusable ones, has to read as zero.
+    { what: "zero for a task that never ran", run: null, expected: 0 },
+    {
+      what: "zero for a summary run that carries no timestamps",
+      run: {},
+      expected: 0,
+    },
+    {
+      what: "zero for an unparseable timestamp",
+      run: { updated_at: "whenever" },
+      expected: 0,
+    },
+  ])("returns $what", ({ run, expected }) => {
+    expect(runActivityTimestamp(run)).toBe(expected);
   });
 });
 

@@ -50,9 +50,6 @@ function ChannelTaskDetailRoute() {
   // lets a canvas's generation task drop out of the nested sidebar row once the
   // user has actually looked at it.
   const { markAsViewed } = useTaskViewed();
-  useEffect(() => {
-    markAsViewed(taskId);
-  }, [taskId, markAsViewed]);
 
   const {
     data: fetched,
@@ -66,6 +63,15 @@ function ChannelTaskDetailRoute() {
   });
 
   const task = pickFreshestTask(fetched, initialTask);
+
+  // Keyed on the activity time rather than only on mount: `updated_at` moves when a turn finishes
+  // or a thread message lands, so marking once on open would dot the row being read. Waiting for
+  // the timestamp also keeps the mark from landing before there is a task to have seen.
+  const activityAt = task?.updated_at;
+  useEffect(() => {
+    if (!activityAt) return;
+    markAsViewed(taskId);
+  }, [taskId, activityAt, markAsViewed]);
 
   // While a cached/list copy exists, a 404 is NOT authoritative (optimistic
   // and cloud-pending tasks aren't returnable by the API yet — see the loader
