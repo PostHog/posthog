@@ -653,21 +653,20 @@ class Task(DeletedMetaFields, models.Model):
             apply_ai_run_defaults,
         )
         from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps temporalio off the import path (matches _build_task)
-            RuntimeAdapter,
-            get_provider_for_runtime_adapter,
+            apply_runtime_adapter_run_state,
         )
 
         resolved = apply_ai_run_defaults(state, self.team_id, acting_user_id or self.created_by_id)
         if resolved is None:
             return
 
-        provider = get_provider_for_runtime_adapter(resolved.runtime_adapter)
-        if provider is not None:
-            state["provider"] = provider.value
-        # Codex runs default permission mode to `auto` so a headless run doesn't stall on a
-        # prompt — same side effect `_build_task` applies for explicitly pinned runtimes.
-        if not state.get("initial_permission_mode") and resolved.runtime_adapter == RuntimeAdapter.CODEX.value:
-            state["initial_permission_mode"] = "auto"
+        permission_mode = apply_runtime_adapter_run_state(
+            state,
+            resolved.runtime_adapter,
+            initial_permission_mode=state.get("initial_permission_mode") or None,
+        )
+        if permission_mode:
+            state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
     def create_run(
@@ -902,9 +901,8 @@ class Task(DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
-            RuntimeAdapter,
+            apply_runtime_adapter_run_state,
             get_pr_authorship_mode,
-            get_provider_for_runtime_adapter,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -1049,11 +1047,9 @@ class Task(DeletedMetaFields, models.Model):
         # default permission mode to `auto` so a headless run doesn't stall on a prompt.
         if runtime_adapter:
             extra_state["runtime_adapter"] = runtime_adapter
-            provider = get_provider_for_runtime_adapter(runtime_adapter)
-            if provider is not None:
-                extra_state["provider"] = provider.value
-            if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
-                initial_permission_mode = "auto"
+        initial_permission_mode = apply_runtime_adapter_run_state(
+            extra_state, runtime_adapter, initial_permission_mode=initial_permission_mode
+        )
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
