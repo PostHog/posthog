@@ -1410,9 +1410,8 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
-        // 800-byte budget: the enveloped small event (~672 B) is the token's
-        // first charge and is admitted, and the large one takes the running
-        // total past the budget.
+        // 800-byte budget: the enveloped small event (~672 B) fits, and the
+        // large one takes the running total past it.
         let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
@@ -1739,8 +1738,8 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
-        // 800-byte budget: the small event is the token's first charge and is
-        // admitted, the large one takes the running total past the budget.
+        // 800-byte budget: the small event fits, the large one takes the
+        // running total past it.
         let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
 
         let producer = MockKafkaProducer::new();
@@ -1846,13 +1845,7 @@ mod tests {
             None,
             None,
             None,
-            // The first AI event is the token's first charge and is admitted;
-            // the second is over budget and drops.
-            vec![
-                oversized_ai_event(),
-                oversized_ai_event(),
-                oversized_pageview,
-            ],
+            vec![oversized_ai_event(), oversized_pageview],
             &context,
             limiter,
         )
@@ -1860,17 +1853,10 @@ mod tests {
         .expect("process_events must accept the batch even though one event is dropped");
 
         let captured = sink.get_events();
+        assert_eq!(captured.len(), 1, "the over-budget AI event must drop");
         assert_eq!(
-            captured.len(),
-            2,
-            "only the over-budget AiEvents event must be dropped"
-        );
-        assert_eq!(
-            captured
-                .iter()
-                .filter(|e| e.metadata.data_type == DataType::AnalyticsMain)
-                .count(),
-            1,
+            captured[0].metadata.data_type,
+            DataType::AnalyticsMain,
             "the same-sized $pageview must survive"
         );
     }

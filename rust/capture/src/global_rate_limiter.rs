@@ -519,18 +519,39 @@ impl GlobalRateLimiter {
     /// the charge for the current call included. Lets weight-charging call sites
     /// (the AI byte budget) be tested without Redis.
     ///
-    /// Mirrors two properties of the real limiter that call sites have to cope
-    /// with: a key's first charge is always allowed (the real one takes a cache
-    /// miss as no prior data and fails open), and an over-threshold key keeps
-    /// being charged. It does not model the local cache's leaky-bucket decay, so
-    /// a key never recovers here.
+    /// Accounting is strict: a key is limited as soon as its total crosses the
+    /// threshold, including on its very first charge. Tests then say what they
+    /// mean — an event drops because of arithmetic a reader can check, not
+    /// because of a seam-specific exemption.
+    ///
+    /// The real limiter also admits a key whose cache entry is missing, which
+    /// recurs on every eviction and every new pod.
+    /// [`Self::mock_budget_admitting_cold_keys`] models that, and one test pins
+    /// it rather than every test inheriting it.
+    ///
+    /// Neither models the local cache's leaky-bucket decay, so a key never
+    /// recovers here.
     #[cfg(test)]
     pub(crate) fn mock_budget(threshold: u64) -> Self {
+        Self::mock_budget_with(threshold, false)
+    }
+
+    /// Test helper: [`Self::mock_budget`], plus the real limiter's fail-open on
+    /// a cache miss — a key's first charge is admitted however far over the
+    /// threshold it is.
+    #[cfg(test)]
+    pub(crate) fn mock_budget_admitting_cold_keys(threshold: u64) -> Self {
+        Self::mock_budget_with(threshold, true)
+    }
+
+    #[cfg(test)]
+    fn mock_budget_with(threshold: u64, admit_cold_keys: bool) -> Self {
         use async_trait::async_trait;
         use std::sync::Mutex;
 
         struct MockBudgetLimiter {
             threshold: u64,
+            admit_cold_keys: bool,
             charged: Mutex<HashMap<String, u64>>,
         }
 
@@ -543,10 +564,11 @@ impl GlobalRateLimiter {
                 _timestamp: Option<DateTime<Utc>>,
             ) -> EvalResult {
                 let mut charged = self.charged.lock().unwrap();
-                let first_charge = !charged.contains_key(key);
+                let cold_key = !charged.contains_key(key);
                 let total = charged.entry(key.to_string()).or_insert(0);
                 *total += count;
-                if !first_charge && *total >= self.threshold {
+                let exempt = cold_key && self.admit_cold_keys;
+                if !exempt && *total >= self.threshold {
                     EvalResult::Limited(GlobalRateLimitResponse {
                         key: key.to_string(),
                         current_count: *total as f64,
@@ -578,6 +600,7 @@ impl GlobalRateLimiter {
 
         Self::new_with(MockBudgetLimiter {
             threshold,
+            admit_cold_keys,
             charged: Mutex::new(HashMap::new()),
         })
     }

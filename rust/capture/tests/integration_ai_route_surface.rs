@@ -37,17 +37,40 @@ fn ai_batch_payload() -> String {
     .to_string()
 }
 
-/// A route is "registered" when the router does not 404 it. The handler may
-/// still reject the payload for its own reasons, which is not what this file
-/// is about, so any non-404 counts as registered.
+/// A route is "registered" when a handler answered it. The handler may still
+/// reject the payload for its own reasons — the multipart and OTEL endpoints
+/// both 400 a JSON body — and which reason it picks is not what this file is
+/// about, so the status is not pinned.
+///
+/// What is pinned is that something answered: a 405 means the router matched
+/// the path but not the method, and a 5xx means no handler completed. Treating
+/// either as "registered" would let a positive case pass against a route that
+/// is broken rather than served.
 async fn is_registered(router: Router, path: &str) -> bool {
-    let res = TestClient::new(router)
+    let status = TestClient::new(router)
         .post(path)
         .body(ai_batch_payload())
         .header("Content-Type", "application/json")
+        // `InsecureClientIp` is a hard extractor on the analytics handlers, and
+        // the test client provides no `ConnectInfo`, so without a forwarded
+        // header every registered path answers 500 before its handler runs.
+        .header("X-Forwarded-For", "127.0.0.1")
         .send()
-        .await;
-    res.status() != StatusCode::NOT_FOUND
+        .await
+        .status();
+
+    assert!(
+        !status.is_server_error(),
+        "{path} answered {status}; a registration check cannot tell a broken \
+         handler from an unregistered route"
+    );
+    assert_ne!(
+        status,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "{path} matched the router but not POST"
+    );
+
+    status != StatusCode::NOT_FOUND
 }
 
 /// capture-ai must serve the AI batch path and nothing analytics-shaped.

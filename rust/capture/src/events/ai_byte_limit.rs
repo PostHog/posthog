@@ -120,9 +120,8 @@ mod tests {
     }
 
     /// A budget of `bytes` for every token, charged the same weights the
-    /// production call site charges. A token's first event is always admitted,
-    /// as it is against the real limiter's cold cache, so a test that expects a
-    /// drop has to send at least two.
+    /// production call site charges, with strict accounting: an event drops as
+    /// soon as the running total crosses the budget.
     fn limiter(bytes: u64) -> Arc<GlobalRateLimiter> {
         Arc::new(GlobalRateLimiter::mock_budget(bytes))
     }
@@ -154,6 +153,23 @@ mod tests {
         let mut events = vec![small_ai_event("t"), small_ai_event("t")];
         drop_ai_byte_limited(&mut events, Some(&l)).await;
         assert_eq!(events.len(), 1, "the over-budget AI event must be dropped");
+    }
+
+    /// The real limiter reads a cache miss as no prior data and fails open, so
+    /// a token's first event is admitted however far over budget it is. That
+    /// recurs on every moka eviction and every new pod, which is what makes it
+    /// worth pinning rather than assuming: under a sustained flood it costs one
+    /// event per pod per window.
+    #[tokio::test]
+    async fn a_cold_key_is_admitted_however_far_over_budget_it_is() {
+        let l = Arc::new(GlobalRateLimiter::mock_budget_admitting_cold_keys(1));
+        let mut events = vec![small_ai_event("t"), small_ai_event("t")];
+        drop_ai_byte_limited(&mut events, Some(&l)).await;
+        assert_eq!(
+            events.len(),
+            1,
+            "the cold key's first event is admitted; the second is not"
+        );
     }
 
     #[tokio::test]

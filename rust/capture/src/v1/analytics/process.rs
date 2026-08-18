@@ -2032,8 +2032,7 @@ mod tests {
         #[case] expected_destination: Destination,
     ) {
         // Each event weighs the flat envelope allowance plus its two-byte
-        // properties, so the token's first charge is admitted and the second
-        // takes it past an 800-byte budget.
+        // properties, so one fits an 800-byte budget and the second does not.
         let limiter = GlobalRateLimiter::mock_budget(800);
 
         let mut events = vec![
@@ -3854,8 +3853,7 @@ mod tests {
     #[tokio::test]
     async fn process_batch_enforces_the_ai_byte_budget() {
         // The flat envelope allowance alone puts two events past an 800-byte
-        // budget, so the token's first AI charge is admitted and the second
-        // exceeds it.
+        // budget, so the first AI event fits and the second does not.
         let ts = TestStateBuilder::new()
             .with_ai_byte_rate_limiter(Arc::new(GlobalRateLimiter::mock_budget(800)))
             .build();
