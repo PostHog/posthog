@@ -192,6 +192,7 @@ export interface featureRequestsLogicValues {
     productAreaDisplayOrder: number
     productAreaFilter: string[]
     productAreaFormOpen: boolean
+    productAreaFormVersion: number
     productAreaIds: string[]
     productAreaName: string
     productAreaOptions: {
@@ -792,6 +793,15 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 closeProductAreas: () => false,
             },
         ],
+        productAreaFormVersion: [
+            0,
+            {
+                startNewProductArea: (state) => state + 1,
+                startEditingProductArea: (state) => state + 1,
+                closeProductAreaForm: (state) => state + 1,
+                closeProductAreas: (state) => state + 1,
+            },
+        ],
         editingProductAreaId: [
             null as string | null,
             {
@@ -1155,6 +1165,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             if (values.productAreaSaveDisabledReason) {
                 return
             }
+            const productAreaFormVersion = values.productAreaFormVersion
             actions.setSavingProductArea(true)
             try {
                 if (values.editingProductAreaId) {
@@ -1170,7 +1181,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                         is_active: values.productAreaActive,
                     })
                 }
-                actions.closeProductAreaForm()
+                if (values.productAreaFormVersion === productAreaFormVersion) {
+                    actions.closeProductAreaForm()
+                }
                 actions.loadProductAreas()
                 actions.loadFeatureRequests()
             } catch {
