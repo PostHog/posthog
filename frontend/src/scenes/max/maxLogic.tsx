@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconBook } from '@posthog/icons'
 
@@ -765,6 +766,11 @@ export const maxLogic = kea<maxLogicType>([
                     // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
                     // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
                     // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                    // Capture the miss so this otherwise-silent dead end (the NotFound screen) is visible in analytics.
+                    posthog.capture('max conversation not found', {
+                        conversation_id: conversationId,
+                        recursion_depth: currentRecursionDepth,
+                    })
                     return
                 }
 

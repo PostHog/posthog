@@ -1,4 +1,5 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
@@ -105,6 +106,9 @@ export function AIConsentPopoverWrapper({
      * URL to continue to once consent is approved. Approving can trigger a full-page SSO
      * reauthentication redirect that unloads the page before the approval request is sent, so the
      * intent is persisted and `aiConsentLogic` finishes the approval and navigation on return.
+     * Defaults to the current URL, so the approval survives the redirect at every call site. Pass an
+     * explicit value to resume somewhere else (for example, to drop a query param the current page
+     * can't be reopened with).
      */
     pendingRedirectUrl?: string
 }): JSX.Element {
@@ -113,6 +117,7 @@ export function AIConsentPopoverWrapper({
         useValues(aiConsentLogic)
     const { dismissDataProcessing, setPendingApprovalRedirect } = useActions(aiConsentLogic)
     const { isAdminOrOwner, currentOrganization } = useValues(organizationLogic)
+    const { location, searchParams, hashParams } = useValues(router)
 
     const handleDismiss = (): void => {
         if (!ignoreDismissal) {
@@ -129,10 +134,12 @@ export function AIConsentPopoverWrapper({
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
                         onApprove={() => {
-                            if (pendingRedirectUrl && currentOrganization) {
+                            if (currentOrganization) {
                                 // Cleared by the acceptDataProcessing listener on success or failure.
                                 setPendingApprovalRedirect({
-                                    url: pendingRedirectUrl,
+                                    url:
+                                        pendingRedirectUrl ??
+                                        combineUrl(location.pathname, searchParams, hashParams).url,
                                     organizationId: currentOrganization.id,
                                     setAt: Date.now(),
                                 })

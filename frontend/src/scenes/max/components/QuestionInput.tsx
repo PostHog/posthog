@@ -2,6 +2,7 @@ import './QuestionInput.scss'
 
 import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -149,6 +150,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { question, panelId: maxPanelId, fillInHint } = useValues(maxLogic)
     const { setQuestion, setFillInHint } = useActions(maxLogic)
     const { user } = useValues(userLogic)
+    const { location, searchParams, hashParams } = useValues(router)
+    // Where to land after a consent approval that survives the SSO reauthentication redirect. The
+    // `chat` param points at a conversation the server never stored (the send is a no-op without
+    // consent), so restoring it verbatim walks the user onto the "Conversation not found" page.
+    // Drop it and resume on a fresh chat; the typed question is restored from session storage.
+    const consentResumeUrl = useMemo(() => {
+        const { chat: _chat, ...rest } = searchParams
+        return combineUrl(location.pathname, rest, hashParams).url
+    }, [location.pathname, searchParams, hashParams])
     const {
         conversation,
         threadLoading,
@@ -505,6 +515,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 placement="bottom-end"
                                 showArrow
                                 ignoreDismissal
+                                pendingRedirectUrl={consentResumeUrl}
                                 onApprove={() => submit(pendingPrompt || inputValue)}
                                 onDismiss={() => completeThreadGeneration()}
                                 middleware={[
