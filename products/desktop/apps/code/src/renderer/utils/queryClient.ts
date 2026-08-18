@@ -1,7 +1,49 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { focusManager, QueryClient } from "@tanstack/react-query";
+import {
+  focusManager,
+  MutationCache,
+  QueryCache,
+  QueryClient,
+} from "@tanstack/react-query";
+import { logger } from "./logger";
+
+const queryLog = logger.scope("react-query");
+
+/**
+ * A query that keeps failing refetches every poll interval; one line a minute
+ * per query key keeps the log readable while an API is down.
+ */
+const FAILURE_LOG_INTERVAL_MS = 60_000;
+const lastFailureLogAt = new Map<string, number>();
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+function logFailure(kind: "query" | "mutation", key: string, error: unknown) {
+  const message = describeError(error);
+  const throttleKey = `${kind}:${key}:${message}`;
+  const now = Date.now();
+  const last = lastFailureLogAt.get(throttleKey) ?? 0;
+  if (now - last < FAILURE_LOG_INTERVAL_MS) return;
+  lastFailureLogAt.set(throttleKey, now);
+  queryLog.warn(`${kind} failed`, { key, error: message });
+}
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) =>
+      logFailure("query", JSON.stringify(query.queryKey), error),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) =>
+      logFailure(
+        "mutation",
+        JSON.stringify(mutation.options.mutationKey ?? "anonymous"),
+        error,
+      ),
+  }),
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5,
