@@ -78,6 +78,7 @@ tools:
         enabled: true
         scopes:
             - warehouse_table:write
+            - query:read
         annotations:
             readOnly: false
             destructive: true
@@ -92,6 +93,7 @@ tools:
         enabled: true
         scopes:
             - warehouse_view:write
+            - query:read
         annotations:
             readOnly: false
             destructive: true

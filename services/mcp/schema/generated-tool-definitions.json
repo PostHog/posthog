@@ -2572,7 +2572,7 @@
         "feature": "data_quality",
         "summary": "Delete a data quality check on a table",
         "title": "Delete a data quality check on a table",
-        "required_scopes": ["warehouse_table:write"],
+        "required_scopes": ["warehouse_table:write", "query:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -2587,7 +2587,7 @@
         "feature": "data_quality",
         "summary": "Delete a data quality check on a view",
         "title": "Delete a data quality check on a view",
-        "required_scopes": ["warehouse_view:write"],
+        "required_scopes": ["warehouse_view:write", "query:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
