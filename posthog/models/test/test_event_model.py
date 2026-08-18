@@ -1,7 +1,15 @@
+import re
+
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.models import Element, Organization
+from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
+from posthog.models.property.util import build_selector_regex
 
 from products.actions.backend.models.action import Action
 
@@ -490,6 +498,76 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0].uuid, event1_uuid)
 
+        def test_filter_with_class_and_attribute_selector(self):
+            # A class combined with an attribute used to compile to a regex that matched
+            # nothing, because the class was captured as the tag name.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attr_class=["btn"], attributes={"attr__ng-disabled": "true"})],
+            )
+            _create_event(  # same attribute but no class, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__ng-disabled": "true"})],
+            )
+            action = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": '.btn[ng-disabled="true"]'}]
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
+        def test_filter_with_compound_attribute_selector(self):
+            # Two attribute selectors in one part used to be parsed as one nonsense attribute.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__type": "button", "attr__ng-click": "save()"})],
+            )
+            _create_event(  # only one of the two attributes, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="button", attributes={"attr__type": "button"})],
+            )
+            action = Action.objects.create(
+                team=self.team,
+                steps_json=[{"event": "$autocapture", "selector": '[type="button"][ng-click="save()"]'}],
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
+        def test_filter_with_descendant_selector(self):
+            # A descendant combinator (a space) must match through intermediate elements,
+            # not require the ancestor to be the direct parent.
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            matching_uuid = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="button", attr_class=["btn"], nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                    Element(tag_name="form", nth_child=0, nth_of_type=0),
+                ],
+            )
+            _create_event(  # button.btn present but no form ancestor, must not match
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[
+                    Element(tag_name="button", attr_class=["btn"], nth_child=0, nth_of_type=0),
+                    Element(tag_name="div", nth_child=0, nth_of_type=0),
+                ],
+            )
+            action = Action.objects.create(
+                team=self.team, steps_json=[{"event": "$autocapture", "selector": "form button.btn"}]
+            )
+            self.assertActionEventsMatch(action, [matching_uuid])
+
         def test_filter_events_by_url(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(
@@ -761,6 +839,21 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 
+    def test_class_before_attribute(self):
+        # A class that precedes an attribute selector must not be captured as the tag name
+        selector1 = Selector('.btn[ng-disabled="true"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attr_class__contains": ["btn"], "attributes__attr__ng-disabled": "true"},
+        )
+
+    def test_multiple_attributes(self):
+        selector1 = Selector('[type="button"][ng-click="save()"]')
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"attributes__attr__type": "button", "attributes__attr__ng-click": "save()"},
+        )
+
     def test_nth_child(self):
         selector1 = Selector("div > span:nth-child(3)")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "span", "nth_child": "3"})
@@ -803,3 +896,80 @@ class TestSelectors(BaseTest):
         # Make sure we strip these for full text search to work in the database
         selector1 = Selector("div#root\\:id")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
+
+
+class TestSelectorRegexMatching(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "semicolon inside an attribute value is not an element boundary",
+                'input[type="text"]',
+                [
+                    Element(
+                        tag_name="input",
+                        attributes={"attr__style": "display: flex; gap: 4px", "attr__type": "text"},
+                    )
+                ],
+                True,
+            ),
+            (
+                "a descendant part does not match text inside another element",
+                "form button.btn",
+                [
+                    Element(tag_name="button", attr_class=["btn"]),
+                    Element(tag_name="a", href="/form-signup"),
+                ],
+                False,
+            ),
+            (
+                "class and attribute have to land on the same element",
+                '.btn[ng-disabled="true"]',
+                [
+                    Element(tag_name="span", attr_class=["btn"]),
+                    Element(tag_name="div", attributes={"attr__ng-disabled": "true"}),
+                ],
+                False,
+            ),
+            (
+                "nth-child and nth-of-type together",
+                "button.btn:nth-child(3):nth-of-type(1)",
+                [Element(tag_name="button", attr_class=["btn"], nth_child=3, nth_of_type=1)],
+                True,
+            ),
+            (
+                "an id alongside an attribute the chain sorts before it",
+                '#submit[type="button"]',
+                [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
+                True,
+            ),
+            (
+                "an escaped quote inside an attribute value does not end the quoted span",
+                'div[title="hi"]',
+                [Element(tag_name="div", attributes={"attr__data-x": 'a"b', "attr__title": "hi"})],
+                True,
+            ),
+            (
+                "a sibling class the selector does not name may carry any character",
+                ".flex",
+                [Element(tag_name="div", attr_class=["flex", "w-1/2"])],
+                True,
+            ),
+        ]
+    )
+    def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
+        regex = build_selector_regex(Selector(selector, escape_slashes=False))
+        self.assertEqual(bool(re.search(regex, elements_to_string(elements))), expected)
+
+    @parameterized.expand(
+        [
+            ("pseudo-class after a class", ".btn:hover", True),
+            ("pseudo-class after a tag", "button:hover", True),
+            ("attribute operator", '[href^="http"]', True),
+            ("tailwind variant, which is a real class", ".hover:bg-blue", False),
+            ("class named after a pseudo-class, with no colon to make it one", ".active", False),
+            ("tailwind arbitrary value", ".sm:[max-width:640px]", False),
+            ("universal selector, which the compiler supports", "*", False),
+        ]
+    )
+    def test_unsupported_syntax_detection(self, _name, selector, expected):
+        self.assertEqual(Selector(selector, escape_slashes=False).has_unsupported_syntax(), expected)

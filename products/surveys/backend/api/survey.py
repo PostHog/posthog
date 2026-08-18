@@ -3330,8 +3330,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
 
 
+class _SurveyAPIActionStepSerializer(ActionStepJSONSerializer):
+    # This payload is cached and downloaded by every SDK client, so it carries only what
+    # a client needs in order to match. selector_warning is guidance for the Actions editor.
+    def get_fields(self):
+        fields = super().get_fields()
+        fields.pop("selector_warning", None)
+        return fields
+
+
 class SurveyAPIActionSerializer(serializers.ModelSerializer):
-    steps = ActionStepJSONSerializer(many=True, required=False)
+    steps = _SurveyAPIActionStepSerializer(many=True, required=False)
 
     class Meta:
         model = Action

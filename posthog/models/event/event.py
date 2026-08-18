@@ -11,7 +11,46 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
-SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+SELECTOR_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
+# The chain records an element's position as nth-child and nth-of-type, and a selector
+# can carry either or both. Matching each one lets a selector keep the rest of itself.
+POSITIONAL_PSEUDO_CLASS_REGEX = r":(nth-child|nth-of-type)\((\d+)\)"
+# A real element tag in the chain is alphanumeric. Anything else left in a parsed
+# tag name is unsupported CSS the parser could not peel off.
+VALID_TAG_NAME_REGEX = re.compile(r"[a-zA-Z][a-zA-Z0-9-]*")
+# An attribute operator (^=, *=, $=, ~=, |=) ends up inside the parsed key, and no
+# element chain contains an attribute named that.
+VALID_ATTRIBUTE_KEY_REGEX = re.compile(r"[a-zA-Z_:][a-zA-Z0-9_:.-]*")
+# A pseudo-class written after a class is folded into the class name, and no element
+# carries a class called that. A Tailwind variant puts the same word first instead
+# (hover:bg-blue), so only the segment after the last colon can be a pseudo-class.
+UNSUPPORTED_PSEUDO_CLASSES = frozenset(
+    {
+        "active",
+        "after",
+        "before",
+        "checked",
+        "disabled",
+        "empty",
+        "enabled",
+        "first-child",
+        "first-of-type",
+        "focus",
+        "focus-visible",
+        "focus-within",
+        "hover",
+        "invalid",
+        "last-child",
+        "last-of-type",
+        "only-child",
+        "optional",
+        "required",
+        "root",
+        "target",
+        "valid",
+        "visited",
+    }
+)
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
@@ -30,20 +69,28 @@ class SelectorPart:
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
-        result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
-        if result and "[id=" in tag:
-            self.data["attr_id"] = result[3]
-            self.ch_attributes["attr_id"] = result[3]
-            tag = result[1]
-        if result and "[" in tag:
-            self.data[f"attributes__attr__{result[2]}"] = result[3]
-            self.ch_attributes[result[2]] = result[3]
-            tag = result[1]
-        if "nth-child(" in tag:
-            parts = tag.split(":nth-child(")
-            self.data["nth_child"] = parts[1].replace(")", "")
-            self.ch_attributes["nth-child"] = self.data["nth_child"]
-            tag = parts[0]
+        attribute_matches = list(re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag))
+        if attribute_matches:
+            for match in attribute_matches:
+                key = match.group(1)
+                value = match.group(3)
+                if key == "id":
+                    self.data["attr_id"] = value
+                    self.ch_attributes["attr_id"] = value
+                else:
+                    self.data[f"attributes__attr__{key}"] = value
+                    self.ch_attributes[key] = value
+            # Excise the attribute spans and keep the rest, so a class, id or
+            # nth-child written after an attribute selector is not discarded.
+            for match in reversed(attribute_matches):
+                tag = tag[: match.start()] + tag[match.end() :]
+        positional_matches = list(re.finditer(POSITIONAL_PSEUDO_CLASS_REGEX, tag))
+        for match in positional_matches:
+            pseudo_class, position = match.group(1), match.group(2)
+            self.data["nth_child" if pseudo_class == "nth-child" else "nth_of_type"] = position
+            self.ch_attributes[pseudo_class] = position
+        for match in reversed(positional_matches):
+            tag = tag[: match.start()] + tag[match.end() :]
         if "." in tag:
             # Regex pattern that matches dots that are NOT inside square brackets
             # Uses negative lookahead to ensure the dot is not followed by content ending with ]
@@ -126,6 +173,31 @@ class Selector:
                 part.append(char)
 
         yield "".join(part)
+
+    def has_unsupported_syntax(self) -> bool:
+        # A part keeps unsupported CSS (a pseudo-class, an unsupported combinator, ...)
+        # as its tag name, so the compiled regex looks for a tag no real element has and
+        # matches nothing.
+        for part in self.parts:
+            tag = part.data.get("tag_name")
+            # "*" is the universal selector, which build_selector_regex supports by
+            # skipping the tag name entirely.
+            if isinstance(tag, str) and tag != "*" and not VALID_TAG_NAME_REGEX.fullmatch(tag):
+                return True
+            if any(not VALID_ATTRIBUTE_KEY_REGEX.fullmatch(key) for key in part.ch_attributes):
+                return True
+            classes = part.data.get("attr_class__contains")
+            if isinstance(classes, list) and any(self._class_carries_pseudo_class(name) for name in classes):
+                return True
+        return False
+
+    @staticmethod
+    def _class_carries_pseudo_class(class_name: str) -> bool:
+        # Without a colon the whole name is the class, and plenty of real classes share a
+        # word with a pseudo-class ("active", "disabled"), so only look past a colon.
+        if ":" not in class_name:
+            return False
+        return class_name.rsplit(":", 1)[-1] in UNSUPPORTED_PSEUDO_CLASSES
 
 
 class Event(models.Model):

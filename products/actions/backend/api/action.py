@@ -1,11 +1,13 @@
 import json
 from collections import Counter
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, cast
 
 from django.db import connection
 from django.db.models import Count
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
@@ -41,6 +43,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
 
+logger = structlog.get_logger(__name__)
+
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",
     serializers=[
@@ -65,6 +69,42 @@ class _ActionStepPropertiesField(serializers.ListField):
     pass
 
 
+# An entry holds the selector plus its compiled regex, which is larger, for the life of
+# the process. Nobody hand-writes a CSS selector this long, so cap what gets retained.
+_MAX_CACHED_SELECTOR_LENGTH = 1_000
+
+
+def _compile_selector_uncached(selector_str: str) -> tuple[str | None, str | None]:
+    try:
+        selector = Selector(selector_str, escape_slashes=False)
+        warning = None
+        if selector.has_unsupported_syntax():
+            warning = "This selector uses CSS we cannot match on. Try matching on the element tag, id, or class."
+        return build_selector_regex(selector), warning
+    except Exception:
+        logger.exception("Failed to compile action selector")
+        return None, "This selector could not be read, so it will not match any events. Check that it is valid CSS."
+
+
+@lru_cache(maxsize=2048)
+def _compile_selector_cached(selector_str: str) -> tuple[str | None, str | None]:
+    return _compile_selector_uncached(selector_str)
+
+
+def _compile_selector(selector_str: str) -> tuple[str | None, str | None]:
+    # Returns (regex, warning) for a selector. Cached because the selector_regex and
+    # selector_warning fields both need it for every serialized action step. An
+    # outsized or non-string selector skips the cache: lru_cache hashes its argument
+    # before the body runs, so an unhashable one would raise from the lookup itself.
+    if not isinstance(selector_str, str) or len(selector_str) > _MAX_CACHED_SELECTOR_LENGTH:
+        return _compile_selector_uncached(selector_str)
+    return _compile_selector_cached(selector_str)
+
+
+def _selector_str(obj) -> str | None:
+    return obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
+
+
 class ActionStepJSONSerializer(serializers.Serializer):
     event = serializers.CharField(
         required=False,
@@ -83,7 +123,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
         allow_null=True,
         help_text="CSS selector to match the target element (e.g. 'div > button.cta').",
     )
-    selector_regex = serializers.SerializerMethodField()
+    selector_regex = serializers.SerializerMethodField(
+        help_text="Compiled regex the selector matches against the event elements chain. Null when no selector is set."
+    )
+    selector_warning = serializers.SerializerMethodField(
+        help_text="Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent."
+    )
     tag_name = serializers.CharField(
         required=False,
         allow_null=True,
@@ -127,14 +172,12 @@ class ActionStepJSONSerializer(serializers.Serializer):
     )
 
     def get_selector_regex(self, obj) -> str | None:
-        selector_str = obj.get("selector") if isinstance(obj, dict) else getattr(obj, "selector", None)
-        if not selector_str:
-            return None
-        try:
-            selector = Selector(selector_str, escape_slashes=False)
-            return build_selector_regex(selector)
-        except Exception:
-            return None
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str)[0] if selector_str else None
+
+    def get_selector_warning(self, obj) -> str | None:
+        selector_str = _selector_str(obj)
+        return _compile_selector(selector_str)[1] if selector_str else None
 
 
 class ActionSerializer(

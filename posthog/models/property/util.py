@@ -931,19 +931,55 @@ def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
         return [re.escape(text) for text in ok_values]
 
 
+# Attribute keys the elements chain serializes without the attr__ prefix that custom
+# HTML attributes get. See elements_to_string in posthog/models/element/element.py.
+_UNPREFIXED_CHAIN_ATTRIBUTES = {"attr_id", "href", "text", "nth-child", "nth-of-type"}
+
+
+def _chain_attribute_order(key: str) -> str:
+    """The key this attribute sorts under in the elements chain.
+
+    elements_to_string sorts by serialized key, so a custom attribute sorts under
+    attr__<key>. Emit attributes in that order: the separators between them cannot
+    match backwards, so an order the chain never produces can never match.
+    """
+    return key if key in _UNPREFIXED_CHAIN_ATTRIBUTES else f"attr__{key}"
+
+
+# A semicolon separates elements only outside a quoted attribute value — an inline
+# style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
+# as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
+# not close the span. split_chain_regex draws the boundary the same way.
+_QUOTED_VALUE = r'"(?:\\.|[^"])*"'
+_WITHIN_ELEMENT = r'(?:[^;"]|' + _QUOTED_VALUE + r")*?"
+_WHOLE_ELEMENTS = r'(?:(?:[^;"]|' + _QUOTED_VALUE + r")*;)*"
+
+
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
-    for tag in selector.parts:
+    for index, tag in enumerate(selector.parts):
+        if index > 0 and not tag.direct_descendant:
+            # A descendant combinator (a space) matches through any number of
+            # intermediate elements. Skip whole elements only — an unanchored .*
+            # would let this part match inside a class name or attribute value.
+            regex += _WHOLE_ELEMENTS
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
             # The elements in the elements_chain are separated by the semicolon
             regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
+            # Every condition of one selector part has to land inside one element
+            regex += (
+                _WITHIN_ELEMENT
+                + r"\."
+                + (r"\." + _WITHIN_ELEMENT).join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
+            )
         if tag.ch_attributes:
-            regex += r".*?"
-            for key, value in sorted(tag.ch_attributes.items()):
-                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+            regex += _WITHIN_ELEMENT
+            for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
+                regex += rf'{re.escape(key)}="{re.escape(str(value))}"' + _WITHIN_ELEMENT
+        # The rest of the element can carry characters no allowlist anticipates
+        # (classes like w-1/2 or !mt-0), so skip anything within the element.
+        regex += _WITHIN_ELEMENT + r"($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += r".*"
     if regex:
