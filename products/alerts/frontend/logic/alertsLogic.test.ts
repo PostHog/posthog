@@ -41,7 +41,7 @@ describe('alertsLogic', () => {
         updateSpy?.mockRestore()
     })
 
-    it('deletes an alert and reloads the list', async () => {
+    it('removes a deleted alert from the list', async () => {
         deleteSpy = jest.spyOn(api.alerts, 'delete').mockResolvedValue()
 
         const logic = alertsLogic()
@@ -51,7 +51,8 @@ describe('alertsLogic', () => {
         await expectLogic(logic, () => logic.actions.deleteAlert(alert)).toFinishAllListeners()
 
         expect(deleteSpy).toHaveBeenCalledWith(alert.id)
-        expect(listSpy).toHaveBeenCalledTimes(2)
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.alertsResponse).toEqual({ results: [], count: 0 })
 
         logic.unmount()
     })
