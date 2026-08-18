@@ -271,6 +271,31 @@ def get_provider_for_runtime_adapter(
         return None
 
 
+def apply_runtime_adapter_run_state(
+    state: dict,
+    runtime_adapter: str | None,
+    *,
+    initial_permission_mode: str | None,
+) -> str | None:
+    """Write the run-state keys a runtime adapter implies, returning the permission mode
+    to launch with.
+
+    The agent server derives the provider from the adapter, and Codex defaults to `auto`
+    so a headless run doesn't stall on a prompt. A mode the caller already chose is
+    returned untouched. Shared so the explicitly-pinned and resolved-default paths can't
+    drift on what an adapter implies.
+    """
+    if not runtime_adapter:
+        return initial_permission_mode
+
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    if provider is not None:
+        state["provider"] = provider.value
+    if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
+        return "auto"
+    return initial_permission_mode
+
+
 def get_supported_reasoning_efforts(
     runtime_adapter: RuntimeAdapter | str | None,
     model: str | None,

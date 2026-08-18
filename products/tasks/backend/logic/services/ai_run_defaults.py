@@ -37,7 +37,7 @@ from products.tasks.backend.models import TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
-    get_reasoning_effort_error,
+    validate_model_selection,
 )
 
 
@@ -191,9 +191,11 @@ def validate_ai_run_preferences(
     """Validate the `(runtime_adapter, model, reasoning_effort)` triple on the write
     path so half-set rows never reach the DB.
 
-    Strict on structure (pair set together, known adapter and effort, effort/model
-    compatibility) but deliberately not on model-id membership — the gateway's
-    model list drifts, and resolution handles stale ids leniently.
+    The storage rule — both halves of the pair or neither — lives here; whether the
+    three values may be used together is the model catalogue's call, so that part
+    defers to `validate_model_selection`. Deliberately not strict on model-id
+    membership: the gateway's model list drifts, and resolution handles stale ids
+    leniently.
 
     Raises `django.core.exceptions.ValidationError` on inconsistency.
     """
@@ -202,13 +204,8 @@ def validate_ai_run_preferences(
             "runtime_adapter and model must be set together — set both to configure a default, or both to null to clear it."
         )
 
-    if runtime_adapter is not None:
-        valid_adapters = {a.value for a in RuntimeAdapter}
-        if runtime_adapter not in valid_adapters:
-            raise ValidationError(
-                f"Unknown runtime_adapter '{runtime_adapter}'. Valid: {', '.join(sorted(valid_adapters))}."
-            )
-
+    # The catalogue only judges an effort against a model, so an effort stored without a
+    # pair — legal, and inherited by whatever model resolves later — still needs a check.
     if reasoning_effort is not None:
         valid_efforts = {e.value for e in PUBLIC_REASONING_EFFORTS}
         if reasoning_effort not in valid_efforts:
@@ -216,9 +213,7 @@ def validate_ai_run_preferences(
                 f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."
             )
 
-    error = get_reasoning_effort_error(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
-    if error:
-        raise ValidationError(error)
+    validate_model_selection(runtime_adapter, model, reasoning_effort)
 
 
 def build_ai_run_preferences_payload(
