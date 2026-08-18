@@ -13,7 +13,10 @@ from parameterized import parameterized
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
-from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    build_function_call,
+)
 
 from posthog.exceptions import ClickHouseAtCapacity
 
@@ -92,6 +95,36 @@ class TestDataWarehouseTableColumnOrder(BaseTest):
         table.set_columns({"z": {"clickhouse": "String"}, "a": {"clickhouse": "String"}})
 
         assert table.column_order == ["z", "a"]
+
+
+class TestIntrospectionFormat(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("delta_s3_wrapper_unions_via_deltalake", "DeltaS3Wrapper", "Delta"),
+            ("delta_passthrough", "Delta", "Delta"),
+            ("parquet_passthrough", "Parquet", "Parquet"),
+            ("csv_passthrough", "CSVWithNames", "CSVWithNames"),
+        ]
+    )
+    def test_introspection_format(self, _name: str, table_format: str, expected: str) -> None:
+        table = DataWarehouseTable(name="t", format=table_format, url_pattern="s3://bucket/team_1/t/")
+        assert table._introspection_format() == expected
+
+    def test_delta_s3_wrapper_introspection_reads_via_deltalake_not_query_glob(self) -> None:
+        # get_count / get_max_value_for_column / get_columns must introspect a DeltaS3Wrapper table
+        # through deltaLake() (which unions columns across schema generations), not the raw s3() glob
+        # over the copied `__query` parquet files. That glob throws ClickHouse code 48 when a source's
+        # optional fields drift between sync batches, silently failing the read.
+        table = DataWarehouseTable(name="t", format="DeltaS3Wrapper", url_pattern="s3://bucket/team_1/t/")
+        func_call = build_function_call(
+            url=table.url_pattern,
+            queryable_folder="t__query_12345",
+            format=table._introspection_format(),
+            access_key="key",
+            access_secret="secret",
+        )
+        assert func_call.startswith("deltaLake(")
+        assert "__query" not in func_call
 
 
 class TestWarehouseQueryDisablesHivePartitioning(BaseTest):
