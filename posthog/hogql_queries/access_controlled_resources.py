@@ -98,6 +98,14 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         # `data_catalog`, so partition their cache key separately.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("data_quality")
+            # Their rows are also hidden per the caller's warehouse-object denials (the loaders drop a
+            # check/run/health row whose subject table or view the caller can't see), so partition on
+            # warehouse access too. Without this, two `data_quality` users with different warehouse
+            # grants share a cache key and the denied one is served the allowed one's check configs and
+            # run counts on a hit. The specific denied object IDs fold into the key via
+            # AnalyticsQueryRunner._get_object_access_restrictions.
+            scopes.add("warehouse_table")
+            scopes.add("warehouse_view")
 
         # Connection-scoped queries read the external source's upstream data directly. Their tables
         # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the

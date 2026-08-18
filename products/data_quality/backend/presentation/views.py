@@ -238,7 +238,11 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
     )
     @action(methods=["GET"], detail=True, pagination_class=None)
     def runs(self, request: Request, **kwargs) -> Response:
+        # The run rows carry the failed-row count and observed value for every subject the check
+        # reads, including ones a scheduled run touched. get_object() only clears the declared
+        # subject, so gate on the referenced subjects too before returning that history.
         check = self.get_object()
+        self._require_referenced_subject_access(check.check_type, check.config)
         runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(quality_check=check).order_by("-created_at")
         return Response(DataQualityCheckRunSerializer(runs[:_RECENT_RUNS_LIMIT], many=True).data)
 

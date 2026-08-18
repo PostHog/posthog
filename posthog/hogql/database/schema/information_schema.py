@@ -1111,34 +1111,40 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
 
     try:
         denied = context.database._denied_tables if context.database is not None else set()
-        queryset = DataQualityCheckRun.objects.for_team(team_id).order_by("-created_at")
+        base = DataQualityCheckRun.objects.for_team(team_id)
         if allowed is not None:
-            queryset = queryset.filter(subject_name__in=allowed)
-        rows: list[list[Any]] = []
-        for run in queryset.iterator():
-            if _references_denied_table([run.subject_name], denied):
-                continue
-            rows.append(
-                [
-                    str(run.id),
-                    str(run.quality_check_id) if run.quality_check_id else None,
-                    str(run.suite_run_id),
-                    run.subject_type,
-                    str(run.subject_uuid),
-                    run.subject_name,
-                    run.check_type,
-                    run.column_name or None,
-                    run.status,
-                    run.failed_row_count,
-                    run.observed_value,
-                    run.error or None,
-                    run.duration_ms,
-                    run.created_at.isoformat(),
-                ]
-            )
-            if len(rows) >= _CHECK_RUNS_WINDOW:
-                break
-        return rows
+            base = base.filter(subject_name__in=allowed)
+        # Drop denied subjects in SQL (not by scanning rows in Python) so the window is a bounded
+        # LIMIT rather than a full-history scan that skips denied rows one by one. The distinct set of
+        # subject names is small, so resolving which are denied is cheap; excluding them before the
+        # window still drops denied rows before it applies.
+        if denied:
+            blocked = {
+                name
+                for name in base.values_list("subject_name", flat=True).distinct()
+                if _references_denied_table([name], denied)
+            }
+            if blocked:
+                base = base.exclude(subject_name__in=blocked)
+        return [
+            [
+                str(run.id),
+                str(run.quality_check_id) if run.quality_check_id else None,
+                str(run.suite_run_id),
+                run.subject_type,
+                str(run.subject_uuid),
+                run.subject_name,
+                run.check_type,
+                run.column_name or None,
+                run.status,
+                run.failed_row_count,
+                run.observed_value,
+                run.error or None,
+                run.duration_ms,
+                run.created_at.isoformat(),
+            ]
+            for run in base.order_by("-created_at")[:_CHECK_RUNS_WINDOW]
+        ]
     except Exception:
         logger.exception("information_schema: failed to load data quality check runs", team_id=team_id)
         return []

@@ -407,12 +407,14 @@ class TestDataQualityCheckAPI(APIBaseTest):
                     {"subject_type": check.subject_type, "subject_uuid": str(check.subject_uuid)},
                 ),
             ),
+            ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
         ]
     )
-    def test_running_a_check_that_reads_a_denied_referenced_subject_is_blocked(self, _name, call) -> None:
-        # The declared subject stays allowed, so the check is visible and runnable -- but its custom_sql
-        # reads the denied "orders". The trigger paths gate on every subject the check references, not
-        # just the one they name in the request.
+    def test_a_denied_referenced_subject_blocks_triggering_and_reading_history(self, _name, call) -> None:
+        # The declared subject stays allowed, so the check is visible -- but its custom_sql reads the
+        # denied "orders". Triggering it (run, run_for_subject) and reading its run history (runs, which
+        # exposes counts from scheduled executions) gate on every subject it references, not just the
+        # one named in the request.
         allowed = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
