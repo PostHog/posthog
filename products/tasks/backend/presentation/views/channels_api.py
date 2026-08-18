@@ -144,7 +144,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
         if result == "general":
-            return Response({"detail": "The general space can't be renamed."}, status=status.HTTP_400_BAD_REQUEST)
+            raise PermissionDenied("The general space can't be renamed")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
@@ -171,7 +171,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Your private space cannot be deleted")
         if result == "general":
-            return Response({"detail": "The general space can't be deleted."}, status=status.HTTP_400_BAD_REQUEST)
+            raise PermissionDenied("The general space can't be deleted")
         if result == "not_empty":
             return Response(
                 {"detail": "Remove this space's tasks and canvases before deleting it."},

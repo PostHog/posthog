@@ -119,10 +119,8 @@ function App({ devToolbar }: AppProps) {
           authenticatedClient,
         );
         if (firstRun) {
-          // A brand-new user lands on the #general space home; keep the
-          // sidebar on the list pane (rather than sliding into the single
-          // space) with #general already expanded, instead of the default
-          // single-space navigation the route effect would otherwise apply.
+          // First run lands on #general with the spaces list showing and
+          // #general expanded, instead of sliding into the single-space pane.
           keepListForNextRoute();
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }

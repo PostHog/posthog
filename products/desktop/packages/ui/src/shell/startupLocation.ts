@@ -11,11 +11,7 @@ const storageKey = (identity: string): string => `startup-location:${identity}`;
 
 interface StartupLocation {
   href: string;
-  /**
-   * Set only when a brand-new user is being landed on #general for the first
-   * time, so the caller can prime the sidebar (list pane, space expanded)
-   * instead of following the default single-space navigation.
-   */
+  /** Set on a first-run landing so the caller can prime the sidebar. */
   firstRun: { generalChannelId: string } | null;
 }
 
@@ -26,8 +22,7 @@ export async function resolveStartupLocation(
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: saved, firstRun: null };
   const channels = await client.getTaskChannels();
-  // #general is the new default landing space; fall back to the personal channel
-  // for a server that hasn't been upgraded to provision #general yet.
+  // Personal fallback covers a server that does not provision #general yet.
   const general = channels.find((channel) => isGeneralChannel(channel));
   if (general) {
     return {

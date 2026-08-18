@@ -110,7 +110,7 @@ class ChannelsAPITestCase(TestCase):
         self.client.get(self._channels_url())
         general = Channel.objects.unscoped().get(team=self.team, system_role=Channel.SystemRole.GENERAL)
         response = act(self.client, f"{self._channels_url()}{general.id}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_legacy_personal_channel_is_stamped_with_system_role_on_list(self):
         # Personal channels created before system_role shipped are identified by
