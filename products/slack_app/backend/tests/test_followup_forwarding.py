@@ -1038,8 +1038,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["model"] == SLACK_DEFAULT_MODEL
         assert new_run.state["runtime_adapter"]
 
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("posthog.models.integration.SlackIntegration")
-    def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
+    def test_forwards_while_sandbox_is_still_provisioning(self, mock_slack_cls, mock_signal):
+        # A run that has started but not yet written `sandbox_url` is mid-provisioning.
+        # Delivery is a signal onto the run's workflow, which is already running and
+        # queues the message, so the follow-up must be forwarded rather than refused.
         self.task_run.state = {}
         self.task_run.save()
         self._create_mapping()
@@ -1050,9 +1054,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
+
         assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "still starting up" in call_kwargs["text"]
+        mock_signal.assert_called_once()
+        assert mock_signal.call_args.kwargs["content"] == "do something"
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("posthog.models.integration.SlackIntegration")
