@@ -582,9 +582,11 @@ class Reviewer:
 
         # For a stacked PR the working tree is the PR head, so parent-PR symbols
         # resolve in Read/Grep/Glob though absent from the diff; tell the agent.
+        # The base branch name is author-chosen, so it stays out of this trusted
+        # block; the stacked fact alone is what the agent needs.
         if pr.stacked:
             constraint += (
-                f"\nStacked PR: this targets `{pr.base_ref}`, not `{pr.default_branch}`. The working tree "
+                f"\nStacked PR: this targets a non-default branch, not `{pr.default_branch}`. The working tree "
                 "reflects the codebase as it will look after the whole stack lands, so symbols defined in "
                 "parent PRs resolve via Read/Grep/Glob even though they're absent from the diff below. Review "
                 "only the diff's changes; do not flag imports or references that resolve in the tree as missing."

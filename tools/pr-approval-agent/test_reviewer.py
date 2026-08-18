@@ -228,7 +228,10 @@ def test_prompt_stack_note(base_ref: str, default_branch: str, expect_stack_note
 
     assert ("Stacked PR" in prompt) is expect_stack_note
     if expect_stack_note:
-        assert f"targets `{base_ref}`, not `{default_branch}`" in prompt
+        assert f"targets a non-default branch, not `{default_branch}`" in prompt
+        # The author-chosen base branch name must not land in the trusted block.
+        trusted, _, _ = prompt.rpartition("--- BEGIN UNTRUSTED CONTENT ---")
+        assert base_ref not in trusted
 
 
 def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
