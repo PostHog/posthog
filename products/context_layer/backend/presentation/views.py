@@ -83,6 +83,8 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             config = enablement.enable_context_layer(self.organization.id, created_by_id=user_id)
         except enablement.RestrictedProjectsError as error:
             raise ValidationError(str(error)) from error
+        except store.ContextLayerStoreError as error:
+            return _store_error_response(error)
         return Response(
             ContextLayerStatusSerializer({"head_sha": config.head_sha}).data, status=status.HTTP_201_CREATED
         )
