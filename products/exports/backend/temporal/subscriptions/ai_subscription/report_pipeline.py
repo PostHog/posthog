@@ -149,6 +149,23 @@ class QueryStepDiagnostic:
 
 
 @dataclass(frozen=True)
+class StepOutcome:
+    rendered: str
+    diagnostic: QueryStepDiagnostic
+    # None when the planner asked for no chart, or the spec failed validation.
+    chart: Optional[ValidatedChart] = None
+
+
+@dataclass(frozen=True)
+class PlanExecution:
+    rendered: list[str]
+    failed_count: int
+    diagnostics: list[QueryStepDiagnostic]
+    # Every validated candidate, uncapped. generate_ai_report ranks and selects from these.
+    charts: list[ValidatedChart]
+
+
+@dataclass(frozen=True)
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
@@ -202,10 +219,9 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            rendered_results, failed_count, diagnostics, charts = await _execute_plan(
-                spec, team, user, window, trace_correlation_id
-            )
-            report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
+            execution = await _execute_plan(spec, team, user, window, trace_correlation_id)
+            failed_count, diagnostics, charts = execution.failed_count, execution.diagnostics, execution.charts
+            report = await _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
             # the error budget so user-supplied bad input doesn't burn the SLO.
@@ -396,7 +412,7 @@ async def _execute_plan(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]]:
+) -> PlanExecution:
     try:
         return await _run_steps(spec, team, user, window, trace_correlation_id)
     except Exception as exc:
@@ -466,7 +482,7 @@ async def _run_steps(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]]:
+) -> PlanExecution:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
     step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
@@ -478,9 +494,7 @@ async def _run_steps(
         max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
     )
 
-    async def run_step(
-        step: QueryPlanStep, step_index: int
-    ) -> tuple[str, QueryStepDiagnostic, Optional[ValidatedChart]]:
+    async def run_step(step: QueryPlanStep, step_index: int) -> StepOutcome:
         # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
         # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
@@ -493,12 +507,12 @@ async def _run_steps(
             executable_hogql = window.render_window_filter(current_hogql)
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
-                formatted, _, response = await asyncio.wait_for(
+                query_result = await asyncio.wait_for(
                     executor.arun_format_and_capture(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(formatted, per_step_cap)
+                safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
                 # Write the succeeding query (post any fix-LLM rewrite, still window-agnostic) back onto
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
@@ -506,7 +520,7 @@ async def _run_steps(
                 chart, chart_dropped_reason = (
                     validate_chart(
                         step.chart,
-                        response,
+                        query_result.response,
                         hogql=executable_hogql,
                         # The planner's short label when it wrote one, else its rationale sentence.
                         # Both are LLM output rendered into email and Slack, so both get stripped.
@@ -518,16 +532,16 @@ async def _run_steps(
                     if step.chart is not None
                     else (None, None)
                 )
-                return (
-                    f"### {safe_description}\n\n{safe_formatted}",
-                    QueryStepDiagnostic(
+                return StepOutcome(
+                    rendered=f"### {safe_description}\n\n{safe_formatted}",
+                    diagnostic=QueryStepDiagnostic(
                         description=safe_description,
                         hogql=executable_hogql,
                         ok=True,
                         error_type=None,
                         chart_dropped_reason=chart_dropped_reason,
                     ),
-                    chart,
+                    chart=chart,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -571,33 +585,30 @@ async def _run_steps(
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
         cause = "" if undisclosed_type is not None else f" ({type_name})"
-        return (
-            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
-            QueryStepDiagnostic(
+        return StepOutcome(
+            rendered=f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
+            diagnostic=QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
                 error_type=undisclosed_type or type_name,
                 human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
-            None,
         )
 
-    async def run_step_bounded(
-        step: QueryPlanStep, step_index: int
-    ) -> tuple[str, QueryStepDiagnostic, Optional[ValidatedChart]]:
+    async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
         # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
         async with step_semaphore:
             return await run_step(step, step_index)
 
     step_results = await asyncio.gather(*(run_step_bounded(step, index) for index, step in enumerate(spec.plan.steps)))
-    rendered = [text for text, _, _ in step_results]
-    diagnostics = [diag for _, diag, _ in step_results]
-    # Every validated candidate, uncapped. generate_ai_report ranks and selects, so a chart that
-    # loses the ranking is never rendered.
-    charts = [chart for _, _, chart in step_results if chart is not None]
-    failed_count = sum(1 for diag in diagnostics if not diag.ok)
-    return rendered, failed_count, diagnostics, charts
+    diagnostics = [outcome.diagnostic for outcome in step_results]
+    return PlanExecution(
+        rendered=[outcome.rendered for outcome in step_results],
+        failed_count=sum(1 for diag in diagnostics if not diag.ok),
+        diagnostics=diagnostics,
+        charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+    )
 
 
 def _fix_project_context_block(context_blob: str) -> str:

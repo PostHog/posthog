@@ -43,6 +43,7 @@ from posthog.hogql.errors import (
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
@@ -92,6 +93,14 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+
+@frozen
+class FormattedQueryResult:
+    formatted: str
+    fallback_used: bool
+    # The raw query response, for callers that need the columns and rows rather than the text.
+    response: dict
 
 
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
@@ -155,7 +164,7 @@ class AssistantQueryExecutor:
         insight_id=None,
         debug_timing=False,
         truncate_results: bool = True,
-    ) -> tuple[str, bool, dict]:
+    ) -> FormattedQueryResult:
         """
         Run a query and format the results with detailed fallback information.
 
@@ -166,11 +175,8 @@ class AssistantQueryExecutor:
                           - CALCULATE_BLOCKING_ALWAYS in tests
 
         Returns:
-            Tuple of (formatted results as string, whether fallback was used, raw response)
-            - formatted results: Query results formatted for AI consumption
-            - fallback used: True if JSON fallback was used due to formatting errors
-            - raw response: The response dict, for callers that need the columns and rows
-              themselves rather than the formatted text
+            A FormattedQueryResult carrying the formatted text, whether the JSON fallback was
+            used, and the raw response for callers that need the columns and rows themselves.
 
         Raises:
             Exception: If query execution fails with descriptive error messages
@@ -210,7 +216,7 @@ class AssistantQueryExecutor:
                         f"{TIMING_LOG_PREFIX} _compress_results completed in {format_elapsed:.3f}s, "
                         f"total arun_format_and_capture: {total_elapsed:.3f}s"
                     )
-                return formatted_results, False, response_dict  # No fallback used
+                return FormattedQueryResult(formatted=formatted_results, fallback_used=False, response=response_dict)
             except Exception as err:
                 if not isinstance(err, NotImplementedError):
                     capture_exception(err, properties={"tag": "max_ai"})
@@ -224,7 +230,7 @@ class AssistantQueryExecutor:
                         f"{TIMING_LOG_PREFIX} Fallback JSON formatting completed in {fallback_elapsed:.3f}s, "
                         f"total with fallback: {total_elapsed:.3f}s"
                     )
-                return fallback_results, True, response_dict  # Fallback was used
+                return FormattedQueryResult(formatted=fallback_results, fallback_used=True, response=response_dict)
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
@@ -241,14 +247,14 @@ class AssistantQueryExecutor:
     ) -> tuple[str, bool]:
         """Run a query and format the results. See `arun_format_and_capture` for the variant that
         also hands back the raw response."""
-        formatted, fallback_used, _ = await self.arun_format_and_capture(
+        result = await self.arun_format_and_capture(
             query,
             execution_mode,
             insight_id=insight_id,
             debug_timing=debug_timing,
             truncate_results=truncate_results,
         )
-        return formatted, fallback_used
+        return result.formatted, result.fallback_used
 
     @async_to_sync
     async def run_and_format_query(
