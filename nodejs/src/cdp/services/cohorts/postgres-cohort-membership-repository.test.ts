@@ -39,10 +39,10 @@ describe('PostgresCohortMembershipRepository', () => {
 
         expect(result).toEqual(
             new Map([
-                [101, true], // in_cohort=true row
-                [102, false], // in_cohort=false row (person left)
-                [103, false], // row belongs to another team — must not leak
-                [104, false], // no row at all
+                [101, true],
+                [102, false], // person left
+                [103, false], // another team, must not leak
+                [104, false], // no row
             ])
         )
     })

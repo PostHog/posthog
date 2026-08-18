@@ -18,10 +18,7 @@ export class CohortMembershipLookupTimeoutError extends Error {
     readonly isRetriable = true
 }
 
-// Upper bound on one lookup, covering pool acquire + query. Matches the Rust flags
-// provider's 1s bound: its job is to cover what a statement timeout cannot — pool
-// acquire stalls and network black holes — so an unreachable behavioral cohorts DB
-// costs a bounded slice of the invocation, not a hung batch.
+// Bounds pool-acquire stalls and network black holes that a statement timeout cannot cover
 export const DEFAULT_LOOKUP_TIMEOUT_MS = 1000
 
 export class PostgresCohortMembershipRepository implements CohortMembershipRepository {
@@ -49,8 +46,7 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
 
         const result = await new Promise<Awaited<typeof queryPromise>>((resolve, reject) => {
             const timer = setTimeout(() => {
-                // The losing query promise keeps running server-side; swallow its
-                // eventual settlement so it can't surface as an unhandled rejection.
+                // Swallow the losing query's settlement so it can't become an unhandled rejection
                 queryPromise.catch(() => undefined)
                 cohortMembershipLookupsCounter.labels('timeout').inc()
                 reject(new CohortMembershipLookupTimeoutError(this.lookupTimeoutMs))
