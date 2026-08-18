@@ -429,6 +429,56 @@ describe('PostgresPersonRepository', () => {
             expect(distinctIdMessage.version).toBe(2)
         })
 
+        it('createPerson revives a stranded person: a live row with no live mapping', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+            const first = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { a: 1 },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                {
+                    distinctId: 'stranded-did',
+                }
+            )
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+            // Out-of-band mapping deletion, the way production rows get stranded.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [team.id, 'stranded-did'],
+                'strandPerson'
+            )
+
+            const revived = await revivalRepository.createPerson(
+                TIMESTAMP,
+                { b: 2 },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                {
+                    distinctId: 'stranded-did',
+                }
+            )
+
+            if (!revived.success) {
+                throw new Error('Expected strand revival to succeed')
+            }
+            expect(revived.person.id).toBe(first.person.id)
+            expect(revived.person.version).toBe(1)
+            expect(revived.person.properties).toEqual({ b: 2 })
+            await expect(repository.fetchPerson(team.id, 'stranded-did')).resolves.toMatchObject({ uuid, version: 1 })
+        })
+
         it('createPerson returns CreationConflict against a live person with the same uuid', async () => {
             const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()

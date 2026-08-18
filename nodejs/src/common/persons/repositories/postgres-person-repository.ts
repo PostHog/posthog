@@ -622,11 +622,18 @@ export class PostgresPersonRepository
 
             // A conflict with a tombstoned row is a revival: continue the version
             // counter above the death version so the reborn key outranks its own
-            // ClickHouse tombstone from its first write. Conflicts with live rows
-            // fail the WHERE qual and surface as CreationConflict below. The
-            // arbiter requires the unique (team_id, uuid) index, which is why this
-            // query only runs for allowlisted teams: enabling a team is gated on
-            // that index existing in the environment.
+            // ClickHouse tombstone from its first write. A conflict with a live row
+            // that no live mapping points at (a row stranded by out-of-band mapping
+            // deletion) is revived the same way: the row is unreachable by the
+            // product, and without the revival every create for its deterministic
+            // uuid would fail as CreationConflict whose caller re-fetch finds
+            // nothing, poisoning the distinct id. The NOT EXISTS only evaluates on
+            // conflict, so the hot path pays nothing for it. Conflicts with
+            // reachable live rows fail the WHERE qual and surface as
+            // CreationConflict below. The arbiter requires the unique
+            // (team_id, uuid) index, which is why this query only runs for
+            // allowlisted teams: enabling a team is gated on that index existing
+            // in the environment.
             const query = `
                 WITH inserted_person AS (
                     INSERT INTO posthog_person (
@@ -645,6 +652,12 @@ export class PostgresPersonRepository
                         is_identified = EXCLUDED.is_identified,
                         last_seen_at = EXCLUDED.last_seen_at
                     WHERE posthog_person.is_deleted = true
+                       OR NOT EXISTS (
+                           SELECT 1 FROM posthog_persondistinctid d
+                           WHERE d.team_id = posthog_person.team_id
+                             AND d.person_id = posthog_person.id
+                             AND d.is_deleted = false
+                       )
                     RETURNING ${PERSON_COLUMNS}
                 ),
                 inserted_distinct_ids AS (
