@@ -7,7 +7,11 @@ vi.mock("@posthog/ui/primitives/toast", () => ({ toast: quillToast }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useSettingsStore.setState({ hints: {}, tipsEnabled: true });
+  useSettingsStore.setState({
+    hints: {},
+    tipsEnabled: true,
+    toastNotifications: true,
+  });
 });
 
 describe("hintToast", () => {
@@ -29,5 +33,20 @@ describe("hintToast", () => {
 
     expect(quillToast.info).toHaveBeenCalledTimes(1);
     expect(useSettingsStore.getState().hints["a-lesson"]?.learned).toBe(true);
+  });
+
+  // With toasts off the tip never reaches the screen, so a max:1 lesson must not
+  // burn its single offer; it comes back once toasts are on again.
+  it("does not spend a showing while toast notifications are off", () => {
+    useSettingsStore.setState({ toastNotifications: false });
+    hintToast("a-lesson", "Steering waits", "It applies later", 1);
+
+    expect(quillToast.info).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().hints["a-lesson"]).toBeUndefined();
+
+    useSettingsStore.setState({ toastNotifications: true });
+    hintToast("a-lesson", "Steering waits", "It applies later", 1);
+
+    expect(quillToast.info).toHaveBeenCalledTimes(1);
   });
 });
