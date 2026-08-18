@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     _OID_TEXT,
     PG_EPOCH_OFFSET_US,
     PgOutputDecoder,
+    Relation,
+    RelationColumn,
     _pg_timestamp_to_datetime,
 )
 
@@ -557,3 +559,40 @@ class TestTransactionBufferGuard:
             decoder.decode_message(_make_insert(1, [("t", "2")]), "0/1")
             events = decoder.decode_message(_make_commit(), "0/1")
             assert len(events) == 2
+
+
+class TestReplicaIdentityKeyColumns:
+    # A REPLICA IDENTITY FULL table flags every column as part of the key. Persisting that as the
+    # primary key makes the merge key every column, so an UPDATE lands as a new row instead of
+    # replacing the old one and the warehouse table accumulates stale versions forever.
+
+    def _decoder_with(self, replica_identity: int, key_flags: list[int]) -> PgOutputDecoder:
+        decoder = PgOutputDecoder()
+        decoder._relations[1] = Relation(
+            relation_id=1,
+            schema_name="public",
+            table_name="users",
+            replica_identity=replica_identity,
+            columns=[
+                RelationColumn(flags=f, name=n, type_oid=_OID_INT8, type_modifier=-1)
+                for f, n in zip(key_flags, ["id", "name", "email"])
+            ],
+        )
+        return decoder
+
+    def test_full_replica_identity_yields_no_key(self):
+        decoder = self._decoder_with(replica_identity=2, key_flags=[1, 1, 1])
+
+        assert decoder.get_key_columns("users") == []
+
+    def test_default_replica_identity_yields_the_declared_key(self):
+        decoder = self._decoder_with(replica_identity=0, key_flags=[1, 0, 0])
+
+        assert decoder.get_key_columns("users") == ["id"]
+
+    def test_a_declared_key_covering_every_column_survives(self):
+        # Distinguished by replica identity, not by "every column is flagged" — otherwise a table
+        # whose composite PK genuinely spans all its columns would lose its key.
+        decoder = self._decoder_with(replica_identity=0, key_flags=[1, 1, 1])
+
+        assert decoder.get_key_columns("users") == ["id", "name", "email"]

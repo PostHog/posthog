@@ -73,6 +73,9 @@ class RelationColumn:
     type_modifier: int
 
 
+_REPLICA_IDENTITY_FULL = 2
+
+
 @dataclass
 class Relation:
     """Cached relation (table) metadata from an R message."""
@@ -359,9 +362,20 @@ class PgOutputDecoder:
     # --- Helpers ---
 
     def get_key_columns(self, table_name: str) -> list[str]:
-        """Return column names that are part of the replica identity key for a table."""
+        """Return the column names forming the replica identity key, or [] if there is no usable one.
+
+        REPLICA IDENTITY FULL flags every column as part of the key, which names no key at all —
+        merging on every column makes each row version its own key, so updates accumulate instead
+        of replacing. Callers fall back to the declared primary key when this is empty.
+        """
         for relation in self._relations.values():
             if relation.table_name == table_name:
+                # replica_identity 2 = FULL, which flags every column as part of the key. That names
+                # no key: merging on every column makes each row version its own key, so updates
+                # accumulate instead of replacing. Checked by identity rather than by "all columns
+                # flagged", so a table whose declared PK genuinely covers every column still works.
+                if relation.replica_identity == _REPLICA_IDENTITY_FULL:
+                    return []
                 return [col.name for col in relation.columns if col.flags & 1]
         return []
 
