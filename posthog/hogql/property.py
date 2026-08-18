@@ -760,7 +760,9 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
     no precalculated cohortpeople. Only the performed-event family is supported; the multi-subquery
     criteria (sequences, stopped/restarted) still require a cohort.
     """
-    if scope not in ("event", "person"):
+    # Person scope would emit `id IN (SELECT person_id FROM events ...)`, which HogQL cannot resolve when the
+    # enclosing FROM is `persons` — the lazy person join gets added twice. Event scope only until that is fixed.
+    if scope != "event":
         raise QueryError(f"The 'behavioral' property filter does not work in '{scope}' scope")
     if property.value not in (
         BehavioralPropertyType.PERFORMED_EVENT,
@@ -790,15 +792,6 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
                 op=ast.CompareOperationOp.Gt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=date_from)
             )
         )
-        if property.explicit_datetime_to:
-            date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
-            conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=date_to),
-                )
-            )
     elif property.time_value is not None and property.time_interval is not None:
         if property.time_interval not in _BEHAVIORAL_INTERVALS:
             raise QueryError(f"Invalid behavioral filter time interval: {property.time_interval}")
@@ -824,6 +817,17 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         # An unbounded "ever performed" filter would scan every partition of the events table.
         raise QueryError("Behavioral filters require a time window (time_value/time_interval or explicit_datetime)")
 
+    # Applies to both window styles — pairing it only with explicit_datetime silently drops the upper bound.
+    if property.explicit_datetime_to:
+        date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=date_to),
+            )
+        )
+
     if property.event_filters:
         conditions.append(property_to_expr(list(property.event_filters), team, scope="event", strict=strict))
 
@@ -832,6 +836,9 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         try:
             count = int(property.operator_value)  # type: ignore[arg-type]
         except (ValueError, TypeError):
+            raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
+        # count() = 0 can never match a grouped row, so a non-positive threshold silently matches nobody.
+        if count <= 0:
             raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
         count_op = _BEHAVIORAL_COUNT_OPERATORS.get(property.operator or "exact")
         if count_op is None:
@@ -850,7 +857,7 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
         having=having,
     )
     return ast.CompareOperation(
-        left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
+        left=ast.Field(chain=["person_id"]),
         op=ast.CompareOperationOp.NotIn if property.negation else ast.CompareOperationOp.In,
         right=subquery,
     )
@@ -897,17 +904,17 @@ def property_to_expr(
     strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
+        is_behavioral = property.get("type") == "behavioral"
         try:
             property = Property(**property)
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
-        except ValueError:
+        except (ValueError, TypeError) as e:
             if strict:
                 raise
-            return ast.Constant(value=1)
-        except TypeError:
-            if strict:
-                raise
+            # Dropping a behavioral filter would widen the query to every person instead of narrowing it.
+            if is_behavioral:
+                raise QueryError(f"Invalid behavioral property filter: {e}")
             return ast.Constant(value=1)
     elif isinstance(property, list):
         properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
@@ -959,9 +966,12 @@ def property_to_expr(
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
-        except ValueError:
+        except ValueError as e:
             if strict:
                 raise
+            # Dropping a behavioral filter would widen the query to every person instead of narrowing it.
+            if isinstance(property, BehavioralPropertyFilter):
+                raise QueryError(f"Invalid behavioral property filter: {e}")
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=1)
     else:

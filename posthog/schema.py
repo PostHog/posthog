@@ -29227,7 +29227,6 @@ class ActorsQuery(BaseModel):
             | CohortPropertyFilter
             | HogQLPropertyFilter
             | EmptyPropertyFilter
-            | BehavioralPropertyFilter
         ]
         | None
     ) = Field(
@@ -29249,7 +29248,6 @@ class ActorsQuery(BaseModel):
             | CohortPropertyFilter
             | HogQLPropertyFilter
             | EmptyPropertyFilter
-            | BehavioralPropertyFilter
         ]
         | PropertyGroupFilterValue
         | None
