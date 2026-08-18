@@ -143,6 +143,10 @@ class DayRange:
     start: datetime.datetime
     end: datetime.datetime
 
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
+
 
 def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """

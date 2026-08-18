@@ -7069,6 +7069,36 @@
             "readOnlyHint": true
         }
     },
+    "managed-warehouse-metric-history-get": {
+        "description": "Get one operational metric over a trailing time window for the active project's managed warehouse. Available metrics cover query rate and errors, query duration, active sessions, worker acquisition, storage size, and worker crashes. The response includes units and labeled series. These values are not billing totals.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get managed warehouse metric history",
+        "title": "Get managed warehouse metric history",
+        "required_scopes": ["warehouse_view:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-warehouse-scene"
+    },
+    "managed-warehouse-monitoring-get": {
+        "description": "Get current workers, allocated resources, active sessions, running queries, queued connections, capacity limits, and response coverage for the active project's managed warehouse. Use this to inspect current capacity and workload. These values describe operational activity, not invoiced usage.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get managed warehouse monitoring",
+        "title": "Get managed warehouse monitoring",
+        "required_scopes": ["warehouse_view:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-warehouse-scene"
+    },
     "marketing-analytics-conversion-goals": {
         "description": "List the configured marketing conversion goals for the current project. Each goal returns its conversion_goal_id — the value the explain, update and delete tools take — plus its kind (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count may differ from the dashboard's attribution-windowed number.",
         "category": "Marketing analytics",

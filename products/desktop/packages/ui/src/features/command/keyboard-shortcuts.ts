@@ -360,6 +360,7 @@ function formatKey(key: string): string {
   if (k === "=") return "+";
   if (k === "-") return "-";
   if (k === "tab") return "Tab";
+  if (k === "space") return "Space";
   return k.toUpperCase();
 }
 
