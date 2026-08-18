@@ -9,7 +9,7 @@ import click
 
 from .baseline import check_baseline
 from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
-from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, TACH_TOML, backend_product_dirs, load_structure
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -122,7 +122,9 @@ def lint_all_products() -> None:
         click.echo(f"  ✗ {len(baseline_issues)} issue(s)")
         for issue in baseline_issues:
             click.echo(f"    → {issue}")
-            _gh_annotation("error", "products", "isolation baseline", issue, file=str(ISOLATION_BASELINE))
+            _gh_annotation(
+                "error", "products", "isolation baseline", issue, file=str(ISOLATION_BASELINE.relative_to(REPO_ROOT))
+            )
     else:
         click.echo("  ✓ ok")
     click.echo("")
