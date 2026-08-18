@@ -5,6 +5,8 @@ import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { resolveEventSource } from '@/lib/event-source'
+import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -14,7 +16,6 @@ import {
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
@@ -39,6 +40,15 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
+        // The same property `posthog/event_usage.py` stamps on product events, so an MCP call
+        // and the API work it causes land in one breakdown. Distinct from `$mcp_source`, which
+        // names the emitting SDK rather than the surface.
+        source: resolveEventSource({
+            mcpConsumer: clientIdentity.mcpConsumer,
+            clientUserAgent: requestContext.clientUserAgent,
+            apiKeyScopes: state.apiKeyScopes,
+            oauthClientId: state.oauthClientId,
+        }),
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
@@ -380,6 +390,12 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             event: '$mcp_auth_failed',
             properties: {
                 $ai_product: 'mcp',
+                // Resolved without scopes — the request never authenticated, so nothing can
+                // vouch for a declared consumer and anything unproven lands as `mcp`.
+                source: resolveEventSource({
+                    mcpConsumer: props.mcpConsumer,
+                    clientUserAgent: props.clientUserAgent,
+                }),
                 $mcp_source: MCP_ANALYTICS_SOURCE,
                 $mcp_server_name: MCP_SERVER_NAME,
                 $mcp_server_version: MCP_SERVER_VERSION,

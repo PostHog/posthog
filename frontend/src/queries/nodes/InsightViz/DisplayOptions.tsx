@@ -31,8 +31,10 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
+import { SliceNamesFilter } from 'scenes/insights/EditorFilters/SliceNamesFilter'
 import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { YAxisRangeFilter } from 'scenes/insights/EditorFilters/YAxisRangeFilter'
 import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -44,30 +46,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-export const LINE_DISPLAYS = [
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsLineGraphCumulative,
-    ChartDisplayType.ActionsAreaGraph,
-] as const
-export const BAR_DISPLAYS = [
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsUnstackedBar,
-    ChartDisplayType.ActionsBarValue,
-] as const
-
-export function displayMatches(
-    display: ChartDisplayType | null | undefined,
-    displays: readonly ChartDisplayType[]
-): boolean {
-    return !!display && displays.includes(display)
-}
-
-export function isDefaultTrendsLineDisplay(
-    display: ChartDisplayType | null | undefined,
-    querySource: Parameters<typeof isTrendsQuery>[0]
-): boolean {
-    return !display && isTrendsQuery(querySource)
-}
+import { displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
 function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
     const { insightProps } = useValues(insightLogic)
@@ -113,24 +92,6 @@ function ExcludeOutliers(): JSX.Element {
                     updateQuerySource(newQuery)
                 }
             }}
-        />
-    )
-}
-
-function PercentStack(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { display } = useValues(insightVizDataLogic(insightProps))
-    const { showValuesOnSeries } = useValues(trendsDataLogic(insightProps))
-
-    return (
-        <PercentStackViewFilter
-            // On a pie chart the percentage is rendered through the series value labels, so it has no
-            // effect while those labels are hidden.
-            disabledReason={
-                display === ChartDisplayType.ActionsPie && showValuesOnSeries === false
-                    ? "Enable 'Show values on series' to use this option"
-                    : undefined
-            }
         />
     )
 }
@@ -263,8 +224,9 @@ export const DisplayOptions = {
     LifecycleStacking: { label: () => <LifecycleStackingFilter /> },
     LifecyclePercentages: { label: () => <LifecyclePercentagesFilter /> },
     ValueLabels: { label: () => <ValueOnSeriesFilter /> },
-    PercentStack: { label: () => <PercentStack /> },
+    PercentStack: { label: () => <PercentStackViewFilter /> },
     StackBreakdown: { label: () => <StackBreakdownFilter /> },
+    SliceNames: { label: () => <SliceNamesFilter /> },
     PieTotal: { label: () => <ShowPieTotalFilter /> },
     AlertThresholdLines: { label: () => <ShowAlertThresholdLinesFilter /> },
     AlertAnomalyPoints: { label: () => <ShowAlertAnomalyPointsFilter /> },
@@ -275,6 +237,7 @@ export const DisplayOptions = {
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },
+    YAxisRange: { label: () => <YAxisRangeFilter /> },
     LineStyle: { label: () => <LineStylePicker /> },
     ConfidenceInterval: { label: () => <ConfidenceInterval /> },
     ConfidenceLevel: { label: () => <ConfidenceLevelInput /> },

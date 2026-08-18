@@ -61,14 +61,6 @@ export interface PromptInputProps {
     active: boolean;
     onToggle: () => void;
   };
-  /**
-   * When provided, the mode dropdown gains a "Canvas" toggle (channels
-   * composer only). `active` drives its checkmark and the trigger label.
-   */
-  canvas?: {
-    active: boolean;
-    onToggle: () => void;
-  };
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
@@ -151,7 +143,6 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       onModeChange,
       allowBypassPermissions = false,
       autoresearch,
-      canvas,
       enableBashMode = false,
       enableCommands = true,
       modelSelector,
@@ -471,6 +462,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 enableCommands ? insertSlashCommand : undefined
               }
             />
+            {/* Direct flex children, not wrapped in a span: an inline wrapper
+                builds a line box whose leading pushes the trigger a pixel below
+                the toolbar's other buttons. The model chip renders before the
+                mode chip so its open menu stays anchored in place while a
+                harness switch changes which permission modes exist (and how
+                wide their labels are). */}
+            {modelSelector}
+            {reasoningSelector}
             {onModeChange && (
               <ModeSelector
                 modeOption={modeOption}
@@ -478,14 +477,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 allowBypassPermissions={allowBypassPermissions}
                 disabled={disabled}
                 autoresearch={autoresearch}
-                canvas={canvas}
               />
             )}
-            {/* Direct flex children, not wrapped in a span: an inline wrapper
-                builds a line box whose leading pushes the trigger a pixel below
-                the toolbar's other buttons. */}
-            {modelSelector}
-            {reasoningSelector}
             {isBashMode && (
               <Text className="font-mono text-(--blue-9) text-[13px]">
                 ! bash

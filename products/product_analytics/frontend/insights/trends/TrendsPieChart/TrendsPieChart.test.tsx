@@ -48,8 +48,19 @@ describe('TrendsPieChart (ActionsPie)', () => {
         },
         {
             name: 'formats slice values as percentages in percent stack view',
-            query: pieByHedgehog({ showPercentStackView: true }),
+            query: pieByHedgehog({ showValuesOnSeries: false, showPercentStackView: true }),
             expectedLabels: ['57.9%', '21.1%', '10.5%', '10.5%'],
+        },
+        {
+            name: 'shows the value and the percentage together when both options are on',
+            query: pieByHedgehog({ showPercentStackView: true }),
+            expectedLabels: ['11 (57.9%)', '4 (21.1%)', '2 (10.5%)', '2 (10.5%)'],
+        },
+        {
+            // Name and value are separate lines, so a slice's text content reads as name then value.
+            name: 'prefixes the slice with its name when labels on series is on',
+            query: pieByHedgehog({ showLabelsOnSeries: true }),
+            expectedLabels: ['Spike11', 'Thistle4', 'Bramble2', 'Prickles2'],
         },
     ])('$name', async ({ query, expectedLabels }) => {
         renderInsight({ query })

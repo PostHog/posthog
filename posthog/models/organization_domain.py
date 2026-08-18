@@ -330,14 +330,6 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
                 identity_provider_config_id=self.identity_provider_config_id,
             )
 
-            config = IdentityProviderConfig.objects.select_for_update().get(pk=self.identity_provider_config_id)
-            identifier = str(self.pk)
-            updates = {field: identifier for field in ("saml_relay_state", "scim_slug") if not getattr(config, field)}
-            if updates:
-                IdentityProviderConfig.objects.filter(pk=config.pk).update(**updates)
-                for field, value in updates.items():
-                    setattr(config, field, value)
-
     @property
     def is_verified(self) -> bool:
         """

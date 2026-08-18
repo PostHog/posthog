@@ -1,10 +1,17 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), info: jest.fn(), warning: jest.fn(), error: jest.fn() },
+}))
 
 describe('observationsDockLogic', () => {
     let logic: ReturnType<typeof observationsDockLogic.build>
@@ -14,11 +21,14 @@ describe('observationsDockLogic', () => {
     let releaseInlineScan: () => void
     let releaseScanners: () => void
     let inlineScanOutcome: string
+    let observationResults: ReplayObservationApi[]
 
     beforeEach(() => {
+        jest.clearAllMocks()
         observeCalls = 0
         inlineScanCalls = 0
         inlineScanOutcome = 'started'
+        observationResults = []
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': async () => {
@@ -27,7 +37,7 @@ describe('observationsDockLogic', () => {
                     })
                     return [200, { results: [] }]
                 },
-                '/api/projects/:team/vision/observations/': () => [200, { results: [] }],
+                '/api/projects/:team/vision/observations/': () => [200, { results: observationResults }],
             },
             post: {
                 '/api/projects/:team/vision/scanners/:id/observe/': async () => {
@@ -103,16 +113,40 @@ describe('observationsDockLogic', () => {
         expect(inlineScanCalls).toBe(1)
     })
 
-    it('re-reads observations when the recording was already summarized', async () => {
-        // The inline scanner is shared across the project, so the existing row can postdate this dock's
-        // mount-time load. Without the refetch the user reads "already summarized" over an empty dock.
+    it('warns rather than promising a result when an already-summarized row is unreadable', async () => {
+        // The slot check runs unscoped, so `already_scanned` can come back for a row RBAC hides from the
+        // dock, or the reload can fail. The old copy claimed a result over an empty dock; guard that the
+        // reload happens first and the message admits nothing is shown.
         inlineScanOutcome = 'already_scanned'
+        // Consume the mount-time load so its response can't overwrite the reload below.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
         logic.actions.summarize()
         // The mock holds the request open, and its release hook only exists once the handler runs.
         await new Promise((resolve) => setTimeout(resolve, 0))
         releaseInlineScan()
 
-        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservations'])
-        await expectLogic(logic).toMatchValues({ dockOpen: true })
+        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true, observations: [] })
+        expect(lemonToast.warning).toHaveBeenCalled()
+        expect(lemonToast.info).not.toHaveBeenCalled()
+    })
+
+    it('confirms the result when the already-summarized row is readable', async () => {
+        // The reload surfaces the inline scanner's row (matched by scan_id), so the dock can point at it.
+        inlineScanOutcome = 'already_scanned'
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        observationResults = [
+            { id: 'obs-1', scanner_id: 'scanner-x', session_id: 'sess-1', status: 'succeeded' } as ReplayObservationApi,
+        ]
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+
+        await expectLogic(logic).toDispatchActions(['summarizeFailure', 'loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true, observations: observationResults })
+        expect(lemonToast.info).toHaveBeenCalled()
+        expect(lemonToast.warning).not.toHaveBeenCalled()
     })
 })

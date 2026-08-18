@@ -1,4 +1,6 @@
-from datetime import datetime
+import json
+from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,6 +36,25 @@ class TestBuildBundles:
         assert pps.build_bundles(rows, "distinct_id", {"plan": "plan_tier", "seats": "seat_count"}) == [
             ("a", {"plan_tier": "pro"})
         ]
+
+    def test_coerces_non_json_scalars_so_the_produce_can_serialize(self):
+        # A timestamp column arrives as a datetime and a numeric column as a Decimal; the Kafka
+        # producer serializes intents with plain json.dumps, so these must be coerced or it crashes.
+        rows = [
+            {
+                "distinct_id": "a",
+                "signed_up": datetime(2026, 1, 2, 3, 4, 5),
+                "born": date(2026, 1, 2),
+                "ltv": Decimal("9.99"),
+            }
+        ]
+        bundles = pps.build_bundles(
+            rows, "distinct_id", {"signed_up": "signed_up_at", "born": "born_on", "ltv": "lifetime_value"}
+        )
+        assert bundles == [
+            ("a", {"signed_up_at": "2026-01-02T03:04:05", "born_on": "2026-01-02", "lifetime_value": 9.99})
+        ]
+        json.dumps(bundles[0][1])  # the produced bundle round-trips without a default handler
 
 
 class TestBundleHash:
@@ -377,6 +398,53 @@ class TestGroupTarget:
         stamp.assert_not_called()
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
+
+
+class TestExistenceLookupChunking:
+    """Both personhog helpers return whole models (properties included) and hold every one before
+    returning, so `_filter_existing_ids` must ask in chunks — an unchunked call over a large changed
+    set materializes the lot at once and OOM-kills the worker."""
+
+    @parameterized.expand(
+        [
+            (
+                "group",
+                PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0),
+                "get_groups_by_identifiers",
+                lambda _team_id, _index, chunk: [MagicMock(group_key=key) for key in chunk if key != "ghost"],
+            ),
+            (
+                "person",
+                PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"}),
+                "get_persons_mapped_by_distinct_id",
+                lambda _team_id, chunk: {key: MagicMock() for key in chunk if key != "ghost"},
+            ),
+        ]
+    )
+    def test_lookup_is_chunked_and_results_are_unioned(self, _name, source, helper, fake):
+        ids = [f"e{n}" for n in range(2_500)] + ["ghost"]
+        with patch(f"{_MODULE}.{helper}", side_effect=fake) as lookup:
+            result = pps._filter_existing_ids(9, source, ids)
+
+        chunks = [call.args[-1] for call in lookup.call_args_list]
+        assert [len(chunk) for chunk in chunks] == [1000, 1000, 501]
+        assert result == set(ids) - {"ghost"}
+
+    def test_single_call_below_the_chunk_size(self):
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"})
+        with patch(f"{_MODULE}.get_persons_mapped_by_distinct_id", return_value={"a": MagicMock()}) as lookup:
+            assert pps._filter_existing_ids(9, source, ["a"]) == {"a"}
+        lookup.assert_called_once_with(9, ["a"])
+
+    def test_group_source_without_a_type_index_never_looks_up(self):
+        source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group")
+        with (
+            patch(f"{_MODULE}.get_groups_by_identifiers") as groups,
+            patch(f"{_MODULE}.get_persons_mapped_by_distinct_id") as persons,
+        ):
+            assert pps._filter_existing_ids(9, source, ["acme"]) == set()
+        groups.assert_not_called()
+        persons.assert_not_called()  # must not silently fall through to the person lookup
 
 
 @pytest.mark.django_db

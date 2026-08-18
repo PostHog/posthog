@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -6,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     QualysVmdrSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
+    MISSING_GATEWAY_ERROR,
     QualysVmdrResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
@@ -14,13 +17,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source"
 
 
-def _config() -> QualysVmdrSourceConfig:
-    return QualysVmdrSourceConfig(api_server="qualysapi.qualys.com", username="user", password="pass")
+def _config(gateway_server: str | None = None) -> QualysVmdrSourceConfig:
+    return QualysVmdrSourceConfig(
+        api_server="qualysapi.qualys.com", username="user", password="pass", gateway_server=gateway_server
+    )
 
 
 def _inputs(**overrides) -> mock.MagicMock:
     inputs = mock.MagicMock()
     inputs.schema_name = overrides.get("schema_name", "hosts")
+    inputs.api_version = overrides.get("api_version", None)
     inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", False)
     inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", None)
     return inputs
@@ -99,6 +105,32 @@ class TestQualysVmdrSource:
 
         assert transport.call_args.kwargs["db_incremental_field_last_value"] is None
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Unauthorized for url"])
+    @pytest.mark.parametrize(
+        "expected_key",
+        ["401 Client Error", "403 Client Error", "Unauthorized for url", MISSING_GATEWAY_ERROR],
+    )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_default_version_is_4_0_and_2_0_is_deprecated(self):
+        # New sources start on 4.0; 2.0 carries the vendor's announced sunset date and 4.0 is clean.
+        assert self.source.default_version == "4.0"
+        deprecation = self.source.get_version_deprecation("2.0")
+        assert deprecation is not None and deprecation.sunset_at == datetime.date(2025, 12, 31)
+        assert self.source.get_version_deprecation("4.0") is None
+
+    @pytest.mark.parametrize(
+        "pin,expected_version",
+        [("2.0", "2.0"), ("4.0", "4.0"), (None, "4.0")],
+    )
+    def test_source_for_pipeline_threads_resolved_version_and_gateway(self, pin, expected_version):
+        with mock.patch(f"{_MODULE}.qualys_vmdr_source") as transport:
+            self.source.source_for_pipeline(
+                _config(gateway_server="gateway.qg2.apps.qualys.com"),
+                mock.MagicMock(),
+                _inputs(schema_name="knowledge_base", api_version=pin),
+            )
+
+        # A NULL pin resolves to default_version (4.0); a present pin is honored verbatim.
+        assert transport.call_args.kwargs["api_version"] == expected_version
+        assert transport.call_args.kwargs["gateway_server"] == "gateway.qg2.apps.qualys.com"

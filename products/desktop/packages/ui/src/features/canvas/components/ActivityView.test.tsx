@@ -7,7 +7,6 @@ const navigation = vi.hoisted(() => ({
   toChannelTask: vi.fn(),
   toTaskDetail: vi.fn(),
 }));
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannelDashboard: navigation.toChannelDashboard,
@@ -18,10 +17,6 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow, activityHeadline } from "./ActivityView";
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
-}));
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
@@ -44,7 +39,6 @@ const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
 
 describe("activityHeadline", () => {
   beforeEach(() => {
-    commentsFlag.enabled = true;
     navigation.toChannelTask.mockReset();
     navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
@@ -107,16 +101,19 @@ describe("activityHeadline", () => {
     expect(getByText(expected)).toBeInTheDocument();
   });
 
-  it("prefixes channel names with a hash", () => {
+  it.each([
+    ["shared channel", "engineering", "#engineering"],
+    ["personal channel", "personal", "your personal space"],
+  ])("formats the %s label", (_name, channelName, expected) => {
     const { getByText } = render(
       <div>
         {activityHeadline(
-          item({ activityKind: "completed", channelName: "me" }),
+          item({ activityKind: "completed", channelName }),
           "me@posthog.com",
         )}
       </div>,
     );
-    expect(getByText("#me")).toBeInTheDocument();
+    expect(getByText(expected)).toBeInTheDocument();
   });
 
   it("opens an activity mention at its exact comment thread", () => {
@@ -158,37 +155,5 @@ describe("activityHeadline", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
-  });
-
-  it("does not open comment navigation while comments are disabled", () => {
-    commentsFlag.enabled = false;
-    const activity = item({
-      activityKind: "owned_item_comment",
-      channelId: "channel-1",
-      commentId: "comment-1",
-      commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
-    });
-
-    render(
-      <ActivityRow
-        item={activity}
-        channelId="channel-1"
-        onOpen={vi.fn()}
-        onMarkRead={vi.fn()}
-        blockedTaskIds={NO_BLOCKED_TASKS}
-      />,
-    );
-    const activityButton = screen
-      .getByText("commented on your canvas")
-      .closest("button");
-    if (!activityButton) throw new Error("Expected activity row button");
-    fireEvent.click(activityButton);
-
-    expect(navigation.toChannelTask).toHaveBeenCalledWith(
-      "channel-1",
-      "task-1",
-    );
-    expect(navigation.toChannelDashboard).not.toHaveBeenCalled();
-    expect(useCommentNavigationStore.getState().focusByTask).toEqual({});
   });
 });

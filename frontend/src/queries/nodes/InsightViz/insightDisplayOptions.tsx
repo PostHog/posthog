@@ -14,14 +14,8 @@ import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import {
-    BAR_DISPLAYS,
-    displayMatches,
-    DisplayOptions,
-    isDefaultTrendsLineDisplay,
-    LINE_DISPLAYS,
-    SectionHeader,
-} from './DisplayOptions'
+import { DisplayOptions, SectionHeader } from './DisplayOptions'
+import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
 // The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
 // active options, badged on the Options button.
@@ -85,6 +79,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
+    const isPie = display === ChartDisplayType.ActionsPie
+    // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
+    // A pie is the exception: it can show the value and the percentage together.
+    const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
     // When the chart draws its own positioned in-chart legend, show the position selector instead
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
@@ -94,6 +92,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    // Bars encode magnitude as length from zero, so a bounded baseline misreads them: 10 vs 11
+    // would draw as 1 vs 2.
+    const showYAxisRangeConfig = showYAxisScale && isLineDisplay
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
     // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
     // funnel trends default to their line graph when display is unset.
@@ -143,8 +144,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
+        if (isPie) {
+            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
         }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
@@ -191,7 +192,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+    if (showsRawValues && isTrends && !isCalendarHeatmap) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -200,6 +201,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
 
     if (showYAxisScale) {
         items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
+    }
+
+    // Kept under the scale section, so the log scale that disables the range sits one row above.
+    if (showYAxisRangeConfig) {
+        items.push({ title: 'Y-axis range', items: [DisplayOptions.YAxisRange] })
     }
 
     if (showLineStyleConfig) {
@@ -243,7 +249,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
-        (!showPercentStackView &&
+        (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
+        (showsRawValues &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'
@@ -251,6 +258,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             : 0) +
         ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showYAxisRangeConfig && trendsFilter?.yAxisStartAtZero === false ? 1 : 0) +
+        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMin === 'number' ? 1 : 0) +
+        (showYAxisRangeConfig && typeof trendsFilter?.yAxisMax === 'number' ? 1 : 0) +
         (showLineStyleConfig && (insightFilter as TrendsFilter | undefined)?.chartStyle?.curve === 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +

@@ -225,6 +225,8 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -292,6 +294,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state?: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -1052,6 +1056,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1371,9 +1383,9 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1424,9 +1436,9 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1478,9 +1490,9 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -3843,6 +3855,42 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface LeakedKeyReportApi {
+    /**
+     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * @maxLength 200
+     */
+    token: string
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
+ * * `oauth_access_token` - oauth_access_token
+ * * `oauth_refresh_token` - oauth_refresh_token
+ */
+export type LeakedKeyReportResponseTypeEnumApi =
+    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+
+export const LeakedKeyReportResponseTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
+    OauthAccessToken: 'oauth_access_token',
+    OauthRefreshToken: 'oauth_refresh_token',
+} as const
+
+export interface LeakedKeyReportResponseApi {
+    /** Whether a matching PostHog key or token was found and revoked. */
+    found: boolean
+    /** The type of key that was found and revoked, or null if no match was found.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_access_token` - oauth_access_token
+     * * `oauth_refresh_token` - oauth_refresh_token */
+    type: LeakedKeyReportResponseTypeEnumApi | null
 }
 
 /**

@@ -3119,6 +3119,8 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         schema_id=str(schema.id),
         team_id=team.id,
         should_sync=False,
+        disable_error_message=job.latest_error,
+        disable_exclude_workflow_id=mock.ANY,
     )
 
 

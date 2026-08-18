@@ -19,9 +19,15 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
+  /** A /clear is in flight; its dedicated "Clearing…" row replaces the
+   *  generic generating indicator, same as compaction. */
+  isClearing?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
   completedToolCallCount?: number;
+  /** Timestamp (ms) of the newest event in the thread; the generating indicator
+   *  says how long it has been since one arrived. */
+  lastActivityAt?: number | null;
 }
 
 export function SessionFooter({
@@ -34,7 +40,9 @@ export function SessionFooter({
   hasPendingPermission = false,
   pausedDurationMs,
   isCompacting = false,
+  isClearing = false,
   completedToolCallCount,
+  lastActivityAt,
 }: SessionFooterProps) {
   const rightSide = (
     <Flex align="center" gap="3" className="ml-auto shrink-0">
@@ -44,7 +52,7 @@ export function SessionFooter({
       {task && <DiffStatsChip task={task} />}
     </Flex>
   );
-  if (isPromptPending && !isCompacting) {
+  if (isPromptPending && !isCompacting && !isClearing) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
@@ -74,6 +82,7 @@ export function SessionFooter({
               startedAt={promptStartedAt}
               pausedDurationMs={pausedDurationMs}
               activityKey={completedToolCallCount}
+              lastActivityAt={lastActivityAt}
             />
             {queuedCount > 0 && (
               <Text className="truncate text-[13px] text-muted-foreground">
