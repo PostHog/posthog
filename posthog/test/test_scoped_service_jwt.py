@@ -115,7 +115,7 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         self.authentication = TeamScopedAuthentication()
 
     def _request(self, token: str | None, url_team_id: int | str | None = None) -> Request:
-        path = f"/api/projects/{url_team_id}/actions/" if url_team_id is not None else "/internal/endpoint"
+        path = f"/api/projects/{url_team_id}/query/" if url_team_id is not None else "/internal/endpoint"
         if token is not None:
             django_request = self.factory.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
         else:
