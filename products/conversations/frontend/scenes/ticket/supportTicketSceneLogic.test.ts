@@ -98,7 +98,6 @@ function makeSupportComment(overrides: Partial<CommentType> = {}): CommentType {
     } as unknown as CommentType
 }
 
-/** The comments endpoint answers 201 for a new message, and 200 with the original when it dedupes. */
 function commentResponse(comment: CommentType, status: number = 201): Response {
     return { status, json: () => Promise.resolve(comment) } as unknown as Response
 }
@@ -489,8 +488,6 @@ describe('supportTicketSceneLogic send outcome handling', () => {
         expect(logic.values.messageSending).toBe(false)
     })
 
-    // A 200 means the server matched an identical recent send and wrote nothing. Treating that as a
-    // send would clear the composer and leave the operator no sign that the reply never went out.
     it('flags a resend the server deduplicated instead of reporting it as sent', async () => {
         createResponseMock.mockResolvedValue(commentResponse(makeSupportComment(), 200))
         const onSuccess = jest.fn()

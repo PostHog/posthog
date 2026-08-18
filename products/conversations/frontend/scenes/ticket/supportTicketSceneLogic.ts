@@ -1330,9 +1330,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             let alreadySent = false
 
             try {
-                // The raw response carries the only signal that separates a send from a no-op:
-                // 201 means this request wrote the message, 200 means the server's dedupe guard
-                // matched an identical recent send and handed back that one instead.
                 const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
                     content,
                     rich_content: richContent,
@@ -1390,9 +1387,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
 
             if (alreadySent) {
-                // Nothing was written, so appending only backfills a message the thread may not
-                // have polled yet. The draft stays put: the operator asked for a second copy and
-                // did not get one, so they decide whether to reword it or drop it.
                 posthog.capture('support reply send deduplicated', { is_private: isPrivate })
                 cache.messageRevision += 1
                 actions.appendMessage(sent)
