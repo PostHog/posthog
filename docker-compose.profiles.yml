@@ -49,8 +49,6 @@ services:
         profiles: [replay]
 
     # Cloud provider emulators
-    localstack:
-        profiles: [localstack]
     objectstorage-azure:
         profiles: [azure]
 
