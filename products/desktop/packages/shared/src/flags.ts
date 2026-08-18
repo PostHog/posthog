@@ -47,3 +47,20 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/**
+ * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
+ * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
+ * to its Bedrock backend; `control` sends nothing and the gateway keeps its
+ * `anthropic` default.
+ *
+ * Orthogonal to the gateway's Bedrock *failover* (`x-posthog-use-bedrock-fallback`),
+ * which stays on for every session regardless of this flag — that one only
+ * triggers when Anthropic 5xxs, so gating it would cost the control group
+ * resilience rather than measuring anything.
+ */
+export const BEDROCK_LLM_GATEWAY_FLAG = "bedrock-llm-gateway";
+
+/** Variants of {@link BEDROCK_LLM_GATEWAY_FLAG}. */
+export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
+
+export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];

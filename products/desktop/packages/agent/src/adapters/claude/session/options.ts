@@ -12,6 +12,10 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import {
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "@posthog/shared";
 import { buildPosthogPropertyHeaderLines } from "@posthog/shared/posthog-property-headers";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
 import { IS_ROOT } from "../../../utils/common";
@@ -103,6 +107,8 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
 export function buildSystemPrompt(
@@ -156,6 +162,7 @@ function buildMcpServers(
 function buildEnvironment(
   gateway?: GatewayEnv,
   sessionId?: string,
+  bedrockGatewayVariant?: BedrockGatewayVariant,
 ): Record<string, string> {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
@@ -186,6 +193,19 @@ function buildEnvironment(
   }
   // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
   headerLines.push("x-posthog-use-bedrock-fallback: true");
+  if (bedrockGatewayVariant) {
+    // Serve the whole session from Bedrock rather than only failing over to it.
+    // The gateway defaults to `anthropic`, so `control` deliberately sends no
+    // provider header and stays on that default.
+    if (bedrockGatewayVariant === "test") {
+      headerLines.push("x-posthog-provider: bedrock");
+    }
+    // Stamps `$feature/bedrock-llm-gateway` onto the $ai_generation event the
+    // gateway captures, so test and control are comparable in analytics.
+    headerLines.push(
+      `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
+    );
+  }
   const customHeaders = headerLines.join("\n");
 
   // SDK 0.3.142 made MCP servers connect in the background by default. That
@@ -514,7 +534,11 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
-    env: buildEnvironment(params.gatewayEnv, params.sessionId),
+    env: buildEnvironment(
+      params.gatewayEnv,
+      params.sessionId,
+      params.bedrockGatewayVariant,
+    ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
       params.onModeChange,

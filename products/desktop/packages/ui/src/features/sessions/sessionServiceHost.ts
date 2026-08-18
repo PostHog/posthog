@@ -19,7 +19,12 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { SPOKEN_NARRATION_FLAG } from "@posthog/shared";
+import {
+  BEDROCK_GATEWAY_VARIANTS,
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+  SPOKEN_NARRATION_FLAG,
+} from "@posthog/shared";
 import {
   createAuthenticatedClient,
   getAuthenticatedClient,
@@ -67,6 +72,18 @@ export function shouldEnableSpokenNarration(
   isDevelopment: boolean,
 ): boolean {
   return userOptedIn && (flagEnabled || isDevelopment);
+}
+
+/**
+ * Narrow the raw flag value to a known variant. An unmatched flag, an
+ * unresolved one (flags not loaded yet), or a variant added in PostHog that
+ * this build doesn't know about all yield undefined, which leaves the session
+ * on the gateway's default provider rather than guessing.
+ */
+export function resolveBedrockGatewayVariant(
+  rawVariant: string | undefined,
+): BedrockGatewayVariant | undefined {
+  return BEDROCK_GATEWAY_VARIANTS.find((variant) => variant === rawVariant);
 }
 
 function hostClient(): HostTrpcClient {
@@ -131,6 +148,11 @@ function buildSessionServiceDeps(): SessionServiceDeps {
             SPOKEN_NARRATION_FLAG,
           ),
           import.meta.env.DEV,
+        ),
+        bedrockGatewayVariant: resolveBedrockGatewayVariant(
+          resolveService<FeatureFlags>(FEATURE_FLAGS).getVariant(
+            BEDROCK_LLM_GATEWAY_FLAG,
+          ),
         ),
       };
     },

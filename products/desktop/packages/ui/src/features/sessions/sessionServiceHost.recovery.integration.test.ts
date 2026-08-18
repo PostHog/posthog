@@ -245,6 +245,7 @@ vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
   buildPermissionToolMetadata: vi.fn(() => ({})),
   posthogFeatureFlags: {
     isEnabled: vi.fn(() => undefined),
+    getVariant: vi.fn(() => undefined),
     onFlagsLoaded: vi.fn(),
   },
 }));

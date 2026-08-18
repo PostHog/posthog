@@ -410,6 +410,20 @@ export function getFeatureFlagPayload(flagKey: string): unknown {
 }
 
 /**
+ * Matched variant of a multivariate flag; undefined when uninitialized or
+ * unmatched. posthog-js returns `true` for a boolean flag rather than a variant
+ * name, so only string values pass through.
+ */
+export function getFeatureFlagVariant(flagKey: string): string | undefined {
+  if (!isInitialized) {
+    return undefined;
+  }
+
+  const value = posthog.getFeatureFlag(flagKey);
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
  * Reload feature flags from the server.
  * Useful after a person property change (e.g., invite code redemption).
  */
@@ -441,6 +455,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
 export const posthogFeatureFlags: FeatureFlags = {
   isEnabled: isFeatureFlagEnabled,
   getPayload: getFeatureFlagPayload,
+  getVariant: getFeatureFlagVariant,
   onFlagsLoaded: onFeatureFlagsLoaded,
 };
 
