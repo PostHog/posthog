@@ -3,10 +3,11 @@ name: composing-grid-canvases
 description: >
   Compose PostHog grid canvases — widget grids (including the user's home canvas) built from
   reusable component canvases. Use when a task asks to add, fill, move, resize, or remove a widget
-  on a grid or home canvas, to build a reusable widget/component, or when a placement id or grid
-  canvas id is the target. Covers the component store search → configure → fork → build ladder,
-  the component placement contract (size, configSchema), the placement lifecycle
-  (pending/generating/live/failed), and the guarded layout patch loop.
+  on a grid or home canvas, to compose a whole canvas of widgets from one ask, to build a reusable
+  widget/component, or when a placement id or grid canvas id is the target. Covers the component
+  store search → configure → fork → build ladder, the component placement contract (size,
+  configSchema), the placement lifecycle (pending/generating/live/failed), the guarded layout
+  patch loop, and reading the canvas's comment threads.
 ---
 
 # Composing grid canvases
@@ -75,6 +76,18 @@ with three additions:
 
 Publish and wait for the build like any canvas — a component with no ready build cannot go live on
 a grid.
+
+## Composing a whole canvas
+
+A whole-canvas ask ("a home canvas that summarizes my work in progress") usually means several widgets, not one.
+Plan the full set first — one placement per concern — then resolve each with the ladder above.
+Lay them out together: no overlaps, sizes matched to what each widget shows, the grid filled deliberately rather than tiles scattered in a corner.
+Batch the layout writes (one publish for an initial layout, surgical patches after) instead of one write per widget, and finish with every placement live or failed — never generating.
+
+## Canvas comments
+
+Users leave feedback as comment threads on the canvas, anchored to its conversation task.
+List them with the task comment tools (`tasks-comments-list`, `tasks-comments-retrieve`) on your task before and after changing the canvas, and address the open ones — a comment naming a broken widget is your brief for fixing it.
 
 ## Editing a grid
 
