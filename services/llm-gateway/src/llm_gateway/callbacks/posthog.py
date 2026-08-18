@@ -92,11 +92,7 @@ def _apply_owned_event_properties(
     else:
         properties.pop("$ai_effort", None)
     team_id = auth_user.team_id if auth_user else None
-    can_override_team_id = (
-        auth_user is not None
-        and auth_user.auth_method == "personal_api_key"
-        and auth_user.is_staff
-    )
+    can_override_team_id = auth_user is not None and auth_user.auth_method == "personal_api_key" and auth_user.is_staff
     if not can_override_team_id:
         if team_id is None:
             properties.pop("team_id", None)
