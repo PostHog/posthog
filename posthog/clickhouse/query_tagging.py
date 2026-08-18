@@ -415,6 +415,13 @@ class QueryTags(BaseModel):
     endpoint_materialization_behind: Optional[bool] = (
         None  # set when a materialized endpoint is past its data_freshness SLA
     )
+    # Set only by the Endpoints backend (products/endpoints/backend/logic/execution.py), immediately
+    # before invoking process_query_model, to mark that this request is running through the trusted
+    # Endpoints execution path that itself injects the pagination OFFSET (EndpointPagination.apply_to).
+    # Deliberately distinct from `product`: QueryLogTags (the user-facing tags schema, extra="forbid")
+    # has no field that maps to this one, so unlike `product` (settable by any caller via
+    # tags.productKey on an ordinary /query request) it cannot be spoofed from request data.
+    endpoint_execution_trusted: Optional[bool] = None
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None

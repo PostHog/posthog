@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
+    QueryLogTags,
 )
 
 from posthog.hogql import ast
@@ -23,6 +24,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
 
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -377,14 +379,16 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 5)
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_query_service_allows_offset_when_tagged_as_endpoints(self, _mock_flag):
+    def test_query_service_allows_offset_when_endpoint_execution_trusted(self, _mock_flag):
         # Endpoints injects its own OFFSET for pagination (EndpointPagination.apply_to) before
         # routing through here with is_query_service=True. That self-injected OFFSET must be
         # exempted from the personal-API-key validator regardless of the org allow-list flag.
+        # The exemption is gated on `endpoint_execution_trusted`, the server-only signal set by
+        # the Endpoints backend — not on the (user-settable) `product` tag.
         runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
         runner.is_query_service = True
 
-        tag_queries(product=Product.ENDPOINTS)
+        tag_queries(product=Product.ENDPOINTS, endpoint_execution_trusted=True)
         try:
             response = runner.calculate()
         finally:
@@ -402,6 +406,45 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         try:
             with self.assertRaises(QueryError) as ctx:
                 runner.calculate()
+        finally:
+            reset_query_tags()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_query_service_rejects_offset_when_product_tag_spoofed_without_trust_flag(self, _mock_flag):
+        # Regression for the parameterai[bot] finding on PR #83578: merely tagging
+        # product=Product.ENDPOINTS (settable by anyone, see the next test) must NOT bypass the
+        # guard on its own — only the genuine, server-only endpoint_execution_trusted flag can.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        tag_queries(product=Product.ENDPOINTS)
+        try:
+            with self.assertRaises(QueryError) as ctx:
+                runner.calculate()
+        finally:
+            reset_query_tags()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_personal_api_key_query_with_endpoints_product_key_tag_still_rejected(self, _mock_flag):
+        # Regression for the parameterai[bot] finding on PR #83578: an ordinary /query request
+        # made with a personal API key can set tags.productKey itself (QueryRunner.run() copies
+        # it straight into tag_queries(product=...) before _calculate()). Submitting
+        # tags: {"productKey": "endpoints"} alongside an arbitrary OFFSET must still be rejected —
+        # it never goes through Endpoints' actual pagination path, so it must not carry the
+        # server-only endpoint_execution_trusted flag.
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select event from events limit 10 offset 5",
+                tags=QueryLogTags(productKey="endpoints"),
+            )
+        )
+        runner.is_query_service = True
+
+        try:
+            with self.assertRaises(QueryError) as ctx:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         finally:
             reset_query_tags()
         self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))

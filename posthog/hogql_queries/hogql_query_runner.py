@@ -25,7 +25,7 @@ from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
@@ -144,10 +144,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # Endpoints injects its own OFFSET into the query AST for pagination (see
         # EndpointPagination.apply_to) before routing the request through here with
         # is_query_service=True (personal-API-key access). That self-injected OFFSET is not
-        # the user-crafted pagination the validator exists to block, so it's exempted here —
-        # same tag-based carve-out idiom as the materialized-endpoint rate limiter in
-        # query_runner.py (get_query_tag_value("workload") == Workload.ENDPOINTS).
-        if self.is_query_service and get_query_tag_value("product") != Product.ENDPOINTS:
+        # the user-crafted pagination the validator exists to block, so it's exempted here.
+        #
+        # The exemption is gated on `endpoint_execution_trusted`, a tag that only the Endpoints
+        # backend sets (products/endpoints/backend/logic/execution.py), never on `product` —
+        # an ordinary /query request can set `product` to Product.ENDPOINTS itself via
+        # tags.productKey (QueryRunner.run() copies tags.productKey straight into
+        # tag_queries(product=...)), which would otherwise let any personal-API-key caller bypass
+        # this guard on an arbitrary OFFSET query without ever going through Endpoints.
+        if self.is_query_service and not get_query_tag_value("endpoint_execution_trusted"):
             validate_user_query(query, team=self.team)
 
         paginator = None
