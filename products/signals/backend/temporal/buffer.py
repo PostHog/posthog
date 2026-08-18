@@ -89,7 +89,7 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
     that fired; the workflow only acts on the boolean.
     """
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    quota_limited = await sync_to_async(is_team_signals_quota_limited)(team.api_token)
+    quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
     daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     # Captured whenever the daily gate binds — even when the quota drop below wins the
     # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.
