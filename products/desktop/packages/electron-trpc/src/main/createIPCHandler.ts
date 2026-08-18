@@ -25,17 +25,28 @@ export interface AttachWindowOptions {
   allowedPaths?: (path: string) => boolean;
 }
 
+export interface NavigationCleanup {
+  webContentsId: number;
+  url: string;
+  /** In-flight operations (queries, mutations, subscriptions) aborted. */
+  aborted: number;
+}
+
+export type OnNavigationCleanup = (cleanup: NavigationCleanup) => void;
+
 class IPCHandler<TRouter extends AnyTRPCRouter> {
   #windows: BrowserWindow[] = [];
   #pathFilters: Map<number, (path: string) => boolean> = new Map();
   #operations: Map<string, AbortController> = new Map();
   #listener: (event: IpcMainEvent, request: ETRPCRequest) => void;
+  #onNavigationCleanup: OnNavigationCleanup | undefined;
 
   constructor({
     createContext,
     router,
     windows = [],
     onError,
+    onNavigationCleanup,
   }: {
     createContext?: (
       opts: CreateContextOptions,
@@ -43,7 +54,9 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     router: TRouter;
     windows?: BrowserWindow[];
     onError?: OnProcedureError;
+    onNavigationCleanup?: OnNavigationCleanup;
   }) {
+    this.#onNavigationCleanup = onNavigationCleanup;
     for (const win of windows) {
       this.attachWindow(win);
     }
@@ -122,31 +135,38 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     });
   }
 
-  #cleanUpSubscriptions({
-    webContentsId,
-    frameRoutingId,
-  }: {
-    webContentsId: number;
-    frameRoutingId?: number;
-  }) {
+  #cleanUpSubscriptions({ webContentsId }: { webContentsId: number }): number {
+    let aborted = 0;
     for (const [key, sub] of this.#operations.entries()) {
-      if (key.startsWith(`${webContentsId}-${frameRoutingId ?? ""}`)) {
+      if (key.startsWith(`${webContentsId}-`)) {
         sub.abort();
         this.#operations.delete(key);
+        aborted += 1;
       }
     }
+    return aborted;
   }
 
+  // Operations belong to the document that issued them, so they are torn down
+  // once a main-frame navigation has committed and that document is gone. The
+  // commit fires before the new document can send its first request, so
+  // sweeping every operation of the webContents here never touches the new
+  // document's work. Sweeping earlier, on `did-start-navigation`, is wrong:
+  // that fires before `will-navigate`, so a navigation the app cancels there
+  // (an external link opened in the browser) would still abort every live
+  // subscription while the document stays on screen, with no error the
+  // renderer could react to. Subframes never issue operations, so their
+  // navigations need no cleanup.
   #attachSubscriptionCleanupHandlers(win: BrowserWindow) {
     const webContentsId = win.webContents.id;
-    win.webContents.on("did-start-navigation", ({ isSameDocument, frame }) => {
-      if (!isSameDocument && frame) {
-        this.#cleanUpSubscriptions({
-          webContentsId: webContentsId,
-          frameRoutingId: frame.routingId,
-        });
-      }
-    });
+    win.webContents.on(
+      "did-frame-navigate",
+      (_event, url, _httpResponseCode, _httpStatusText, isMainFrame) => {
+        if (!isMainFrame) return;
+        const aborted = this.#cleanUpSubscriptions({ webContentsId });
+        this.#onNavigationCleanup?.({ webContentsId, url, aborted });
+      },
+    );
     win.webContents.on("destroyed", () => {
       this.detachWindow(win, webContentsId);
     });
@@ -160,6 +180,7 @@ export const createIPCHandler = <TRouter extends AnyTRPCRouter>({
   router,
   windows = [],
   onError,
+  onNavigationCleanup,
 }: {
   createContext?: (
     opts: CreateContextOptions,
@@ -167,10 +188,17 @@ export const createIPCHandler = <TRouter extends AnyTRPCRouter>({
   router: TRouter;
   windows?: Electron.BrowserWindow[];
   onError?: OnProcedureError;
+  onNavigationCleanup?: OnNavigationCleanup;
 }) => {
   if (currentHandler) {
     currentHandler.destroy();
   }
-  currentHandler = new IPCHandler({ createContext, router, windows, onError });
+  currentHandler = new IPCHandler({
+    createContext,
+    router,
+    windows,
+    onError,
+    onNavigationCleanup,
+  });
   return currentHandler;
 };
