@@ -19,13 +19,14 @@ on ``updatedAt`` / ``createdAt`` is a genuine server-side filter rather than a c
 """
 
 import re
-import dataclasses
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -53,7 +54,7 @@ class TwentyHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class TwentyResumeConfig:
     # `starting_after` cursor for the next page. Persisted after each page is yielded, so a crash
     # re-fetches the last page rather than skipping rows still buffered but not yet durably
