@@ -146,8 +146,12 @@ VERDICT_SCHEMA = {
                 "type": "array",
                 "items": {"type": "string"},
             },
+            "change_summary": {
+                "type": "string",
+                "maxLength": 200,
+            },
         },
-        "required": ["verdict", "reasoning", "risk", "issues"],
+        "required": ["verdict", "reasoning", "risk", "issues", "change_summary"],
         "additionalProperties": False,
     },
 }
@@ -263,8 +267,22 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     - "Request a review from Codex, Claude, or a teammate first."
     Do NOT suggest splitting PRs or restructuring to avoid gates.
 
+    The "change_summary" field is the one place you DO describe what the code
+    does. One sentence, at most 200 characters, plain language, for a teammate
+    reading a daily digest who was never on the PR. Say what changed and what
+    it means for someone using or maintaining that area. No verdict, no risk
+    assessment, no gate mechanics — those belong in "reasoning". Write it in
+    your own words: the verbatim-reproduction rule in the security notice covers
+    this field too, so never quote the diff, title, or description back. Judge
+    from the diff rather than from what the description claims.
+    Examples:
+    - "Trend charts can now be given a fixed y-axis range instead of autoscaling."
+    - "Alert check history records the actual delivery receipt, so a silent send failure is visible."
+    - "The cohort query builder no longer 500s on an empty cohort; it returns an empty result."
+
     Your output is constrained to a JSON schema with verdict, reasoning,
-    risk, and issues fields. Fill them according to the rules above.
+    risk, issues, and change_summary fields. Fill them according to the rules
+    above.
     """
 )
 

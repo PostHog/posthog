@@ -44,7 +44,10 @@ class TestMcpRelayService extends McpRelayServiceImpl {
   transports: FakeTransport[] = [];
   factoryCalls = 0;
   failNextStart = false;
-  protected override responseTimeoutMs = 25;
+  // Generous by default: every test that responds does so after an await, so a
+  // short timeout here races the real clock on a loaded runner. Only the test
+  // that asserts the timeout path shortens it.
+  override responseTimeoutMs = 30_000;
 
   constructor() {
     super(fakeLogger);
@@ -276,6 +279,7 @@ describe("McpRelayServiceImpl", () => {
 
   it("resolves with -32001 when the server never responds", async () => {
     const service = makeService("srv");
+    service.responseTimeoutMs = 25;
 
     const execution = await service.execute("run-1", "srv", {
       jsonrpc: "2.0",

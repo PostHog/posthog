@@ -93,19 +93,13 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=ai_events_ingestion
+    export KAFKA_TOPIC=events_plugin_ingestion_ai
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
-    export CAPTURE_MODE=events
+    # `ai` mode produces to the AI lane as its main topic, matching prod capture-ai
+    export CAPTURE_MODE=ai
     export LOG_LEVEL=debug
     export DEBUG=1
-    # AI endpoint S3 blob storage (MinIO)
-    export AI_S3_BUCKET=ai-blobs
-    export AI_S3_PREFIX=llma/
-    export AI_S3_ENDPOINT=${AI_S3_ENDPOINT:-http://objectstorage:19000}
-    export AI_S3_REGION=us-east-1
-    export AI_S3_ACCESS_KEY_ID=object_storage_root_user
-    export AI_S3_SECRET_ACCESS_KEY=object_storage_root_password
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
     ;;
 

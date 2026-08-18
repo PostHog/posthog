@@ -15,8 +15,10 @@ import os
 import re
 import json
 import shlex
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -72,6 +74,43 @@ class SandboxTemplate(str, Enum):
     CANVAS_BUILD = "canvas_build"
 
 
+class SandboxWorkload(str, Enum):
+    """Which provider-side project a sandbox is booked against, independent of its image.
+
+    Modal groups sandboxes and their cost by app. The template already picks an app for the
+    product-specific images; this picks one for workloads that share an image but should be
+    metered apart.
+    """
+
+    DEFAULT = "default"
+    SELF_DRIVING = "self_driving"
+
+
+SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research + repo selection
+        "signal_report",
+        # Headless Signals scouts
+        "signals_scout",
+        # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
+        "review_hog",
+    }
+)
+"""Origin products whose sandboxes are booked against the self-driving provider project.
+
+Wider than the self-driving *quota* gate (`enforce_self_driving_quota.py`), which only covers the
+billable implementation-PR run: this is every sandbox the fleet opens, research and review included.
+Held as strings rather than ``Task.OriginProduct`` members to keep the model layer off this module's
+import path; a test pins them to the enum so a rename can't drop a product off the fleet.
+"""
+
+
+def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
+    if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
+        return SandboxWorkload.SELF_DRIVING
+    return SandboxWorkload.DEFAULT
+
+
 class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
@@ -97,6 +136,9 @@ class SandboxResources:
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
+    # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
+    # nothing about the box itself — same image, same resources, same isolation.
+    workload: SandboxWorkload = SandboxWorkload.DEFAULT
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
@@ -119,8 +161,8 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
-    # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
     # Modal, so callers that require no egress must state it explicitly.
     block_network: bool = False
@@ -243,6 +285,12 @@ def build_agent_runtime_env_prefix(
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
+    supports_creation_cancellation = False
+    creation_timeout_seconds = 300
+
+    @staticmethod
+    def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
+        return nullcontext()
 
     @property
     @abstractmethod
@@ -627,6 +675,8 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     class ModalDockerSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+        STREAMLIT_APP_NAME = "posthog-sandbox-modal-docker-streamlit"
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-modal-docker-self-driving"
 
     return ModalDockerSandbox
 
@@ -640,6 +690,9 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     class ModalEvalsSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-evals"
         NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+        STREAMLIT_APP_NAME = "posthog-sandbox-evals"
+        # Evals are their own cost centre already — a self-driving eval stays in the evals app.
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-evals"
 
     return ModalEvalsSandbox
 

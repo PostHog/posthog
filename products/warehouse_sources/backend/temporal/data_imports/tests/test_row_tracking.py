@@ -30,6 +30,29 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 )
 
 
+class TestRowTrackingRedisUnavailable(BaseTest):
+    @pytest.mark.asyncio
+    async def test_setup_row_tracking_does_not_raise_when_redis_is_unreachable(self):
+        # get_async_client only builds a lazy client - the ping is the first real
+        # connection attempt. If it fails, the client must not be used again, or the
+        # next command (hset) raises the same connection error, this time uncaught.
+        unreachable_client = mock.AsyncMock()
+        unreachable_client.ping.side_effect = redis_exceptions.ConnectionError(
+            "Error connecting to redis:6379. Temporary failure in name resolution."
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=unreachable_client,
+            ),
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            await setup_row_tracking(self.team.pk, str(uuid.uuid4()))
+
+        unreachable_client.hset.assert_not_called()
+
+
 @pytest.mark.timeout(600)
 @mock.patch(
     "products.warehouse_sources.backend.temporal.data_imports.row_tracking.database_sync_to_async_pool",

@@ -115,6 +115,10 @@ def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
     so this is the flag alone. Keyed on the Slack workspace + PostHog org, matching
     the other Slack-app gates.
 
+    Also gates the provenance footer under a finished reply: naming a model in a mention
+    and being told which model ran are two halves of the same feature, and splitting them
+    across two flags would let a workspace pick a model and then not be shown it.
+
     Independent of ``slack-app-home``: an override applies whether or not the
     workspace has opted into the settings tab."""
     try:
@@ -166,7 +170,9 @@ def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool
     install authorized earlier won't have them until it reconnects.
 
     The flag alone: the two adapters need one scope each, so they check theirs at point
-    of use and can name the one to grant. Keyed on the Slack workspace + PostHog org."""
+    of use and can name the one to grant, and chart images post by public url on
+    ``chat:write`` alone, so this flag can roll charts out ahead of those grants. Keyed
+    on the Slack workspace + PostHog org."""
     try:
         return bool(
             posthoganalytics.feature_enabled(

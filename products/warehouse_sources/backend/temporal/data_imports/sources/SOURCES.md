@@ -500,7 +500,8 @@ the row lists both.
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | pipeliner                        | HTTP                        | requests                                                        | ✅                          |
 | plain                            | HTTP                        | requests                                                        | ✅                          |
-| planetscale                      | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
+| planetscale_mysql                | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
+| planetscale_postgres             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
@@ -897,6 +898,7 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudability
 - cloudbeds
+- cloudinary
 - clover
 - coassemble
 - cockroachdb
@@ -922,13 +924,16 @@ doesn't conflict with concurrent PRs.
 - datorama
 - dayforce
 - db2
+- deelflows
 - deno_deploy
+- depot
 - deputy
 - develocity
 - dialpad
 - directus
 - discord
 - display_video_360
+- dokploy
 - dolibarr
 - donorbox
 - doorloop
@@ -1060,6 +1065,7 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
+- hootsuite
 - hostaway
 - housecall_pro
 - hubplanner
@@ -1160,6 +1166,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - motion
 - moxie
+- msg91
 - mycase
 - nager_date
 - nasa
@@ -1252,6 +1259,7 @@ doesn't conflict with concurrent PRs.
 - railz
 - raisely
 - raken
+- rakuten_advertising
 - rapid7_insightvm
 - raygun
 - rb2b
@@ -1289,6 +1297,7 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - scalr
+- schematic
 - search_ads_360
 - sec_edgar
 - secureframe
@@ -1396,6 +1405,7 @@ doesn't conflict with concurrent PRs.
 - uk_ons
 - umami
 - un_comtrade
+- uploadcare
 - uppromote
 - uptick
 - us_bea
@@ -1419,9 +1429,11 @@ doesn't conflict with concurrent PRs.
 - wayfair
 - whatsapp_business_management
 - when_i_work
+- whmcs
 - who_gho
 - wikipedia_pageviews
 - windsor_ai
+- wisprflow
 - wix
 - wiz
 - wompi
@@ -1446,6 +1458,7 @@ doesn't conflict with concurrent PRs.
 - zenefits
 - zenloop
 - zero
+- zitadel
 - zluri
 - zoho_analytics
 - zoho_bigin
