@@ -149,6 +149,16 @@ const batchesInFlight = new Gauge({
     help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
 })
 
+// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
+// several-fold with consumer batching and routing, so a batch count says little
+// about how much work a pod is holding. Events in flight is invariant to how the
+// consumer slices a batch, which keeps a scaling target stable across dispatcher
+// tuning changes.
+const eventsInFlight = new Gauge({
+    name: 'ingestion_api_events_in_flight',
+    help: 'Number of events in accepted batches currently being processed by the ingestion API',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -471,9 +481,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
-        // Tracks whether this batch was accepted, so the `finally` only
-        // decrements the in-flight gauge for batches that incremented it.
-        let inFlight = false
+        // Event count of this batch once accepted, or null while it is not.
+        // Holding the count (rather than a bool) makes the `finally` decrement
+        // exactly what was incremented, even if `messages` is out of scope.
+        let inFlight: number | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -517,7 +528,8 @@ export class IngestionApiServer implements NodeServer {
             // Batch accepted into the pipeline — it now occupies a concurrent
             // slot until processing completes below.
             batchesInFlight.inc()
-            inFlight = true
+            eventsInFlight.inc(messages.length)
+            inFlight = messages.length
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -555,8 +567,9 @@ export class IngestionApiServer implements NodeServer {
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
-            if (inFlight) {
+            if (inFlight !== null) {
                 batchesInFlight.dec()
+                eventsInFlight.dec(inFlight)
             }
         }
     }
