@@ -34,7 +34,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.models import User
 
 from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
-from products.warehouse_sources.backend.facade.models import ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 
