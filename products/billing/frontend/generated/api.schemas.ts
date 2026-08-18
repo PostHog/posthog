@@ -85,6 +85,7 @@ export interface BillingPeriodResponseApi {
      */
     current_period_end: string | null
 }
+
 /**
  * * `spend` - Spend
  * * `projected_spend` - Projected spend
@@ -613,17 +614,6 @@ export interface PaginatedBillingAlertEventListApi {
     /** @nullable */
     previous?: string | null
     results: BillingAlertEventApi[]
-}
-
-export type BillingListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type BillingAlertsListParams = {
