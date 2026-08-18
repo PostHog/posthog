@@ -2376,8 +2376,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if payload_schemas is not None and not isinstance(payload_schemas, list):
             new_source_model.delete()
             return Response(
-                status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "The 'schemas' field must be a list of the tables to sync."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         if not payload_schemas:
             payload_schemas = build_default_schemas(source_schemas)
