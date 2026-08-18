@@ -70389,13 +70389,13 @@ export namespace Schemas {
      */
     export interface ScannerSelfDrivingStats {
       /** Signals this scanner has pushed into the Signals inbox, all time. */
-      readonly signals_emitted: number;
+      signals_emitted: number;
       /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
-      readonly reports_contributed: number;
+      reports_contributed: number;
       /** Implementation PRs opened by self-driving on those reports. */
-      readonly prs_opened: number;
+      prs_opened: number;
       /** Of the opened PRs, how many have merged. */
-      readonly prs_merged: number;
+      prs_merged: number;
     }
 
     /**
