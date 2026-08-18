@@ -276,17 +276,37 @@ def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
     return kinds
 
 
-def _add_name_variants(target: set[str], name: str) -> None:
-    """Add a field name and its underscore variant to a set.
+def _name_variants(name: str) -> tuple[str, ...]:
+    """The spellings a declared field name can be stored under, declared spelling first.
 
     Source field names may use hyphens (e.g. "temporary-dataset") while
     dataclasses.asdict() persists the snake_case field name ("temporary_dataset").
+    """
+    normalised = name.replace("-", "_")
+    return (name,) if normalised == name else (name, normalised)
+
+
+def _add_name_variants(target: set[str], name: str) -> None:
+    """Add a field name and its underscore variant to a set.
+
     We need to recognise both forms when classifying persisted job_inputs.
     """
-    target.add(name)
-    normalised = name.replace("-", "_")
-    if normalised != name:
-        target.add(normalised)
+    target.update(_name_variants(name))
+
+
+def _stored_key(data: Mapping[str, Any], name: str) -> str | None:
+    """The key `data` holds a declared field under, or None when it holds neither spelling.
+
+    Prefers the declared spelling when both are present, matching how config parsing
+    resolves the alias.
+    """
+    return next((key for key in _name_variants(name) if key in data), None)
+
+
+def _stored_value(data: Mapping[str, Any], name: str) -> Any:
+    """The value `data` holds for a declared field under either spelling."""
+    key = _stored_key(data, name)
+    return data[key] if key is not None else None
 
 
 @frozen
@@ -492,16 +512,17 @@ def has_preserved_credentials(
 
     Switch groups merge the same way, so callers pass their names too. A switch group carries
     no `selection`, which reads as unchanged and lands on the omitted-field check — the branch
-    that matches how the merge treats them.
+    that matches how the merge treats them. A group declared with a hyphen can be stored under
+    either spelling, so containers are resolved the same way the merge resolves them.
     """
     if any(existing.get(key) and not incoming.get(key) for key in sensitive_fields):
         return True
 
     for container_key in nested_containers:
-        existing_container = existing.get(container_key)
+        existing_container = _stored_value(existing, container_key)
         if not isinstance(existing_container, dict):
             continue
-        incoming_container = incoming.get(container_key)
+        incoming_container = _stored_value(incoming, container_key)
         if not isinstance(incoming_container, dict):
             # Container not re-supplied — the existing secrets carry over wholesale.
             if any(existing_container.get(key) for key in sensitive_fields):
@@ -1245,23 +1266,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # the user hasn't asked to forget it, and consumers gate on `enabled` before reading it.
         for group_key in declared_field_names.switch_groups:
             # A group declared with a hyphen can be stored under either spelling (see
-            # `restore_declared_field_names`), so look for both on each side.
-            group_key_variants = (group_key, group_key.replace("-", "_"))
-            incoming_key = next((key for key in group_key_variants if key in incoming_job_inputs), None)
+            # `restore_declared_field_names`), so resolve both sides by declared name.
+            incoming_key = _stored_key(incoming_job_inputs, group_key)
             if incoming_key is None:
                 continue
             incoming_group = incoming_job_inputs[incoming_key]
             if not isinstance(incoming_group, dict):
                 raise ValidationError({"job_inputs": {group_key: "Must be an object."}})
-            existing_group = next(
-                (
-                    existing_job_inputs[key]
-                    for key in group_key_variants
-                    if isinstance(existing_job_inputs.get(key), dict)
-                ),
-                None,
-            )
-            if existing_group is None:
+            existing_group = _stored_value(existing_job_inputs, group_key)
+            if not isinstance(existing_group, dict):
                 continue
             merged_group = {**existing_group, **incoming_group}
             # No switch group declares a secret today, but keep the carry-over so one could.
@@ -1269,7 +1282,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 if existing_group.get(key) and not incoming_group.get(key):
                     merged_group[key] = existing_group[key]
             # Drop the other spelling so parsing can't see two competing groups.
-            for key in group_key_variants:
+            for key in _name_variants(group_key):
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 
