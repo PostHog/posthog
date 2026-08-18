@@ -1,6 +1,7 @@
 import json
 import uuid
 import secrets
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -9,17 +10,31 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import (
+    CodeInvite,
+    SandboxEnvironment,
+    SandboxSnapshot,
+    Task,
+    TaskRun,
+    TaskThreadMessage,
+    bump_task_activity,
+)
+
+# Far enough back that any bump is unambiguously forward, and stable so a test can assert the
+# clock did *not* move.
+STALE_ACTIVITY_AT = datetime(2020, 1, 1, tzinfo=UTC)
 
 
 class TestTask(TestCase):
@@ -480,6 +495,74 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.internal)
+
+
+class TestTaskActivityClock(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="activity@example.com", first_name="Test", password="password")
+
+    def _task(self) -> Task:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT, updated_at=STALE_ACTIVITY_AT)
+        task.refresh_from_db()
+        return task
+
+    def test_thread_message_moves_the_clock_without_touching_updated_at(self):
+        task = self._task()
+
+        with team_scope(self.team.id):
+            TaskThreadMessage.objects.create(
+                team=self.team, task=task, author=self.user, content="Any news?", author_kind="human"
+            )
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertGreater(task.last_activity_at, STALE_ACTIVITY_AT)
+        self.assertEqual(task.updated_at, STALE_ACTIVITY_AT)
+
+    @parameterized.expand(
+        [
+            ("status", ["status"], True),
+            ("output", ["output"], True),
+            ("completed_at", ["completed_at"], True),
+            ("bookkeeping", ["active_task_session"], False),
+            ("whole row", None, True),
+        ]
+    )
+    def test_run_write_moves_the_clock_only_when_the_run_did_something(self, _name, update_fields, expected_move):
+        task = self._task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
+
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=update_fields)
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertEqual(task.last_activity_at > STALE_ACTIVITY_AT, expected_move)
+
+    def test_the_clock_never_runs_backwards(self):
+        task = self._task()
+        latest = django_timezone.now()
+        Task.objects.filter(id=task.id).update(last_activity_at=latest)
+
+        bump_task_activity(team_id=self.team.id, task_id=task.id, at=STALE_ACTIVITY_AT)
+
+        task.refresh_from_db()
+        self.assertEqual(task.last_activity_at, latest)
 
 
 class TestTaskSlackPrNotification(TestCase):
