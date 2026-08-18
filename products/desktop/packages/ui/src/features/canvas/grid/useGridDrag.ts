@@ -144,11 +144,21 @@ export function useGridDrag({
     });
   };
 
+  // A preempted pointer (a trackpad or touch gesture the browser cancels, or
+  // lost capture) drops the gesture WITHOUT committing it — clearing drag snaps
+  // the tile back to its real position. Skipping this leaves a stale drag that
+  // tracks the cursor with no button held and persists an unmade edit on the
+  // next click.
+  const onPointerCancel = () => {
+    setDrag(null);
+  };
+
   return {
     drag,
     onSurfacePointerDown,
     onPointerMove,
     onPointerUp,
+    onPointerCancel,
     startMove,
     startResize,
   };

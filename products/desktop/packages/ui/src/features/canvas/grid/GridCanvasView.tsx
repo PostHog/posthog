@@ -185,6 +185,7 @@ export function GridCanvasView({
     onSurfacePointerDown,
     onPointerMove,
     onPointerUp,
+    onPointerCancel,
     startMove,
     startResize,
   } = useGridDrag({
@@ -340,6 +341,8 @@ export function GridCanvasView({
             onPointerDown={onSurfacePointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            onLostPointerCapture={onPointerCancel}
           >
             {interactive && surfaceWidth > 0 ? (
               // Edit mode reveals the lattice: a soft dot (the fade to transparent
