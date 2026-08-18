@@ -3128,15 +3128,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.restricted_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
         self.restricted_dashboard = Dashboard.objects.create(team=self.team, name="Private numbers")
         DashboardTile.objects.create(dashboard=self.restricted_dashboard, insight=self.open_insight)
-        for resource, obj in (("insight", self.restricted_insight), ("dashboard", self.restricted_dashboard)):
-            AccessControl.objects.create(
-                team=self.team,
-                resource=resource,
-                resource_id=str(obj.id),
-                organization_member=self.organization_membership,
-                access_level="none",
-            )
-        cache.clear()
+        self._rule("insight", obj=self.restricted_insight)
+        self._rule("dashboard", obj=self.restricted_dashboard)
 
     def _payload(self, **overrides):
         payload = {
@@ -3169,42 +3162,157 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             **overrides,
         )
 
+    def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True) -> None:
+        # An object rule carries a resource_id and a resource-wide one does not. A rule with no member
+        # attached applies to the whole project. Access controls are cached per request, so any new
+        # rule has to invalidate that cache before the next call.
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=str(obj.id) if obj is not None else None,
+            organization_member=self.organization_membership if for_member else None,
+            access_level=level,
+        )
+        cache.clear()
+
+    def _dashboard_with_tiles(self, *insights: Insight) -> Dashboard:
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        for insight in insights:
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        return dashboard
+
+    # Each builder below returns the subscription under test, already in its final state.
+
+    def _sub_on_an_open_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_restricted_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.restricted_insight)
+
+    def _sub_on_a_restricted_dashboard(self) -> Subscription:
+        return self._subscription_for(dashboard=self.restricted_dashboard)
+
+    def _sub_on_an_ai_prompt(self) -> Subscription:
+        return self._subscription_for(prompt="How did signups do last week?")
+
+    def _sub_exporting_an_insight_restricted_afterwards(self) -> Subscription:
+        exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(exported))
+        subscription.dashboard_export_insights.set([exported])
+        self._rule("insight", obj=exported)
+        return subscription
+
+    def _sub_rendering_every_tile(self) -> Subscription:
+        # No selection means every live tile renders, which is what admin- and legacy-created rows look like.
+        return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
+
+    def _sub_selecting_only_the_open_tile(self) -> Subscription:
+        subscription = self._subscription_for(
+            dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        )
+        subscription.dashboard_export_insights.set([self.open_insight])
+        return subscription
+
+    def _sub_whose_restricted_tile_was_removed(self) -> Subscription:
+        dashboard = self._dashboard_with_tiles(self.open_insight)
+        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        restricted_tile.deleted = True
+        restricted_tile.save(update_fields=["deleted"])
+        return subscription
+
+    def _sub_under_a_resource_wide_deny(self) -> Subscription:
+        self._rule("insight")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_under_a_lone_resource_wide_deny(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        return self._sub_under_a_resource_wide_deny()
+
+    def _sub_under_a_resource_wide_deny_with_a_grant(self) -> Subscription:
+        self._rule("insight")
+        self._rule("insight", obj=self.open_insight, level="viewer")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_read_by_an_org_admin(self) -> Subscription:
+        # Admins bypass the save-time check, so without a read-side bypass their save would then 404.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self._rule("insight", obj=private_insight, for_member=False)
+        return self._subscription_for(insight=private_insight)
+
+    def _sub_in_a_team_without_rules(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        cache.clear()
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_soft_deleted_restricted_insight(self) -> Subscription:
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+        return subscription
+
+    def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in listed.json()["results"]] == ([subscription.id] if sees_subscription else [])
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        expected = status.HTTP_200_OK if sees_subscription else status.HTTP_404_NOT_FOUND
+        assert retrieved.status_code == expected, retrieved.json()
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert len(deliveries.json()["results"]) == (1 if sees_deliveries else 0)
+
     @parameterized.expand(
         [
-            ("restricted_insight", "insight"),
-            ("restricted_dashboard", "dashboard"),
+            ("an open insight", "_sub_on_an_open_insight", True, True),
+            ("an AI prompt, so no target at all", "_sub_on_an_ai_prompt", True, True),
+            ("a restricted insight", "_sub_on_a_restricted_insight", False, False),
+            ("a restricted dashboard", "_sub_on_a_restricted_dashboard", False, False),
+            (
+                "an exported insight restricted after saving",
+                "_sub_exporting_an_insight_restricted_afterwards",
+                False,
+                False,
+            ),
+            ("no selection and a restricted tile", "_sub_rendering_every_tile", False, False),
+            ("a selection that leaves the restricted tile out", "_sub_selecting_only_the_open_tile", True, True),
+            ("a restricted tile that was removed", "_sub_whose_restricted_tile_was_removed", True, False),
+            ("a deny on the whole insight resource", "_sub_under_a_resource_wide_deny", False, False),
+            ("that deny as the only rule in the team", "_sub_under_a_lone_resource_wide_deny", False, False),
+            ("that deny with the insight granted back", "_sub_under_a_resource_wide_deny_with_a_grant", True, True),
+            ("an org admin reading a private insight", "_sub_read_by_an_org_admin", True, True),
+            ("a team with no access rules", "_sub_in_a_team_without_rules", True, True),
+            ("a restricted insight that was soft-deleted", "_sub_on_a_soft_deleted_restricted_insight", True, False),
         ]
     )
-    def test_create_rejects_a_restricted_target(self, target_attr, field):
-        target = getattr(self, target_attr)
-        extra = {"dashboard_export_insights": [self.open_insight.id]} if field == "dashboard" else {}
+    def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):
+        # List, retrieve and the delivery route all resolve from the target filter, so one table
+        # covers every branch of it. The two asymmetric rows are the ones where a restricted target
+        # went away: it stops restricting the subscription, so its owner can turn the row off, but
+        # the deliveries keep the results they rendered while it was still there.
+        subscription = getattr(self, builder)()
+        self._delivery_for(subscription)
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions", self._payload(**{field: target.id}, **extra)
+        self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def _create_on_a_restricted_insight(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "Viewer access" in str(response.json()), response.json()
-        # send_test_now defaults to true on create, so a rejected target must not enqueue a delivery.
-        self.mock_temporal_client.start_workflow.assert_not_called()
-
-    def test_create_allows_an_open_insight(self):
-        # Proves the gate doesn't block a member's ordinary subscription.
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
+    def _create_on_a_restricted_dashboard(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(dashboard=self.restricted_dashboard.id, dashboard_export_insights=[self.open_insight.id]),
         )
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_create_rejects_restricted_insight_among_dashboard_exports(self):
-        # An insight can be restricted independently of its dashboard, and each selected tile is
-        # delivered on its own.
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
-
-        response = self.client.post(
+    def _create_selecting_a_restricted_insight(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._payload(
                 dashboard=dashboard.id,
@@ -3212,36 +3320,18 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ),
         )
 
-        body = response.json()
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
-        assert body["attr"] == "dashboard_export_insights", body
-        assert "Viewer access" in body["detail"], body
-
-    def test_patch_cannot_add_a_restricted_insight_to_the_selection(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
-        subscription = self._subscription_for(dashboard=dashboard)
-        subscription.dashboard_export_insights.set([self.open_insight])
-
-        response = self.client.patch(
+    def _patch_adding_a_restricted_insight(self):
+        subscription = self._sub_selecting_only_the_open_tile()
+        return self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
             {"dashboard_export_insights": [self.open_insight.id, self.restricted_insight.id]},
         )
 
-        body = response.json()
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
-        assert body["attr"] == "dashboard_export_insights", body
-        assert "Viewer access" in body["detail"], body
-
-    def test_membership_error_wins_for_a_mixed_selection(self):
-        # An out-of-team id and a restricted id in one selection resolve to the membership error.
+    def _create_selecting_an_insight_from_another_team(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         foreign_insight = Insight.objects.create(team=other_team, filters={"events": [{"id": "$pageview"}]})
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
-
-        response = self.client.post(
+        dashboard = self._dashboard_with_tiles(self.restricted_insight)
+        return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._payload(
                 dashboard=dashboard.id,
@@ -3249,140 +3339,88 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("the insight target", "_create_on_a_restricted_insight", "insight", "Viewer access"),
+            ("the dashboard target", "_create_on_a_restricted_dashboard", "dashboard", "Viewer access"),
+            (
+                "an insight in the export selection",
+                "_create_selecting_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight a PATCH adds to the selection",
+                "_patch_adding_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight from another team, which outranks the access error",
+                "_create_selecting_an_insight_from_another_team",
+                "dashboard_export_insights",
+                "do not belong to your team",
+            ),
+        ]
+    )
+    def test_write_is_rejected_when_the_caller_cannot_view_a_target(self, _name, request_builder, attr, message):
+        # A selected insight can be restricted independently of its dashboard, and each one is
+        # rendered and delivered on its own, so dashboard access alone is not enough.
+        response = getattr(self, request_builder)()
+
         body = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, body
-        assert "do not belong to your team" in body["detail"], body
+        assert body["attr"] == attr, body
+        assert message in body["detail"], body
+        # send_test_now defaults to true on create, so a rejected write must not enqueue a delivery.
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_create_allows_an_open_insight(self):
+        # Proves the gate doesn't block a member's ordinary subscription.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     @parameterized.expand(
         [
             # A PATCH that omits insight/dashboard must not skip the check either.
             ("patch", "patch", "", {"target_value": "attacker@example.com"}),
-            ("retrieve", "get", "", None),
             ("test_delivery", "post", "/test-delivery", None),
         ]
     )
-    def test_restricted_subscription_is_not_reachable_by_id(self, _name, method, url_suffix, body):
-        subscription = self._subscription_for(insight=self.restricted_insight)
+    def test_restricted_subscription_cannot_be_written_by_id(self, _name, method, url_suffix, body):
+        subscription = self._sub_on_a_restricted_insight()
 
         url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
         response = getattr(self.client, method)(url, body)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
-    def test_list_and_filters_hide_subscriptions_on_restricted_targets(self):
-        visible = self._subscription_for(insight=self.open_insight)
-        hidden_insight_sub = self._subscription_for(insight=self.restricted_insight)
-        self._subscription_for(dashboard=self.restricted_dashboard)
+    def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
+        # Filtering by the restricted insight's id must not tell the caller the subscription exists.
+        hidden = self._sub_on_a_restricted_insight()
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert listed.status_code == status.HTTP_200_OK
-        assert [row["id"] for row in listed.json()["results"]] == [visible.id]
-
-        # Filtering by the restricted insight's id must not confirm the subscription exists.
         filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
+
         assert filtered.status_code == status.HTTP_200_OK
         assert filtered.json()["results"] == []
-        assert Subscription.objects.filter(pk=hidden_insight_sub.pk).exists()
-
-    def test_deliveries_of_restricted_subscription_are_hidden(self):
-        # A delivery row carries the rendered target: content_snapshot holds each insight's query_results.
-        subscription = self._subscription_for(insight=self.restricted_insight)
-        self._delivery_for(subscription)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == []
-
-    def test_export_insight_restricted_after_creation_hides_the_subscription(self):
-        # An insight can be restricted after the subscription was saved; the read side must catch that.
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        DashboardTile.objects.create(dashboard=dashboard, insight=exported)
-        subscription = self._subscription_for(dashboard=dashboard)
-        subscription.dashboard_export_insights.set([exported])
-        self._delivery_for(subscription)
-        # Visible before the restriction, so the restriction is what hides the row below.
-        before = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in before.json()["results"]] == [subscription.id]
-
-        AccessControl.objects.create(
-            team=self.team,
-            resource="insight",
-            resource_id=str(exported.id),
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
-        cache.clear()
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert listed.status_code == status.HTTP_200_OK
-        assert listed.json()["results"] == []
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
-        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-        assert deliveries.status_code == status.HTTP_200_OK
-        assert deliveries.json()["results"] == []
-
-    def test_dashboard_subscription_without_selection_is_gated_on_its_tiles(self):
-        # An empty selection renders every tile (admin- and legacy-created rows look like this),
-        # so a restricted tile must hide the row.
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
-        subscription = self._subscription_for(dashboard=dashboard)
-        self._delivery_for(subscription)
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
-
-        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert listed.json()["results"] == []
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        assert retrieved.status_code == status.HTTP_404_NOT_FOUND
-        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-        assert deliveries.json()["results"] == []
-
-        # A removed tile is no longer rendered, so it must stop hiding the subscription.
-        restricted_tile.deleted = True
-        restricted_tile.save(update_fields=["deleted"])
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
+        assert Subscription.objects.filter(pk=hidden.pk).exists()
 
     def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
         # A join on the M2M would return the row once per insight and make detail routes 500.
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
         second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
-        DashboardTile.objects.create(dashboard=dashboard, insight=second_insight)
-        subscription = self._subscription_for(dashboard=dashboard)
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, second_insight))
         subscription.dashboard_export_insights.set([self.open_insight, second_insight])
         self._delivery_for(subscription)
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
-        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-        assert len(deliveries.json()["results"]) == 1
-
-    def test_selection_without_the_restricted_tile_keeps_the_subscription_visible(self):
-        # A restricted tile that is not exported cannot leak, so the row stays visible.
-        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
-        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
-        subscription = self._subscription_for(dashboard=dashboard)
-        subscription.dashboard_export_insights.set([self.open_insight])
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=True)
 
     @parameterized.expand([("insight",), ("dashboard",)])
-    def test_subscription_on_a_soft_deleted_target_stays_visible(self, target_field):
-        # The owner still needs to see and turn off a subscription whose target was soft-deleted.
+    def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, target_field):
+        # Nothing renders from it any more, but the owner still has to be able to switch it off, and
+        # the detail route resolves from the same filtered queryset as the list.
         if target_field == "insight":
             target: Insight | Dashboard = Insight.objects.create(
                 team=self.team, filters={"events": [{"id": "$pageview"}]}
@@ -3393,97 +3431,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         target.deleted = True
         target.save(update_fields=["deleted"])
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert subscription.id in [row["id"] for row in listed.json()["results"]]
-
-        deleted = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
-        assert deleted.status_code == status.HTTP_200_OK, deleted.json()
-
-    def test_member_without_any_access_rules_sees_their_subscriptions(self):
-        # Pins the no-rules short-circuit: a team without object rules must not filter anything.
-        AccessControl.objects.filter(team=self.team).delete()
-        cache.clear()
-        subscription = self._subscription_for(insight=self.open_insight)
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == [subscription.id]
-
-    def test_org_admin_still_sees_subscription_on_a_private_insight(self):
-        # Admins bypass the save-time check; without a read-side bypass their save would then 404.
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save(update_fields=["level"])
-        private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        # A deny with no member or role attached applies to the whole project.
-        AccessControl.objects.create(
-            team=self.team, resource="insight", resource_id=str(private_insight.id), access_level="none"
-        )
-        cache.clear()
-        subscription = self._subscription_for(insight=private_insight)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-
-    def test_ai_prompt_subscription_stays_visible(self):
-        # An AI subscription has no insight and no dashboard, so every target lookup reads NULL.
-        # Both querysets must still return it: the filter negates its lookups, and in SQL a negated
-        # NULL comparison is unknown, which drops the row unless each lookup is guarded.
-        subscription = self._subscription_for(prompt="How did signups do last week?")
-        self._delivery_for(subscription)
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert subscription.id in [row["id"] for row in listed.json()["results"]]
-
-        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-        assert [row["subscription"] for row in deliveries.json()["results"]] == [subscription.id]
-
-    @parameterized.expand(
-        [
-            ("alongside object rules", False, False, False),
-            ("as the only rule", True, False, False),
-            ("with the insight granted back", False, True, True),
-        ]
-    )
-    def test_resource_wide_deny_decides_visibility(self, _name, only_rule, grant_insight, expect_visible):
-        # A deny on the resource itself carries no resource_id, so it lands in neither the blocked nor
-        # the allowlisted object map. Reading those maps alone leaves every insight subscription
-        # readable for a member denied insights outright. The grant case guards the other direction:
-        # objects handed to the member one by one still have to survive the deny.
-        if only_rule:
-            AccessControl.objects.filter(team=self.team).delete()
-        AccessControl.objects.create(
-            team=self.team,
-            resource="insight",
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
-        if grant_insight:
-            AccessControl.objects.create(
-                team=self.team,
-                resource="insight",
-                resource_id=str(self.open_insight.id),
-                organization_member=self.organization_membership,
-                access_level="viewer",
-            )
-        cache.clear()
-        subscription = self._subscription_for(insight=self.open_insight)
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert [row["id"] for row in listed.json()["results"]] == ([subscription.id] if expect_visible else [])
-
-        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
-        assert retrieved.status_code == (status.HTTP_200_OK if expect_visible else status.HTTP_404_NOT_FOUND)
-
-    def test_deliveries_stay_hidden_when_a_restricted_target_is_soft_deleted(self):
-        # Soft-deleting a target stops it restricting the subscription, so the owner can still turn
-        # the row off. The deliveries keep what they rendered, so for them it must still restrict.
-        subscription = self._subscription_for(insight=self.restricted_insight)
-        self._delivery_for(subscription)
-        self.restricted_insight.deleted = True
-        self.restricted_insight.save(update_fields=["deleted"])
-
-        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
-        assert subscription.id in [row["id"] for row in listed.json()["results"]]
-
-        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
-        assert deliveries.json()["results"] == []
