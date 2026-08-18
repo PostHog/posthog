@@ -54,6 +54,9 @@ _MATH_LABELS: dict[str, str] = {
     "monthly_active": "monthly active users",
     "unique_session": "unique sessions",
     "first_time_for_user": "first time users",
+    "first_time_for_group": "first time groups",
+    "first_matching_event_for_user": "first matching event for users",
+    "first_matching_event_for_group": "first matching event for groups",
     "avg_count_per_actor": "avg count per user",
     "min_count_per_actor": "min count per user",
     "max_count_per_actor": "max count per user",
@@ -543,7 +546,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
     last_parse_error: InsightMetadataParseError | None = None
     for attempt in range(_MAX_PARSE_ATTEMPTS):
         try:
-            content, _, _ = hit_openai(
+            completion = hit_openai(
                 messages,
                 f"team/{team.id}/generate-insight-metadata",
                 posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
@@ -559,7 +562,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
             raise InsightMetadataGenerationError("The AI service failed to respond") from e
 
         try:
-            return _parse_metadata(content)
+            return _parse_metadata(completion.content)
         except InsightMetadataParseError as e:
             last_parse_error = e
             logger.warning("ai_metadata_generation_parse_failed", team_id=team.id, attempt=attempt)

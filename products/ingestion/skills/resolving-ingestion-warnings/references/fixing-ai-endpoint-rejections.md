@@ -4,7 +4,7 @@ Covers `invalid_ai_event`, `invalid_ai_payload`, and `no_ai_spans_ingested`.
 
 These come from capture's two dedicated LLM analytics endpoints, not from the ingestion pipeline:
 
-- `/i/v0/ai` — one event per request, sent as multipart so large prompt and completion bodies can ride along as separate parts. Warnings carry `path: ai_events`.
+- `/i/v0/ai` — one event per request, sent as multipart with an `event` part and an optional `event.properties` part. Warnings carry `path: ai_events`.
 - `/i/v0/ai/otel` — OTLP trace export, protobuf or JSON. Warnings carry `path: ai_otel`.
 
 Both reject at the edge, so a rejected event reaches nothing downstream. It is not in `events`, not in any insight, and has no other trace beyond the warning. `count` is the number of events or spans that didn't land.
@@ -34,7 +34,7 @@ The request body couldn't be used. Read the details to see which check failed.
 
 **`stage`** and `spanCount` are present when an export carried too many spans. `stage: raw` means more than 1000 spans arrived before filtering; `stage: ai` means more than 100 AI spans survived filtering. Both mean the exporter needs a smaller batch size or a shorter flush interval. `limit` is the cap that was exceeded.
 
-**`part`** is present for multipart problems on `/i/v0/ai`, naming the offending part. Common cases: a field that isn't `event`, `event.properties`, or `event.properties.<name>`; a blob part with no `Content-Type` or an unsupported one (only `application/octet-stream`, `application/json`, and `text/plain` are accepted, reported in `contentType`); an empty blob; or a blob property name containing dots, which isn't allowed since only top-level properties can be sent as blobs.
+**`part`** is present for multipart problems on `/i/v0/ai`, naming the offending part. The only valid parts are `event` and `event.properties`; anything else is rejected. Per-property blob parts (`event.properties.<name>`) were a discarded experiment and are no longer accepted: media belongs inline in the event JSON, where ingestion offloads it to blob storage.
 
 **Neither** means the multipart framing itself was wrong, or the event part wasn't valid UTF-8 JSON.
 

@@ -22,7 +22,6 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
@@ -45,6 +44,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     SimpleExternalDataSourceSerializers,
 )
@@ -237,16 +237,22 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
-        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
-        if s3_domain in url_pattern:
-            raise serializers.ValidationError(
-                "This URL points to PostHog's internal storage and can't be used as a source. "
-                "Enter the location of your own bucket instead."
-            )
-
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)
+
+        # A table with no credential is read with the ClickHouse node's own role rather than a key
+        # the team supplied, so the URL is only trustworthy because PostHog built it. `create`
+        # refuses that combination outright, and an update has to hold the same line.
+        if (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern != self.instance.url_pattern
+        ):
+            raise serializers.ValidationError(
+                "PostHog manages where this table reads from, so its URL can't be changed. "
+                "To read from your own bucket, add it as a self-managed source with an access key and secret."
+            )
 
         return url_pattern
 
@@ -797,11 +803,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
-                table.save()
+                # team_id comes from routing and safe_filename is sanitized (no path separators), so
+                # the URL above is always scoped to this team's own managed/ prefix, never taken
+                # verbatim from request input the way the PATCH endpoint's url_pattern field is.
+                table.save(internally_computed_url_pattern=True)
 
                 # Validate columns in background
-                from posthog.tasks.warehouse import validate_data_warehouse_table_columns
-
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))
 
                 return response.Response(

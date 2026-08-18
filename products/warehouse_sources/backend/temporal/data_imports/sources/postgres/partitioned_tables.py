@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     QueryTimeoutException,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -391,7 +392,7 @@ def iterate_date_windows(
     ]
 
     cursor_lo: Any = db_incremental_field_last_value
-    if cursor_lo is None:
+    if cursor_lo is None or cursor_lo == "":
         cursor_lo = incremental_type_to_initial_value(incremental_field_type)
     cursor_lo = _ensure_aware(cursor_lo, incremental_field_type)
 
@@ -440,12 +441,13 @@ def iterate_date_windows(
                     logger.debug(f"window query lo={lo} hi={hi}: {query.as_string()}")
                     cur.execute(query)
                     columns = [c.name for c in cur.description or []]
+                    window_schema = restrict_schema_to_columns(arrow_schema, columns)
                     while True:
                         rows = cur.fetchmany(chunk_size)
                         if not rows:
                             break
                         rows_this_window += len(rows)
-                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), arrow_schema)
+                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), window_schema)
         except psycopg.errors.QueryCanceled:
             qc_retries += 1
             if qc_retries > WINDOW_MAX_QUERY_CANCELED_RETRIES or window <= min_window:
@@ -562,7 +564,10 @@ def build_partition_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
-    if db_incremental_field_last_value is None:
+    # A stored watermark of "" must not become a literal `''` — Postgres rejects casting it
+    # against a numeric/date/etc. column with "invalid input syntax" (see postgres.py's
+    # `_build_query` for the same guard on the non-partitioned path).
+    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
@@ -601,7 +606,7 @@ def iterate_partitions(
 
     # If range-partitioned on the incremental field, skip children whose upper
     # bound is at or below cursor to avoid reading already-synced data.
-    skippable_upper: Any = db_incremental_field_last_value
+    skippable_upper: Any = db_incremental_field_last_value if db_incremental_field_last_value != "" else None
     if incremental_field_type is not None and skippable_upper is not None:
         skippable_upper = _ensure_aware(skippable_upper, incremental_field_type)
     partition_bounds: dict[str, tuple[Any, Any] | None] = {}
@@ -626,12 +631,13 @@ def iterate_partitions(
                 logger.debug(f"partition query {child.schema}.{child.name}: {query.as_string()}")
                 cur.execute(query)
                 columns = [c.name for c in cur.description or []]
+                partition_schema = restrict_schema_to_columns(arrow_schema, columns)
                 while True:
                     rows = cur.fetchmany(chunk_size)
                     if not rows:
                         break
                     rows_this_partition += len(rows)
-                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), arrow_schema)
+                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), partition_schema)
 
         elapsed = clock() - p_start
         total_rows += rows_this_partition

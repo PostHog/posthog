@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+    _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+    _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -89,10 +92,25 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# A DNS-resolution failure for the database host, surfaced by libpq ("could not translate host
+# name") or the raw socket wording ("Name or service not known" / "No address associated with
+# hostname"). Already non-retryable, but the bare driver text gives the customer nothing to act on,
+# so surface actionable guidance on the sync path (the validate path already has its own copy).
+_DNS_RESOLUTION_ERROR = (
+    "Could not resolve the database host to an address. Check that the host is spelled correctly "
+    "and reachable from the public internet, then re-enable the sync."
+)
+
+# Same failure at credential-validation time (no sync exists yet), so point at re-entering details
+# rather than re-enabling a sync.
+_INVALID_CREDENTIALS_VALIDATION_ERROR = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
 PostgresErrors = {
-    "password authentication failed for user": "Invalid user or password",
+    "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # libpq reports a bad password via SCRAM with a different wording than the line above.
-    "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
+    "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
     # "FATAL: (ENOTFOUND) tenant/user <user> not found" — the project is paused/deleted or the
     # pooler username/host is wrong. `get_non_retryable_errors` already handles this on the
@@ -144,7 +162,7 @@ PostgresErrors = {
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
-    'database "': "Database does not exist",
+    'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -374,7 +392,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
             ),
-            "could not translate host name": None,
+            "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
             "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
             # Some providers (observed on a Neon-style pooler) report the same auth rejection without
@@ -467,12 +485,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # it too, instead of burning the retry budget re-scanning the same oversized catalog.
             "listing table columns while discovering the database schema": None,
             "TemporaryFileSizeExceedsLimitException": None,
-            "Name or service not known": None,
+            "Name or service not known": _DNS_RESOLUTION_ERROR,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
             # surfaces as "[Errno -5] No address associated with hostname". Both mean the customer's
             # database host doesn't resolve to an address — a config/DNS issue on their side that
             # retrying won't fix.
-            "No address associated with hostname": None,
+            "No address associated with hostname": _DNS_RESOLUTION_ERROR,
             "Network is unreachable": None,
             # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
             # Temporal wraps the activity failure (`ApplicationError` stringifies as
@@ -512,6 +530,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
                 "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
             ),
+            # A custom "app.*" session GUC the connecting role doesn't set — raised (SQLSTATE 42704)
+            # by a row-level security policy, view, or connection pooler that reads a per-session
+            # setting the application is expected to set (e.g. `current_setting('app.client_id')`).
+            # PostHog only ever sets standard parameters (client_encoding, statement_timeout,
+            # DateStyle, idle_in_transaction_session_timeout), so an unrecognized `app.*` parameter is
+            # always the customer's own setup and is permanent until they change it — retrying just
+            # re-hits it. Match the stable "app." namespace prefix; the parameter name after it varies.
+            'unrecognized configuration parameter "app.': (
+                "Your database expects a session setting that PostHog doesn't provide (PostgreSQL "
+                'reported "unrecognized configuration parameter"). This usually comes from a row-level '
+                "security policy, view, or connection pooler that reads a custom setting (for example "
+                "app.current_tenant). Make that setting optional in your database (for example with "
+                "current_setting('setting_name', true)), or remove the affected tables from this sync, "
+                "then re-enable the sync."
+            ),
             # A row-level security policy on this table (or another table its policy queries) is
             # self-referential, so Postgres can't evaluate it and raises SQLSTATE 42P17 on every
             # read attempt. The raw psycopg message ("infinite recursion detected in policy for
@@ -533,7 +566,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
+            # psycopg raises ConnectionTimeout ("connection timeout expired") only while establishing
+            # a connection. The read path retries it in-process first (see
+            # `_is_dropped_or_connect_timeout`); reaching here means every reconnect timed out, i.e. a
+            # persistently unreachable host — usually a firewall dropping PostHog's egress IPs, an
+            # IPv6-only host, or a wrong host/port. Stays non-retryable; give the actionable guidance
+            # the bare driver text lacks (mirrors the validate-path message for "timeout expired").
+            "connection timeout expired": (
+                "PostHog couldn't connect to your database before the connection timed out. Check that "
+                "the database is reachable from the public internet and that PostHog's egress IP "
+                "addresses are allowed through your firewall. For a database that can't be exposed "
+                "publicly, use the SSH tunnel option, then re-enable the sync."
+            ),
             # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
             # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
             # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
@@ -605,6 +649,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
+            ),
+            # A database proxy (observed on Prisma Accelerate) refuses the connection because the
+            # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
+            # The restriction is account-level state only the customer can lift (upgrade the plan or
+            # contact the provider), so every retry re-hits the same refusal. Match the stable
+            # camelCase reason code, which carries no host or account detail.
+            "planLimitReached": (
+                "Your database provider has restricted the account because a plan limit was reached "
+                '("planLimitReached"), so PostHog can\'t connect. This usually comes from a database '
+                "proxy such as Prisma. Upgrade the plan or contact your provider to lift the "
+                "restriction, then re-enable the sync."
             ),
             # The provider has put the cluster into read-only mode, so it rejects our read (the
             # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
@@ -788,40 +843,36 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def get_retryable_errors(self) -> set[str]:
         # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
-        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
-        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
-        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` /
+        # `_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only reaches here once
+        # that in-process handling gives up (e.g. a full-table scan can't safely resume once rows
+        # have been yielded, since OFFSET has no stable ORDER BY to resume from, or the drop
+        # recurs on every reconnect attempt within `_connect_with_dropped_retry`'s bounded budget).
         # Temporal then retries the whole activity and the failure is transient and
         # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
         # `exception` on every occurrence, flooding error tracking with a self-recovering failure
-        # (e.g. a cloud provider terminating a backend for maintenance or failover).
-        # "the database system is shutting down" is the connect-time sibling of the same restart: a
-        # smart/fast shutdown refuses new connections while the source is going down, which the
-        # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
-        # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
-        # exhausted (e.g. a longer maintenance window).
+        # (e.g. a cloud provider terminating a backend for maintenance/failover, or a pooler whose
+        # connection pool stays saturated longer than the in-process retry budget).
+        #
+        # `_SERVER_STARTING_UP_ERROR_SUBSTRINGS` covers the connect-time siblings of the same class:
+        # a primary/standby booting, replaying WAL after a crash, or a smart/fast shutdown refusing
+        # new connections while the source is going down — all retried in-process by the
+        # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
-        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        # reaches-here-only-after-internal-retries-exhaust case as the other entries.
         #
-        # A mid-stream or connect-time connection drop ("server closed the connection unexpectedly",
-        # the SSL-flavoured "SSL connection has been closed unexpectedly") is retried in-process by
-        # `_connect_with_dropped_retry` / the offset-chunking fallback (both keyed on
-        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py). Once that budget is exhausted the
-        # raw psycopg `OperationalError` reaches `_handle_import_error`, which — without a match here
-        # — logs it at `exception` and reports it to error tracking on every occurrence, even though
-        # Temporal retries the whole activity and the drop is transient and self-recovering (a pooler
-        # idle cull, failover, or network blip). Classify it retryable so it logs as a warning
-        # instead. These stay clear of `get_non_retryable_errors` deliberately (see the note there),
-        # so the sync keeps retrying rather than being disabled.
+        # Reusing the actual substring tuples postgres.py retries on (rather than a hand-picked
+        # subset) keeps this in sync as new transient classes are added there — a substring added
+        # to one of those tuples without a matching update here would otherwise keep reporting a
+        # self-recovering failure to error tracking on every occurrence.
         return {
-            "terminating connection due to",
-            "the database system is shutting down",
-            "server closed the connection unexpectedly",
-            "SSL connection has been closed unexpectedly",
+            *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 
@@ -1105,7 +1156,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
         if not valid_host:
             return valid_host, host_errors
