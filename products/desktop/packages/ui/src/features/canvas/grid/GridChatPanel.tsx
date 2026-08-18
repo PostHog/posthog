@@ -163,7 +163,14 @@ function TaskChat({ taskId }: { taskId: string }) {
       </div>
     );
   }
-  return <EmbeddedSessionView task={task} />;
+  // Constrain the chat body like the comments branch beside it: a shrinkable
+  // flex child below the fixed header needs min-h-0 so it fills the remaining
+  // height instead of growing past the panel.
+  return (
+    <div className="min-h-0 flex-1">
+      <EmbeddedSessionView task={task} />
+    </div>
+  );
 }
 
 // The canvas's comment threads, anchored to its conversation task: read,
