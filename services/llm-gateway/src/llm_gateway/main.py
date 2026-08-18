@@ -33,6 +33,7 @@ from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
+    SandboxTaskCostThrottle,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
@@ -199,6 +200,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
+            SandboxTaskCostThrottle(redis=app.state.redis),
         ],
         denial_capturer=denial_capturer,
     )
