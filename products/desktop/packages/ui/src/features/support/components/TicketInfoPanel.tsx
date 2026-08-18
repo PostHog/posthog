@@ -28,11 +28,15 @@ import {
   Input,
   Text,
 } from "@posthog/quill";
-import { readPrUrls } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { PRBadgeLink } from "@posthog/ui/features/git-interaction/components/PRBadgeLink";
-import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import {
+  TaskBadgeStack,
+  TaskDotMark,
+  TaskStatusTooltips,
+} from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
+import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import { useTaskStatusInput } from "@posthog/ui/features/sidebar/useTaskStatusInput";
 import {
   Row,
   Section,
@@ -170,7 +174,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           )}
         </Row>
 
-        <TicketPullRequestRow taskId={readTicketTaskId(ticket.tags)} />
+        <TicketAgentRow taskId={readTicketTaskId(ticket.tags)} />
 
         <Row label="Tags">
           <TicketTags
@@ -308,31 +312,28 @@ function formatSnoozedUntil(snoozedUntil: string | null | undefined): string {
   return Number.isNaN(until) ? "" : `until ${new Date(until).toLocaleString()}`;
 }
 
-function TicketPullRequestRow({ taskId }: { taskId: string | null }) {
+function TicketAgentRow({ taskId }: { taskId: string | null }) {
   const { data: task } = useQuery({
     ...taskDetailQuery(taskId ?? ""),
     enabled: !!taskId,
   });
-  const prUrl = readPrUrls(task?.latest_run?.output)[0];
-  const { prState } = useTaskPrStatus({
-    id: task?.id ?? "",
-    cloudPrUrl: prUrl ?? null,
-    taskRunEnvironment: task?.latest_run?.environment ?? null,
-  });
+  const status = useTaskStatusInput(task);
 
-  if (!prUrl) {
+  if (!status) {
     return null;
   }
 
+  const dot = taskDot(status);
+
   return (
-    <Row label="Pull request">
-      <PRBadgeLink
-        prUrl={prUrl}
-        prState={prState === "closed" ? "closed" : "open"}
-        merged={prState === "merged"}
-        draft={prState === "draft"}
-        compact
-      />
+    <Row label="Agent">
+      <TaskStatusTooltips>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <TaskDotMark dot={dot} />
+          <Text className="truncate text-[12px]">{dot.label}</Text>
+          <TaskBadgeStack status={status} />
+        </div>
+      </TaskStatusTooltips>
     </Row>
   );
 }
