@@ -17,6 +17,13 @@ use crate::{
     },
 };
 
+// Namespace tag for the frame id construction below. It sits outside the digest on purpose:
+// every other language's encoder emits a bare digest over a concatenation of fields the
+// client controls, so any of them can be handed values that reproduce this construction's
+// byte stream exactly. A tag inside the hash input would be part of what they can
+// reproduce; a tag on the key itself is not. Changing the construction means bumping this.
+const FRAME_ID_VERSION: &str = "java-v2";
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawJavaFrame {
     pub filename: Option<String>, // The relative path of the file the context line is in
@@ -35,6 +42,26 @@ pub struct RawJavaFrame {
     pub meta: CommonFrameMetadata,
 }
 
+// Feed a variable-length value with its length in front, so the hash sees where the value
+// ends. Concatenating raw would let bytes move across a field boundary without changing the
+// digest.
+fn update_len_prefixed(hasher: &mut Sha512, value: &[u8]) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+// An absent value is one byte apart from a present empty one, which a length prefix alone
+// would fold together.
+fn update_optional(hasher: &mut Sha512, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            hasher.update([1u8]);
+            update_len_prefixed(hasher, value.as_bytes());
+        }
+        None => hasher.update([0u8]),
+    }
+}
+
 impl RawJavaFrame {
     pub fn frame_id(&self) -> String {
         // We don't have version info for java frames, so we rely on
@@ -43,29 +70,48 @@ impl RawJavaFrame {
         // if two frames are from two different library versions, if the
         // files they're in are sufficiently similar we can consider
         // them to be the same frame
-        let mut hasher = Sha512::new();
-        if let Some(filename) = &self.filename {
-            hasher.update(filename.as_bytes());
-        }
-        hasher.update(self.function.as_bytes());
-        hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
-        hasher.update(self.module.as_bytes());
-        // The mapping reference has to participate, because this id is the cache key for
-        // stored frame results. A pass-through frame is saved as resolved, with no linked
-        // symbol set and the longer resolved TTL, so if it shared an id with the same source
-        // location captured *with* a map_id, that cached record would be served to the
-        // obfuscated frame and suppress its proguard remap, and a later mapping upload would
-        // not invalidate it. Proguard can renumber lines even for classes it keeps, so
-        // matching file/function/line/module across the two shapes is reachable.
         //
-        // Frames without a map_id contribute nothing here, so they keep the exact
-        // pre-existing hash. Frames that carry one get a new id, which retires their cached
-        // records once; they re-resolve on next sight. Fingerprints are unaffected: this id
-        // only appears as `raw_id` in the fingerprint record, never in the hash itself.
-        self.map_id
-            .as_ref()
-            .inspect(|id| hasher.update(id.as_bytes()));
-        format!("{:x}", hasher.finalize())
+        // This id is the cache key for stored frame results, so two frames whose fields
+        // differ must never encode to the same bytes. Every variable-length field is
+        // length-prefixed and every optional one carries a presence byte: a flat
+        // concatenation let module "a1.d" with map_id "release" hash identically to module
+        // "a1.drelease" with no map_id. Project tokens ship inside client apps, so whoever
+        // submits a crafted colliding frame first decides which record the other shape
+        // reads. `filename: None` is therefore distinct from `Some("")`, and an absent
+        // `lineno` from `Some(0)`: nothing rejects a zero line on the way in, and the two
+        // resolve to frames with different `line` values.
+        //
+        // The mapping reference has to participate at all because a pass-through frame is
+        // saved as resolved, with no linked symbol set and the longer resolved TTL, so if it
+        // shared an id with the same source location captured *with* a map_id, that cached
+        // record would be served to the obfuscated frame and suppress its proguard remap,
+        // and a later mapping upload would not invalidate it. Proguard can renumber lines
+        // even for classes it keeps, so matching file/function/line/module across the two
+        // shapes is reachable.
+        //
+        // The tag on the front of the key gives this construction its own keyspace. Without
+        // it the key is a bare digest, which leaves two ways for records of different shapes
+        // to alias: a rolling deploy has old and new instances reading each other's java
+        // records, and the encoders for the other languages, which hash flat concatenations
+        // of client-controlled strings, can be fed values that land on a java key. It retires
+        // every stored java id once and they re-resolve on next sight, which the ~30 minute
+        // TTL makes cheap. Fingerprints are unaffected: this id only appears as `raw_id` in
+        // the fingerprint record, never in the hash itself.
+        let mut hasher = Sha512::new();
+        update_optional(&mut hasher, self.filename.as_deref());
+        update_len_prefixed(&mut hasher, self.function.as_bytes());
+        // Fixed to u64 rather than usize, so the key does not depend on the pointer width of
+        // the instance that wrote it.
+        match self.lineno {
+            Some(lineno) => {
+                hasher.update([1u8]);
+                hasher.update((lineno as u64).to_be_bytes());
+            }
+            None => hasher.update([0u8]),
+        }
+        update_len_prefixed(&mut hasher, self.module.as_bytes());
+        update_optional(&mut hasher, self.map_id.as_deref());
+        format!("{FRAME_ID_VERSION}:{:x}", hasher.finalize())
     }
 
     pub async fn resolve_frame<C>(
@@ -479,13 +525,55 @@ mod tests {
         let with = raw_frame("a1.d", false, Some("com.posthog.android.sample@3.0+3"));
         assert_ne!(without.frame_id(), with.frame_id());
 
-        // A frame with no map_id keeps the hash it had before the field participated.
-        let mut hasher = Sha512::new();
-        hasher.update(without.filename.as_ref().unwrap().as_bytes());
-        hasher.update(without.function.as_bytes());
-        hasher.update(without.lineno.unwrap().to_be_bytes());
-        hasher.update(without.module.as_bytes());
-        assert_eq!(without.frame_id(), format!("{:x}", hasher.finalize()));
+        // The unversioned construction every stored java id was written with. The version
+        // tag has to move both frame shapes off it, or a mixed-version fleet serves records
+        // written for one shape to the other until they expire.
+        let mut legacy = Sha512::new();
+        legacy.update(without.filename.as_ref().unwrap().as_bytes());
+        legacy.update(without.function.as_bytes());
+        legacy.update(without.lineno.unwrap().to_be_bytes());
+        legacy.update(without.module.as_bytes());
+        let legacy = format!("{:x}", legacy.finalize());
+        assert_ne!(without.frame_id(), legacy);
+        assert_ne!(with.frame_id(), legacy);
+    }
+
+    #[test]
+    fn bytes_cannot_shift_across_field_boundaries() {
+        // Concatenating the fields raw made these two frames hash the same bytes, so one
+        // could plant the stored record the other reads: a crafted pass-through frame keeps
+        // the real obfuscated frame from being remapped for as long as the record lives.
+        let mapped = raw_frame("a1.d", false, Some("release"));
+        let shifted = raw_frame("a1.drelease", false, None);
+        assert_ne!(mapped.frame_id(), shifted.frame_id());
+
+        // The same bug in the presence bytes: an absent field must not encode like a present
+        // empty or zero one. Both shapes reach us from untrusted capture payloads, and they
+        // pass through to frames with different `source` and `line`.
+        let mut no_filename = raw_frame("a1.d", false, None);
+        no_filename.filename = None;
+        let mut empty_filename = raw_frame("a1.d", false, None);
+        empty_filename.filename = Some(String::new());
+        assert_ne!(no_filename.frame_id(), empty_filename.frame_id());
+
+        let mut no_lineno = raw_frame("a1.d", false, None);
+        no_lineno.lineno = None;
+        let mut zero_lineno = raw_frame("a1.d", false, None);
+        zero_lineno.lineno = Some(0);
+        assert_ne!(no_lineno.frame_id(), zero_lineno.frame_id());
+    }
+
+    #[test]
+    fn frame_ids_are_tagged_outside_the_digest() {
+        // Frame records are keyed by raw id per team, and the other languages' encoders emit
+        // a bare digest over client-controlled strings, so one of those frames can be given
+        // field values that reproduce this construction's hash input. The tag has to sit on
+        // the key, where they cannot reach it, which also means a java id is never a plain
+        // hex digest.
+        let id = raw_frame("a1.d", false, Some("com.posthog.android.sample@3.0+3")).frame_id();
+
+        assert!(id.starts_with("java-v2:"), "{id}");
+        assert!(!id.chars().all(|c| c.is_ascii_hexdigit()), "{id}");
     }
 
     #[test]
