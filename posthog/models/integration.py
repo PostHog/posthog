@@ -3212,6 +3212,10 @@ class LinearIntegration:
             variables={"title": title, "description": description, "teamId": linear_team_id},
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+        # Linear reports failures in a 200 body; without this check a failed create would
+        # persist a reference with id None. Nothing was created, so raising is safe.
+        if body.get("errors") or not linear_issue_id:
+            raise ValidationError("Failed to create the Linear issue")
 
         # Best-effort: the Linear issue already exists at this point, so failing the whole
         # create over a missing back-link would produce duplicate issues on retry.
@@ -3804,11 +3808,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         # the org, matching what create_issue persists.
         repository_name = repo_path.split("/", 1)[1]
 
+        # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
+        # is matched literally instead of rewriting the query, which would fill the result page
+        # with foreign matches and hide valid ones.
+        search_term = query.replace("\\", " ").replace('"', " ").strip()
+        q = f'repo:{repo_path} "{search_term}" in:title type:issue' if search_term else f"repo:{repo_path} type:issue"
+
         response = self.api_request(
             "GET",
             "/search/issues",
             endpoint="/search/issues",
-            params={"q": f"repo:{repo_path} {query} type:issue".strip(), "per_page": limit},
+            params={"q": q, "per_page": limit},
         )
         if response.status_code != 200:
             raise GitHubIntegrationError(

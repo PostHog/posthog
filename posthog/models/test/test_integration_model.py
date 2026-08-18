@@ -220,6 +220,18 @@ class TestLinearIntegrationModel(BaseTest):
             with self.assertRaises(ValidationError):
                 linear.create_attachment("LIN-123", "https://us.posthog.com/error_tracking/issue-id")
 
+    def test_create_issue_raises_when_issue_creation_fails(self):
+        # A failed issueCreate must not fall through to an attachment attempt and a
+        # persisted {"id": None} reference.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}) as mock_query:
+            with self.assertRaises(ValidationError):
+                linear.create_issue(
+                    "https://us.posthog.com/error_tracking/issue-id",
+                    {"team_id": "team-id", "title": "Title", "description": "Description"},
+                )
+        assert mock_query.call_count == 1
+
     def test_create_issue_succeeds_when_attachment_fails(self):
         # The Linear issue already exists when the attachment fires, so a failed back-link
         # must not fail the create (retrying would duplicate the issue).
@@ -2274,10 +2286,14 @@ class TestGitHubIntegrationModel(BaseTest):
                 },
             ]
         }
-        with patch.object(github, "api_request", return_value=mock_response):
-            results = github.search_issues("posthog", "timeout OR crash")
+        with patch.object(github, "api_request", return_value=mock_response) as mock_request:
+            results = github.search_issues("posthog", 'crash" repo:microsoft/vscode "')
         assert [result["id"] for result in results] == ["1"]
         assert results[0]["external_context"] == {"repository": "posthog", "number": 1}
+        # The user's text is quoted so its qualifiers and operators match literally instead of
+        # rewriting the query and filling the result page with foreign matches.
+        sent_query = mock_request.call_args.kwargs["params"]["q"]
+        assert sent_query == 'repo:PostHog/posthog "crash  repo:microsoft/vscode" in:title type:issue'
 
     def test_comment_on_pull_request_posts_to_issues_endpoint(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
