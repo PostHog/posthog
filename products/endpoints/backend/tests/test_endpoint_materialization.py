@@ -13,6 +13,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from posthog.schema import RetentionQuery
@@ -149,6 +150,25 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(version.saved_query_id)
         assert version.saved_query is not None
         self.assertTrue(version.saved_query.is_materialized)
+
+    def test_create_scheduler_failure_returns_server_error_and_rolls_back(self):
+        with mock.patch.object(
+            EndpointMaterializationService,
+            "enable_materialization",
+            side_effect=APIException("scheduler unavailable"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/",
+                {
+                    "name": "materialization-scheduler-failure",
+                    "query": self.sample_hogql_query,
+                    "is_materialized": True,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(EndpointVersion.objects.filter(endpoint__name="materialization-scheduler-failure").exists())
 
     def test_unsatisfiable_freshness_rolls_back_the_whole_enable(self):
         # if scheduling rejects the chosen freshness (finer than an upstream source can deliver),
@@ -1042,6 +1062,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             status=None,
             last_run_at=timezone.now() - timedelta(days=3),
         )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="status_freshness_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/status-freshness",
+        )
+        saved_query.save(update_fields=["table"])
         endpoint = create_endpoint_with_version(
             name="status_freshness_endpoint",
             team=self.team,
@@ -1069,6 +1096,63 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["status"], DataModelingJob.Status.COMPLETED)
         self.assertTrue(response.json()["enabled"])
         self.assertFalse(response.json()["ready"])
+
+    @parameterized.expand(
+        [
+            (DataModelingJob.Status.RUNNING, None),
+            (DataModelingJob.Status.FAILED, "refresh failed"),
+        ]
+    )
+    def test_materialization_status_reports_latest_attempt_and_retains_fresh_build(self, job_status, error):
+        completed_at = timezone.now() - timedelta(minutes=5)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=f"status-{job_status.lower()}",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"status_{job_status.lower()}",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{job_status.lower()}",
+        )
+        saved_query.save(update_fields=["table"])
+        endpoint = create_endpoint_with_version(
+            name=f"status-{job_status.lower()}",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            data_freshness_seconds=3600,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save(update_fields=["saved_query"])
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=completed_at,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=job_status,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            error=error,
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], job_status)
+        self.assertEqual(response.json()["error"], error or "")
+        self.assertEqual(response.json()["last_materialized_at"], completed_at.isoformat())
+        self.assertTrue(response.json()["ready"])
 
     def test_force_mode_uses_materialized_table(self):
         """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""

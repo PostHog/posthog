@@ -57,6 +57,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.data_modeling.backend.facade.models import DataModelingJob
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
     EndpointCrudService,
@@ -281,14 +282,28 @@ class EndpointViewSet(
         Only the current version is fetched, and the history is counted in the database, so an
         endpoint with a long version history costs the same as a fresh one.
         """
+        latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
+        latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
+        current_versions = (
+            EndpointVersion.objects.filter(version=F("endpoint__current_version"))
+            .select_related("saved_query")
+            .prefetch_related(
+                Prefetch(
+                    "saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"
+                ),
+                Prefetch(
+                    "saved_query__datamodelingjob_set",
+                    queryset=latest_completed_jobs[:1],
+                    to_attr="prefetched_latest_completed_jobs",
+                ),
+            )
+        )
         return (
             queryset.select_related("created_by")
             .prefetch_related(
                 Prefetch(
                     "versions",
-                    queryset=EndpointVersion.objects.filter(version=F("endpoint__current_version")).select_related(
-                        "saved_query"
-                    ),
+                    queryset=current_versions,
                     to_attr="prefetched_current_versions",
                 ),
             )

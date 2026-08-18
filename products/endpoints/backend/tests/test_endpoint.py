@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from freezegun import freeze_time
@@ -7,6 +7,7 @@ from unittest import TestCase, mock
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -19,9 +20,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -1906,7 +1909,33 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 },
                 created_by=self.user,
             )
-            endpoint.versions.update(columns=[{"name": "c", "type": "integer"}])
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"list_perf_{i}",
+                query=endpoint.get_version().query,
+                is_materialized=True,
+                table=DataWarehouseTable.objects.create(
+                    team=self.team,
+                    name=f"list_perf_{i}",
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    url_pattern=f"s3://test-bucket/list-perf-{i}",
+                ),
+            )
+            endpoint.versions.update(columns=[{"name": "c", "type": "integer"}], saved_query=saved_query)
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.COMPLETED,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+                last_run_at=timezone.now() - timedelta(minutes=5),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.RUNNING,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+                last_run_at=timezone.now(),
+            )
 
     def _list_query_count(self, endpoint_count: int) -> int:
         Endpoint.objects.all().delete()

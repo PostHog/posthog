@@ -32,6 +32,7 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     delete_node_from_dag,
+    is_materialization_fresh,
     latest_saved_query_materialization_job,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
@@ -105,7 +106,10 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             materialized_at = saved_query_materialized_at(version.saved_query)
         result = {
             "enabled": bool(version.saved_query.is_materialized),
-            "ready": bool(version.saved_query.table_id and materialized_at),
+            "ready": bool(
+                version.saved_query.table_id
+                and is_materialization_fresh(materialized_at, version.data_freshness_seconds)
+            ),
             "status": materialization_status or "Unknown",
             "can_materialize": True,
             "last_materialized_at": materialized_at.isoformat() if materialized_at else None,

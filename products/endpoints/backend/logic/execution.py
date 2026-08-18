@@ -67,7 +67,7 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import saved_query_materialized_at
+from products.data_modeling.backend.facade.api import is_materialization_fresh, saved_query_materialized_at
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
@@ -372,10 +372,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
         # Check if materialized data is stale. Keyed on the version's freshness target, not
         # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        if version.data_freshness_seconds:
-            next_refresh_due = materialized_at + timedelta(seconds=version.data_freshness_seconds)
-            if timezone.now() >= next_refresh_due:
-                return False
+        if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
+            return False
 
         # 'direct' mode explicitly bypasses materialization to run the original query
         if data.refresh == EndpointRefreshMode.DIRECT:

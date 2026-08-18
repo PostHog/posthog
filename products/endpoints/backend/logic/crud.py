@@ -158,7 +158,7 @@ class EndpointCrudService:
 
             return endpoint
 
-        except ValidationError:
+        except (APIException, ValidationError):
             raise
         except Exception as e:
             capture_exception(
