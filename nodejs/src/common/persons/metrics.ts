@@ -160,6 +160,18 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
     personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }
 
+export const personhogStoreShadowSkipsCounter = new Counter({
+    name: 'personhog_store_shadow_skips_total',
+    help: 'Shadowed writes skipped because the person does not exist in the personhog world yet',
+    labelNames: ['verb'],
+})
+
+export const personhogStoreShadowErrorsCounter = new Counter({
+    name: 'personhog_store_shadow_errors_total',
+    help: 'Personhog shadow-side store verb failures by verb; shadow errors never fail the batch',
+    labelNames: ['verb'],
+})
+
 export const personProfileUpdateOutcomeCounter = new Counter({
     name: 'person_profile_update_outcome_total',
     help: 'Outcome of person profile update operations at event level',
