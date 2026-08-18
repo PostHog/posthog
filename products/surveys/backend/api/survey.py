@@ -1931,9 +1931,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             # Ensure the request method is set correctly for validation
             if existing_flag:
                 self.context["request"].method = "PATCH"
+                update_data: dict = {"filters": filters}
+                # A soft-deleted flag still resolves through the survey FK, so a plain
+                # PATCH would write to a dead flag and leave the survey invisible. Ask
+                # the flag serializer to restore it (this also repairs a tombstoned key).
+                if existing_flag.deleted:
+                    update_data["deleted"] = False
                 existing_flag_serializer = FeatureFlagSerializer(
                     existing_flag,
-                    data={"filters": filters},
+                    data=update_data,
                     partial=True,
                     context=self.context,
                 )

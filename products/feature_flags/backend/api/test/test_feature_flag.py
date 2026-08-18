@@ -4061,6 +4061,49 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flag.deleted is True
         assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
+    def test_soft_delete_flag_blocked_with_running_survey(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="survey-internal-flag")
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="My survey",
+            type="popover",
+            internal_targeting_flag=flag,
+            start_date=now(),
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == f'Cannot delete a feature flag that is linked to running survey(s): "My survey" (ID: {survey.id}). Please stop the survey(s) before deleting the flag.'
+        )
+        flag.refresh_from_db()
+        assert flag.deleted is False
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_soft_delete_flag_allowed_with_non_running_survey(self, _name, start_date, end_date):
+        # A survey that has not launched (draft) or has been stopped no longer needs its
+        # internal flag served, so deletion is allowed.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-survey-flag")
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name=f"{_name} survey",
+            type="popover",
+            internal_targeting_flag=flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
         # Set the flag as the session recording linked flag

@@ -2026,6 +2026,23 @@ class FeatureFlagSerializer(
                     f"Cannot delete a feature flag that is linked to running experiment(s): {experiment_names}. Please stop the experiment(s) before deleting the flag."
                 )
 
+            # Check for linked running surveys. A survey manages its own internal
+            # flags (targeting, internal targeting, response sampling). Deleting one
+            # while the survey is live makes the survey silently invisible to SDKs.
+            running_surveys = Survey.objects.filter(
+                Q(targeting_flag=instance)
+                | Q(internal_targeting_flag=instance)
+                | Q(internal_response_sampling_flag=instance),
+                start_date__isnull=False,
+                end_date__isnull=True,
+                archived=False,
+            )
+            if running_surveys.exists():
+                survey_names = ", ".join(f'"{survey.name}" (ID: {survey.id})' for survey in running_surveys)
+                raise exceptions.ValidationError(
+                    f"Cannot delete a feature flag that is linked to running survey(s): {survey_names}. Please stop the survey(s) before deleting the flag."
+                )
+
             # Check for other flags that depend on this flag
             raise_if_flag_has_dependents(instance, action="delete")
 
