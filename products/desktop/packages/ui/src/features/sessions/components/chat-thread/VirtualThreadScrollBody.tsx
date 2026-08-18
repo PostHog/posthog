@@ -10,8 +10,8 @@ import {
   computeStickyAnchor,
   type FlatThreadRow,
   FOLLOWING_END,
+  nextOlderHistoryLoadState,
   nextThreadFollowState,
-  OLDER_HISTORY_LOAD_THRESHOLD_PX,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
   type StickyAnchorEntry,
@@ -302,7 +302,7 @@ export function VirtualThreadScrollBody({
   onUserInteract,
   renderNav,
   resumeRef,
-  hasOlderHistory = false,
+  olderHistoryCursor = 0,
   isLoadingOlderHistory = false,
   onLoadOlderHistory,
 }: {
@@ -321,7 +321,11 @@ export function VirtualThreadScrollBody({
   renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
-  hasOlderHistory?: boolean;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Doubles as the
+   * loader's progress signal, because it only moves when a page actually lands.
+   */
+  olderHistoryCursor?: number;
   isLoadingOlderHistory?: boolean;
   onLoadOlderHistory?: () => void;
 }) {
@@ -346,8 +350,10 @@ export function VirtualThreadScrollBody({
     getItemKey: (index) => flatRows[index]?.key ?? index,
   });
 
-  // Re-armed by the props flipping back, so one gesture loads one page.
   const loadOlderArmedRef = useRef(false);
+  const canLoadOlderRef = useRef(false);
+  const isLoadingOlderRef = useRef(isLoadingOlderHistory);
+  isLoadingOlderRef.current = isLoadingOlderHistory;
   const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
   useEffect(() => {
     onLoadOlderHistoryRef.current = onLoadOlderHistory;
@@ -355,26 +361,27 @@ export function VirtualThreadScrollBody({
 
   const maybeLoadOlderHistory = useCallback(() => {
     const el = viewportRef.current;
-    if (!el || !loadOlderArmedRef.current) return;
-    if (el.scrollTop > OLDER_HISTORY_LOAD_THRESHOLD_PX) return;
-    loadOlderArmedRef.current = false;
-    onLoadOlderHistoryRef.current?.();
+    if (!el) return;
+    const next = nextOlderHistoryLoadState(loadOlderArmedRef.current, {
+      canLoad: canLoadOlderRef.current,
+      isLoading: isLoadingOlderRef.current,
+      scrollTop: el.scrollTop,
+    });
+    loadOlderArmedRef.current = next.armed;
+    if (next.load) onLoadOlderHistoryRef.current?.();
   }, []);
 
-  // A viewport parked at the very top produces no scroll events, so arming
-  // must also attempt a load once the end-anchored layout has settled.
+  // Keyed on the cursor rather than the in-flight flag: the cursor moves only
+  // when a page lands, so arming here cannot retry a failure. A viewport parked
+  // at the very top produces no scroll events, hence the timer.
   useEffect(() => {
-    loadOlderArmedRef.current =
-      hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
+    canLoadOlderRef.current =
+      olderHistoryCursor > 0 && onLoadOlderHistory != null;
+    loadOlderArmedRef.current = canLoadOlderRef.current;
     if (!loadOlderArmedRef.current) return;
     const id = window.setTimeout(maybeLoadOlderHistory, 250);
     return () => window.clearTimeout(id);
-  }, [
-    hasOlderHistory,
-    isLoadingOlderHistory,
-    onLoadOlderHistory,
-    maybeLoadOlderHistory,
-  ]);
+  }, [olderHistoryCursor, onLoadOlderHistory, maybeLoadOlderHistory]);
 
   const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,

@@ -7,7 +7,9 @@ import {
   countFlatRows,
   flattenTurnRows,
   keyTurnRows,
+  nextOlderHistoryLoadState,
   nextThreadFollowState,
+  OLDER_HISTORY_LOAD_THRESHOLD_PX,
   type StickyAnchorEntry,
   sampleThreadScroll,
   type ThreadScrollSample,
@@ -299,6 +301,46 @@ describe("nextThreadFollowState", () => {
     ],
   ])("%s", (_name, state, event, expected) => {
     expect(nextThreadFollowState(state, event)).toEqual(expected);
+  });
+});
+
+describe("nextOlderHistoryLoadState", () => {
+  const AT_TOP = 0;
+  const AWAY = OLDER_HISTORY_LOAD_THRESHOLD_PX + 1;
+
+  it.each([
+    [
+      "spends the armed gesture on reaching the threshold",
+      true,
+      { canLoad: true, isLoading: false, scrollTop: AT_TOP },
+      { armed: false, load: true },
+    ],
+    [
+      "will not retry a failed load while the viewport stays at the top",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: AT_TOP },
+      { armed: false, load: false },
+    ],
+    [
+      "re-arms once the reader scrolls back out of the threshold",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: AWAY },
+      { armed: true, load: false },
+    ],
+    [
+      "holds the armed gesture while a page is still in flight",
+      true,
+      { canLoad: true, isLoading: true, scrollTop: AT_TOP },
+      { armed: true, load: false },
+    ],
+    [
+      "disarms once the whole transcript is loaded",
+      true,
+      { canLoad: false, isLoading: false, scrollTop: AT_TOP },
+      { armed: false, load: false },
+    ],
+  ])("%s", (_name, armed, input, expected) => {
+    expect(nextOlderHistoryLoadState(armed, input)).toEqual(expected);
   });
 });
 
