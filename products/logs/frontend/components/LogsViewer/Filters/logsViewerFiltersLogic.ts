@@ -121,6 +121,7 @@ export interface logsViewerFiltersLogicValues {
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filters: LogsViewerFilters
+    focusedFilter: { index: number; nonce: number } | null
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
@@ -170,6 +171,9 @@ export interface logsViewerFiltersLogicActions {
     setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => {
         pinnedFilters: UniversalFiltersGroup | undefined
     }
+    focusFilter: (index: number) => {
+        index: number
+    }
     setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => {
         searchTerm: string | undefined
     }
@@ -216,6 +220,8 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // setting individual filters
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
+        // Ask the chips bar to open one filter for editing, by its index in the editable filterGroup.
+        focusFilter: (index: number) => ({ index }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -281,6 +287,14 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             false as boolean,
             {
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
+            },
+        ],
+        // The chips bar opens a filter's editor by remounting that chip, so focusing the same chip
+        // twice has to look like a state change: the nonce is what the chip's React key carries.
+        focusedFilter: [
+            null as { index: number; nonce: number } | null,
+            {
+                focusFilter: (state, { index }) => ({ index, nonce: (state?.nonce ?? 0) + 1 }),
             },
         ],
         pinnedFilters: [
