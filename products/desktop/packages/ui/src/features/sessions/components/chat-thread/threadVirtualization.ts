@@ -126,7 +126,9 @@ export interface OlderHistoryLoadState {
  * every few hundred milliseconds for as long as the thread sat near the top.
  *
  * A window that does not fill the viewport is the one case with no gesture to wait for: it emits no
- * scroll events at all, so it stays armed and keeps paging until there is something to scroll.
+ * scroll events at all, so it stays armed and keeps paging until there is something to scroll. A
+ * window that fills it but stays shorter than the band re-arms on reaching the bottom instead,
+ * since `scrollTop` there can never clear the band.
  */
 export function nextOlderHistoryLoadState(
   armed: boolean,
@@ -144,6 +146,11 @@ export function nextOlderHistoryLoadState(
   }
   if (input.isLoading) return { armed, load: false };
   if (input.maxScrollTop <= 0) return { armed: false, load: true };
+  // A window shorter than the band never lets `scrollTop` clear it, so reaching the bottom is the
+  // only gesture the reader has left. A landed page never leaves them there, so this cannot chain.
+  if (input.scrollTop >= input.maxScrollTop) {
+    return { armed: true, load: false };
+  }
   if (!armed) return { armed, load: false };
   return { armed: false, load: true };
 }

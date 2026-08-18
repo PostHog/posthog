@@ -373,6 +373,12 @@ describe("nextOlderHistoryLoadState", () => {
       { armed: false, load: true },
     ],
     [
+      "re-arms at the bottom of a window too short to clear the threshold",
+      false,
+      { canLoad: true, isLoading: false, scrollTop: 300, maxScrollTop: 300 },
+      { armed: true, load: false },
+    ],
+    [
       "disarms once the whole transcript is loaded",
       true,
       {
