@@ -175,6 +175,13 @@ async function scheduledAtFromInstant(
         maxDelaySeconds(action.config.max_delay_duration ?? DEFAULT_MAX_DELAY_UNTIL) ??
         maxDelaySeconds(DEFAULT_MAX_DELAY_UNTIL)!
     const cap = DateTime.fromMillis(startedAtTimestamp).toUTC().plus({ seconds: maxSeconds })
+    // An offset large enough to push the date past luxon's representable range makes the target invalid, and
+    // an invalid DateTime compares false against everything — so it would slip past the cap below and hand the
+    // queue an unschedulable instant. Treat it like any out-of-range target: a future overflow is bounded by
+    // the cap, a past one has already elapsed.
+    if (!target.isValid) {
+        return offset > 0 && DateTime.utc() < cap ? cap : null
+    }
     const scheduledAt = target > cap ? cap : target
 
     return DateTime.utc() >= scheduledAt ? null : scheduledAt

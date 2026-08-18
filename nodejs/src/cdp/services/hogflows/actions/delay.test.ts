@@ -221,6 +221,18 @@ describe('DelayHandler with delay_until', () => {
         expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ days: 30 }).toISO())
     })
 
+    // An offset whose magnitude overflows luxon's date range makes an invalid target: without a guard it
+    // slips past the cap and hands the queue an unschedulable instant. It must clamp like '45d' or a
+    // far-future date instead.
+    it('clamps an offset too large to represent to the default maximum', async () => {
+        const result = await runDelay(delayUntil({ offset: '100000000000000000000d' }), {
+            trial_expiration_at: '2025-01-08T00:00:00.000Z',
+        })
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ days: 30 }).toISO())
+        expect(result.nextAction).toBeUndefined()
+    })
+
     it('honours a configured maximum', async () => {
         const result = await runDelay(
             { ...delayUntil(), max_delay_duration: '2d' },
