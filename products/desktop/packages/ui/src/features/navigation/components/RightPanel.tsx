@@ -18,9 +18,15 @@ import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
+import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
+import {
+  useSessionArtifactCount,
+  useSessionIsWorking,
+} from "@posthog/ui/features/sessions/useSessionArtifactCount";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
@@ -28,6 +34,7 @@ import {
   ResizableSidebar,
   SLIDE_MS,
 } from "@posthog/ui/primitives/ResizableSidebar";
+import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -35,6 +42,7 @@ import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
   type RightPanelSide,
+  resolveArtifactMark,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "../rightPanelStore";
@@ -61,6 +69,9 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
  */
 export const SWITCHER_WIDTH_PX = 112;
 
+/** The one lesson this switcher teaches: where a run's deliverables land. */
+const ARTIFACTS_PANEL_TIP = TIP_KEYS.sessionArtifactsLocation;
+
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
   const { data: tasks } = useTasks();
@@ -85,49 +96,142 @@ function useActiveSide(taskId: string): RightPanelSide | null {
   });
 }
 
+/** One side's button: opens that panel, or closes it when it is the one open. */
+function SideButton({
+  side,
+  active,
+  taskId,
+  marked = false,
+}: {
+  side: RightPanelSide;
+  active: RightPanelSide | null;
+  taskId: string;
+  /** Something has arrived on this side that the panel hasn't shown yet. */
+  marked?: boolean;
+}) {
+  const { label, Icon } = SIDES[side];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={marked ? `${label} (new)` : label}
+            data-selected={active === side || undefined}
+            onClick={() =>
+              openRightPanelSide(active === side ? null : side, taskId)
+            }
+            className="relative text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+          >
+            <Icon size={16} />
+            {marked && (
+              // Ringed in the row's own background so the dot still reads
+              // where it overlaps the icon's strokes.
+              <span
+                aria-hidden
+                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-background"
+              />
+            )}
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * The panel's own switcher: one button per side, the active one toggling the
  * panel closed. It sits a row below the header band, pinned to the right edge,
  * and stays there whether the panel is open or closed, because the panel slides
  * out from under it.
  */
-function RightPanelButtons({
+export function RightPanelButtons({
   active,
   taskId,
+  hasNewArtifacts,
+  offerArtifactsTip = false,
+  artifactCount,
 }: {
   active: RightPanelSide | null;
   taskId: string;
+  /** Artifacts have arrived that this session's panel hasn't shown yet. */
+  hasNewArtifacts: boolean;
+  /** The turn that produced them has ended, so the tip can point at where they went. */
+  offerArtifactsTip?: boolean;
+  /** How many the session has, so each new one is a fresh chance to teach. */
+  artifactCount?: number;
 }) {
   return (
     <TooltipProvider delay={400}>
       <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
-        {SIDE_ORDER.map((side) => {
-          const { label, Icon } = SIDES[side];
-          return (
-            <Tooltip key={side}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="default"
-                    size="icon-sm"
-                    aria-label={label}
-                    data-selected={active === side || undefined}
-                    onClick={() =>
-                      openRightPanelSide(active === side ? null : side, taskId)
-                    }
-                    className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-                  >
-                    <Icon size={16} />
-                  </Button>
-                }
+        {SIDE_ORDER.map((side) =>
+          side === "artifacts" ? (
+            <TeachingTip
+              key={side}
+              id={ARTIFACTS_PANEL_TIP}
+              open={offerArtifactsTip}
+              // The mark stays up until the panel is opened, so `open` can hold
+              // across several runs. The count is what separates them, and it
+              // is why asking for more artifacts offers the tip again.
+              moment={artifactCount}
+              message="New artifacts show up here"
+            >
+              <SideButton
+                side={side}
+                active={active}
+                taskId={taskId}
+                marked={hasNewArtifacts}
               />
-              <TooltipContent side="bottom">{label}</TooltipContent>
-            </Tooltip>
-          );
-        })}
+            </TeachingTip>
+          ) : (
+            <SideButton
+              key={side}
+              side={side}
+              active={active}
+              taskId={taskId}
+            />
+          ),
+        )}
       </div>
     </TooltipProvider>
   );
+}
+
+/**
+ * Whether a session has artifacts its panel hasn't shown yet. The first count a
+ * session reports is taken as seen, so a session opened long after its run
+ * doesn't announce work the reader already knows about; from there the mark
+ * clears whenever the panel is on Artifacts.
+ */
+function useNewArtifacts(
+  taskId: string,
+  task: Task | null,
+  active: RightPanelSide | null,
+): { hasNew: boolean; count: number } {
+  const count = useSessionArtifactCount(task);
+  // The count covers the latest run only, so the baseline is keyed per run too.
+  // A resume run replaces `latest_run` with a fresh, smaller manifest; a
+  // per-task baseline would then hold the old run's higher total and swallow the
+  // new run's first deliverables until they passed it.
+  const seenKey = `${taskId}:${task?.latest_run?.id ?? ""}`;
+  const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[seenKey]);
+  const markArtifactsSeen = useRightPanelStore((s) => s.markArtifactsSeen);
+  const { markSeen, hasNew } = resolveArtifactMark({
+    count,
+    seen,
+    isShowingArtifacts: active === "artifacts",
+    // The count reads zero until the task resolves and a manifest source lands.
+    // Not ready yet means don't take that zero as the seen baseline.
+    ready: task !== null,
+  });
+
+  useEffect(() => {
+    if (markSeen) markArtifactsSeen(seenKey, count);
+  }, [count, markArtifactsSeen, markSeen, seenKey]);
+
+  return { hasNew, count };
 }
 
 function ChangesPanelContent({ task }: { task: Task }) {
@@ -156,6 +260,7 @@ function useFadingSide(
   held: boolean,
 ): RightPanelSide | null {
   const [drawn, setDrawn] = useState(active);
+
   useEffect(() => {
     if (active != null) {
       setDrawn(active);
@@ -165,6 +270,7 @@ function useFadingSide(
     const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
+
   return drawn;
 }
 
@@ -189,6 +295,14 @@ export function RightPanel() {
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
   const active = useActiveSide(taskId);
+  const { hasNew: hasNewArtifacts, count: artifactCount } = useNewArtifacts(
+    taskId,
+    task,
+    active,
+  );
+  // Only once the agent has stopped: a tip that lands mid-turn points at a
+  // list that is still filling.
+  const isWorking = useSessionIsWorking(task);
   useCommentFocusRequest(taskId, () => openRightPanelSide("comments", taskId));
 
   const width = useRightPanelStore((s) => s.width);
@@ -198,6 +312,8 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
 
   const open = active != null;
   const drawn = useFadingSide(active, isResizing);
+
+  useEffect(() => preloadReviewPages(), []);
 
   // Dragging the handle past the panel's floor closes it, and dragging back out
   // while still holding brings it in again. The drag holds the closing panel's
@@ -243,9 +359,6 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
                   {SIDES[drawn].label}
                 </span>
               </div>
-              {/* Nothing under the title until the session resolves, because
-                  the route says there is a session and an empty state would
-                  contradict it. */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {task &&
                   (drawn === "changes" ? (
@@ -266,7 +379,13 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
         className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
         style={{ width: SWITCHER_WIDTH_PX }}
       >
-        <RightPanelButtons active={active} taskId={taskId} />
+        <RightPanelButtons
+          active={active}
+          taskId={taskId}
+          hasNewArtifacts={hasNewArtifacts}
+          offerArtifactsTip={hasNewArtifacts && !isWorking}
+          artifactCount={artifactCount}
+        />
       </div>
     </>
   );

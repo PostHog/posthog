@@ -15,16 +15,29 @@ const t = trpc.initTRPC.create();
 const router = t.router({
   open: t.procedure.query(() => "ok"),
   secret: t.procedure.query(() => "secret"),
+  ticks: t.procedure.subscription(async function* (opts) {
+    let n = 0;
+    while (!opts.signal?.aborted) {
+      yield n++;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  }),
 });
+
+type WebContentsListener = (...args: unknown[]) => void;
 
 function fakeWindow(id: number): {
   win: BrowserWindow;
   webContents: { id: number };
+  emit: (event: string, ...args: unknown[]) => void;
 } {
+  const listeners = new Map<string, WebContentsListener[]>();
   const webContents = {
     id,
     isDestroyed: () => false,
-    on: vi.fn(),
+    on: vi.fn((event: string, listener: WebContentsListener) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    }),
     once: vi.fn(),
   };
   return {
@@ -33,10 +46,17 @@ function fakeWindow(id: number): {
       webContents,
     } as unknown as BrowserWindow,
     webContents,
+    emit: (event, ...args) => {
+      for (const listener of listeners.get(event) ?? []) listener(...args);
+    },
   };
 }
 
-function requestFor(path: string, id: number) {
+function requestFor(
+  path: string,
+  id: number,
+  type: "query" | "subscription" = "query",
+) {
   return {
     method: "request" as const,
     operation: {
@@ -44,16 +64,24 @@ function requestFor(path: string, id: number) {
       id,
       input: undefined,
       path,
-      type: "query" as const,
+      type,
       signal: undefined,
     },
   };
 }
 
-function eventFrom(webContents: unknown) {
+function replyTypes(reply: ReturnType<typeof vi.fn>): string[] {
+  return reply.mock.calls.map(
+    ([, message]) =>
+      (message as { result?: { type?: string } }).result?.type ?? "error",
+  );
+}
+
+function eventFrom(webContents: unknown, frameRoutingId?: number) {
   return {
     sender: webContents,
-    senderFrame: undefined,
+    senderFrame:
+      frameRoutingId === undefined ? undefined : { routingId: frameRoutingId },
     reply: vi.fn(),
   };
 }
@@ -104,4 +132,85 @@ describe("createIPCHandler sender gating", () => {
     await flush();
     expect(mainEvent.reply).toHaveBeenCalled();
   });
+});
+
+const MAIN_FRAME_ROUTING_ID = 1;
+
+describe("createIPCHandler navigation cleanup", () => {
+  test("a navigation that never commits leaves live subscriptions streaming", async () => {
+    const { win, webContents, emit } = fakeWindow(1);
+    createIPCHandler({ router, windows: [win] });
+
+    const event = eventFrom(webContents, MAIN_FRAME_ROUTING_ID);
+    ipcMain.emit(
+      ELECTRON_TRPC_CHANNEL,
+      event,
+      requestFor("ticks", 1, "subscription"),
+    );
+    await vi.waitFor(() =>
+      expect(replyTypes(event.reply)).toEqual(
+        expect.arrayContaining(["started", "data"]),
+      ),
+    );
+
+    // The renderer tried to leave (an external link); will-navigate cancelled
+    // it after did-start-navigation had already fired.
+    emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: false,
+      url: "https://example.com/",
+      frame: { routingId: MAIN_FRAME_ROUTING_ID },
+    });
+    const before = event.reply.mock.calls.length;
+    await vi.waitFor(() =>
+      expect(event.reply.mock.calls.length).toBeGreaterThan(before),
+    );
+    expect(replyTypes(event.reply)).not.toContain("stopped");
+  });
+
+  test.each([
+    { frame: "main frame", isMainFrame: true, aborted: 1 },
+    { frame: "subframe", isMainFrame: false, aborted: 0 },
+  ])(
+    "a committed $frame navigation aborts $aborted in-flight operations",
+    async ({ isMainFrame, aborted }) => {
+      const { win, webContents, emit } = fakeWindow(1);
+      const onNavigationCleanup = vi.fn();
+      createIPCHandler({ router, windows: [win], onNavigationCleanup });
+
+      const event = eventFrom(webContents, MAIN_FRAME_ROUTING_ID);
+      ipcMain.emit(
+        ELECTRON_TRPC_CHANNEL,
+        event,
+        requestFor("ticks", 1, "subscription"),
+      );
+      await vi.waitFor(() => expect(replyTypes(event.reply)).toContain("data"));
+
+      emit(
+        "did-frame-navigate",
+        {},
+        "file:///app/index.html",
+        200,
+        "OK",
+        isMainFrame,
+        4,
+        isMainFrame ? MAIN_FRAME_ROUTING_ID + 7 : 12,
+      );
+      await flush();
+
+      if (aborted > 0) {
+        await vi.waitFor(() =>
+          expect(replyTypes(event.reply)).toContain("stopped"),
+        );
+        expect(onNavigationCleanup).toHaveBeenCalledWith({
+          webContentsId: 1,
+          url: "file:///app/index.html",
+          aborted,
+        });
+      } else {
+        expect(replyTypes(event.reply)).not.toContain("stopped");
+        expect(onNavigationCleanup).not.toHaveBeenCalled();
+      }
+    },
+  );
 });

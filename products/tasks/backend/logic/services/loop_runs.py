@@ -744,6 +744,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # A repo-less loop still needs `gh` for evidence gathering (PR digests, commit
+    # history), so provisioning mints the team-scoped read-only GitHub token for it
+    # (see get_readonly_github_token; a team with no usable integration skips the
+    # mint). Repo-pinned loops get the repository integration's token instead.
+    if not loop.repositories:
+        extra_state["github_read_access"] = True
     # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
     # so nothing sends a follow-up. CI-watching loops keep the default window so the
     # sandbox survives the orchestrator's CI follow-up cadence.

@@ -32,7 +32,10 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
@@ -57,6 +60,37 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
 
 
 logger = structlog.get_logger(__name__)
+
+STUCK_EXPORT_MESSAGE = "Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
+
+# Slack on top of a pipeline's envelope before we call an export stuck, so a render finishing right
+# at its deadline isn't reported as a failure.
+_STUCK_EXPORT_GRACE = timedelta(seconds=30)
+
+
+def stuck_export_threshold(instance: ExportedAsset) -> timedelta:
+    """How long an export may sit without content before nothing can still be working on it.
+
+    Matched to whichever pipeline renders the format: video renders get the rasterize workflow's
+    envelope, dataset exports the export workflow's, and everything else the HogQL query timeout it
+    inherits from the Celery exporter.
+    """
+    if instance.is_rasterized_export:
+        return RASTERIZE_WORKFLOW_TIMEOUT
+    if instance.is_dataset_export:
+        return EXPORT_WORKFLOW_TIMEOUT
+    return timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
+
+
+def is_stuck_export(instance: ExportedAsset) -> bool:
+    """No content, no recorded exception, and past the point its pipeline could still be rendering.
+
+    Nothing will ever mark these failed on their own — whatever was rendering them died without
+    writing a reason back to the row.
+    """
+    if instance.has_content or instance.exception:
+        return False
+    return instance.created_at < now() - stuck_export_threshold(instance) - _STUCK_EXPORT_GRACE
 
 
 class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -88,39 +122,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
-        """Override to show stuck exports as having an exception."""
+        """Override to show stuck exports as having an exception.
+
+        Must stay free of side effects. A stuck export reads as stuck on every serialization of the
+        row, so anything emitted here — an analytics event, a write — repeats for the life of the
+        asset and on every poll of the list. Terminal state is recorded once, by whichever pipeline
+        fails the export.
+        """
         data = super().to_representation(instance)
 
-        timeout = (
-            EXPORT_WORKFLOW_TIMEOUT
-            if instance.is_dataset_export
-            else timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
-        )
-        timeout_threshold = now() - timeout - timedelta(seconds=30)
-        if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
-            data["exception"] = timeout_message
-
-            distinct_id = (
-                self.context["request"].user.distinct_id
-                if "request" in self.context and self.context["request"].user
-                else str(instance.team.uuid)
-            )
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event="export timeout error returned",
-                properties={
-                    **instance.get_analytics_metadata(),
-                    "timeout_message": timeout_message,
-                    "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
-                },
-                groups=groups(instance.team.organization, instance.team),
-            )
+        if is_stuck_export(instance):
+            data["exception"] = STUCK_EXPORT_MESSAGE
 
         return data
 
@@ -147,7 +159,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
 
-        is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
+        is_full_video_export = export_format in ExportedAsset.RASTERIZED_FORMATS and export_context.get(
             "session_recording_id"
         )
 
@@ -159,7 +171,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             existing_full_video_exports_count = (
                 ExportedAsset.objects.filter(
                     team_id=self.context["team_id"],
-                    export_format__in=["video/mp4", "video/webm", "image/gif"],
+                    export_format__in=list(ExportedAsset.RASTERIZED_FORMATS),
                     export_context__session_recording_id__isnull=False,
                     created_at__gte=start_of_month,
                 )
@@ -269,7 +281,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
 
         if not force_async:
-            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+            if instance.is_rasterized_export:
                 # recordings-only
                 if not (instance.export_context and instance.export_context.get("session_recording_id")):
                     raise serializers.ValidationError(
@@ -290,7 +302,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(hours=1),
+                        execution_timeout=RASTERIZE_WORKFLOW_TIMEOUT,
                         search_attributes=TypedSearchAttributes(
                             search_attributes=[
                                 SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
