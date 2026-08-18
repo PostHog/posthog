@@ -711,6 +711,20 @@ def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     return bool(behaviors.get("watch_ci")) or bool(behaviors.get("fix_review_comments"))
 
 
+def _pr_loop_override(task: Task, team: Team) -> bool | None:
+    """The explicit user setting for the PR follow-up loop, most specific first: the
+    task's own toggle, then the project-wide default. `None` at both levels means "no
+    opinion" and leaves the decision to the per-origin/rollout gate below.
+
+    Read live off the rows rather than from the run-state snapshot: turning the loop off
+    is how someone stops an agent that is already pushing to their PR, so it has to take
+    effect on the task's next run, not only on tasks created afterwards.
+    """
+    if task.pr_loop_enabled is not None:
+        return task.pr_loop_enabled
+    return team.tasks_pr_loop_enabled
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -871,22 +885,29 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-    # Signals implementation PRs are bot-authored and always benefit from the PR
-    # follow-up loop (fixing CI, replying to and resolving review threads), so they
-    # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
-    # that gates other origins. This mirrors the babysitting the Slack coding bot
-    # gets for its PRs.
-    pr_loop_enabled = (
-        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-        or _loop_pr_follow_up_enabled(task, state)
-        or posthoganalytics.feature_enabled(
-            "tasks-pr-loop",
-            distinct_id=distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-        or False
-    )  # Ensure we get a boolean value even if the flag is missing
+    # An explicit task-level or project-level setting wins over every reason to turn the
+    # loop on below, including the SIGNAL_REPORT origin: "leave my PR alone" has to be
+    # honoured for bot-authored PRs too, since those are the ones people ask us to stop.
+    pr_loop_override = _pr_loop_override(task, team)
+    if pr_loop_override is not None:
+        pr_loop_enabled = pr_loop_override
+    else:
+        # Signals implementation PRs are bot-authored and always benefit from the PR
+        # follow-up loop (fixing CI, replying to and resolving review threads), so they
+        # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
+        # that gates other origins. This mirrors the babysitting the Slack coding bot
+        # gets for its PRs.
+        pr_loop_enabled = (
+            task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+            or _loop_pr_follow_up_enabled(task, state)
+            or posthoganalytics.feature_enabled(
+                "tasks-pr-loop",
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+            )
+            or False
+        )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")

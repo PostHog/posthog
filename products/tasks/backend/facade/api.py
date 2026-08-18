@@ -595,6 +595,7 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
+        pr_loop_enabled=task.pr_loop_enabled,
         latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
         created_at=task.created_at,
         updated_at=task.updated_at,

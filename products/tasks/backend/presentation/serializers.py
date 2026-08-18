@@ -451,6 +451,7 @@ class TaskSerializer(DataclassSerializer):
             "updated_at",
             "created_by",
             "ci_prompt",
+            "pr_loop_enabled",
             "channel",
             "slack_thread_references",
         ]
@@ -552,6 +553,15 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
+    pr_loop_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Whether to keep watching this task's pull request after it opens, fixing CI and "
+            "replying to review comments. Null inherits the project default "
+            "(`tasks_pr_loop_enabled` on the environment)."
+        ),
     )
     branch = serializers.CharField(
         max_length=255,

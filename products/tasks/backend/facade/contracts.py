@@ -180,6 +180,7 @@ class TaskDetailDTO:
     archived: bool
     archived_at: datetime | None
     ci_prompt: str | None
+    pr_loop_enabled: bool | None = None
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

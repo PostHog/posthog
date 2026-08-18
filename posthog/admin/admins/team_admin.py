@@ -264,6 +264,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "modifiers",
                     "drop_events_older_than",
                     "proactive_tasks_enabled",
+                    "tasks_pr_loop_enabled",
                 ],
             },
         ),

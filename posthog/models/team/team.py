@@ -439,6 +439,12 @@ class Team(UUIDTClassicModel):
     # Proactive tasks (#team-self-driving)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
+    # Project-wide default for the tasks PR follow-up loop: whether an agent keeps
+    # watching a pull request it opened, fixing CI and replying to review comments.
+    # Null means "no opinion" and defers to the per-origin and rollout gate; a task can
+    # override either way via `Task.pr_loop_enabled`.
+    tasks_pr_loop_enabled = models.BooleanField(null=True, blank=True)
+
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")

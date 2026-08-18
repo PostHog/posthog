@@ -321,6 +321,18 @@ class Task(DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    # Per-task override for the PR follow-up loop: once a PR is open the agent keeps
+    # watching CI and review threads and pushes follow-up commits. Null defers to the
+    # project-wide `Team.tasks_pr_loop_enabled`, which in turn defers to the per-origin
+    # and rollout gate in the get_task_processing_context activity.
+    pr_loop_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Whether to keep watching this task's pull request after it opens, fixing CI and "
+            "replying to review comments. Null inherits the project default."
+        ),
+    )
 
     # Conversation-level state shared across the task's runs (each resume/follow-up
     # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
