@@ -39,7 +39,3 @@ LISTING_RATE_ENTERPRISE_SUSTAINED = get_from_env("LISTING_RATE_ENTERPRISE_SUSTAI
 
 # Per-token cap for replay endpoints reached via a SharingAccessToken.
 REPLAY_SHARING_TOKEN_RATE = get_from_env("REPLAY_SHARING_TOKEN_RATE", "600/minute")
-
-# Ed25519 private key, PEM PKCS8, that signs the Web Bot Auth key directory at
-# /.well-known/http-message-signatures-directory. US only: the route 404s wherever this is unset.
-WEB_BOT_AUTH_PRIVATE_KEY = get_from_env("WEB_BOT_AUTH_PRIVATE_KEY", "")

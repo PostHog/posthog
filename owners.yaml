@@ -81,6 +81,11 @@ rules:
       owners: team-data-stack
     - match: '/posthog/settings/email.py'
       owners: team-platform-features
+    - match:
+          - '/posthog/settings/web_bot_auth.py'
+          - '/posthog/test/test_web_bot_auth.py'
+          - '/posthog/web_bot_auth.py'
+      owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'

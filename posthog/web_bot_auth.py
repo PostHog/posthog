@@ -3,7 +3,7 @@ import time
 import base64
 import hashlib
 import secrets
-from typing import Optional
+from collections.abc import Sequence
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
@@ -27,14 +27,14 @@ _SIGNATURE_LIFETIME_SECONDS = 300
 _AUTHORITY = "us.posthog.com"
 
 
-def _private_key() -> Optional[Ed25519PrivateKey]:
-    pem = settings.WEB_BOT_AUTH_PRIVATE_KEY
-    if not pem:
-        return None
-    key = serialization.load_pem_private_key(pem.encode(), password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise TypeError("WEB_BOT_AUTH_PRIVATE_KEY is not an Ed25519 private key")
-    return key
+def _private_keys() -> list[Ed25519PrivateKey]:
+    keys: list[Ed25519PrivateKey] = []
+    for pem in settings.WEB_BOT_AUTH_PRIVATE_KEYS:
+        key = serialization.load_pem_private_key(pem.encode(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise TypeError("WEB_BOT_AUTH_PRIVATE_KEYS contains a key that is not Ed25519")
+        keys.append(key)
+    return keys
 
 
 def public_jwk(key: Ed25519PrivateKey) -> dict[str, str]:
@@ -48,28 +48,41 @@ def jwk_thumbprint(jwk: dict[str, str]) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(canonical.encode()).digest()).decode().rstrip("=")
 
 
-def signature_base(keyid: str, nonce: str, created_at_seconds: int) -> tuple[str, str]:
+def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_digest: str) -> tuple[str, str]:
     """
     RFC 9421 section 2.5. Returns the parameters alongside the base, because Signature-Input must
     repeat them byte for byte and building them twice invites the two copies to differ.
     """
     params = (
-        f'("@authority";req);alg="ed25519";keyid="{keyid}";nonce="{nonce}";'
+        f'("@authority";req "content-digest");alg="ed25519";keyid="{keyid}";nonce="{nonce}";'
         f'tag="{_TAG}";created={created_at_seconds};expires={created_at_seconds + _SIGNATURE_LIFETIME_SECONDS}'
     )
-    return params, f'"@authority";req: {_AUTHORITY}\n"@signature-params": {params}'
-
-
-def signed_directory(key: Ed25519PrivateKey, created_at_seconds: int, nonce: str) -> tuple[str, dict[str, str]]:
-    jwk = public_jwk(key)
-    params, base = signature_base(jwk_thumbprint(jwk), nonce, created_at_seconds)
-    signature = key.sign(base.encode())
     return (
-        json.dumps({"keys": [jwk]}),
+        params,
+        f'"@authority";req: {_AUTHORITY}\n"content-digest": {content_digest}\n"@signature-params": {params}',
+    )
+
+
+def signed_directory(
+    keys: Sequence[Ed25519PrivateKey], created_at_seconds: int, nonce: str
+) -> tuple[str, dict[str, str]]:
+    jwks = [public_jwk(key) for key in keys]
+    body = json.dumps({"keys": jwks})
+    content_digest = f"sha-256=:{base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()}:"
+    signature_inputs: list[str] = []
+    signatures: list[str] = []
+    for index, (key, jwk) in enumerate(zip(keys, jwks, strict=True), start=1):
+        label = f"sig{index}"
+        params, base = signature_base(jwk_thumbprint(jwk), nonce, created_at_seconds, content_digest)
+        signature_inputs.append(f"{label}={params}")
+        signatures.append(f"{label}=:{base64.b64encode(key.sign(base.encode())).decode()}:")
+    return (
+        body,
         {
             "Content-Type": CONTENT_TYPE,
-            "Signature-Input": f"sig1={params}",
-            "Signature": f"sig1=:{base64.b64encode(signature).decode()}:",
+            "Content-Digest": content_digest,
+            "Signature-Input": ", ".join(signature_inputs),
+            "Signature": ", ".join(signatures),
             # A cached copy outlives its own signature, so every reader must reach this view.
             "Cache-Control": "no-store",
         },
@@ -85,15 +98,15 @@ def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/
     """
     # The signature covers _AUTHORITY, so anywhere else would serve a directory that cannot verify
-    # where it is served. The key is deployed to every region, so its presence does not gate this.
+    # where it is served. The keys are deployed to every region, so their presence does not gate this.
     if not is_cloud_us():
         return HttpResponseNotFound()
 
-    key = _private_key()
-    if key is None:
+    keys = _private_keys()
+    if not keys:
         return HttpResponseNotFound()
 
-    body, headers = signed_directory(key, int(time.time()), base64.b64encode(secrets.token_bytes(32)).decode())
+    body, headers = signed_directory(keys, int(time.time()), base64.b64encode(secrets.token_bytes(32)).decode())
     response = HttpResponse(body, content_type=CONTENT_TYPE)
     for name, value in headers.items():
         response[name] = value

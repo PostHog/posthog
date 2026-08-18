@@ -1,5 +1,6 @@
 import json
 import base64
+import hashlib
 
 import pytest
 
@@ -22,10 +23,16 @@ PEM = (
 )
 
 
-def verify_at(authority: str, headers: dict[str, str], key: Ed25519PrivateKey) -> bool:
-    params = headers["Signature-Input"].removeprefix("sig1=")
-    base = f'"@authority";req: {authority}\n"@signature-params": {params}'
-    signature = base64.b64decode(headers["Signature"].removeprefix("sig1=:").removesuffix(":"))
+def dictionary_member(header: str, label: str) -> str:
+    return next(member.removeprefix(f"{label}=") for member in header.split(", ") if member.startswith(f"{label}="))
+
+
+def verify_at(authority: str, headers: dict[str, str], key: Ed25519PrivateKey, label: str = "sig1") -> bool:
+    params = dictionary_member(headers["Signature-Input"], label)
+    base = (
+        f'"@authority";req: {authority}\n"content-digest": {headers["Content-Digest"]}\n"@signature-params": {params}'
+    )
+    signature = base64.b64decode(dictionary_member(headers["Signature"], label).removeprefix(":").removesuffix(":"))
     try:
         key.public_key().verify(signature, base.encode())
     except InvalidSignature:
@@ -45,7 +52,7 @@ def test_the_directory_names_the_key_it_is_signed_with():
     key = serialization.load_pem_private_key(PEM.encode(), password=None)
     assert isinstance(key, Ed25519PrivateKey)
 
-    body, headers = signed_directory(key, 1750105829, "AAAA")
+    body, headers = signed_directory([key], 1750105829, "AAAA")
 
     assert json.loads(body)["keys"] == [public_jwk(key)]
     assert f'keyid="{jwk_thumbprint(public_jwk(key))}"' in headers["Signature-Input"]
@@ -62,7 +69,7 @@ def test_the_signature_only_verifies_at_the_authority_it_covers(authority: str, 
     key = serialization.load_pem_private_key(PEM.encode(), password=None)
     assert isinstance(key, Ed25519PrivateKey)
 
-    _, headers = signed_directory(key, 1750105829, "AAAA")
+    _, headers = signed_directory([key], 1750105829, "AAAA")
 
     assert verify_at(authority, headers, key) is expected
 
@@ -70,25 +77,49 @@ def test_the_signature_only_verifies_at_the_authority_it_covers(authority: str, 
 def test_the_signature_covers_the_parameters_it_publishes():
     # The base and the header are built together for this reason: a mismatch in one character makes
     # every signature fail verification while both halves look correct on their own.
-    params, base = signature_base("thumb", "AAAA", 1750105829)
+    params, base = signature_base("thumb", "AAAA", 1750105829, "sha-256=:AAAA:")
 
     assert base.endswith(f'"@signature-params": {params}')
+    assert params.startswith('("@authority";req "content-digest")')
     assert 'tag="http-message-signatures-directory"' in params
     assert "expires=1750106129" in params
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, CLOUD_DEPLOYMENT="US")
+def test_the_signature_covers_the_directory_content():
+    key = serialization.load_pem_private_key(PEM.encode(), password=None)
+    assert isinstance(key, Ed25519PrivateKey)
+
+    body, headers = signed_directory([key], 1750105829, "AAAA")
+    expected_digest = f"sha-256=:{base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()}:"
+
+    assert headers["Content-Digest"] == expected_digest
+    assert verify_at("us.posthog.com", headers, key) is True
+    assert verify_at("us.posthog.com", {**headers, "Content-Digest": "sha-256=:AAAA:"}, key) is False
+
+
+def test_the_directory_supports_overlapping_keys_during_rotation():
+    keys = [Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()]
+
+    body, headers = signed_directory(keys, 1750105829, "AAAA")
+
+    assert json.loads(body)["keys"] == [public_jwk(key) for key in keys]
+    assert verify_at("us.posthog.com", headers, keys[0], "sig1") is True
+    assert verify_at("us.posthog.com", headers, keys[1], "sig2") is True
+
+
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[PEM], CLOUD_DEPLOYMENT="US")
 def test_the_route_serves_a_signed_directory():
     response = Client().get("/.well-known/http-message-signatures-directory")
 
     assert response.status_code == 200
     assert response["Content-Type"] == CONTENT_TYPE
     assert response["Cache-Control"] == "no-store"
-    assert response["Signature-Input"].startswith('sig1=("@authority";req)')
+    assert response["Content-Digest"].startswith("sha-256=:")
+    assert response["Signature-Input"].startswith('sig1=("@authority";req "content-digest")')
     assert response["Signature"].startswith("sig1=:")
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, ALLOWED_HOSTS=["*"], CLOUD_DEPLOYMENT="US")
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[PEM], ALLOWED_HOSTS=["*"], CLOUD_DEPLOYMENT="US")
 def test_the_route_ignores_the_host_it_was_asked_on():
     # Reading the authority off the request looks harmless and is the change to guard against. A
     # signer that trusted the Host would hand any site proxying here a directory that verifies there.
@@ -97,21 +128,25 @@ def test_the_route_ignores_the_host_it_was_asked_on():
 
     response = Client().get("/.well-known/http-message-signatures-directory", HTTP_HOST="evil.example")
 
-    headers = {"Signature-Input": response["Signature-Input"], "Signature": response["Signature"]}
+    headers = {
+        "Content-Digest": response["Content-Digest"],
+        "Signature-Input": response["Signature-Input"],
+        "Signature": response["Signature"],
+    }
     assert verify_at("us.posthog.com", headers, key) is True
     assert verify_at("evil.example", headers, key) is False
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY="", CLOUD_DEPLOYMENT="US")
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[], CLOUD_DEPLOYMENT="US")
 def test_the_route_is_absent_where_no_key_is_configured():
     # Self-hosted holds no key. A 500 there would read as a broken deployment.
     assert Client().get("/.well-known/http-message-signatures-directory").status_code == 404
 
 
 @pytest.mark.parametrize("region", ["EU", "DEV", None])
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM)
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[PEM])
 def test_the_route_is_absent_outside_the_us(region: str | None):
-    # The key is deployed to every region, so holding it is not what makes a region the right one to
+    # The keys are deployed to every region, so holding them is not what makes a region the right one to
     # serve from. Anywhere but the US would answer with a directory that cannot verify where it sits.
     with override_settings(CLOUD_DEPLOYMENT=region):
         assert Client().get("/.well-known/http-message-signatures-directory").status_code == 404
