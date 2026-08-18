@@ -185,9 +185,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     show: isPaths && hasPathsAdvanced,
                     tooltip: (
                         <>
-                            Use wildcard matching to group events by unique values in path item names. Use an asterisk
-                            (*) in place of unique values. For example, instead of /merchant/1234/payment, replace the
-                            unique value with an asterisk /merchant/*/payment.{' '}
+                            {/* Text is wrapped so each text node is its own element's only child (react#11538). */}
+                            <span>
+                                Use wildcard matching to group events by unique values in path item names. Use an
+                                asterisk (*) in place of unique values. For example, instead of /merchant/1234/payment,
+                                replace the unique value with an asterisk /merchant/*/payment.
+                            </span>{' '}
                             <b>Use a comma to separate multiple wildcards.</b>
                         </>
                     ),
@@ -345,7 +348,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                             </li>
                                         </ul>
                                         <div>
-                                            Read more in the{' '}
+                                            {/* Text is wrapped so it is not a bare sibling of the link (react#11538). */}
+                                            <span>Read more in the</span>{' '}
                                             <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
                                                 documentation.
                                             </Link>

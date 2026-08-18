@@ -76,7 +76,8 @@ function ExcludeOutliers(): JSX.Element {
         <LemonCheckbox
             label={
                 <span className="font-normal">
-                    Exclude outliers{' '}
+                    {/* Label is wrapped so it is not a bare text sibling of the tooltip (react#11538). */}
+                    <span>Exclude outliers</span>{' '}
                     <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
                         <IconInfo className="relative top-0.5 text-lg text-secondary" />
                     </Tooltip>
@@ -198,7 +199,8 @@ export function SectionHeader({
 }): JSX.Element {
     return (
         <h5 className="mx-2 my-1" data-attr={dataAttr}>
-            {children}
+            {/* children is wrapped so it is not a bare sibling of the tooltip (react#11538). */}
+            <span>{children}</span>
             {tooltip && (
                 <>
                     {' '}
