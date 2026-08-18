@@ -1,11 +1,14 @@
 import base64
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import (
     EmailThread,
@@ -106,6 +109,74 @@ class TestGmailSync(BaseTest):
         self.integration.refresh_from_db()
         assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
 
+    def test_attachment_backed_body_is_imported(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message["payload"]["body"] = {"attachmentId": "body-attachment"}
+        attachment_body = base64.urlsafe_b64encode(b"Attachment-backed message body").decode().rstrip("=")
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+                _response({"data": attachment_body}),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert imported.comment.content == "Attachment-backed message body"
+
+    def test_incremental_sync_checkpoints_each_imported_message(self) -> None:
+        self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
+        self.integration.save(update_fields=["config"])
+        history = {
+            "history": [
+                {
+                    "id": "101",
+                    "messagesAdded": [
+                        {"message": {"id": "gmail-1"}},
+                        {"message": {"id": "gmail-2"}},
+                    ],
+                }
+            ],
+            "historyId": "101",
+        }
+        first_message = _gmail_message(
+            label="INBOX", sender="first@example.com", recipient=self.user.email, message_id="gmail-1"
+        )
+        second_message = _gmail_message(
+            label="INBOX", sender="second@example.com", recipient=self.user.email, message_id="gmail-2"
+        )
+
+        with (
+            patch.object(
+                gmail_sync,
+                "google_workspace_request",
+                side_effect=[
+                    _response(history),
+                    _response(first_message),
+                    GoogleWorkspaceEgressBudgetExhausted("budget exhausted"),
+                ],
+            ),
+            pytest.raises(GoogleWorkspaceEgressBudgetExhausted),
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY] == ["gmail-2"]
+        assert EmailThreadMessage.objects.for_team(self.team.id).count() == 1
+
+        with patch.object(gmail_sync, "google_workspace_request", return_value=_response(second_message)):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "101"
+        assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
+        assert EmailThreadMessage.objects.for_team(self.team.id).count() == 2
+
     def test_incremental_sync_is_idempotent(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
         self.integration.save(update_fields=["config"])
@@ -138,6 +209,18 @@ class TestGmailSync(BaseTest):
     def test_existing_calendar_only_connection_does_not_call_gmail(self) -> None:
         self.integration.config["scope"] = "https://www.googleapis.com/auth/calendar.readonly"
         self.integration.save(update_fields=["config"])
+
+        with patch.object(gmail_sync, "google_workspace_request") as mock_request:
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        mock_request.assert_not_called()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_removed_organization_member_is_not_synced(self) -> None:
+        OrganizationMembership.objects.filter(
+            organization=self.team.organization,
+            user=self.user,
+        ).delete()
 
         with patch.object(gmail_sync, "google_workspace_request") as mock_request:
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)

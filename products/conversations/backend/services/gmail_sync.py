@@ -1,6 +1,7 @@
 import re
 import base64
 import binascii
+from collections.abc import Callable
 from datetime import UTC, datetime
 from email.header import decode_header, make_header
 from email.utils import getaddresses, parseaddr
@@ -12,6 +13,7 @@ from django.utils.html import strip_tags
 
 import requests
 
+from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.organization import OrganizationMembership
@@ -26,15 +28,26 @@ from products.conversations.backend.services.email_thread_ingestion import (
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_HISTORY_ID_CONFIG_KEY = "gmail_history_id"
 GMAIL_LAST_SYNCED_AT_CONFIG_KEY = "gmail_last_synced_at"
+GMAIL_HISTORY_START_ID_CONFIG_KEY = "gmail_history_start_id"
+GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY = "gmail_history_page_token"
+GMAIL_HISTORY_TARGET_ID_CONFIG_KEY = "gmail_history_target_id"
+GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY = "gmail_pending_message_ids"
 GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 INITIAL_IMPORT_QUERY = "{in:inbox in:sent} newer_than:30d"
 INITIAL_IMPORT_LIMIT = 100
 HISTORY_PAGE_SIZE = 100
+HISTORY_MESSAGE_BATCH_SIZE = 100
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 
 
 class GmailSyncError(Exception):
     pass
+
+
+@frozen
+class _EmailBodies:
+    plain: str
+    html: str
 
 
 def integration_has_gmail_scope(integration: Integration) -> bool:
@@ -48,7 +61,7 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
         team_id=team_id,
         kind="google-calendar",
     )
-    if not integration_has_gmail_scope(integration):
+    if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         return
 
     access_token = _get_fresh_access_token(integration)
@@ -72,10 +85,25 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
             internal_emails=internal_emails,
         )
 
+    if next_history_id is None:
+        return
+
     integration.refresh_from_db(fields=["config"])
     integration.config[GMAIL_HISTORY_ID_CONFIG_KEY] = next_history_id
     integration.config[GMAIL_LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
     integration.save(update_fields=["config"])
+
+
+def _has_active_owner(integration: Integration) -> bool:
+    owner = integration.created_by
+    return bool(
+        owner
+        and owner.is_active
+        and OrganizationMembership.objects.filter(
+            organization_id=integration.team.organization_id,
+            user_id=owner.id,
+        ).exists()
+    )
 
 
 def _get_fresh_access_token(integration: Integration) -> str:
@@ -162,12 +190,40 @@ def _sync_history(
     access_token: str,
     start_history_id: str,
     internal_emails: set[str],
-) -> str:
-    page_token: str | None = None
-    current_history_id = start_history_id
-    while True:
+) -> str | None:
+    processed_messages = 0
+    while processed_messages < HISTORY_MESSAGE_BATCH_SIZE:
+        integration.refresh_from_db(fields=["config"])
+        config = integration.config or {}
+        progress_start_id = str(config.get(GMAIL_HISTORY_START_ID_CONFIG_KEY) or start_history_id)
+        page_token = str(config.get(GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY) or "") or None
+        target_history_id = str(config.get(GMAIL_HISTORY_TARGET_ID_CONFIG_KEY) or "") or None
+        pending_message_ids = [str(message_id) for message_id in config.get(GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY) or []]
+
+        if pending_message_ids:
+            _ingest_message_id(
+                integration=integration,
+                channel=channel,
+                access_token=access_token,
+                gmail_message_id=pending_message_ids[0],
+                internal_emails=internal_emails,
+            )
+            _save_history_progress(
+                integration,
+                start_history_id=progress_start_id,
+                page_token=page_token,
+                target_history_id=target_history_id,
+                pending_message_ids=pending_message_ids[1:],
+            )
+            processed_messages += 1
+            continue
+
+        if target_history_id and page_token is None:
+            _clear_history_progress(integration)
+            return target_history_id
+
         params = {
-            "startHistoryId": start_history_id,
+            "startHistoryId": progress_start_id,
             "historyTypes": "messageAdded",
             "maxResults": HISTORY_PAGE_SIZE,
         }
@@ -181,6 +237,7 @@ def _sync_history(
             params=params,
         )
         if response.status_code == 404:
+            _clear_history_progress(integration)
             return _initial_sync(
                 integration=integration,
                 channel=channel,
@@ -196,17 +253,43 @@ def _sync_history(
                 if added.get("message", {}).get("id")
             )
         )
-        _ingest_message_ids(
-            integration=integration,
-            channel=channel,
-            access_token=access_token,
-            message_ids=message_ids,
-            internal_emails=internal_emails,
+        _save_history_progress(
+            integration,
+            start_history_id=progress_start_id,
+            page_token=str(payload.get("nextPageToken") or "") or None,
+            target_history_id=str(payload.get("historyId") or target_history_id or progress_start_id),
+            pending_message_ids=message_ids,
         )
-        current_history_id = str(payload.get("historyId") or current_history_id)
-        page_token = payload.get("nextPageToken")
-        if not page_token:
-            return current_history_id
+
+    return None
+
+
+def _save_history_progress(
+    integration: Integration,
+    *,
+    start_history_id: str,
+    page_token: str | None,
+    target_history_id: str | None,
+    pending_message_ids: list[str],
+) -> None:
+    integration.refresh_from_db(fields=["config"])
+    integration.config[GMAIL_HISTORY_START_ID_CONFIG_KEY] = start_history_id
+    integration.config[GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY] = page_token
+    integration.config[GMAIL_HISTORY_TARGET_ID_CONFIG_KEY] = target_history_id
+    integration.config[GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY] = pending_message_ids
+    integration.save(update_fields=["config"])
+
+
+def _clear_history_progress(integration: Integration) -> None:
+    integration.refresh_from_db(fields=["config"])
+    for key in (
+        GMAIL_HISTORY_START_ID_CONFIG_KEY,
+        GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY,
+        GMAIL_HISTORY_TARGET_ID_CONFIG_KEY,
+        GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY,
+    ):
+        integration.config.pop(key, None)
+    integration.save(update_fields=["config"])
 
 
 def _ingest_message_ids(
@@ -218,31 +301,69 @@ def _ingest_message_ids(
     internal_emails: set[str],
 ) -> None:
     for gmail_message_id in message_ids:
-        payload = _get_json(
+        _ingest_message_id(
+            integration=integration,
+            channel=channel,
+            access_token=access_token,
+            gmail_message_id=gmail_message_id,
+            internal_emails=internal_emails,
+        )
+
+
+def _ingest_message_id(
+    *,
+    integration: Integration,
+    channel: EmailChannel,
+    access_token: str,
+    gmail_message_id: str,
+    internal_emails: set[str],
+) -> None:
+    payload = _get_json(
+        integration=integration,
+        access_token=access_token,
+        url=f"{GMAIL_API_BASE_URL}/messages/{gmail_message_id}",
+        endpoint="/gmail/v1/users/me/messages/{message_id}",
+        params={"format": "full"},
+    )
+
+    def load_attachment_data(attachment_id: str) -> str:
+        attachment = _get_json(
             integration=integration,
             access_token=access_token,
-            url=f"{GMAIL_API_BASE_URL}/messages/{gmail_message_id}",
-            endpoint="/gmail/v1/users/me/messages/{message_id}",
-            params={"format": "full"},
+            url=f"{GMAIL_API_BASE_URL}/messages/{gmail_message_id}/attachments/{attachment_id}",
+            endpoint="/gmail/v1/users/me/messages/{message_id}/attachments/{attachment_id}",
         )
-        parsed = _parse_gmail_message(payload, channel.from_email, str(integration.integration_id))
-        if parsed is None or not _has_external_participant(parsed, internal_emails):
-            continue
-        labels = set(payload.get("labelIds") or [])
-        if not labels.intersection({"INBOX", "SENT"}):
-            continue
-        direction = EmailThreadMessageDirection.OUTBOUND if "SENT" in labels else EmailThreadMessageDirection.INBOUND
-        ingest_customer_email(
-            team_id=integration.team_id,
-            channel=channel,
-            email=parsed,
-            direction=direction,
-            source_type="gmail",
-            source_id=f"{integration.id}:{gmail_message_id}",
-        )
+        return str(attachment.get("data") or "")
+
+    parsed = _parse_gmail_message(
+        payload,
+        channel.from_email,
+        str(integration.integration_id),
+        load_attachment_data=load_attachment_data,
+    )
+    if parsed is None or not _has_external_participant(parsed, internal_emails):
+        return
+    labels = set(payload.get("labelIds") or [])
+    if not labels.intersection({"INBOX", "SENT"}):
+        return
+    direction = EmailThreadMessageDirection.OUTBOUND if "SENT" in labels else EmailThreadMessageDirection.INBOUND
+    ingest_customer_email(
+        team_id=integration.team_id,
+        channel=channel,
+        email=parsed,
+        direction=direction,
+        source_type="gmail",
+        source_id=f"{integration.id}:{gmail_message_id}",
+    )
 
 
-def _parse_gmail_message(payload: dict[str, Any], mailbox_email: str, google_account_id: str) -> ParsedEmail | None:
+def _parse_gmail_message(
+    payload: dict[str, Any],
+    mailbox_email: str,
+    google_account_id: str,
+    *,
+    load_attachment_data: Callable[[str], str] | None = None,
+) -> ParsedEmail | None:
     gmail_message_id = str(payload.get("id") or "")
     message_payload = payload.get("payload") or {}
     headers = _message_headers(message_payload.get("headers") or [])
@@ -254,9 +375,10 @@ def _parse_gmail_message(payload: dict[str, Any], mailbox_email: str, google_acc
     message_id = headers.get("message-id") or f"gmail:{google_account_id}:{gmail_message_id}"
     in_reply_to_ids = _parse_message_ids(headers.get("in-reply-to", ""))
     sent_at = _parse_internal_date(payload.get("internalDate"))
-    body_plain, body_html = _message_bodies(message_payload)
-    if not body_plain and body_html:
-        body_plain = unescape(strip_tags(body_html))
+    bodies = _message_bodies(message_payload, load_attachment_data=load_attachment_data)
+    body_plain = bodies.plain
+    if not body_plain and bodies.html:
+        body_plain = unescape(strip_tags(bodies.html))
 
     return ParsedEmail(
         message_id=message_id[:998],
@@ -320,13 +442,21 @@ def _parse_internal_date(value: Any) -> datetime:
         return timezone.now()
 
 
-def _message_bodies(payload: dict[str, Any]) -> tuple[str, str]:
+def _message_bodies(
+    payload: dict[str, Any],
+    *,
+    load_attachment_data: Callable[[str], str] | None = None,
+) -> _EmailBodies:
     plain_parts: list[str] = []
     html_parts: list[str] = []
 
     def visit(part: dict[str, Any]) -> None:
         mime_type = str(part.get("mimeType") or "").lower()
-        data = str((part.get("body") or {}).get("data") or "")
+        body = part.get("body") or {}
+        data = str(body.get("data") or "")
+        attachment_id = str(body.get("attachmentId") or "")
+        if mime_type in ("text/plain", "text/html") and not data and attachment_id and load_attachment_data:
+            data = load_attachment_data(attachment_id)
         decoded = _decode_body(data)
         if decoded and mime_type == "text/plain":
             plain_parts.append(decoded)
@@ -336,7 +466,10 @@ def _message_bodies(payload: dict[str, Any]) -> tuple[str, str]:
             visit(child)
 
     visit(payload)
-    return "\n".join(plain_parts).strip(), "\n".join(html_parts).strip()
+    return _EmailBodies(
+        plain="\n".join(plain_parts).strip(),
+        html="\n".join(html_parts).strip(),
+    )
 
 
 def _decode_body(data: str) -> str:
