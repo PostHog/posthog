@@ -119,9 +119,11 @@ class DeletePersonsProfileTests(BaseTest):
                 organization_id=self.organization.id,
             )
         log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", activity="deleted")
-        assert log.detail["name"] == str(p.uuid)
-        assert sorted(log.detail["context"]["distinct_ids"]) == ["a", "b"]
-        assert log.detail["context"]["properties"] == {"$os": "Chrome"}
+        detail = log.detail
+        assert detail is not None
+        assert detail["name"] == str(p.uuid)
+        assert sorted(detail["context"]["distinct_ids"]) == ["a", "b"]
+        assert detail["context"]["properties"] == {"$os": "Chrome"}
 
     def test_collects_errors_and_skips_failed_persons_in_pg_batch(self):
         p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
