@@ -17,7 +17,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.dataclasses import frozen
 
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
-from .event_formatter import format_event_text_repr
+from .event_formatter import format_evaluation_result, format_event_text_repr
 from .message_formatter import (
     FormatterOptions,
     add_line_numbers,
@@ -261,19 +261,12 @@ def _get_event_summary(event: dict[str, Any]) -> str:
 
     if event_type == "$ai_evaluation":
         eval_name = props.get("$ai_evaluation_name", "evaluation")
-        result = props.get("$ai_evaluation_result")
-        applicable = props.get("$ai_evaluation_applicable")
         runtime = props.get("$ai_evaluation_runtime")
 
         parts = []
         if runtime:
             parts.append(runtime)
-        if applicable is False or applicable == "false":
-            parts.append("N/A")
-        elif result is True or result == "true":
-            parts.append("PASS")
-        elif result is False or result == "false":
-            parts.append("FAIL")
+        parts.append(format_evaluation_result(props))
 
         summary = eval_name
         if parts:

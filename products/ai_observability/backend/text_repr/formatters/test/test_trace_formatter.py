@@ -40,6 +40,27 @@ class TestFormatHelpers:
 
 
 class TestGetEventSummary:
+    @parameterized.expand(
+        [
+            ("label", "helpful", "helpful"),
+            ("number", 0.9, "0.9"),
+        ]
+    )
+    def test_evaluation_summary_imported_result(self, result_type: str, result_value: object, expected: str) -> None:
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Helpfulness",
+                "$ai_evaluation_result": result_value,
+                "$ai_evaluation_result_type": result_type,
+                "$ai_evaluation_runtime": "otel",
+            },
+        }
+
+        summary = _get_event_summary(event)
+
+        assert summary == f"Helpfulness (otel, {expected})"
+
     """Test event summary generation for tree display."""
 
     def test_generation_summary_full(self):

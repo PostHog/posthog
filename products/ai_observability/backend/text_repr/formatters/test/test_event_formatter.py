@@ -203,6 +203,26 @@ class TestErrorFormattingEmbedding:
 
 
 class TestEvaluationFormatting:
+    @parameterized.expand(
+        [
+            ("label", "helpful", "helpful"),
+            ("number", 0.9, "0.9"),
+        ]
+    )
+    def test_evaluation_imported_result(self, result_type: str, result_value: object, expected: str) -> None:
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Helpfulness",
+                "$ai_evaluation_result": result_value,
+                "$ai_evaluation_result_type": result_type,
+                "$ai_evaluation_runtime": "otel",
+            }
+        }
+
+        result = format_evaluation_text_repr(event)
+
+        assert f"EVALUATION: Helpfulness | Result: {expected} (otel)" in result
+
     def test_evaluation_pass_with_reasoning(self):
         event = {
             "properties": {
