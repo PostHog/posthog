@@ -131,16 +131,20 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_install_requests_returns_only_own_rows_newest_first(self):
         other_user = User.objects.create_and_join(self.organization, "other-installer@example.com", None)
         GitHubInstallRequest.objects.create(
-            user=self.user, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+            user=self.user, github_user_id=4242, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
         )
         approved = GitHubInstallRequest.objects.create(
             user=self.user,
+            github_user_id=4242,
             github_login="octocat-org",
             status=GitHubInstallRequest.Status.APPROVED,
             installation_id="55555",
         )
         GitHubInstallRequest.objects.create(
-            user=other_user, github_login="someone-else", status=GitHubInstallRequest.Status.PENDING
+            user=other_user,
+            github_user_id=9999,
+            github_login="someone-else",
+            status=GitHubInstallRequest.Status.PENDING,
         )
 
         response = self.client.get("/api/users/@me/integrations/github/install_requests/")
@@ -696,7 +700,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         # Recording the pending approval as a durable GitHubInstallRequest row (rather than just
         # redirecting) is what lets the desktop poll server-side state instead of holding a
         # client-side marker across app restarts.
-        mock_from_code.return_value = _authorization(gh_login="octocat")
+        mock_from_code.return_value = _authorization(gh_id=4242, gh_login="octocat")
         state = "test_state_pending_approval"
         store_unified_authorize_state(
             GitHubAuthorizeState(
@@ -717,8 +721,36 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("provider=github", loc)
         self.assertIn("error=github_install_pending", loc)
         install_request = GitHubInstallRequest.objects.get(user=self.user)
+        self.assertEqual(install_request.github_user_id, 4242)
         self.assertEqual(install_request.github_login, "octocat")
         self.assertEqual(install_request.status, GitHubInstallRequest.Status.PENDING)
+
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
+    def test_github_link_personal_install_request_without_a_resolvable_requester_is_not_pending(self, mock_from_code):
+        # The installation.created webhook identifies the requester by GitHub user id, so a request
+        # recorded without one can never be approved. Marking it pending would leave the client
+        # polling forever, so it lands as unidentified and the user restarts the flow instead.
+        mock_from_code.return_value = None
+        state = "test_state_pending_approval_no_identity"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"state": state, "setup_action": "request", "code": "gh-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("error=github_install_pending", response["Location"])
+        install_request = GitHubInstallRequest.objects.get(user=self.user)
+        self.assertIsNone(install_request.github_user_id)
+        self.assertEqual(install_request.status, GitHubInstallRequest.Status.UNIDENTIFIED)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
     def test_github_link_personal_install_without_code_recovers_via_oauth_discover(self):

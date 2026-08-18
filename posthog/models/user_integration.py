@@ -107,11 +107,17 @@ class GitHubInstallRequest(UUIDModel):
     ``installation.created`` webhook (see ``posthog.api.github_callback.installation_events``)
     flips it to ``approved`` once an owner acts. User-scoped like ``UserIntegration``, not
     team-scoped, because the request predates any team's Integration row.
+
+    ``github_user_id`` is what the webhook matches on, because a pending row can outlive the login
+    it was created under: GitHub logins are renameable and a freed one can be claimed by someone
+    else. ``github_login`` is display data only. A request whose requester we could not resolve at
+    all is ``unidentified`` rather than ``pending``, since no webhook can ever match it.
     """
 
     class Status(models.TextChoices):
         PENDING = "pending"
         APPROVED = "approved"
+        UNIDENTIFIED = "unidentified"
 
     # db_constraint=False: posthog_user is a hot table, see safe-django-migrations.md.
     user = models.ForeignKey(
@@ -120,7 +126,8 @@ class GitHubInstallRequest(UUIDModel):
         db_constraint=False,
         related_name="github_install_requests",
     )
-    github_login = models.CharField(max_length=255)
+    github_user_id = models.BigIntegerField(null=True, blank=True)
+    github_login = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     installation_id = models.CharField(max_length=64, null=True, blank=True)
     requested_at = models.DateTimeField(auto_now_add=True)
@@ -131,7 +138,7 @@ class GitHubInstallRequest(UUIDModel):
     class Meta:
         db_table = "posthog_github_install_request"
         indexes = [
-            models.Index(fields=["github_login", "status"], name="github_install_req_login_idx"),
+            models.Index(fields=["github_user_id", "status"], name="github_install_req_ghuser_idx"),
         ]
 
 

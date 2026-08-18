@@ -730,10 +730,11 @@ def finish_team_setup(http_request) -> FinishResult:
 
     if not installation_id:
         _report_install_pending(user, team_id, setup_action)
-        # Only an actual approval request records a durable row, mirroring the personal flow. An
-        # abandoned install (no `setup_action=request`) reaches this branch too, and recording it
-        # would leave a permanent "pending" the client polls forever with no webhook to clear it.
-        if setup_action == "request":
+        # An abandoned install lands here too, as does a bare cross-site `?setup_action=request`
+        # link, since this is also where callbacks with no valid state fall through. No webhook can
+        # ever resolve either, so a durable row needs both a real request and this user's own state.
+        authorize_state = github_callback_state.callback_authorize_state(user.id, state_raw)
+        if setup_action == "request" and authorize_state is not None:
             record_install_request(user, code)
         return FinishResult(
             redirect_kind="team_setup",

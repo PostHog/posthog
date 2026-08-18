@@ -181,17 +181,31 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
-    def test_created_approves_matching_pending_request_and_leaves_others_alone(self, mock_get_secret):
+    def test_created_approves_the_requesters_pending_request_by_github_user_id(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
+        # Stale login on the row: a GitHub login can be renamed while the request waits, so
+        # approval has to follow the immutable user id.
         matching = GitHubInstallRequest.objects.create(
-            user=self.user, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+            user=self.user,
+            github_user_id=4242,
+            github_login="octocat",
+            status=GitHubInstallRequest.Status.PENDING,
         )
-        other_login = GitHubInstallRequest.objects.create(
-            user=other_user, github_login="someone-else", status=GitHubInstallRequest.Status.PENDING
+        someone_else = GitHubInstallRequest.objects.create(
+            user=other_user,
+            github_user_id=9999,
+            github_login="someone-else",
+            status=GitHubInstallRequest.Status.PENDING,
         )
 
-        response = self._post({"action": "created", "installation": {"id": 55555}, "requester": {"login": "octocat"}})
+        response = self._post(
+            {
+                "action": "created",
+                "installation": {"id": 55555},
+                "requester": {"id": 4242, "login": "octocat-renamed"},
+            }
+        )
 
         self.assertEqual(response.status_code, 200)
         matching.refresh_from_db()
@@ -199,15 +213,19 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(matching.installation_id, "55555")
         self.assertIsNotNone(matching.resolved_at)
 
-        other_login.refresh_from_db()
-        self.assertEqual(other_login.status, GitHubInstallRequest.Status.PENDING)
-        self.assertIsNone(other_login.installation_id)
+        someone_else.refresh_from_db()
+        self.assertEqual(someone_else.status, GitHubInstallRequest.Status.PENDING)
+        self.assertIsNone(someone_else.installation_id)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
-    def test_created_without_requester_login_is_a_noop(self, mock_get_secret):
+    def test_created_without_a_requester_is_a_noop(self, mock_get_secret):
+        # An owner installing for themselves sends no requester, and must not sweep up pending rows.
         mock_get_secret.return_value = self.webhook_secret
         pending = GitHubInstallRequest.objects.create(
-            user=self.user, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+            user=self.user,
+            github_user_id=4242,
+            github_login="octocat",
+            status=GitHubInstallRequest.Status.PENDING,
         )
 
         response = self._post({"action": "created", "installation": {"id": 55555}})

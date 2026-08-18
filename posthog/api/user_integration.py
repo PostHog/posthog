@@ -138,7 +138,11 @@ class GitHubInstallRequestItemSerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         choices=GitHubInstallRequest.Status.choices,
-        help_text="`pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it.",
+        help_text=(
+            "`pending` while waiting on an org owner's approval, `approved` once the installation webhook "
+            "confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval "
+            "can't be detected for an unidentified request, so the user has to start the connect flow again."
+        ),
     )
     installation_id = serializers.CharField(
         required=False,

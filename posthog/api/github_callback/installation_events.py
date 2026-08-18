@@ -13,10 +13,9 @@ auto-paused and flagged for attention, so a disconnected integration never leave
 silently pointed at a repository it can no longer reach.
 
 ``action == "created"`` is the other direction: an org owner approved a pending install
-request (see ``posthog.api.github_callback.install_requests``). The payload's
-``requester.login`` is who asked, so matching pending ``GitHubInstallRequest`` rows by
-``github_login`` flip to approved, which is how the desktop learns the wait is over
-without polling GitHub itself.
+request (see ``posthog.api.github_callback.install_requests``). The payload's ``requester.id``
+is who asked, so matching pending ``GitHubInstallRequest`` rows on ``github_user_id`` flip to
+approved, which is how the desktop learns the wait is over without polling GitHub itself.
 """
 
 from django.http import HttpResponse
@@ -92,17 +91,18 @@ def _pause_loops_referencing_integrations(integrations: list[Integration], insta
 
 def _handle_installation_created(payload: dict) -> HttpResponse:
     installation_id = (payload.get("installation") or {}).get("id")
-    requester_login = (payload.get("requester") or {}).get("login")
-    if installation_id is None or not requester_login:
+    requester_id = (payload.get("requester") or {}).get("id")
+    if installation_id is None or requester_id is None:
+        # An owner installing for themselves has no requester, so this is the common case.
         logger.debug(
             "github_installation_webhook_created_no_requester",
             installation_id=installation_id,
-            has_requester=bool(requester_login),
+            has_requester=requester_id is not None,
         )
         return HttpResponse(status=200)
 
     resolved_count = GitHubInstallRequest.objects.filter(
-        github_login=requester_login, status=GitHubInstallRequest.Status.PENDING
+        github_user_id=requester_id, status=GitHubInstallRequest.Status.PENDING
     ).update(
         status=GitHubInstallRequest.Status.APPROVED,
         installation_id=str(installation_id),
@@ -112,7 +112,7 @@ def _handle_installation_created(payload: dict) -> HttpResponse:
     logger.info(
         "github_installation_webhook_created",
         installation_id=str(installation_id),
-        requester_login=requester_login,
+        requester_id=requester_id,
         resolved_count=resolved_count,
     )
 

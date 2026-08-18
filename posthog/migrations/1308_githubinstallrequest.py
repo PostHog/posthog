@@ -23,11 +23,16 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("github_login", models.CharField(max_length=255)),
+                ("github_user_id", models.BigIntegerField(blank=True, null=True)),
+                ("github_login", models.CharField(blank=True, max_length=255)),
                 (
                     "status",
                     models.CharField(
-                        choices=[("pending", "Pending"), ("approved", "Approved")],
+                        choices=[
+                            ("pending", "Pending"),
+                            ("approved", "Approved"),
+                            ("unidentified", "Unidentified"),
+                        ],
                         default="pending",
                         max_length=16,
                     ),
@@ -54,8 +59,8 @@ class Migration(migrations.Migration):
                 "db_table": "posthog_github_install_request",
                 "indexes": [
                     models.Index(
-                        fields=["github_login", "status"],
-                        name="github_install_req_login_idx",
+                        fields=["github_user_id", "status"],
+                        name="github_install_req_ghuser_idx",
                     )
                 ],
             },

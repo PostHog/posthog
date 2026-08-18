@@ -4451,6 +4451,7 @@ export interface GitHubReposRefreshResponseApi {
 /**
  * * `pending` - Pending
  * * `approved` - Approved
+ * * `unidentified` - Unidentified
  */
 export type GitHubInstallRequestItemStatusEnumApi =
     (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
@@ -4458,6 +4459,7 @@ export type GitHubInstallRequestItemStatusEnumApi =
 export const GitHubInstallRequestItemStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
+    Unidentified: 'unidentified',
 } as const
 
 export interface GitHubInstallRequestItemApi {
@@ -4465,10 +4467,11 @@ export interface GitHubInstallRequestItemApi {
     id: string
     /** GitHub login the install was requested under. Blank if it could not be resolved. */
     github_login: string
-    /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it.
+    /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval can't be detected for an unidentified request, so the user has to start the connect flow again.
      *
      * * `pending` - Pending
-     * * `approved` - Approved */
+     * * `approved` - Approved
+     * * `unidentified` - Unidentified */
     status: GitHubInstallRequestItemStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.

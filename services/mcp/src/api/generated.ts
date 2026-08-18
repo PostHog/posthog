@@ -38026,6 +38026,7 @@ export namespace Schemas {
     /**
      * * `pending` - Pending
      * * `approved` - Approved
+     * * `unidentified` - Unidentified
      */
     export type GitHubInstallRequestItemStatusEnum = typeof GitHubInstallRequestItemStatusEnum[keyof typeof GitHubInstallRequestItemStatusEnum];
 
@@ -38033,6 +38034,7 @@ export namespace Schemas {
     export const GitHubInstallRequestItemStatusEnum = {
       Pending: 'pending',
       Approved: 'approved',
+      Unidentified: 'unidentified',
     } as const;
 
     export interface GitHubInstallRequestItem {
@@ -38040,10 +38042,11 @@ export namespace Schemas {
       id: string;
       /** GitHub login the install was requested under. Blank if it could not be resolved. */
       github_login: string;
-      /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it.
+      /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval can't be detected for an unidentified request, so the user has to start the connect flow again.
        *
        * * `pending` - Pending
-       * * `approved` - Approved */
+       * * `approved` - Approved
+       * * `unidentified` - Unidentified */
       status: GitHubInstallRequestItemStatusEnum;
       /**
          * GitHub App installation id, set once the request is approved.

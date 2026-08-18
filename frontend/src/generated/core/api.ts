@@ -2627,8 +2627,8 @@ export const getUsersIntegrationsGithubInstallRequestsRetrieveUrl = (uuid: strin
 /**
  * Return the requesting user's GitHub App install-approval requests, newest first.
  *
- * This is the durable server-side "awaiting org owner approval" state — see
- * ``posthog.models.user_integration.GitHubInstallRequest`` — distinct from the in-flight
+ * This is the durable server-side "awaiting org owner approval" state (see
+ * ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
  * connect spinner, which never touches this table.
  * @summary List the user's GitHub install-approval requests
  */
