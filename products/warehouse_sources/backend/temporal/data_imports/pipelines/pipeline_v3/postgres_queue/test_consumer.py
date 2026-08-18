@@ -2093,6 +2093,47 @@ class TestUnlockGroup:
         mock_capture.assert_called_once_with(retry_error)
         fresh_conn.close.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_advisory_lock_adapter_does_not_retry_with_a_fresh_connection(self):
+        # Advisory locks are session-scoped: releasing on a different connection
+        # wouldn't hold the lock, so retrying there would silently leak it.
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        mock_unlock = AsyncMock(side_effect=psycopg.OperationalError("another command is already in progress"))
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer._adapter, "per_group_connections", False),
+            patch.object(consumer, "_connect", new_callable=AsyncMock) as mock_connect,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_connect.assert_not_called()
+        mock_unlock.assert_awaited_once()
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reports_original_error_when_reconnecting_for_retry_fails(self):
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        connect_error = OSError("connection refused")
+        mock_unlock = AsyncMock(side_effect=psycopg.OperationalError("another command is already in progress"))
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=connect_error),
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_unlock.assert_awaited_once()
+        mock_capture.assert_called_once_with(connect_error)
+
 
 class TestGroupByKey:
     def test_groups_by_team_and_schema(self):
