@@ -207,7 +207,7 @@ describe('action.conditional_branch', () => {
         ): Promise<HogFlowAction | undefined> => {
             action.config.conditions = [
                 { filters: cohortConditionFilters(fn) },
-                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }, // Always matches — the "not in branch" fallthrough
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }, // always-true fallthrough
             ]
             const handler = new ConditionalBranchHandler(repository)
             const result = await handler.execute({

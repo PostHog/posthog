@@ -100,9 +100,8 @@ export class ConditionalBranchHandler implements ActionHandler {
                       },
                   }
 
-        // A lookup failure throws out of the handler on purpose: routing on a made-up "not a
-        // member" answer would silently send people down the wrong branch, whereas a thrown
-        // error is visible and follows the action's on_error setting.
+        // A lookup failure throws on purpose: it follows the action's on_error setting instead
+        // of silently routing the person as a non-member
         const cohortMemberships = await this.fetchCohortMemberships(invocation, conditionalAction)
 
         const conditionResult = await checkConditions(invocation, conditionalAction, cohortMemberships)
@@ -136,11 +135,7 @@ export class ConditionalBranchHandler implements ActionHandler {
         return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 
-    /**
-     * One point lookup per invocation covering every cohort any of the action's conditions
-     * references. Persons the pipeline never wrote a row for — and person-less invocations
-     * (warehouse rows, account audiences) — are non-members of everything.
-     */
+    /** Person-less invocations (warehouse rows, account audiences) are non-members of everything. */
     private async fetchCohortMemberships(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
@@ -164,10 +159,8 @@ function getConditionCohortIds(condition: { filters?: unknown }): number[] {
     return filters?.cohort_ids ?? []
 }
 
-// The VM runs synchronously (maxAsyncSteps: 0), so inCohort/notInCohort answer from the
-// prefetched membership map rather than doing I/O. An id the compile step didn't record in
-// cohort_ids was never prefetched — throw so it surfaces as a filtering error instead of
-// silently routing the person as a non-member.
+// The VM is synchronous, so inCohort/notInCohort answer from the prefetched map; an id missing
+// from cohort_ids was never prefetched, so throw rather than guess non-membership
 function buildCohortMembershipFunctions(
     memberships: Map<number, boolean> | undefined
 ): Record<string, (...args: any[]) => any> {

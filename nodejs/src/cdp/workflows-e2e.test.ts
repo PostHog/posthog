@@ -653,10 +653,8 @@ describe('Workflows E2E (postgres-v2)', () => {
         const COHORT_ID = 4242
         const PERSON_UUID = 'a5f478a1-1d34-4c8a-a0b5-6a3b62e3f8a1'
 
-        // Mirrors exactly what the Django serializer compiles for a
-        // {key: 'id', type: 'cohort', value: <id>} condition filter — bytecode shape and the
-        // cohort_ids prefetch list are pinned from the Python side by
-        // test_hog_flow_conditional_branch_cohort_filter_compiles.
+        // What the Django serializer compiles for a cohort condition filter; the shape is pinned
+        // from the Python side by test_hog_flow_conditional_branch_cohort_filter_compiles
         const cohortConditionFilters = (cohortId: number): Record<string, any> => ({
             bytecode: ['_H', 1, 33, cohortId, 2, 'inCohort', 1],
             cohort_ids: [cohortId],
@@ -665,8 +663,7 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         beforeEach(async () => {
             await resetBehavioralCohortsDatabase(hub.postgres)
-            // The worker re-resolves the person on dequeue; CyclotronPerson.id is the person's uuid,
-            // which is also the key the cohort_membership lookup runs against.
+            // The person's uuid is the key the cohort_membership lookup runs against
             mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
                 {
                     id: '1',
@@ -707,10 +704,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             globals = createGlobals()
         })
 
-        // The membership row is written to and read from the real behavioral cohorts database:
-        // this covers the repository pool wiring, the BIGINT cohort_id round-trip, and the person
-        // uuid flowing from person resolution into the lookup — none of which the unit tests
-        // (which fake the repository) can catch.
         it.each([
             ['a membership row', true, 'https://example.com/in-cohort'],
             ['an in_cohort=false row (person left)', false, 'https://example.com/not-in-cohort'],
