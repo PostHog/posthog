@@ -11,7 +11,6 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from posthog.cloud_utils import is_cloud_us
 from posthog.dataclasses import frozen
 from posthog.web_bot_auth_keys import load_web_bot_auth_private_key_configuration
 
@@ -97,7 +96,7 @@ def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     """
     # The signature covers _AUTHORITY, so anywhere else would serve a directory that cannot verify
     # where it is served. The keys are deployed to every region, so their presence does not gate this.
-    if not is_cloud_us():
+    if (settings.CLOUD_DEPLOYMENT or "").upper() != "US":
         return HttpResponseNotFound()
     if not settings.WEB_BOT_AUTH_PRIVATE_KEYS:
         return HttpResponseNotFound()

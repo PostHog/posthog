@@ -22,11 +22,6 @@ def is_cloud() -> bool:
     return (settings.CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E")
 
 
-def is_cloud_us() -> bool:
-    """The US Cloud region. Some data and some integrations exist only there."""
-    return (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
-
-
 def is_dev_mode() -> bool:
     return bool(settings.DEBUG)
 
