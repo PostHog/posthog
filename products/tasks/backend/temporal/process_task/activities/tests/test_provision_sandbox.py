@@ -369,13 +369,10 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         "remote: Repository not found.",
         "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
         "remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://github.com/'",
-        "fatal: unable to access 'https://github.com/org/repo.git/': The requested URL returned error: 403",
         "fatal: unable to access 'https://github.com/org/repo.git/': The requested URL returned error: 404",
     ],
 )
-def test_clone_failure_is_fatal_and_not_captured_when_repository_is_unreachable(
-    mocker, activity_environment, stderr
-):
+def test_clone_failure_is_fatal_and_not_captured_when_repository_is_unreachable(mocker, activity_environment, stderr):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -408,3 +405,41 @@ def test_clone_failure_is_fatal_and_not_captured_when_repository_is_unreachable(
     assert error.value.non_retryable is True
     assert error.value.context["stderr"] == stderr[:500]
     capture_exception.assert_not_called()
+
+
+def test_clone_failure_with_bare_403_is_retryable_and_captured(mocker, activity_environment):
+    stderr = "fatal: unable to access 'https://github.com/org/repo.git/': The requested URL returned error: 403"
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr=stderr, exit_code=128)
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="posthog/posthog",
+                github_token="github-token",
+                shallow_clone=True,
+            ),
+        )
+
+    # A 403 with no denial text is a rate limit, which is transient: retryable, and captured so
+    # the tasks team keeps operational visibility into it.
+    assert error.value.non_retryable is False
+    assert error.value.context["stderr"] == stderr[:500]
+    assert str(capture_exception.call_args.args[0]) == "Git clone failed with exit code 128"

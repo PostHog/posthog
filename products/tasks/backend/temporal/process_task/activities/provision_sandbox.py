@@ -950,12 +950,16 @@ def _is_unreachable_repository_clone_error(result: ExecutionResult) -> bool:
         return False
 
     output = f"{result.stdout}\n{result.stderr}\n{result.error or ''}".casefold()
+    # A bare 403 is deliberately not matched: GitHub returns 403 for rate and abuse limits, which
+    # are transient (see `raise_if_github_rate_limited` in posthog/egress/github/transport.py), and
+    # git's HTTP transport prints only the status line, not the body that would tell them apart. A
+    # genuine 403 denial still matches through the explicit auth clauses above. GitHub returns 404,
+    # not 403, for a repository an installation cannot see, so 404 stays.
     return (
         "repository not found" in output
         or "could not read username" in output
         or "authentication failed" in output
         or "http basic: access denied" in output
-        or "returned error: 403" in output
         or "returned error: 404" in output
     )
 
