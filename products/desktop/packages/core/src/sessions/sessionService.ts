@@ -127,6 +127,9 @@ const CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF = {
  * session shows the retryable error banner instead of stalling silently.
  */
 const CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS = 3;
+const CLOUD_SUBSCRIPTION_ERROR_TITLE = "Stream connection lost";
+const CLOUD_SUBSCRIPTION_ERROR_MESSAGE =
+  "Lost connection to the cloud run. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
@@ -6863,6 +6866,7 @@ export class SessionService {
   ): Promise<void> {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher || watcher.runId !== runId) return;
+    const startToken = watcher.startToken;
 
     watcher.subscriptionRecoveryAttempts += 1;
     watcher.subscription.unsubscribe();
@@ -6880,12 +6884,22 @@ export class SessionService {
         teamId: watcher.teamId,
         resumeFromEntryCount: watcher.resumeFromEntryCount,
       });
+
+      // Same compensation as the initial watch path: if teardown won while this
+      // watch request was in flight, the main-process watcher is now running
+      // with no renderer subscriber, so unwatch it.
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+        await this.d.trpc.cloudTask.unwatch.mutate({ taskId, runId });
+        return;
+      }
+
       this.d.log.info("Cloud task subscription recovered", {
         taskId,
         attempts: watcher.subscriptionRecoveryAttempts,
       });
       this.clearCloudSubscriptionRecoveryError(taskId, runId);
     } catch (err) {
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) return;
       this.d.log.warn("Cloud task subscription recovery failed", {
         taskId,
         attempt: watcher.subscriptionRecoveryAttempts,
@@ -6915,8 +6929,8 @@ export class SessionService {
     watcher.subscriptionErrorSurfaced = true;
     this.d.store.updateSession(runId, {
       status: "error",
-      errorTitle: "Stream connection lost",
-      errorMessage: "Lost connection to the cloud run. Reconnecting…",
+      errorTitle: CLOUD_SUBSCRIPTION_ERROR_TITLE,
+      errorMessage: CLOUD_SUBSCRIPTION_ERROR_MESSAGE,
       errorRetryable: true,
       isPromptPending: false,
     });
@@ -6932,7 +6946,15 @@ export class SessionService {
 
     watcher.subscriptionErrorSurfaced = false;
     const session = this.d.store.getSessions()[runId];
-    if (session?.status !== "error") return;
+    // Only clear the banner this recovery raised: a real task error can land
+    // (over the rebuilt subscription) before the watch call resolves, and
+    // wiping it would hide the actual failure.
+    if (
+      session?.status !== "error" ||
+      session.errorTitle !== CLOUD_SUBSCRIPTION_ERROR_TITLE
+    ) {
+      return;
+    }
     this.d.store.updateSession(runId, {
       status: "disconnected",
       errorTitle: undefined,

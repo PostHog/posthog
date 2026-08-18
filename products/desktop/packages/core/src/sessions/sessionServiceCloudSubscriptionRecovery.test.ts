@@ -17,7 +17,9 @@ function makeSession(): AgentSession {
     taskId: TASK_ID,
     taskTitle: "Test task",
     channel: "",
-    events: [{ jsonrpc: "2.0", method: "noop" }],
+    events: [
+      { type: "acp_message", ts: 1, message: { jsonrpc: "2.0", method: "noop" } },
+    ],
     processedLineCount: 1,
     startedAt: 1,
     status: "connected",
@@ -32,7 +34,7 @@ function makeSession(): AgentSession {
     isTaskAuthor: true,
     adapter: "claude",
     cloudStatus: "in_progress",
-  } as unknown as AgentSession;
+  };
 }
 
 function createHarness() {
@@ -97,7 +99,14 @@ function createHarness() {
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
-  return { service, sessions, store, subscriptions, watchMutate };
+  return {
+    service,
+    sessions,
+    store,
+    subscriptions,
+    watchMutate,
+    unwatchMutate,
+  };
 }
 
 function watchTask(service: SessionService) {
@@ -187,6 +196,57 @@ describe("SessionService cloud subscription recovery", () => {
     await vi.advanceTimersByTimeAsync(8_000);
     expect(sessions[RUN_ID].status).toBe("disconnected");
     expect(sessions[RUN_ID].errorTitle).toBeUndefined();
+  });
+
+  it("keeps a task error that lands while recovery is in flight", async () => {
+    const { service, sessions, store, subscriptions, watchMutate } =
+      createHarness();
+    watchTask(service);
+    await flushMicrotasks();
+    watchMutate.mockRejectedValue(new Error("main process unavailable"));
+
+    subscriptions[0].handlers.onError?.(new Error("stream died"));
+    await vi.advanceTimersByTimeAsync(1_000 + 2_000 + 4_000);
+    expect(sessions[RUN_ID].errorTitle).toBe("Stream connection lost");
+
+    store.updateSession(RUN_ID, {
+      status: "error",
+      errorTitle: "Task failed",
+      errorMessage: "The run crashed",
+    });
+    watchMutate.mockResolvedValue(undefined);
+    await vi.advanceTimersByTimeAsync(8_000);
+
+    expect(sessions[RUN_ID].status).toBe("error");
+    expect(sessions[RUN_ID].errorTitle).toBe("Task failed");
+  });
+
+  it("unwatches the main process when teardown wins the recovery race", async () => {
+    const { service, subscriptions, watchMutate, unwatchMutate } =
+      createHarness();
+    watchTask(service);
+    await flushMicrotasks();
+
+    let resolveWatch = () => {};
+    watchMutate.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWatch = () => resolve();
+        }),
+    );
+
+    subscriptions[0].handlers.onError?.(new Error("stream died"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(watchMutate).toHaveBeenCalledTimes(2);
+
+    service.stopCloudTaskWatch(TASK_ID);
+    resolveWatch();
+    await flushMicrotasks();
+
+    expect(unwatchMutate).toHaveBeenCalledWith({
+      taskId: TASK_ID,
+      runId: RUN_ID,
+    });
   });
 
   it("stops recovering once the watch is torn down", async () => {
