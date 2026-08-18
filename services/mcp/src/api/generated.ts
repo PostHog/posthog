@@ -53772,6 +53772,8 @@ export namespace Schemas {
       /** @nullable */
       ci_prompt: string | null;
       /** @nullable */
+      pr_loop_enabled?: boolean | null;
+      /** @nullable */
       channel?: string | null;
       readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
     }
@@ -62545,6 +62547,11 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default.
+         * @nullable
+         */
+      pr_loop_enabled?: boolean | null;
       /**
          * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
          * @maxLength 255
@@ -78220,6 +78227,11 @@ export namespace Schemas {
          */
       ci_prompt?: string | null;
       /**
+         * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default.
+         * @nullable
+         */
+      pr_loop_enabled?: boolean | null;
+      /**
          * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
          * @maxLength 255
          * @nullable
@@ -79383,6 +79395,11 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default.
+         * @nullable
+         */
+      pr_loop_enabled?: boolean | null;
       /**
          * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
          * @maxLength 255
