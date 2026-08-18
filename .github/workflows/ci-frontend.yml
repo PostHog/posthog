@@ -629,7 +629,8 @@ jobs:
         # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
         # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
         # (see _rust-build-images.yml, which skips sccache creds for the same reason).
-        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
+        # Internal PRs and master get the 32 GB runner; forks get GOMEMLIMIT on the tsgo
+        # step instead, since on 16 GB the OOM is total rather than occasional.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
@@ -685,6 +686,18 @@ jobs:
 
             - parallel:
                   - name: Run typescript check (tsgo)
+                    # tsgo's reachable set is ~13.6 GB, and with Go's default GOGC=100 the heap
+                    # is allowed to grow to roughly twice that before a collection — fine on the
+                    # 32 GB Depot runner, fatal on the 16 GB GitHub-hosted runner forks fall back
+                    # to, where it is OOM-killed (exit 137) every run rather than the ~6% of the
+                    # time the note on this job describes. A soft memory limit makes the GC keep
+                    # total heap near the reachable set instead: measured on a 15 GB box, peak RSS
+                    # goes from over 15 GB (killed) to ~13.6 GB and the check finishes in ~60s.
+                    # Any value under the reachable set behaves the same, so this only needs to be
+                    # low enough to bind. Left unset on Depot, where the heap already fits and the
+                    # extra GC cycles would only cost time.
+                    env:
+                        GOMEMLIMIT: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && '8GiB' || '' }}
                     run: pnpm --filter=@posthog/frontend typescript:check
 
                   - name: Check if schema.json and validators.js are up to date
