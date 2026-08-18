@@ -12,10 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
+import products.signals.backend.temporal.custom_agent  # noqa: F401  (warms the base<->temporal import cycle so standalone collection works)
 from products.signals.backend.agent_runtime import STEP_CUSTOM_AGENT, AgentRuntime
-from products.signals.backend.artefact_schemas import (
-    CodeReference,  # noqa: F401  (fully initializes the package before base)
-)
 from products.signals.backend.custom_agent.base import CustomSignalAgent
 
 
@@ -24,7 +22,7 @@ def test_send_raw_stamps_custom_agent_stage():
     agent._session = None
     agent.team_id = 123
     agent.user_id = 456
-    agent.repository = None
+    agent._resolved_repository = None
     agent.model = "claude-sonnet-4-6"
 
     start_raw = AsyncMock(return_value=(MagicMock(), "ok"))
