@@ -17,6 +17,12 @@ is **absent by construction** and is not scored here. What the suite does cover:
 * ``route_only_render_failure`` - nothing interactive at the moment, so only the route remains.
 * ``scanner_recorded_element_on_signup`` - the element the scanner already recorded in ``extra``.
 
+The ``scout_*`` cases hand the same four moments to the two replay scouts instead. A scout has no
+checkout, so it answers with the anchor and the tier rather than a file, and its cases carry their
+own scorers; ``recording_window_queried`` is the one check both halves share. Read the two halves
+apart: they measure the same recipe through consumers with different affordances, and a mean over
+all eight hides which one moved.
+
 Track the two causes apart: an interaction-caused defect has an autocapture row behind it and a
 render-caused one does not, so they exercise different anchors and should not be averaged into
 one number without looking at the split. The ``cause`` metadata on each case carries it.
@@ -35,13 +41,23 @@ from products.signals.backend.report_generation.research import _has_replay_sign
 from products.signals.backend.temporal.types import SignalData
 from products.signals.evals.constants import (
     ALL_CASES,
+    ALL_SCOUT_CASES,
     ELEMENT_TEXT_CASE,
     EXCEPTION_CASE,
     ROUTE_ONLY_CASE,
     SCANNER_ELEMENT_CASE,
     AttributionCase,
+    ScoutAttributionCase,
 )
-from products.signals.evals.scorers import AttributionAnyPath, AttributionTopPath, RecordingWindowQueried
+from products.signals.evals.scorers import (
+    AnchorNamed,
+    AnchorTier,
+    AttributionAnyPath,
+    AttributionTopPath,
+    ElementNotInvented,
+    RecordingWindowQueried,
+)
+from products.signals.evals.scout_prompts import build_scout_prompt
 from products.signals.evals.seeders import (
     seed_element_text_attribution,
     seed_exception_attribution,
@@ -100,16 +116,47 @@ def _build_case(case: AttributionCase) -> SandboxedEvalCase:
             "attribution_any_path": {"path": case.expected_path},
             "recording_window_queried": {"session_id": case.session_id},
         },
-        metadata={"tier": case.tier, "cause": case.cause, "carries_element": bool(case.element)},
+        metadata={
+            "tier": case.tier,
+            "cause": case.cause,
+            "carries_element": bool(case.element),
+            "consumer": "research",
+        },
         setup=_SEEDERS[case.name],
     )
 
 
+def _build_scout_case(case: ScoutAttributionCase) -> SandboxedEvalCase:
+    moment = case.moment
+    expected: dict[str, dict[str, object]] = {
+        "anchor_named": {"anchor": case.expected_anchor, "tier": case.expected_tier},
+        "anchor_tier": {"tier": case.expected_tier},
+        "recording_window_queried": {"session_id": moment.session_id},
+    }
+    if not case.element_expected:
+        expected["element_not_invented"] = {}
+    return SandboxedEvalCase(
+        name=case.name,
+        prompt=build_scout_prompt(case),
+        repo_fixture="posthog/hedgebox",
+        expected=expected,
+        metadata={"tier": case.expected_tier, "cause": moment.cause, "consumer": f"scout:{case.scout}"},
+        setup=_SEEDERS[moment.name],
+    )
+
+
 async def eval_replay_attribution(ctx: EvalContext) -> None:
-    """Does research turn a recording moment into the file a human would change?"""
+    """Does a recording moment become the code behind it, for research and for the scouts?"""
     await SandboxedPublicEval(
         experiment_name="signals-replay-attribution-cli",
-        cases=[_build_case(case) for case in ALL_CASES],
-        scorers=[AttributionTopPath(), AttributionAnyPath(), RecordingWindowQueried()],
+        cases=[_build_case(case) for case in ALL_CASES] + [_build_scout_case(case) for case in ALL_SCOUT_CASES],
+        scorers=[
+            AttributionTopPath(),
+            AttributionAnyPath(),
+            RecordingWindowQueried(),
+            AnchorNamed(),
+            AnchorTier(),
+            ElementNotInvented(),
+        ],
         ctx=ctx,
     )

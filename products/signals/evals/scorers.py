@@ -4,6 +4,12 @@ Two outcome scorers read the finding envelope out of the agent's final message a
 attributed the defect. One mechanism scorer checks whether the agent actually queried the events
 around the recording moment, which is what separates a correct attribution from a lucky guess off
 the URL. Every scorer self-skips (``score=None``) when its ``expected`` key is absent.
+
+The scout cases score a different answer, because a scout has no checkout and so cannot name a
+file. ``AnchorNamed`` and ``AnchorTier`` read the anchor and the tier it rests on, and
+``ElementNotInvented`` guards the one failure the recipe warns about by name: claiming an element
+on a moment nothing interacted with. ``RecordingWindowQueried`` is the mechanism check both halves
+share.
 """
 
 from __future__ import annotations
@@ -15,7 +21,14 @@ from typing import Any
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-__all__ = ["AttributionAnyPath", "AttributionTopPath", "RecordingWindowQueried"]
+__all__ = [
+    "AnchorNamed",
+    "AnchorTier",
+    "AttributionAnyPath",
+    "AttributionTopPath",
+    "ElementNotInvented",
+    "RecordingWindowQueried",
+]
 
 _SQL_TOOL = "execute-sql"
 # Where every Hedgebox source path starts, used to trim a clone prefix off an agent's answer.
@@ -185,3 +198,117 @@ class RecordingWindowQueried(Scorer):
             score=1.0 if matching else 0.0,
             metadata={"sql_calls": len(queries), "session_scoped_calls": len(matching)},
         )
+
+
+def _find_scout_answer(value: Any) -> dict[str, Any] | None:
+    """Depth-first search for the object carrying an ``anchor``, wherever the envelope put it."""
+    if isinstance(value, dict):
+        if "anchor" in value:
+            return value
+        for nested in value.values():
+            found = _find_scout_answer(nested)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = _find_scout_answer(nested)
+            if found is not None:
+                return found
+    return None
+
+
+def scout_answer(last_message: str | None) -> dict[str, Any] | None:
+    """Pull the scout's anchor envelope out of its final message, or None when it has none."""
+    if not last_message:
+        return None
+    for blob in _candidate_json_blobs(last_message):
+        try:
+            parsed = json.loads(blob)
+        except (ValueError, TypeError):
+            continue
+        found = _find_scout_answer(parsed)
+        if found is not None:
+            return found
+    return None
+
+
+def _normalize_anchor(value: str) -> str:
+    """Compare anchors ignoring case, surrounding punctuation, and how whitespace was collapsed."""
+    return " ".join(value.strip().strip("`\"'").split()).casefold()
+
+
+class _ScoutAnswerScorer(Scorer):
+    """Shared envelope parsing; subclasses read the field they care about."""
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
+        entry = (expected or {}).get(self._name())
+        if not isinstance(entry, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "Not checked for this case"})
+        answer = scout_answer((output or {}).get("last_message"))
+        if answer is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No anchor envelope in the final message"})
+        return self._score_answer(entry=entry, answer=answer)
+
+    def _score_answer(self, *, entry: dict[str, Any], answer: dict[str, Any]) -> Score:
+        raise NotImplementedError
+
+
+class AnchorNamed(_ScoutAnswerScorer):
+    """Did the scout come back with the string a reader would grep for?
+
+    This is the outcome for a scout: it has no checkout, so the report's whole value is the anchor
+    it carries. An exception anchor is a path, so it is compared the way the research cases compare
+    one; every other tier is a literal a human typed, compared by containment either way so an
+    answer that drops surrounding punctuation still counts.
+    """
+
+    def _name(self) -> str:
+        return "anchor_named"
+
+    def _score_answer(self, *, entry: dict[str, Any], answer: dict[str, Any]) -> Score:
+        wanted = entry.get("anchor")
+        got = answer.get("anchor")
+        if not isinstance(wanted, str) or not isinstance(got, str) or not got.strip():
+            return Score(name=self._name(), score=0.0, metadata={"wanted": wanted, "got": got})
+        if entry.get("tier") == "exception":
+            hit = normalize_path(got) == normalize_path(wanted)
+        else:
+            wanted_norm, got_norm = _normalize_anchor(wanted), _normalize_anchor(got)
+            # A four-character floor keeps a one-word answer from matching by accident.
+            hit = len(got_norm) >= 4 and (wanted_norm in got_norm or got_norm in wanted_norm)
+        return Score(name=self._name(), score=1.0 if hit else 0.0, metadata={"wanted": wanted, "got": got})
+
+
+class AnchorTier(_ScoutAnswerScorer):
+    """Did the scout say which tier its anchor rests on?
+
+    The skill asks for the tier because a reader weighs a stack trace and a piece of on-screen text
+    differently. A right anchor filed under the wrong tier tells the reader to trust it too much or
+    too little, so it is scored apart from the anchor itself.
+    """
+
+    def _name(self) -> str:
+        return "anchor_tier"
+
+    def _score_answer(self, *, entry: dict[str, Any], answer: dict[str, Any]) -> Score:
+        wanted = entry.get("tier")
+        got = answer.get("tier")
+        hit = isinstance(got, str) and isinstance(wanted, str) and got.strip().casefold() == wanted.casefold()
+        return Score(name=self._name(), score=1.0 if hit else 0.0, metadata={"wanted": wanted, "got": got})
+
+
+class ElementNotInvented(_ScoutAnswerScorer):
+    """On a moment nothing interacted with, did the scout say the element is unknown?
+
+    The recipe warns about exactly this failure: a fabricated selector sends the coding agent
+    downstream into the wrong file with false confidence. Only cases whose moment has no
+    interaction behind it set this key.
+    """
+
+    def _name(self) -> str:
+        return "element_not_invented"
+
+    def _score_answer(self, *, entry: dict[str, Any], answer: dict[str, Any]) -> Score:
+        claimed = answer.get("element_known")
+        hit = claimed is False
+        return Score(name=self._name(), score=1.0 if hit else 0.0, metadata={"element_known": claimed})

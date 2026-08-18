@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 # One day back keeps the seeded window inside any recency filter the agent reaches for, without
 # landing events in the future when a worker clock runs ahead.
@@ -191,4 +192,65 @@ ALL_CASES: tuple[AttributionCase, ...] = (
     ELEMENT_TEXT_CASE,
     ROUTE_ONLY_CASE,
     SCANNER_ELEMENT_CASE,
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScoutAttributionCase:
+    """The same recording moment, handed to a scout instead of to report research.
+
+    A scout has no checkout, so it cannot answer with a file. It answers with the anchor — the
+    string a reader would grep for — and the tier that anchor rests on, which is what its skill
+    now tells it to carry into a report.
+    """
+
+    name: str
+    moment: AttributionCase
+    # Which scout body the case exercises; picks the skill directory and the brief it gets.
+    scout: Literal["session_replay", "replay_vision"]
+    expected_anchor: str
+
+    @property
+    def expected_tier(self) -> str:
+        return self.moment.tier
+
+    @property
+    def element_expected(self) -> bool:
+        """A route-tier moment has no element behind it, so claiming one is an invention."""
+        return self.moment.tier != "route"
+
+
+SCOUT_CLUSTER_ELEMENT_CASE = ScoutAttributionCase(
+    name="scout_cluster_element_text",
+    moment=ELEMENT_TEXT_CASE,
+    scout="session_replay",
+    expected_anchor=UPLOAD_BUTTON_TEXT,
+)
+
+SCOUT_COHORT_EXCEPTION_CASE = ScoutAttributionCase(
+    name="scout_cohort_exception",
+    moment=EXCEPTION_CASE,
+    scout="session_replay",
+    expected_anchor=DATA_MODULE,
+)
+
+SCOUT_CLUSTER_NO_ELEMENT_CASE = ScoutAttributionCase(
+    name="scout_cluster_without_an_element",
+    moment=ROUTE_ONLY_CASE,
+    scout="session_replay",
+    expected_anchor=ROUTE_ONLY_CASE.pathname,
+)
+
+SCOUT_SCANNER_FINDING_CASE = ScoutAttributionCase(
+    name="scout_scanner_finding",
+    moment=SCANNER_ELEMENT_CASE,
+    scout="replay_vision",
+    expected_anchor=SIGNUP_PLAN_TEXT,
+)
+
+ALL_SCOUT_CASES: tuple[ScoutAttributionCase, ...] = (
+    SCOUT_CLUSTER_ELEMENT_CASE,
+    SCOUT_COHORT_EXCEPTION_CASE,
+    SCOUT_CLUSTER_NO_ELEMENT_CASE,
+    SCOUT_SCANNER_FINDING_CASE,
 )
