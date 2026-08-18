@@ -13,8 +13,9 @@ from products.canvas.backend.contract import (
     canvas_sdk_version,
     contract_limits,
 )
-from products.canvas.backend.layout import CANVAS_LAYOUT_SCHEMA_VERSION, PLACEMENT_STATUSES
+from products.canvas.backend.layout import CANVAS_LAYOUT_SCHEMA_VERSION, PLACEMENT_ID_RE, PLACEMENT_STATUSES
 from products.canvas.backend.models import Canvas, CanvasState
+from products.canvas.backend.source import GRID_COLUMN_CHOICES
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -330,8 +331,8 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
 class CanvasGridSerializer(serializers.Serializer):
     """The grid a grid canvas lays its placements out on."""
 
-    columns = serializers.IntegerField(
-        min_value=4, max_value=12, help_text="Grid width in columns. One of 4, 6, 8, 10, or 12."
+    columns = serializers.ChoiceField(
+        choices=list(GRID_COLUMN_CHOICES), help_text="Grid width in columns. One of 4, 6, 8, 10, or 12."
     )
     rowHeight = serializers.IntegerField(min_value=24, max_value=400, help_text="Height of one grid row, in pixels.")
     gap = serializers.IntegerField(min_value=0, max_value=48, help_text="Gap between placements, in pixels.")
@@ -340,7 +341,8 @@ class CanvasGridSerializer(serializers.Serializer):
 class CanvasPlacementSerializer(serializers.Serializer):
     """One placed widget on a grid canvas."""
 
-    id = serializers.CharField(
+    id = serializers.RegexField(
+        PLACEMENT_ID_RE,
         max_length=64,
         help_text="Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
     )
@@ -390,8 +392,9 @@ class CanvasPlacementSerializer(serializers.Serializer):
 class CanvasLayoutSerializer(serializers.Serializer):
     """A grid canvas's layout document — its entire 'source'."""
 
-    schemaVersion = serializers.IntegerField(
-        help_text=f"Layout schema version. Currently always {CANVAS_LAYOUT_SCHEMA_VERSION}."
+    schemaVersion = serializers.ChoiceField(
+        choices=[CANVAS_LAYOUT_SCHEMA_VERSION],
+        help_text=f"Layout schema version. Currently always {CANVAS_LAYOUT_SCHEMA_VERSION}.",
     )
     grid = CanvasGridSerializer(help_text="The grid placements are laid out on.")
     placements = CanvasPlacementSerializer(

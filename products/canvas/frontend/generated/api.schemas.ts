@@ -771,15 +771,43 @@ export interface CanvasPublishConflictApi {
 }
 
 /**
+ * * `1` - 1
+ */
+export type SchemaVersionEnumApi = (typeof SchemaVersionEnumApi)[keyof typeof SchemaVersionEnumApi]
+
+export const SchemaVersionEnumApi = {
+    Number1: 1,
+} as const
+
+/**
+ * * `4` - 4
+ * * `6` - 6
+ * * `8` - 8
+ * * `10` - 10
+ * * `12` - 12
+ */
+export type ColumnsEnumApi = (typeof ColumnsEnumApi)[keyof typeof ColumnsEnumApi]
+
+export const ColumnsEnumApi = {
+    Number4: 4,
+    Number6: 6,
+    Number8: 8,
+    Number10: 10,
+    Number12: 12,
+} as const
+
+/**
  * The grid a grid canvas lays its placements out on.
  */
 export interface CanvasGridApi {
-    /**
-     * Grid width in columns. One of 4, 6, 8, 10, or 12.
-     * @minimum 4
-     * @maximum 12
-     */
-    columns: number
+    /** Grid width in columns. One of 4, 6, 8, 10, or 12.
+     *
+     * * `4` - 4
+     * * `6` - 6
+     * * `8` - 8
+     * * `10` - 10
+     * * `12` - 12 */
+    columns: ColumnsEnumApi
     /**
      * Height of one grid row, in pixels.
      * @minimum 24
@@ -823,6 +851,7 @@ export interface CanvasPlacementApi {
     /**
      * Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.
      * @maxLength 64
+     * @pattern ^[A-Za-z0-9_-]{1,64}$
      */
     id: string
     /** Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).
@@ -884,8 +913,10 @@ export interface CanvasPlacementApi {
  * A grid canvas's layout document — its entire 'source'.
  */
 export interface CanvasLayoutApi {
-    /** Layout schema version. Currently always 1. */
-    schemaVersion: number
+    /** Layout schema version. Currently always 1.
+     *
+     * * `1` - 1 */
+    schemaVersion: SchemaVersionEnumApi
     /** The grid placements are laid out on. */
     grid: CanvasGridApi
     /** The placed widgets. Placements may not overlap or extend past the grid. */
