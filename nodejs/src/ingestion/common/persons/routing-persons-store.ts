@@ -11,7 +11,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from
 
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, PersonsWorld } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonsStoreMode = 'pg' | 'personhog' | 'shadow'
@@ -45,15 +45,15 @@ export function assertPersonsStoreModeConfig(
 }
 
 /**
- * Routes person-store verbs between the Postgres world and the personhog
- * world. The mode applies to the whole deployment: personhog sends every
+ * Routes person-store verbs between the Postgres backend and the personhog
+ * one. The mode applies to the whole deployment: personhog sends every
  * verb to the personhog store, and shadow runs the Postgres call as the
  * authoritative result with the personhog call after it, its failures
  * counted and logged but never failing the batch. Merges route through
- * `mergePersons` like any other verb — each world runs its own whole
+ * `mergePersons` like any other verb — each backend runs its own whole
  * merge, the identity service's saga or the Postgres store's own merge —
  * so shadow mode rehearses every merge, folds included, against the
- * personhog world's own graph.
+ * personhog backend's own graph.
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
@@ -64,8 +64,8 @@ export class RoutingPersonsStore implements PersonsStore {
 
     // Shadow mode's personhog calls never reach a caller, so the errors a
     // caller sees are the authoritative side's.
-    get world(): PersonsWorld {
-        return this.mode === 'shadow' ? this.pg.world : this.personhog.world
+    get backend(): PersonsBackend {
+        return this.mode === 'shadow' ? this.pg.backend : this.personhog.backend
     }
 
     /**
@@ -101,9 +101,9 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * Resolve the personhog world's own person for a shadowed write. The
+     * Resolve the personhog backend's own person for a shadowed write. The
      * caller holds the Postgres row, whose numeric id means nothing in
-     * the personhog world — the two id sequences are independent — so a
+     * the personhog backend — the two id sequences are independent — so a
      * shadow write must re-resolve by distinct id and skip, counted,
      * when the person does not exist there yet. The fetch memoizes per
      * batch, so repeated writes to one person cost one resolution.
@@ -270,7 +270,7 @@ export class RoutingPersonsStore implements PersonsStore {
     /**
      * Merges are distinct-id addressed, so the personhog side needs no
      * person re-resolution: the same request replays the whole merge
-     * against that world's saga, keeping the shadow graph's topology in
+     * against that backend's saga, keeping the shadow graph's topology in
      * step with the Postgres one.
      */
     mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {

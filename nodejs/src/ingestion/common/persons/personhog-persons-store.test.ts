@@ -64,7 +64,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({ a: '2', first: 'shadowed' })
         expect(sent.setOnceProperties).toEqual({})
         expect(sent.unsetProperties).toEqual(['gone'])
-        // The changelog is this world's ClickHouse feed: a flush ships
+        // The changelog is this backend's ClickHouse feed: a flush ships
         // segments and publishes nothing.
         expect(results).toEqual([])
     })

@@ -15,7 +15,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, PersonsWorld } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -304,9 +304,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
 
         // A local projection for the caller: the same application the
-        // Postgres world would perform, so the processor returns a
+        // Postgres backend would perform, so the processor returns a
         // sensible person. The leader's application at flush remains the
-        // authoritative one for this world.
+        // authoritative one for this backend.
         const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
         const [projected] = applyEventPropertyUpdates(refined, person)
         const scalarUpdates = computeOpsScalarUpdates(ops, projected)
@@ -354,11 +354,11 @@ export class PersonhogPersonsStore implements PersonsStore {
     // personhog, the merge saga owns those deletions end to end, so no
     // store-level delete path will ever be needed here.
     /**
-     * The personhog world has no Postgres transactions; transaction
+     * The personhog backend has no Postgres transactions; transaction
      * semantics for routed deployments live in the routing store, which
      * never delegates this member. Reaching it is a wiring bug.
      */
-    get world(): PersonsWorld {
+    get backend(): PersonsBackend {
         return 'personhog'
     }
 
@@ -437,7 +437,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         return Promise.reject(new PersonhogPendingRpcError('moveDistinctIdsFromPersons', 'merge saga'))
     }
 
-    // Postgres bookkeeping with nothing to answer in this world: shadow
+    // Postgres bookkeeping with nothing to answer in this backend: shadow
     // teams are fresh, so no cohort rows or hash-key overrides exist to
     // fix up.
 
@@ -534,7 +534,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!updated) {
             return [person, [], false]
         }
-        // No ClickHouse message: the leader's changelog is this world's
+        // No ClickHouse message: the leader's changelog is this backend's
         // person feed, so emitting here would double-publish.
         return [updated, [], false]
     }
