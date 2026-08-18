@@ -47,4 +47,16 @@ describe('dashboard grid compactors', () => {
             { i: 'next-neighbor', x: 0, y: 10, w: 6, h: 4 },
         ])
     })
+
+    it('bounds malformed tile heights before resolving collisions', () => {
+        const layout = [
+            { i: 'active', x: 0, y: 0, w: 6, h: 1_000_000 },
+            { i: 'neighbor', x: 0, y: 5, w: 6, h: 4 },
+        ] as Layout
+
+        expect(geometry(resolveFreePlacementCollisions(layout, 12, 'active'))).toEqual([
+            { i: 'active', x: 0, y: 0, w: 6, h: 100 },
+            { i: 'neighbor', x: 0, y: 100, w: 6, h: 4 },
+        ])
+    })
 })

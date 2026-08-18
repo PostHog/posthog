@@ -28,6 +28,8 @@ export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, s
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>
 
+const MAX_FREE_FORM_TILE_HEIGHT_ROWS = 100
+
 function getOccupants(occupancy: GridOccupancy, item: LayoutItem, cols: number): LayoutItem[] {
     const occupants = new Set<LayoutItem>()
     const startX = Math.max(0, item.x)
@@ -86,7 +88,10 @@ export function restoreUnmovedTilePositions(
 }
 
 export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
-    const items = layout.map((item) => cloneLayoutItem(item))
+    const items = layout.map((item) => ({
+        ...cloneLayoutItem(item),
+        h: Math.min(item.h, MAX_FREE_FORM_TILE_HEIGHT_ROWS),
+    }))
     const activeTile = activeTileId ? items.find((item) => item.i === activeTileId) : undefined
     const occupancy: GridOccupancy = new Map()
     for (const item of items) {
