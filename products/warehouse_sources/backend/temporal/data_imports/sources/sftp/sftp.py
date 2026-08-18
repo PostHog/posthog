@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.setti
     EXTENSION_FORMATS,
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
+    MAX_DIRECTORIES,
     MAX_DIRECTORY_DEPTH,
     MAX_FILES,
     MAX_JSON_DOCUMENT_BYTES,
@@ -212,6 +213,7 @@ def list_remote_files(
     pattern: str | None = None,
     max_depth: int = MAX_DIRECTORY_DEPTH,
     max_files: int = MAX_FILES,
+    max_directories: int = MAX_DIRECTORIES,
     logger: FilteringBoundLogger | None = None,
 ) -> list[RemoteFile]:
     """List regular files under `root`, breadth-first, filtered by `pattern` on the relative path."""
@@ -220,6 +222,8 @@ def list_remote_files(
 
     files: list[RemoteFile] = []
     queue: list[tuple[str, int]] = [(root, 0)]
+    queued_directories = 1
+    skipped_directories = False
 
     while queue:
         directory, depth = queue.pop(0)
@@ -241,7 +245,11 @@ def list_remote_files(
             mode = entry.st_mode or 0
             if stat.S_ISDIR(mode):
                 if depth < max_depth:
+                    if queued_directories >= max_directories:
+                        skipped_directories = True
+                        continue
                     queue.append((full_path, depth + 1))
+                    queued_directories += 1
                 continue
             # Anything that isn't a plain file (symlinks, sockets, devices) is skipped: following
             # links risks cycles, and only regular files can be parsed.
@@ -269,6 +277,13 @@ def list_remote_files(
                         max_files=max_files,
                     )
                 return sorted(files, key=lambda f: f.relative_path)
+
+    if skipped_directories and logger is not None:
+        logger.warning(
+            "Reached the SFTP folder limit; later folders are ignored",
+            root=root,
+            max_directories=max_directories,
+        )
 
     return sorted(files, key=lambda f: f.relative_path)
 

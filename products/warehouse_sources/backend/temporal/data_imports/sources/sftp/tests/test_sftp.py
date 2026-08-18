@@ -231,6 +231,28 @@ class TestListRemoteFiles:
         assert len(files) == 2
         assert logger.warning.called
 
+    def test_stops_at_max_directories_and_warns(self) -> None:
+        # `max_files` counts matching files only, so a pattern matching nothing has to be bounded by
+        # the folder budget instead — otherwise a wide tree walks until the worker gives up.
+        listings = 0
+
+        class WideTree:
+            def listdir_attr(self, path: str) -> list[Any]:
+                nonlocal listings
+                listings += 1
+                return [FakeAttributes(f"d{index}", st_mode=DIRECTORY_MODE) for index in range(10)]
+
+            def open(self, filename: str, mode: str = "r", bufsize: int = -1) -> Any:
+                raise NotImplementedError
+
+        logger = MagicMock()
+
+        files = list_remote_files(WideTree(), "/data", pattern=r"\.csv$", max_directories=25, logger=logger)
+
+        assert files == []
+        assert listings == 25
+        assert logger.warning.called
+
     def test_unreadable_root_is_a_credentials_error(self) -> None:
         client = FakeClient({"/data": []}, unreadable={"/data"})
 
