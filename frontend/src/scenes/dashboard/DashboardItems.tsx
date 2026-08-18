@@ -121,7 +121,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
@@ -709,6 +709,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             isMobileView={isMobileView}
                             disabled={resizingTileId !== null}
                             getMenuItems={getInsertMenuItems}
+                            onMenuOpen={() => {
+                                if (dashboard?.id) {
+                                    reportDashboardAddMenuOpened('inline', dashboard.id)
+                                }
+                            }}
                         />
                     )}
                 </div>
