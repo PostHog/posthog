@@ -3587,7 +3587,7 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "error received from server in SCRAM exchange: Wrong password",
-                "Invalid user or password",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
