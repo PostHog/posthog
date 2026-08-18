@@ -63,7 +63,12 @@ export function MaybeBuyHedgehogCoffeeModal(): JSX.Element | null {
         return null
     }
     return (
-        <BuyHedgehogCoffeeModal isOpen onClose={closeModal} onDonate={donate} variant={donationVariantForDate(dayjs())} />
+        <BuyHedgehogCoffeeModal
+            isOpen
+            onClose={closeModal}
+            onDonate={donate}
+            variant={donationVariantForDate(dayjs())}
+        />
     )
 }
 
