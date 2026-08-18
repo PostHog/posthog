@@ -2,8 +2,7 @@ import asyncio
 from collections.abc import Awaitable
 from typing import Any
 
-from django.conf import settings
-
+import structlog
 from langchain_core.runnables import RunnableConfig
 
 from products.skills.backend.tools.skills import GetLLMSkillFileTool, GetLLMSkillTool, ListLLMSkillsTool
@@ -41,8 +40,11 @@ from ee.hogai.utils.feature_flags import (
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
+    is_web_search_available,
 )
 from ee.hogai.utils.types.base import AssistantState
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
@@ -148,12 +150,16 @@ class ChatAgentToolkitManager(AgentToolkitManager):
             if mcp_tool._installations:
                 available_tools.append(mcp_tool)
 
-        # Web Search isn't supported by AWS Bedrock as primary provider
-        variant = get_llm_gateway_variant(self._team, self._user)
-        uses_bedrock_primary = (
-            variant == "gateway-bedrock" and settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY
-        )
-        if not uses_bedrock_primary:
+        # Web Search is an Anthropic server tool that Bedrock as the primary provider can't run.
+        web_search_offered = is_web_search_available(self._team, self._user)
+        if web_search_offered:
             available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+
+        logger.info(
+            "chat_agent_web_search_availability",
+            team_id=self._team.id,
+            llm_gateway_variant=get_llm_gateway_variant(self._team, self._user),
+            web_search_offered=web_search_offered,
+        )
 
         return available_tools

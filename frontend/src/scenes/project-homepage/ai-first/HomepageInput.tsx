@@ -55,7 +55,9 @@ function IdleInput(): JSX.Element {
     }, [])
 
     const submitAi = (): void => {
-        if (!query.trim()) {
+        // A fill-in suggestion's prefix (e.g. "Find recordings for ") is not a complete prompt —
+        // wait for the user to type past it before sending.
+        if (!query.trim() || showFillInHint) {
             return
         }
         posthog.capture('homepage query submitted', { mode: 'ai' })
@@ -170,15 +172,14 @@ function IdleInput(): JSX.Element {
                                     </ButtonPrimitive>
                                 </Tooltip>
                             )}
-                            <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
+                            <Tooltip
+                                title={fillInHint ? fillInHint : !query.trim() ? 'Try asking a question' : undefined}
+                            >
                                 <ButtonPrimitive
-                                    onClick={() => {
-                                        posthog.capture('homepage query submitted', { mode: 'ai' })
-                                        submitQuery('ai')
-                                    }}
+                                    onClick={submitAi}
                                     iconOnly
                                     className="-mr-0.5 shrink-0"
-                                    disabled={!query.trim()}
+                                    disabled={!query.trim() || showFillInHint}
                                 >
                                     <IconArrowRight className="size-4" />
                                 </ButtonPrimitive>

@@ -16,9 +16,9 @@ from ee.hogai.chat_agent.prompts import (
     SWITCHING_TO_PLAN_PROMPT,
     TASK_MANAGEMENT_PROMPT,
     TONE_AND_STYLE_PROMPT,
-    TOOL_USAGE_POLICY_PROMPT,
     WRITING_STYLE_PROMPT,
 )
+from ee.hogai.chat_agent.prompts.base import get_tool_usage_policy_prompt
 from ee.hogai.chat_agent.prompts.plan import (
     CHAT_ONBOARDING_TASK_PROMPT,
     CHAT_PLAN_AGENT_PROMPT,
@@ -29,7 +29,7 @@ from ee.hogai.chat_agent.toolkit import DEFAULT_TOOLS
 from ee.hogai.core.agent_modes.prompt_builder import ROOT_GROUPS_PROMPT, AgentPromptBuilderBase
 from ee.hogai.core.plan_mode import EXECUTION_CAPABILITIES_PROMPT, PLANNING_TASK_PROMPT
 from ee.hogai.tools.switch_mode import _get_default_tools_prompt, _get_modes_prompt
-from ee.hogai.utils.feature_flags import has_plan_mode_feature_flag
+from ee.hogai.utils.feature_flags import has_plan_mode_feature_flag, is_web_search_available
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -86,7 +86,9 @@ class ChatAgentPlanPromptBuilder(AgentPromptBuilderBase):
             product_advocacy=PRODUCT_ADVOCACY_PROMPT,
             switch_to_execution=SWITCHING_TO_EXECUTION_PROMPT,
             execution_capabilities=execution_capabilities,
-            tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
+            tool_usage_policy=get_tool_usage_policy_prompt(
+                web_search_available=is_web_search_available(self._team, self._user)
+            ),
         )
 
         format_args = {
@@ -122,6 +124,8 @@ class ChatAgentPromptBuilder(AgentPromptBuilderBase):
             task_management=TASK_MANAGEMENT_PROMPT,
             doing_tasks=DOING_TASKS_PROMPT,
             product_advocacy=PRODUCT_ADVOCACY_PROMPT,
-            tool_usage_policy=TOOL_USAGE_POLICY_PROMPT,
+            tool_usage_policy=get_tool_usage_policy_prompt(
+                web_search_available=is_web_search_available(self._team, self._user)
+            ),
             switching_to_plan=switching_to_plan,
         )

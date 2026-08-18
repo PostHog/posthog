@@ -1,5 +1,7 @@
 from typing import Literal, cast
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.models import Team, User
@@ -148,6 +150,16 @@ def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
     if isinstance(variant, str) and variant in _VALID_LLM_GATEWAY_VARIANTS:
         return cast("LlmGatewayVariant", variant)
     return "control"
+
+
+def is_web_search_available(team: Team, user: User) -> bool:
+    """Web search is an Anthropic server tool. Bedrock as the primary provider can't run it, so a
+    user routed there through the LLM gateway is not offered the tool."""
+    variant = get_llm_gateway_variant(team, user)
+    uses_bedrock_primary = (
+        variant == "gateway-bedrock" and bool(settings.LLM_GATEWAY_URL) and bool(settings.LLM_GATEWAY_API_KEY)
+    )
+    return not uses_bedrock_primary
 
 
 def has_business_knowledge_feature_flag(team: Team) -> bool:

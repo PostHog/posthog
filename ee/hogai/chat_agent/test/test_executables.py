@@ -8,35 +8,26 @@ from parameterized import parameterized
 class TestChatAgentWebSearchToolInclusion(BaseTest):
     @parameterized.expand(
         [
-            ("control", True),
-            ("gateway-anthropic", True),
-            ("gateway-bedrock", False),
+            ("available", True, 1),
+            ("unavailable", False, 0),
         ]
     )
     @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
-    async def test_web_search_included_based_on_variant(self, variant, should_include, mock_get_tools):
+    async def test_web_search_included_when_available(self, _name, available, expected_count, mock_get_tools):
         from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
         from ee.hogai.utils.types.base import AssistantState
 
         mock_get_tools.return_value = []
 
         with (
-            patch("ee.hogai.chat_agent.toolkit.get_llm_gateway_variant", return_value=variant),
-            patch("ee.hogai.chat_agent.toolkit.settings") as mock_settings,
+            patch("ee.hogai.chat_agent.toolkit.is_web_search_available", return_value=available),
             patch("ee.hogai.chat_agent.toolkit.has_mcp_gateway_feature_flag", return_value=False),
         ):
-            mock_settings.LLM_GATEWAY_URL = "http://gateway:3308"
-            mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
             manager = ChatAgentToolkitManager(team=self.team, user=self.user, context_manager=MagicMock())
             tools = await manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
 
             web_search_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "web_search_20250305"]
-
-            if should_include:
-                self.assertEqual(len(web_search_tools), 1)
-            else:
-                self.assertEqual(len(web_search_tools), 0)
+            self.assertEqual(len(web_search_tools), expected_count)
 
 
 class TestChatAgentGatewayRouting(BaseTest):

@@ -246,11 +246,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
     // value so the submit guard stays correct while the debounced sync to kea is still pending.
+    // A fill-in suggestion's prefix (e.g. "Find recordings for ") is not a complete prompt, so
+    // block the send and point the user at the hint until they type past it.
     const submissionDisabledReason = contextDisabledReason
         ? contextDisabledReason
         : !inputValue
           ? 'I need some input first'
-          : queueDisabledReason
+          : fillInHint
+            ? fillInHint
+            : queueDisabledReason
 
     // Update autocomplete visibility when the input changes
     useEffect(() => {
