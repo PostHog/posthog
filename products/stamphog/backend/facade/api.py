@@ -13,14 +13,22 @@ from typing import Any, TypeVar, overload
 from uuid import UUID
 
 from django.db import IntegrityError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
-from .enums import TERMINAL_STATUSES, ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .enums import (
+    TERMINAL_STATUSES,
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +137,45 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
     )
 
 
+# A run dispatched from the inbox records its provenance on `output`. Both writers in tasks.py
+# either omit the key or write a populated dict, so testing for the key and testing for truthiness
+# agree — which is what lets the filter below stay in step with the derivation above it.
+_SELF_DRIVING = Q(output__has_key="inbox_review")
+
+# Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
+_RunQS = TypeVar("_RunQS", bound=QuerySet)
+
+
+def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
+    """Why stamphog looked at this PR: inbox provenance first, then the repo's review mode.
+
+    Inbox provenance outranks the repo mode: a self-driving run is dispatched from the inbox
+    whether or not the repo also reviews every PR event.
+    """
+    if (obj.output or {}).get("inbox_review"):
+        return ReviewTrigger.SELF_DRIVING
+    if obj.pull_request.repo_config.review_mode == ReviewMode.LABEL:
+        return ReviewTrigger.LABEL
+    return ReviewTrigger.ALL
+
+
+def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
+    """Narrow to one trigger, mirroring _derive_trigger in SQL.
+
+    The trigger is not a column, so the precedence has to be spelled out twice. Keep the two in
+    step: a run that reads as self-driving in the list must be reachable by that filter, or the
+    filter quietly hides rows the caller just saw. An unrecognized value narrows to nothing rather
+    than falling through to the unfiltered list.
+    """
+    if trigger == ReviewTrigger.SELF_DRIVING:
+        return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.LABEL:
+        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+    if trigger == ReviewTrigger.ALL:
+        return qs.exclude(_SELF_DRIVING).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+    return qs.none()
+
+
 def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     return contracts.ReviewRunDTO(
         id=obj.id,
@@ -141,10 +188,16 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         head_sha=obj.head_sha,
         status=ReviewRunStatus(obj.status),
         verdict=ReviewVerdict(obj.verdict),
+        trigger=_derive_trigger(obj),
+        title=obj.pull_request.title,
+        author_login=obj.pull_request.author_login,
         delivery_id=obj.delivery_id,
         gate_result=obj.gate_result,
         output=obj.output,
         error=obj.error,
+        posted_review_id=obj.posted_review_id,
+        verdict_posted_at=obj.verdict_posted_at,
+        approval_dismissed_at=obj.approval_dismissed_at,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -311,6 +364,7 @@ def list_review_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     status: str | None = None,
+    trigger: str | None = None,
 ) -> LazyDTOList[contracts.ReviewRunDTO]:
     qs = ReviewRun.objects.for_team(team_id).select_related("pull_request__repo_config").order_by("-created_at")
     if repository:
@@ -319,6 +373,8 @@ def list_review_runs(
         qs = qs.filter(pull_request__pr_number=pr_number)
     if status:
         qs = qs.filter(status=status)
+    if trigger:
+        qs = _filter_by_trigger(qs, trigger)
     return LazyDTOList(qs, _review_run_to_dto)
 
 
