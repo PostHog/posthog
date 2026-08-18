@@ -4448,6 +4448,47 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved
+ */
+export type GitHubInstallRequestItemStatusEnumApi =
+    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+
+export const GitHubInstallRequestItemStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+} as const
+
+export interface GitHubInstallRequestItemApi {
+    /** PostHog GitHubInstallRequest row id. */
+    id: string
+    /** GitHub login the install was requested under. Blank if it could not be resolved. */
+    github_login: string
+    /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved */
+    status: GitHubInstallRequestItemStatusEnumApi
+    /**
+     * GitHub App installation id, set once the request is approved.
+     * @nullable
+     */
+    installation_id?: string | null
+    /** When the install approval was requested. */
+    requested_at: string
+    /**
+     * When an org owner approved the request.
+     * @nullable
+     */
+    resolved_at?: string | null
+}
+
+export interface GitHubInstallRequestListResponseApi {
+    /** The user's GitHub App install-approval requests, newest first. */
+    results: GitHubInstallRequestItemApi[]
+}
+
 export interface UserGitHubPrepareCallbackRequestApi {
     /** GitHub App installation id being managed on github.com. */
     installation_id: string

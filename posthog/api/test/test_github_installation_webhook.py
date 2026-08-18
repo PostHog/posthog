@@ -14,7 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 
 def _signature(payload: bytes, secret: str) -> str:
@@ -179,6 +179,42 @@ class TestGitHubInstallationWebhook(TestCase):
         response = self._post({"action": "deleted"})
 
         self.assertEqual(response.status_code, 200)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_created_approves_matching_pending_request_and_leaves_others_alone(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
+        matching = GitHubInstallRequest.objects.create(
+            user=self.user, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+        )
+        other_login = GitHubInstallRequest.objects.create(
+            user=other_user, github_login="someone-else", status=GitHubInstallRequest.Status.PENDING
+        )
+
+        response = self._post({"action": "created", "installation": {"id": 55555}, "requester": {"login": "octocat"}})
+
+        self.assertEqual(response.status_code, 200)
+        matching.refresh_from_db()
+        self.assertEqual(matching.status, GitHubInstallRequest.Status.APPROVED)
+        self.assertEqual(matching.installation_id, "55555")
+        self.assertIsNotNone(matching.resolved_at)
+
+        other_login.refresh_from_db()
+        self.assertEqual(other_login.status, GitHubInstallRequest.Status.PENDING)
+        self.assertIsNone(other_login.installation_id)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    def test_created_without_requester_login_is_a_noop(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        pending = GitHubInstallRequest.objects.create(
+            user=self.user, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+        )
+
+        response = self._post({"action": "created", "installation": {"id": 55555}})
+
+        self.assertEqual(response.status_code, 200)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):

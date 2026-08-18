@@ -9,6 +9,7 @@ import requests
 import structlog
 
 from posthog.api.github_callback import state
+from posthog.api.github_callback.install_requests import record_install_request
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
@@ -58,6 +59,14 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     connect_from_value = authorize_state.connect_from
     flow = authorize_state.flow
     installation_ids: list[str] = []
+
+    if request.GET.get("setup_action") == "request" and not request.GET.get("installation_id"):
+        # Not an org owner: GitHub only requested approval instead of installing. It still
+        # sends an OAuth `code` when the App asks for user authorization on install, so this
+        # has to be checked before the code branches. Same code the team flow surfaces, so
+        # the desktop treats both paths as one pending state.
+        record_install_request(user, code, redirect_uri=github_oauth_redirect_uri() if flow.is_oauth_redirect else None)
+        return _error("github_install_pending")
 
     if not code:
         # GitHub omits the OAuth `code` when the App is already installed on the

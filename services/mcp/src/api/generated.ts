@@ -38023,6 +38023,47 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `approved` - Approved
+     */
+    export type GitHubInstallRequestItemStatusEnum = typeof GitHubInstallRequestItemStatusEnum[keyof typeof GitHubInstallRequestItemStatusEnum];
+
+
+    export const GitHubInstallRequestItemStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+    } as const;
+
+    export interface GitHubInstallRequestItem {
+      /** PostHog GitHubInstallRequest row id. */
+      id: string;
+      /** GitHub login the install was requested under. Blank if it could not be resolved. */
+      github_login: string;
+      /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it.
+       *
+       * * `pending` - Pending
+       * * `approved` - Approved */
+      status: GitHubInstallRequestItemStatusEnum;
+      /**
+         * GitHub App installation id, set once the request is approved.
+         * @nullable
+         */
+      installation_id?: string | null;
+      /** When the install approval was requested. */
+      requested_at: string;
+      /**
+         * When an org owner approved the request.
+         * @nullable
+         */
+      resolved_at?: string | null;
+    }
+
+    export interface GitHubInstallRequestListResponse {
+      /** The user's GitHub App install-approval requests, newest first. */
+      results: GitHubInstallRequestItem[];
+    }
+
     export interface GitHubLinkExistingRequest {
       /**
          * Sibling team in the same organization whose GitHub installation should be reused.
