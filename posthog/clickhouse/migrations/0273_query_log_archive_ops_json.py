@@ -8,6 +8,7 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
@@ -70,7 +71,16 @@ operations = [
             run_sql_with_exceptions(
                 f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OLD_TABLE}",
                 node_roles=[NodeRole.OPS],
-            )
+            ),
+            # Same story for the writable Distributed 0196 created on ENDPOINTS: dropping
+            # OLD_DIST_MV above leaves it with no writer, and off cloud it sits on this node
+            # because ENDPOINTS is this node. Cloud keeps its copy — the endpoints nodes are
+            # not modeled in this repo, so whether it is dead there is the ClickHouse team's
+            # call, not this migration's.
+            run_sql_with_exceptions(
+                f"DROP TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE}",
+                node_roles=[NodeRole.ENDPOINTS],
+            ),
         ]
     ),
     # ---------- C. New JSON-backed data table on OPS ----------
