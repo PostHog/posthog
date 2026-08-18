@@ -157,7 +157,7 @@ class TeamCacheSizeTracker:
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)  # type: ignore[union-attr]
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)  # type: ignore[union-attr]
 
-    def set(self, cache_key: str, data: bytes, data_size: int, ttl: int) -> list[str]:
+    def set(self, cache_key: str, data: bytes, ttl: int) -> list[str]:
         """
         Set cache data with size limit enforcement.
         Returns list of evicted keys.
@@ -166,6 +166,7 @@ class TeamCacheSizeTracker:
         temporarily exceed the limit. This is acceptable because the next write will
         trigger eviction and bring the size back under limit.
         """
+        data_size = len(data)
         limit = get_team_cache_limit(self.team_id)
         evicted: list[str] = []
         size_before = self.get_total_size()

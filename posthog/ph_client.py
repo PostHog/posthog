@@ -52,6 +52,7 @@ def get_feature_flag_or_none(
     key: str,
     distinct_id: str,
     groups: dict[str, str] | None = None,
+    group_properties: dict[str, dict[str, Any]] | None = None,
     only_evaluate_locally: bool = False,
     send_feature_flag_events: bool = True,
 ) -> str | bool | None:
@@ -66,6 +67,7 @@ def get_feature_flag_or_none(
                 key,
                 distinct_id,
                 groups=groups,
+                group_properties=group_properties,
                 only_evaluate_locally=only_evaluate_locally,
                 send_feature_flag_events=send_feature_flag_events,
             ),

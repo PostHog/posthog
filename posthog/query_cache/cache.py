@@ -80,7 +80,7 @@ class QueryCache:
                 team_id=self.team_id, cache_key=self.cache_key, payload=fresh_response_serialized
             )
             tracker = TeamCacheSizeTracker(self.team_id)
-            tracker.set(self.cache_key, storage_bytes, len(storage_bytes), settings.CACHED_RESULTS_TTL)
+            tracker.set(self.cache_key, storage_bytes, settings.CACHED_RESULTS_TTL)
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return

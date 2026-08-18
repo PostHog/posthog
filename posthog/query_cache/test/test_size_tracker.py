@@ -137,7 +137,7 @@ class TestTeamCacheSizeTracker(BaseTest):
 
     def test_set_method_writes_cache_and_tracks(self):
         data = b"test_data_content"
-        self.tracker.set("test_key_1", data, len(data), 300)
+        self.tracker.set("test_key_1", data, 300)
 
         # Cache should be set
         self.assertEqual(self._entry("test_key_1"), data)
@@ -157,7 +157,7 @@ class TestTeamCacheSizeTracker(BaseTest):
 
         # This should trigger eviction of test_key_1
         data3 = b"z" * 200
-        evicted = self.tracker.set("test_key_3", data3, len(data3), 300)
+        evicted = self.tracker.set("test_key_3", data3, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIsNone(self._entry("test_key_1"))
@@ -226,7 +226,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 200)
 
         large_data = b"z" * 600
-        evicted = self.tracker.set("large_key", large_data, len(large_data), 300)
+        evicted = self.tracker.set("large_key", large_data, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIn("test_key_2", evicted)
@@ -243,7 +243,7 @@ class TestTeamCacheSizeTracker(BaseTest):
         tracker.purge()
 
         data = b"test_data_content"
-        tracker.set("test_key", data, len(data), 300)
+        tracker.set("test_key", data, 300)
 
         # Entry and tracking both live in the injected client, not the shared one
         self.assertEqual(injected.get(entry_redis_key("test_key")), data)

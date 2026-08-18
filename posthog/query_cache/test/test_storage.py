@@ -70,6 +70,8 @@ class TestS3PointerCodec(SimpleTestCase):
         [
             ("not_json", S3_POINTER_MAGIC + b"notjson"),
             ("missing_keys", S3_POINTER_MAGIC + b'{"v": 1}'),
+            ("unknown_version", S3_POINTER_MAGIC + b'{"v": 2, "b": "bucket", "k": "key"}'),
+            ("non_string_key", S3_POINTER_MAGIC + b'{"v": 1, "b": "bucket", "k": [1, 2]}'),
         ]
     )
     def test_corrupt_pointer_decodes_to_none(self, _name, data):
@@ -114,6 +116,17 @@ class TestS3WriteMode(SimpleTestCase):
             assert s3_write_mode(team_id=1) == "off"
             flag_mock.assert_not_called()
 
+    def test_flag_evaluation_supplies_group_properties(self):
+        # Without group_properties, an id-filtered rollout evaluates inconclusive under
+        # only_evaluate_locally and silently reads as off.
+        with (
+            patch("posthog.query_cache.storage._organization_id_for_team", return_value="0189-org-uuid"),
+            patch("posthog.query_cache.storage.get_feature_flag_or_none", return_value="on") as flag_mock,
+        ):
+            assert s3_write_mode(team_id=1) == "on"
+        assert flag_mock.call_args.kwargs["groups"] == {"organization": "0189-org-uuid"}
+        assert flag_mock.call_args.kwargs["group_properties"] == {"organization": {"id": "0189-org-uuid"}}
+
 
 def _redis_raw(cache_key: str) -> bytes | None:
     # Reach the client through the module so the fakeredis monkeypatch in conftest applies.
@@ -139,6 +152,32 @@ class TestStoredValueFormats(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
+    def test_compression_kill_switch_stores_raw_and_round_trips(self):
+        cache_key = f"storage_kill_switch_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        response = {"is_cached": False, "results": [{"data": _incompressible_rows(10)}], "cache_key": "k"}
+
+        with override_settings(USE_REDIS_COMPRESSION=False):
+            cache.store_result(response=response, target_age=None)
+
+        raw = _redis_raw(cache_key)
+        assert raw is not None
+        assert not raw.startswith(ZSTD_FRAME_MAGIC)
+        entry = cache.lookup().entry
+        assert entry is not None
+        assert entry.as_full_response() == response
+
+    def test_undecompressable_inline_value_reads_as_miss(self):
+        cache_key = f"storage_bad_frame_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        response = {"is_cached": False, "results": [{"data": _incompressible_rows(10)}], "cache_key": "k"}
+        cache.store_result(response=response, target_age=None)
+
+        # A corrupt frame's declared content size raises MemoryError, not zstd.Error.
+        with patch("posthog.query_cache.storage.zstd.decompress", side_effect=MemoryError):
+            assert cache.lookup().entry is None
+        assert _redis_raw(cache_key) is None
+
     @parameterized.expand(
         [
             ("pickled", False),
@@ -158,7 +197,7 @@ class TestStoredValueFormats(BaseTest):
         assert entry.as_full_response() == response
 
 
-@override_settings(QUERY_CACHE_S3_MIN_COMPRESSED_BYTES=64)
+@override_settings(QUERY_CACHE_S3_MIN_COMPRESSED_BYTES=64, OBJECT_STORAGE_ENABLED=True)
 class TestQueryCacheS3Routing(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -275,6 +314,22 @@ class TestQueryCacheS3Routing(BaseTest):
 
         assert cache.lookup().entry is None
         assert _redis_raw(cache_key) is None
+
+    def test_disabled_object_storage_reads_as_miss_and_keeps_pointer(self):
+        cache_key = f"s3_disabled_read_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        response = self._large_response()
+
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            cache.store_result(response=response, target_age=None)
+
+        with override_settings(OBJECT_STORAGE_ENABLED=False):
+            assert cache.lookup().entry is None
+            assert self._redis_holds_pointer(cache_key)
+
+        entry = cache.lookup().entry
+        assert entry is not None
+        assert entry.as_full_response() == response
 
     def test_transient_s3_error_keeps_pointer_and_recovers(self):
         cache_key = f"s3_transient_{self.team.pk}"

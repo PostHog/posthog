@@ -16,8 +16,9 @@ storage format announces itself in its first bytes:
 - No marker: the result as-is, for values too small to be worth a zstd frame.
 
 Sniffing is unambiguous because results start with JSON or QUERY_CACHE_SPLIT_MAGIC, never
-with a marker. A pod whose code predates a format treats it as a cache miss and recomputes,
-so introducing a format costs at most one recompute per entry during a deploy.
+with a marker. A pod whose code predates a format cannot read it: it logs a read error,
+deletes the entry, and recomputes. Its rewrite is readable by every version, so a
+mixed-version deploy costs at most one extra recompute per entry.
 """
 
 import io
@@ -28,7 +29,6 @@ from typing import Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.core.cache import caches
-from django.db import DatabaseError, InterfaceError
 
 import zstd
 import structlog
@@ -81,36 +81,53 @@ S3_READ_COUNTER = Counter(
 )
 
 # Only blobs of at least QUERY_CACHE_S3_MIN_COMPRESSED_BYTES reach S3, so a round trip rarely
-# beats 50ms, while multi-MB transfers need resolution out to tens of seconds.
+# beats 50ms, while multi-MB transfers need resolution out to tens of seconds. Durations carry
+# outcome labels because failures return fast (1s connect timeout, no retries); folded into
+# one series they would make latency look better during an S3 outage.
 _S3_DURATION_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, float("inf")]
 
 S3_WRITE_DURATION = Histogram(
     name="posthog_query_cache_s3_write_duration_seconds",
-    documentation="Time spent uploading a query cache blob to S3.",
+    documentation="Time spent uploading a query cache blob to S3, by write mode and outcome.",
+    labelnames=["mode", "outcome"],
     buckets=_S3_DURATION_BUCKETS,
 )
 
 S3_READ_DURATION = Histogram(
     name="posthog_query_cache_s3_read_duration_seconds",
-    documentation="Time spent fetching a query cache blob from S3.",
+    documentation="Time spent fetching a query cache blob from S3, by outcome.",
+    labelnames=["outcome"],
     buckets=_S3_DURATION_BUCKETS,
+)
+
+LEGACY_VALUE_READ_COUNTER = Counter(
+    name="posthog_query_cache_legacy_value_read_total",
+    documentation="Successful reads of values written through django_redis before this module "
+    "owned the value bytes; the legacy unpickling path is deletable once this stays at zero.",
 )
 
 
 def _record_s3_write(mode: QueryCacheS3Mode, outcome: str, seconds: Optional[float] = None) -> None:
     S3_WRITE_COUNTER.labels(mode=mode, outcome=outcome).inc()
     if seconds is not None:
-        S3_WRITE_DURATION.observe(seconds)
+        S3_WRITE_DURATION.labels(mode=mode, outcome=outcome).observe(seconds)
 
 
 def _record_s3_read(outcome: str, seconds: Optional[float] = None) -> None:
     S3_READ_COUNTER.labels(outcome=outcome).inc()
     if seconds is not None:
-        S3_READ_DURATION.observe(seconds)
+        S3_READ_DURATION.labels(outcome=outcome).observe(seconds)
 
 
 def query_cache_raw_client() -> Redis | RedisCluster:
     return get_redis_connection(QUERY_CACHE_ALIAS)
+
+
+def query_cache_read_client() -> Redis | RedisCluster:
+    # write=False keeps GETs on the reader replica, as the replaced caches[alias].get() did.
+    # get_redis_connection's default write client would silently shift the cache's full read
+    # QPS onto the primary wherever a reader is configured.
+    return get_redis_connection(QUERY_CACHE_ALIAS, write=False)
 
 
 def entry_redis_key(cache_key: str) -> str:
@@ -121,7 +138,7 @@ def entry_redis_key(cache_key: str) -> str:
 
 
 def load_entry_value(cache_key: str) -> Optional[bytes]:
-    return cast(Optional[bytes], query_cache_raw_client().get(entry_redis_key(cache_key)))
+    return cast(Optional[bytes], query_cache_read_client().get(entry_redis_key(cache_key)))
 
 
 def delete_entry(cache_key: str) -> None:
@@ -136,19 +153,24 @@ def _delete_entry_silently(cache_key: str) -> None:
 
 
 def encode_stored_value(*, team_id: int, cache_key: str, payload: bytes) -> bytes:
-    """The exact bytes to store in Redis for a serialized result.
+    """The exact bytes to store in Redis: the raw payload, an S3 pointer record, or the zstd blob.
 
-    Compression happens here, once: the same compressed bytes serve as the inline Redis
-    value, the S3 routing decision, and the S3 upload body.
+    Only a fully qualified S3 write returns the pointer (blob large enough, flag "on", upload
+    succeeded); every other path falls through to the inline blob, including "shadow", which
+    uploads but deliberately discards the pointer. Compression happens here, once: the same
+    compressed bytes serve as the inline Redis value, the S3 routing decision, and the S3
+    upload body.
     """
-    if len(payload) <= COMPRESSION_FLOOR_BYTES:
+    # USE_REDIS_COMPRESSION is the fleet-wide compression kill switch; honoring it here also
+    # bypasses S3, which routes on compressed size.
+    if len(payload) <= COMPRESSION_FLOOR_BYTES or not settings.USE_REDIS_COMPRESSION:
         return payload
     blob = zstd.compress(payload, ZSTD_PRESET, ZSTD_THREADS)
     if len(blob) >= settings.QUERY_CACHE_S3_MIN_COMPRESSED_BYTES:
         mode = s3_write_mode(team_id)
         if mode != "off":
             # "on" stores the pointer so the blob stops counting against the team's Redis
-            # cache budget. Upload failures fall back to the inline blob.
+            # cache budget.
             pointer = write_blob(team_id=team_id, cache_key=cache_key, blob=blob, mode=mode)
             if mode == "on" and pointer is not None:
                 return pointer
@@ -167,7 +189,9 @@ def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Option
     if value.startswith(ZSTD_FRAME_MAGIC):
         try:
             payload = zstd.decompress(value)
-        except zstd.Error:
+        except Exception:
+            # Broader than zstd.Error on purpose: a corrupt frame's declared content size
+            # raises MemoryError or OverflowError, and this function must never raise.
             logger.warning("query_cache_decompress_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
             _delete_entry_silently(cache_key)
             return None
@@ -202,6 +226,10 @@ def decode_pointer(data: bytes) -> Optional[S3BlobPointer]:
         return None
     try:
         payload = OrjsonJsonSerializer({}).loads(data[len(S3_POINTER_MAGIC) :])
+        # An unrecognized version or shape must land on the corrupt path (delete + recompute),
+        # not decode into a bogus pointer that is retried against S3 for its whole TTL.
+        if payload.get("v") != 1 or not isinstance(payload.get("b"), str) or not isinstance(payload.get("k"), str):
+            return None
         return S3BlobPointer(bucket=payload["b"], key=payload["k"])
     except Exception:
         return None
@@ -216,10 +244,10 @@ def _organization_id_for_team(team_id: int) -> Optional[str]:
         return str(team.organization_id)
     except Team.DoesNotExist:
         return None
-    except (DatabaseError, InterfaceError):
-        # Caching is an optimization; a struggling Postgres must not fail the write path.
-        # InterfaceError (a dropped connection, e.g. after a pgbouncer recycle) is a sibling of
-        # DatabaseError in django.db, not a subclass, so it has to be named separately.
+    except Exception:
+        # Caching is an optimization, so nothing that fails here (a struggling Postgres, a
+        # dropped pgbouncer connection, anything unexpected) may abort the write path;
+        # returning None sends the caller to the inline Redis path.
         logger.warning("query_cache_s3_org_lookup_failed", team_id=team_id, exc_info=True)
         return None
 
@@ -236,6 +264,10 @@ def s3_write_mode(team_id: int) -> QueryCacheS3Mode:
         QUERY_CACHE_S3_FLAG,
         organization_id,
         groups={"organization": organization_id},
+        # Local evaluation matches property filters only against properties supplied in the
+        # call; without the id, an id-targeted rollout evaluates inconclusive and reads as
+        # off. Filters on any other organization property still read as off.
+        group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
@@ -275,9 +307,15 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
     """Resolve a pointer record to the decompressed payload bytes. Never raises."""
     pointer = decode_pointer(pointer_bytes)
     if pointer is None:
-        _record_s3_read("corrupt")
+        _record_s3_read("pointer_corrupt")
         logger.warning("query_cache_s3_pointer_corrupt", team_id=team_id, cache_key=cache_key)
         _delete_entry_silently(cache_key)
+        return None
+    if not settings.OBJECT_STORAGE_ENABLED:
+        # UnavailableStorage returns None for every read, indistinguishable from a missing
+        # blob; deleting on that signal would destroy valid pointers fleet-wide as soon as
+        # one pod runs without object storage. Miss for this pod, keep the pointer.
+        _record_s3_read("storage_disabled")
         return None
     fetch_start = time.perf_counter()
     try:
@@ -293,8 +331,10 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
         return None
     try:
         data = zstd.decompress(payload)
-    except zstd.Error:
-        _record_s3_read("corrupt", fetch_seconds)
+    except Exception:
+        # Broader than zstd.Error on purpose: a corrupt frame's declared content size raises
+        # MemoryError or OverflowError, and this function must never raise.
+        _record_s3_read("blob_corrupt", fetch_seconds)
         logger.warning("query_cache_s3_decompress_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
         _delete_entry_silently(cache_key)
         return None
@@ -329,4 +369,5 @@ def _unpickle_if_legacy(payload: bytes, *, team_id: int, cache_key: str) -> Opti
         logger.warning("query_cache_legacy_value_not_bytes", team_id=team_id, cache_key=cache_key)
         _delete_entry_silently(cache_key)
         return None
+    LEGACY_VALUE_READ_COUNTER.inc()
     return legacy

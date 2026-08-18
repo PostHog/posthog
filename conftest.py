@@ -290,3 +290,4 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
     from posthog.query_cache import storage  # noqa: PLC0415
 
     monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
+    monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())
