@@ -62,7 +62,7 @@ The fastest and most reliable way to get started with PostHog is signing up for 
 
 ### Self-hosting the open-source hobby deploy (Advanced)
 
-If you want to self-host PostHog, you can deploy a hobby instance in one line on Linux with Docker (recommended 4GB memory):
+If you want to self-host PostHog, you can deploy a hobby instance in one line on Linux with Docker (recommended 8GB memory):
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)"
