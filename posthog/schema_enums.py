@@ -2556,6 +2556,7 @@ class ExternalDataSourceType(StrEnum):
     DEEL_FLOWS = "DeelFlows"
     HOOTSUITE = "Hootsuite"
     WISPR_FLOW = "WisprFlow"
+    SAM_CART = "SamCart"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2960,6 +2961,7 @@ class IntegrationKind(StrEnum):
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    YOUTUBE_ANALYTICS = "youtube-analytics"
 
 
 class IntervalType(StrEnum):
