@@ -445,7 +445,7 @@ fn ai_events_overflow_valve(config: &Config) -> bool {
 /// The AI byte budget this deployment enforces, or `0` to skip building the
 /// limiter entirely. Import is exempt — backfills are never throttled, matching
 /// the other limiters — and not building the limiter is the whole exemption, so
-/// `drop_ai_byte_limited` needs no capture-mode awareness of its own.
+/// neither pipeline's charge step needs capture-mode awareness of its own.
 fn ai_byte_limit_per_second(config: &Config) -> u64 {
     if matches!(config.capture_mode, CaptureMode::Import) {
         return 0;

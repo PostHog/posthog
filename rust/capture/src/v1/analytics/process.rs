@@ -11,13 +11,14 @@ use super::constants::{
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
-    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS,
-    DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
-    ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_EVENT_RESTRICTION_DROP,
+    DETAIL_INVALID_OPTIONS, DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
+    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
+use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::is_ai_event;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
@@ -127,6 +128,10 @@ pub async fn process_batch(
             &mut events,
         )
         .await;
+    }
+
+    if let Some(ref limiter) = state.ai_byte_rate_limiter {
+        apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
     }
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
@@ -816,6 +821,47 @@ async fn apply_restrictions(
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
                 .increment(1);
         }
+    }
+}
+
+/// Charge the AI lane's per-project byte budget, dropping the events that take
+/// the project past it. The budget is fleet-wide and shared with the v0 path
+/// (`events::ai_byte_limit`), so a token's bytes count once no matter which
+/// pipeline carries them.
+///
+/// Only `Destination::AiEvents` is charged: the budget governs the AI lane, and
+/// restrictions have already moved anything they redirect off it. The
+/// `EventResult::Ok` guard keeps every upstream drop — validation, quota, a
+/// `DropEvent` restriction — off the budget, since none of those bytes were
+/// ever going to be published.
+///
+/// Charged bytes are the event's properties, which dominate an AI event's wire
+/// size; `charge_ai_bytes` adds the flat envelope allowance the v0 path uses.
+async fn apply_ai_byte_limits(
+    limiter: &GlobalRateLimiter,
+    token: &str,
+    events: &mut [WrappedEvent],
+) {
+    let mut dropped: u64 = 0;
+
+    for event in events.iter_mut() {
+        if event.result != EventResult::Ok || event.destination != Destination::AiEvents {
+            continue;
+        }
+        if charge_ai_bytes(limiter, token, event.event.properties.get().len()).await {
+            event.result = EventResult::Drop;
+            event.details = Some(DETAIL_AI_BYTE_RATE_LIMITED);
+            event.destination = Destination::Drop;
+            dropped += 1;
+        }
+    }
+
+    if dropped > 0 {
+        // Same label value as the legacy path's
+        // capture_events_dropped_total{cause=...} so one alert expression
+        // covers both metric names.
+        metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "ai_byte_rate_limited")
+            .increment(dropped);
     }
 }
 
@@ -1882,6 +1928,73 @@ mod tests {
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, expected_destination);
+    }
+
+    /// The byte budget governs the AI lane and nothing else: a second AI-lane
+    /// event past the project's budget drops, while a second event on any
+    /// other destination is never charged, however far over the budget the
+    /// project already is.
+    #[rstest::rstest]
+    #[case::ai_lane_is_limited(Destination::AiEvents, EventResult::Drop, Destination::Drop)]
+    #[case::analytics_main_is_not(
+        Destination::AnalyticsMain,
+        EventResult::Ok,
+        Destination::AnalyticsMain
+    )]
+    #[tokio::test]
+    async fn ai_byte_limits_apply_to_the_ai_lane_only(
+        #[case] destination: Destination,
+        #[case] expected_result: EventResult,
+        #[case] expected_destination: Destination,
+    ) {
+        // Each event weighs the flat envelope allowance plus its two-byte
+        // properties, so the token's first charge is admitted and the second
+        // takes it past an 800-byte budget.
+        let limiter = GlobalRateLimiter::mock_budget(800);
+
+        let mut events = vec![
+            wrapped_event("$ai_generation", "user-1"),
+            wrapped_event("$ai_generation", "user-2"),
+        ];
+        for event in events.iter_mut() {
+            event.destination = destination.clone();
+        }
+
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, destination);
+        assert_eq!(events[1].result, expected_result);
+        assert_eq!(events[1].destination, expected_destination);
+    }
+
+    /// An event already dropped upstream keeps its destination on some paths —
+    /// a validation drop is `Drop` on the AI lane — so the `Ok` guard is what
+    /// keeps those bytes off the budget, leaving room for the events that
+    /// still have somewhere to go.
+    #[tokio::test]
+    async fn ai_byte_limits_skip_events_dropped_upstream() {
+        let limiter = GlobalRateLimiter::mock_budget(800);
+
+        let mut already_dropped = wrapped_event("$ai_generation", "user-invalid");
+        already_dropped.destination = Destination::AiEvents;
+        already_dropped.result = EventResult::Drop;
+        already_dropped.details = Some(DETAIL_INVALID_OPTIONS);
+
+        let mut publishable = wrapped_event("$ai_generation", "user-1");
+        publishable.destination = Destination::AiEvents;
+
+        let mut events = vec![already_dropped, publishable];
+
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
+
+        let ev = find_by_did(&events, "user-1");
+        assert_eq!(
+            ev.result,
+            EventResult::Ok,
+            "a dropped event's bytes must not shed a publishable one"
+        );
+        assert_eq!(ev.destination, Destination::AiEvents);
     }
 
     #[tokio::test]
@@ -3647,6 +3760,43 @@ mod tests {
             assert_eq!(
                 topics,
                 vec!["ai_events", "ai_events_overflow", "events_main"]
+            );
+        });
+    }
+
+    /// process_batch wiring: the AI byte budget runs in the v1 pipeline too, so
+    /// a project past its budget stops reaching the AI topic while its
+    /// analytics events are untouched.
+    #[tokio::test]
+    async fn process_batch_enforces_the_ai_byte_budget() {
+        // The flat envelope allowance alone puts two events past an 800-byte
+        // budget, so the token's first AI charge is admitted and the second
+        // exceeds it.
+        let ts = TestStateBuilder::new()
+            .with_ai_byte_rate_limiter(Arc::new(GlobalRateLimiter::mock_budget(800)))
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            Event {
+                event: "$ai_generation".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
+            topics.sort_unstable();
+            assert_eq!(
+                topics,
+                vec!["ai_events", "events_main"],
+                "the over-budget AI event must not reach the sink, and the analytics event must be untouched"
             );
         });
     }

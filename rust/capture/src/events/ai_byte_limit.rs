@@ -1,18 +1,21 @@
-//! Drops over-budget events on the AI lane. `DataType::AiEvents` carries every
-//! event on the `AI_EVENT_NAMES` allowlist, bound for the AI Kafka topic, on
-//! every deployment, so the lane
-//! is the whole gate. Import deployments are exempt — backfills are never
-//! throttled, matching the other limiters — which setup enforces by not
-//! building the limiter at all in import mode.
+//! The AI lane's per-project byte budget. The lane is the whole gate: every
+//! event on the `AI_EVENT_NAMES` allowlist is bound for the AI Kafka topic on
+//! every deployment, stamped `DataType::AiEvents` in v0 and
+//! `Destination::AiEvents` in v1. Import deployments are exempt — backfills
+//! are never throttled, matching the other limiters — which setup enforces by
+//! not building the limiter at all in import mode.
 //!
 //! The budget is per project token and fleet-wide: the shared global rate
-//! limiter is charged an event's serialized size instead of `1`, so a token's
-//! bytes count against one window no matter which pod or which capture
-//! deployment ingests them.
+//! limiter is charged an event's payload size instead of `1`, so a token's
+//! bytes count against one window no matter which pod, which capture
+//! deployment, or which pipeline ingests them.
 //!
-//! Callers charge the budget after event restrictions have filtered the batch,
-//! so an event a `DropEvent` restriction discards never spends the project's
-//! budget.
+//! Both pipelines charge through [`charge_ai_bytes`] and act on the verdict in
+//! their own idiom — v0 drops the event from the batch here in
+//! [`drop_ai_byte_limited`], v1 marks it `EventResult::Drop` in
+//! `v1::analytics::process::apply_ai_byte_limits`. Both charge after event
+//! restrictions have filtered the batch, so an event a `DropEvent` restriction
+//! discards never spends the project's budget.
 use std::sync::Arc;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
@@ -21,6 +24,29 @@ use crate::v0_request::{DataType, ProcessedEvent};
 
 /// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
 const ENVELOPE_WEIGHT_BYTES: usize = 512;
+
+/// Charge `payload_bytes` against `token`'s AI budget and report whether the
+/// event is over it.
+///
+/// Events with an empty token are never charged: keying on `""` would pool
+/// unrelated senders into one bucket. Over-budget events are still charged —
+/// that sheds a flood, and the bytes crossed the wire whether or not we
+/// forward them.
+pub async fn charge_ai_bytes(
+    limiter: &GlobalRateLimiter,
+    token: &str,
+    payload_bytes: usize,
+) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    // Approximate wire size: the payload plus a flat allowance for the fixed
+    // envelope fields and JSON-escaping. The budget is a coarse abuse guard,
+    // not an exact byte accountant, so the two pipelines' slightly different
+    // payload measures do not need reconciling.
+    let weight = (payload_bytes + ENVELOPE_WEIGHT_BYTES) as u64;
+    limiter.is_limited(token, weight).await.is_some()
+}
 
 pub async fn drop_ai_byte_limited(
     events: &mut Vec<ProcessedEvent>,
@@ -36,21 +62,11 @@ pub async fn drop_ai_byte_limited(
     let mut dropped: u64 = 0;
 
     for event in events.drain(..) {
-        if event.metadata.data_type != DataType::AiEvents || event.event.token.is_empty() {
+        if event.metadata.data_type != DataType::AiEvents {
             kept.push(event);
             continue;
         }
-        // Approximate wire size: the serialized payload plus a flat allowance
-        // for the `CapturedEvent` envelope and JSON-escaping of `data`. The
-        // budget is a coarse abuse guard, not an exact byte accountant.
-        let weight = (event.event.data.len() + ENVELOPE_WEIGHT_BYTES) as u64;
-        // Over-budget events are still charged: this sheds a flood, and the
-        // bytes crossed the wire whether or not we forward them.
-        if limiter
-            .is_limited(&event.event.token, weight)
-            .await
-            .is_some()
-        {
+        if charge_ai_bytes(limiter, &event.event.token, event.event.data.len()).await {
             dropped += 1;
             continue;
         }

@@ -701,6 +701,7 @@ pub struct TestStateBuilder {
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
@@ -724,6 +725,7 @@ impl TestStateBuilder {
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
+            ai_byte_rate_limiter: None,
             mock_producer: None,
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
@@ -792,6 +794,12 @@ impl TestStateBuilder {
     /// Add a global rate limiter.
     pub fn with_global_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
         self.global_rate_limiter = Some(limiter);
+        self
+    }
+
+    /// Add the AI lane's byte-budget limiter.
+    pub fn with_ai_byte_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
+        self.ai_byte_rate_limiter = Some(limiter);
         self
     }
 
@@ -931,7 +939,7 @@ impl TestStateBuilder {
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
             overflow_limiter,
             ai_events_overflow_limiter,
-            ai_byte_rate_limiter: None,
+            ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
