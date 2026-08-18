@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
-    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
+    sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -29,6 +29,19 @@ pub struct Args {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
+
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id onto the uploaded mapping: the previous behavior. EXPERIMENTAL `event` leaves
+    /// the mapping release-independent, and each event resolves its own release from the app
+    /// version and namespace the SDK already sends. The release is created either way. Also
+    /// settable via `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -38,6 +51,7 @@ pub fn upload(args: &Args) -> Result<()> {
         batch_size,
         release,
         conflict,
+        release_mode,
     } = args;
 
     let ReleaseArgs {
@@ -73,7 +87,20 @@ pub fn upload(args: &Args) -> Result<()> {
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
 
-    file.release_id = release.map(|r| r.id.to_string());
+    // The release is created in both modes, so the server has a row to resolve an event's
+    // `$app_namespace` / `$app_version` / `$app_build` onto. Event mode only skips binding it to
+    // the mapping: a map id is derived from the mapping's own content, so the same mapping keeps
+    // one symbol set across releases instead of colliding with the release the first upload
+    // stamped on it.
+    //
+    // Unlike sourcemaps, event mode does not imply `--force` here. The uploaded bytes are the
+    // mapping itself, with no injected release id, so a rebuild of unchanged code produces
+    // identical content under the same id and never conflicts. A conflict means the caller reused
+    // a `--map-id` for a different mapping, which is worth reporting in either mode.
+    file.release_id = match release_mode {
+        ReleaseMode::Event => None,
+        ReleaseMode::SymbolSet => release.map(|r| r.id.to_string()),
+    };
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
@@ -87,4 +114,46 @@ pub fn upload(args: &Args) -> Result<()> {
     upload_result?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct ProguardCli {
+        #[command(subcommand)]
+        command: crate::proguard::ProguardSubcommand,
+    }
+
+    fn parse(extra: &[&str]) -> Args {
+        let mut argv = vec![
+            "proguard",
+            "upload",
+            "--path",
+            "mapping.txt",
+            "--map-id",
+            "id",
+        ];
+        argv.extend_from_slice(extra);
+        let crate::proguard::ProguardSubcommand::Upload(args) =
+            ProguardCli::parse_from(argv).command;
+        args
+    }
+
+    #[test]
+    fn defaults_to_binding_the_release_to_the_mapping() {
+        // Every existing caller omits the flag, and they must keep uploading mappings stamped with
+        // their release.
+        assert_eq!(parse(&[]).release_mode, ReleaseMode::SymbolSet);
+    }
+
+    #[test]
+    fn accepts_event_release_mode() {
+        assert_eq!(
+            parse(&["--release-mode", "event"]).release_mode,
+            ReleaseMode::Event
+        );
+    }
 }
