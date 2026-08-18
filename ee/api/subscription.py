@@ -98,7 +98,6 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
-# Which rows a target filter is being built for. See _viewable_target_filter for what it changes.
 _Surface = Literal["subscription", "delivery"]
 
 
@@ -115,9 +114,8 @@ def _viewable_queryset(
     viewable = user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
     if user_access_control.is_organization_admin or user_access_control.has_resource_access(resource):
         return viewable
-    # A member denied the whole resource keeps the objects granted to them one by one, plus the ones
-    # they created. filter_queryset_by_access_level applies that rule only once such a grant exists,
-    # so a member with no grants at all would otherwise get every row back.
+    # filter_queryset_by_access_level narrows a resource-wide deny only when the caller also holds an
+    # object grant, so a member with no grants would otherwise get every row back.
     allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get(resource, frozenset())
     return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
@@ -974,10 +972,9 @@ def _blocked_target_ids(
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, surface: _Surface) -> Q:
     """Match only rows whose rendered targets the caller can view.
 
-    `surface` says what is being filtered, and decides how a soft-deleted target counts. On
-    "subscription" a soft-deleted target no longer restricts anything, so the owner can still find
-    the subscription and turn it off. On "delivery" it still does, because a delivery keeps the
-    results it rendered in content_snapshot long after the target is gone.
+    `surface` decides how a soft-deleted target counts. On "subscription" it stops restricting, so
+    the owner can still find the subscription and turn it off. On "delivery" it keeps restricting,
+    because a delivery holds the results it rendered in content_snapshot after the target is gone.
     """
     if not user_access_control.access_controls_supported or user_access_control.is_organization_admin:
         return Q()
@@ -1001,8 +998,8 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
         "dashboard_id"
     )
 
-    # The lookup keys below interpolate `prefix`, which is set from `surface` right above and never
-    # from caller input. That is what each nosemgrep line asserts.
+    # The interpolated prefix is one of two literals set from `surface`, so no caller input reaches a
+    # field path. That is what the nosemgrep lines below assert.
     # nosemgrep: orm-field-injection
     targets_a_blocked_insight = Q(**{f"{prefix}insight_id__in": blocked_insights})
     # nosemgrep: orm-field-injection

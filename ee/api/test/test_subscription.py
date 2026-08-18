@@ -3147,8 +3147,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return create_subscription(team=self.team, created_by=self.user, **kwargs)
 
     def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
-        # content_snapshot is the payload these tests are about: it holds each rendered insight's
-        # query_results, so a delivery row leaks the target even after the target itself is gone.
+        # A delivery keeps each rendered insight's query_results, which is what must stay hidden.
         return SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -3163,9 +3162,8 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
 
     def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True) -> None:
-        # An object rule carries a resource_id and a resource-wide one does not. A rule with no member
-        # attached applies to the whole project. Access controls are cached per request, so any new
-        # rule has to invalidate that cache before the next call.
+        # A rule with no member attached applies to the whole project. Access controls are cached,
+        # so a new rule only takes effect once that cache is cleared.
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
@@ -3376,7 +3374,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.mock_temporal_client.start_workflow.assert_not_called()
 
     def test_create_allows_an_open_insight(self):
-        # Proves the gate doesn't block a member's ordinary subscription.
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
         )
@@ -3399,7 +3396,6 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
-        # Filtering by the restricted insight's id must not tell the caller the subscription exists.
         hidden = self._sub_on_a_restricted_insight()
 
         filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
@@ -3419,8 +3415,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand([("insight",), ("dashboard",)])
     def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, target_field):
-        # Nothing renders from it any more, but the owner still has to be able to switch it off, and
-        # the detail route resolves from the same filtered queryset as the list.
+        # Nothing renders from it any more, but the owner still has to be able to switch it off.
         if target_field == "insight":
             target: Insight | Dashboard = Insight.objects.create(
                 team=self.team, filters={"events": [{"id": "$pageview"}]}
