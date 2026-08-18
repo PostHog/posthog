@@ -25685,7 +25685,8 @@
                 "Zitadel",
                 "DeelFlows",
                 "Hootsuite",
-                "WisprFlow"
+                "WisprFlow",
+                "SamCart"
             ],
             "type": "string"
         },
