@@ -6,6 +6,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
@@ -27,7 +28,7 @@ class GetPrContextInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class GetPrContextOutput:
     pr_url: str
     pr_state: str
