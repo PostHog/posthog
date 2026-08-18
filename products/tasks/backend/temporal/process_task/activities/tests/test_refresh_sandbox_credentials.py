@@ -45,6 +45,7 @@ class TestRefreshSandboxCredentialsActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
             ) as track_event,
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as send_agent_command,
         ):
             output = async_to_sync(activity_environment.run)(
                 refresh_sandbox_credentials,
@@ -54,6 +55,7 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == ["github"]
         assert output.next_refresh_seconds == 20 * 60
         assert output.sandbox_gone is False
+        send_agent_command.assert_not_called()
 
         # git remote rewrite + env-file read both ran against the sandbox.
         assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)

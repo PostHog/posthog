@@ -22,7 +22,7 @@ import deltalake
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
 from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError
-from posthog.temporal.data_modeling.activities.materialize_view import _get_aws_storage_options
+from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
 
 from products.data_modeling.backend.facade.api import get_incremental_state
 
@@ -45,7 +45,7 @@ def _batch(days: list[datetime | None], counts: list[int], *, value_column: str 
 
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
     """Stored rows as (day, value), sorted, so tests assert content rather than counts."""
-    table = deltalake.DeltaTable(table_uri, storage_options=_get_aws_storage_options()).to_pyarrow_table()
+    table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
     value_column = next(name for name in table.column_names if name != "day")
     pairs = list(zip(table.column("day").to_pylist(), table.column(value_column).to_pylist()))
     return sorted(pairs, key=lambda pair: (pair[0] is None, pair[0]))
@@ -155,7 +155,7 @@ class TestIncrementalMaterialization:
         # The returned file list is what the publish copies to S3 for querying. deltalite commits
         # through its own handle, so a handle opened before the upserts would still name the
         # pre-run files here and the published table would silently lose the run's writes.
-        live = deltalake.DeltaTable(first.table_uri, storage_options=_get_aws_storage_options())
+        live = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options())
         assert sorted(second.file_uris) == sorted(live.file_uris())
 
         await database_sync_to_async(asaved_query.refresh_from_db)()
@@ -220,7 +220,7 @@ class TestIncrementalMaterialization:
                 value_column="personId",
             )
 
-        table = deltalake.DeltaTable(first.table_uri, storage_options=_get_aws_storage_options())
+        table = deltalake.DeltaTable(first.table_uri, storage_options=get_aws_storage_options())
         assert "personId" in table.to_pyarrow_table().column_names
         assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20)]
 
