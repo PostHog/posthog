@@ -2,11 +2,17 @@ from typing import Any
 
 from django.conf import settings
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.canvas.backend.contract import canvas_sdk_version, contract_limits
+from products.canvas.backend.contract import (
+    MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH,
+    canvas_sdk_version,
+    contract_limits,
+)
 from products.canvas.backend.models import Canvas, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
@@ -25,10 +31,70 @@ def canvas_url(canvas: Canvas) -> str:
     return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
+class CanvasComponentSizeSerializer(serializers.Serializer):
+    """A component's grid-size contract, in grid units."""
+
+    defaultW = serializers.IntegerField(
+        min_value=1, max_value=MAX_COMPONENT_WIDTH, help_text="Width a new placement starts at, in grid columns."
+    )
+    defaultH = serializers.IntegerField(
+        min_value=1, max_value=MAX_COMPONENT_HEIGHT, help_text="Height a new placement starts at, in grid rows."
+    )
+    minW = serializers.IntegerField(
+        min_value=1, max_value=MAX_COMPONENT_WIDTH, help_text="Narrowest width the component renders usefully at."
+    )
+    minH = serializers.IntegerField(
+        min_value=1, max_value=MAX_COMPONENT_HEIGHT, help_text="Shortest height the component renders usefully at."
+    )
+    maxW = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_COMPONENT_WIDTH,
+        help_text="Widest allowed width; omit for no cap below the grid's width.",
+    )
+    maxH = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_COMPONENT_HEIGHT,
+        help_text="Tallest allowed height; omit for no cap.",
+    )
+
+
+class CanvasComponentMetaSerializer(serializers.Serializer):
+    """A component's placement contract: how grid canvases may place and configure it."""
+
+    size = CanvasComponentSizeSerializer(help_text="Grid-size contract for placements of this component.")
+    configSchema = serializers.DictField(
+        required=False,
+        help_text=(
+            'JSON Schema ("type": "object") for a placement\'s config. The host validates each '
+            "placement's config against it and passes the validated object to the widget at mount."
+        ),
+    )
+
+
 class CanvasSerializer(serializers.ModelSerializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
     channel = serializers.UUIDField(source="channel_id", read_only=True)
+    kind = serializers.ChoiceField(
+        choices=Canvas.KINDS,
+        read_only=True,
+        help_text=(
+            "What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), "
+            "or 'grid' (a composition of components)."
+        ),
+    )
+    description = serializers.CharField(
+        read_only=True,
+        help_text="Short prose describing the canvas. For components, the store-search text.",
+    )
+    component_meta = serializers.SerializerMethodField(
+        help_text=(
+            "For component-kind canvases: the head version's placement contract "
+            "(size, optional configSchema). Null for other kinds and unpublished components."
+        ),
+    )
     current_version_id = serializers.UUIDField(
         source="current_source_version_id",
         read_only=True,
@@ -49,6 +115,8 @@ class CanvasSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "kind",
+            "description",
             "channel",
             "template_id",
             "context",
@@ -57,6 +125,7 @@ class CanvasSerializer(serializers.ModelSerializer):
             "pinned_at",
             "current_version_id",
             "published_build_id",
+            "component_meta",
             "created_by",
             "created_at",
             "updated_at",
@@ -70,6 +139,12 @@ class CanvasSerializer(serializers.ModelSerializer):
     def get_url(self, canvas: Canvas) -> str:
         return canvas_url(canvas)
 
+    @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
+    def get_component_meta(self, canvas: Canvas) -> dict | None:
+        if canvas.kind != Canvas.KIND_COMPONENT or canvas.current_source_version is None:
+            return None
+        return canvas.current_source_version.component_meta
+
 
 class CanvasCreateSerializer(serializers.Serializer):
     """Payload for creating a new, empty canvas in a channel."""
@@ -81,6 +156,26 @@ class CanvasCreateSerializer(serializers.Serializer):
         help_text="Display name for the canvas.",
     )
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
+    kind = serializers.ChoiceField(
+        choices=Canvas.KINDS,
+        required=False,
+        default=Canvas.KIND_FREEFORM,
+        help_text=(
+            "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — "
+            "its published project must declare a `component` placement contract), or 'grid' "
+            "(a composition of components, edited through the layout endpoints)."
+        ),
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text=(
+            "Short prose describing the canvas. For components this is the store-search text agents "
+            "match against — say what the widget shows and what its config controls."
+        ),
+    )
     template_id = serializers.CharField(
         required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
     )
@@ -100,6 +195,12 @@ class CanvasUpdateSerializer(serializers.Serializer):
     # _declared_fields, so self.context still resolves to the serializer context at runtime.
     context = serializers.CharField(  # type: ignore[assignment]
         required=False, allow_blank=True, trim_whitespace=False, help_text="Updated author context markdown."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text="Updated canvas description (for components, the store-search text).",
     )
     pinned = serializers.BooleanField(required=False, help_text="Whether the canvas is pinned in its channel.")
     generation_task_id = serializers.UUIDField(
@@ -196,6 +297,13 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
         default=canvas_sdk_version,
         help_text="Version of the host-injected `ph` canvas SDK the project targets.",
     )
+    component = CanvasComponentMetaSerializer(
+        required=False,
+        help_text=(
+            "Placement contract, required for (and only allowed on) component-kind canvases: "
+            "the grid size the component takes and the JSON Schema of its per-placement config."
+        ),
+    )
     capabilities = CanvasCapabilitiesSerializer(
         required=False,
         default=lambda: {
@@ -244,6 +352,7 @@ class CanvasSummarySerializer(serializers.Serializer):
 
     id = serializers.UUIDField(help_text="The canvas's id.")
     name = serializers.CharField(help_text="Display name of the canvas.")
+    kind = serializers.ChoiceField(choices=Canvas.KINDS, help_text="The canvas's kind (freeform, component, or grid).")
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
     current_version_id = serializers.CharField(
         allow_null=True,
@@ -470,6 +579,11 @@ class CanvasArtifactManifestSerializer(serializers.Serializer):
     )
     capabilities = serializers.DictField(
         help_text="Declared PostHog/network capabilities the artifact is held to at runtime.",
+    )
+    component = serializers.DictField(
+        required=False,
+        allow_null=True,
+        help_text="For component artifacts: the placement contract (size, configSchema) frozen into the build.",
     )
 
 

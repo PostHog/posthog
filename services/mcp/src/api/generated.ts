@@ -14788,11 +14788,90 @@ export namespace Schemas {
     }
 
     /**
+     * * `freeform` - freeform
+     * * `grid` - grid
+     * * `component` - component
+     */
+    export type CanvasKindEnum = typeof CanvasKindEnum[keyof typeof CanvasKindEnum];
+
+
+    export const CanvasKindEnum = {
+      Freeform: 'freeform',
+      Grid: 'grid',
+      Component: 'component',
+    } as const;
+
+    /**
+     * A component's grid-size contract, in grid units.
+     */
+    export interface CanvasComponentSize {
+      /**
+         * Width a new placement starts at, in grid columns.
+         * @minimum 1
+         * @maximum 12
+         */
+      defaultW: number;
+      /**
+         * Height a new placement starts at, in grid rows.
+         * @minimum 1
+         * @maximum 40
+         */
+      defaultH: number;
+      /**
+         * Narrowest width the component renders usefully at.
+         * @minimum 1
+         * @maximum 12
+         */
+      minW: number;
+      /**
+         * Shortest height the component renders usefully at.
+         * @minimum 1
+         * @maximum 40
+         */
+      minH: number;
+      /**
+         * Widest allowed width; omit for no cap below the grid's width.
+         * @minimum 1
+         * @maximum 12
+         */
+      maxW?: number;
+      /**
+         * Tallest allowed height; omit for no cap.
+         * @minimum 1
+         * @maximum 40
+         */
+      maxH?: number;
+    }
+
+    /**
+     * JSON Schema ("type": "object") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.
+     */
+    export type CanvasComponentMetaConfigSchema = { [key: string]: unknown };
+
+    /**
+     * A component's placement contract: how grid canvases may place and configure it.
+     */
+    export interface CanvasComponentMeta {
+      /** Grid-size contract for placements of this component. */
+      size: CanvasComponentSize;
+      /** JSON Schema ("type": "object") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount. */
+      configSchema?: CanvasComponentMetaConfigSchema;
+    }
+
+    /**
      * A canvas document. Version/build content hangs off the source and build endpoints.
      */
     export interface Canvas {
       readonly id: string;
       readonly name: string;
+      /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      readonly kind: CanvasKindEnum;
+      /** Short prose describing the canvas. For components, the store-search text. */
+      readonly description: string;
       readonly channel: string;
       readonly template_id: string;
       readonly context: string;
@@ -14812,6 +14891,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly published_build_id: string | null;
+      /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
+      readonly component_meta: CanvasComponentMeta | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -14939,6 +15020,12 @@ export namespace Schemas {
     export type CanvasArtifactManifestCapabilities = { [key: string]: unknown };
 
     /**
+     * For component artifacts: the placement contract (size, configSchema) frozen into the build.
+     * @nullable
+     */
+    export type CanvasArtifactManifestComponent = { [key: string]: unknown } | null;
+
+    /**
      * The manifest frozen into a ready build: entry, assets, versions, capabilities.
      */
     export interface CanvasArtifactManifest {
@@ -14962,6 +15049,11 @@ export namespace Schemas {
       legacyCode?: string | null;
       /** Declared PostHog/network capabilities the artifact is held to at runtime. */
       capabilities: CanvasArtifactManifestCapabilities;
+      /**
+         * For component artifacts: the placement contract (size, configSchema) frozen into the build.
+         * @nullable
+         */
+      component?: CanvasArtifactManifestComponent;
     }
 
     /**
@@ -15147,6 +15239,14 @@ export namespace Schemas {
       name: string;
       /** Id of the channel the canvas belongs to. */
       channel_id: string;
+      /** What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      kind?: CanvasKindEnum;
+      /** Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls. */
+      description?: string;
       /**
          * Canvas template identifier.
          * @maxLength 64
@@ -15390,6 +15490,8 @@ export namespace Schemas {
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
+      /** Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config. */
+      component?: CanvasComponentMeta;
       /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
@@ -15491,6 +15593,12 @@ export namespace Schemas {
       id: string;
       /** Display name of the canvas. */
       name: string;
+      /** The canvas's kind (freeform, component, or grid).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      kind: CanvasKindEnum;
       /** Id of the channel the canvas belongs to. */
       channel_id: string;
       /**
@@ -55907,6 +56015,8 @@ export namespace Schemas {
       name?: string;
       /** Updated author context markdown. */
       context?: string;
+      /** Updated canvas description (for components, the store-search text). */
+      description?: string;
       /** Whether the canvas is pinned in its channel. */
       pinned?: boolean;
       /**
@@ -69741,6 +69851,18 @@ export namespace Schemas {
       password: string;
     }
 
+    /**
+     * * `resolving` - resolving
+     * * `stopped` - stopped
+     */
+    export type ResolutionStatusEnum = typeof ResolutionStatusEnum[keyof typeof ResolutionStatusEnum];
+
+
+    export const ResolutionStatusEnum = {
+      Resolving: 'resolving',
+      Stopped: 'stopped',
+    } as const;
+
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
 
 
@@ -69897,6 +70019,22 @@ export namespace Schemas {
          * @nullable
          */
       total: number | null;
+    }
+
+    export interface ReviewResolutionStatus {
+      /** Where the run stands: `resolving` while threads are being settled, `stopped` when the run died partway (went quiet with no closing summary).
+       *
+       * * `resolving` - resolving
+       * * `stopped` - stopped */
+      resolution_status: ResolutionStatusEnum;
+      /** Queued threads settled so far this run. */
+      done: number;
+      /** Threads queued for this run. */
+      total: number;
+      /** Settled threads that were fixed with a commit to the branch. */
+      fixed: number;
+      /** Settled threads left for the author: judged worth doing but not safe to fix unattended. */
+      needs_attention: number;
     }
 
     export interface ReviewSelectionChunk {
@@ -70066,10 +70204,12 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
-      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
       progress: ReviewProgress | null;
+      /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+      resolution: ReviewResolutionStatus | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -70221,10 +70361,12 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
-      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
       progress: ReviewProgress | null;
+      /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+      resolution: ReviewResolutionStatus | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -84507,6 +84649,10 @@ export namespace Schemas {
      */
     channel?: string;
     /**
+     * Only return canvases of this kind. kind=component lists the component store.
+     */
+    kind?: CanvasesListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -84514,7 +84660,20 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return canvases whose name or description contains this text (case-insensitive).
+     */
+    search?: string;
     };
+
+    export type CanvasesListKind = typeof CanvasesListKind[keyof typeof CanvasesListKind];
+
+
+    export const CanvasesListKind = {
+      Component: 'component',
+      Freeform: 'freeform',
+      Grid: 'grid',
+    } as const;
 
     export type CanvasesBuildsRetrieveParams = {
     /**

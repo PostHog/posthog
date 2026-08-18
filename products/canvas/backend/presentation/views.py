@@ -120,6 +120,20 @@ def _state_rejection() -> Response:
     )
 
 
+def _grid_rejection(canvas: Canvas) -> Response | None:
+    """Reject file-source writes to a grid canvas, whose source is a layout document."""
+    if canvas.kind != Canvas.KIND_GRID:
+        return None
+    return Response(
+        {
+            "detail": "Grid canvases are compositions of components; edit them through the layout endpoints, "
+            "not source publish.",
+            "code": "wrong_canvas_kind",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class CanvasStateWriteThrottle(SimpleRateThrottle):
     """Per viewer per canvas. State writes are interaction-driven app data, so
     the ceiling is generous — it exists to stop a canvas render loop from
@@ -150,7 +164,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "canvas"
     # unscoped() because a class attribute is built before any team context
     # exists; safely_get_queryset applies the team filter explicitly.
-    queryset = Canvas.objects.unscoped().select_related("created_by")
+    # current_source_version feeds the component_meta field on every row.
+    queryset = Canvas.objects.unscoped().select_related("created_by", "current_source_version")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate", "state"]
@@ -209,6 +224,19 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "channel", OpenApiTypes.UUID, required=False, description="Only return canvases in this channel."
             ),
+            OpenApiParameter(
+                "kind",
+                OpenApiTypes.STR,
+                required=False,
+                enum=Canvas.KINDS,
+                description="Only return canvases of this kind. kind=component lists the component store.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                required=False,
+                description="Only return canvases whose name or description contains this text (case-insensitive).",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -253,6 +281,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 except ValueError:
                     return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
+            kind = self.request.query_params.get("kind")
+            if kind:
+                if kind not in Canvas.KINDS:
+                    return queryset.none()
+                queryset = queryset.filter(kind=kind)
+            search = self.request.query_params.get("search")
+            if search:
+                queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
         return queryset.order_by("-created_at")
 
     @extend_schema(
@@ -288,6 +324,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             channel_id=channel_id,
             name=payload.validated_data["name"],
+            kind=payload.validated_data["kind"],
+            description=payload.validated_data["description"],
             template_id=payload.validated_data["template_id"],
             created_by=user,
             # A sandbox-created canvas is its task's deliverable: bind
@@ -300,6 +338,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._report_canvas_action(
             "canvas created",
             canvas,
+            kind=canvas.kind,
             template_id=canvas.template_id,
             is_sandbox_created=canvas.generation_task_id is not None,
         )
@@ -334,6 +373,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 record("context")
             canvas.context = data["context"]
             update_fields.append("context")
+        if "description" in data:
+            if data["description"] != canvas.description:
+                record("description", canvas.description, data["description"])
+            canvas.description = data["description"]
+            update_fields.append("description")
         if "pinned" in data:
             was_pinned = canvas.pinned_at is not None
             if data["pinned"] != was_pinned:
@@ -442,10 +486,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def validate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate a candidate source project without publishing it. Side-effect free."""
-        self.get_object()
+        canvas = self.get_object()
         payload = CanvasValidateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        diagnostics = validate_source_project(payload.validated_data["project"])
+        diagnostics = validate_source_project(payload.validated_data["project"], kind=canvas.kind)
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
 
     @extend_schema(
@@ -464,6 +508,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Queue a build for the current source version without changing source or metadata."""
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasPublishCurrentVersionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -511,6 +558,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         A successful publish queues a server-side build.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourcePublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         return self._publish(
@@ -550,6 +600,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         someone else's newer work.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourceEditSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -592,7 +645,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has_expected_version: bool,
         expected_version_id: str | None,
     ) -> Response:
-        diagnostics = validate_source_project(project)
+        diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
@@ -712,10 +765,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         No version guard applies: a draft conflicts with nothing.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourceDraftSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         project = payload.validated_data["project"]
-        diagnostics = validate_source_project(project)
+        diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
         task_id = self._sandbox_task_id(request)

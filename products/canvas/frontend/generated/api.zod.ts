@@ -14,6 +14,8 @@ import * as zod from 'zod'
  */
 export const canvasesCreateBodyNameMax = 400
 
+export const canvasesCreateBodyKindDefault = `freeform`
+export const canvasesCreateBodyDescriptionDefault = ``
 export const canvasesCreateBodyTemplateIdDefault = `freeform`
 export const canvasesCreateBodyTemplateIdMax = 64
 
@@ -21,6 +23,19 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
         channel_id: zod.uuid().describe('Id of the channel the canvas belongs to.'),
+        kind: zod
+            .enum(['freeform', 'grid', 'component'])
+            .describe('\* `freeform` - freeform\n\* `grid` - grid\n\* `component` - component')
+            .default(canvasesCreateBodyKindDefault)
+            .describe(
+                "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).\n\n\* `freeform` - freeform\n\* `grid` - grid\n\* `component` - component"
+            ),
+        description: zod
+            .string()
+            .default(canvasesCreateBodyDescriptionDefault)
+            .describe(
+                'Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls.'
+            ),
         template_id: zod
             .string()
             .max(canvasesCreateBodyTemplateIdMax)
@@ -38,6 +53,10 @@ export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
         context: zod.string().optional().describe('Updated author context markdown.'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Updated canvas description (for components, the store-search text).'),
         pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
         generation_task_id: zod
             .uuid()
@@ -93,6 +112,18 @@ export const canvasesDraftCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesDraftCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -159,6 +190,57 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesDraftCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
@@ -301,6 +383,18 @@ export const canvasesPublishCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesPublishCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -369,6 +463,57 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesPublishCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
@@ -555,6 +700,18 @@ export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
 export const canvasesValidateCreateBodyProjectOneAssetsContentRegExp = new RegExp(
     '^(?:[A-Za-z0-9+\/]{4})\*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$'
 )
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultHMax = 40
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinHMax = 40
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxWMax = 12
+
+export const canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxHMax = 40
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsItemMax = 128
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax = 100
@@ -621,6 +778,57 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                     .string()
                     .optional()
                     .describe('Version of the host-injected `ph` canvas SDK the project targets.'),
+                component: zod
+                    .object({
+                        size: zod
+                            .object({
+                                defaultW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultWMax)
+                                    .describe('Width a new placement starts at, in grid columns.'),
+                                defaultH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneDefaultHMax)
+                                    .describe('Height a new placement starts at, in grid rows.'),
+                                minW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinWMax)
+                                    .describe('Narrowest width the component renders usefully at.'),
+                                minH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMinHMax)
+                                    .describe('Shortest height the component renders usefully at.'),
+                                maxW: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxWMax)
+                                    .optional()
+                                    .describe("Widest allowed width; omit for no cap below the grid's width."),
+                                maxH: zod
+                                    .number()
+                                    .min(1)
+                                    .max(canvasesValidateCreateBodyProjectOneComponentOneSizeOneMaxHMax)
+                                    .optional()
+                                    .describe('Tallest allowed height; omit for no cap.'),
+                            })
+                            .describe("A component's grid-size contract, in grid units.")
+                            .describe('Grid-size contract for placements of this component.'),
+                        configSchema: zod
+                            .record(zod.string(), zod.unknown())
+                            .optional()
+                            .describe(
+                                'JSON Schema (\"type\": \"object\") for a placement\'s config. The host validates each placement\'s config against it and passes the validated object to the widget at mount.'
+                            ),
+                    })
+                    .describe("A component's placement contract: how grid canvases may place and configure it.")
+                    .optional()
+                    .describe(
+                        'Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.'
+                    ),
                 capabilities: zod
                     .object({
                         posthog: zod.object({
