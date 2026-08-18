@@ -21,8 +21,13 @@ DECISION_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$")
 FRONTMATTER_DELIMITER = "---"
 
 
-def lint_repo(root: Path | str) -> list[str]:
-    """Return every structure violation in the checkout at `root`, empty when clean."""
+def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
+    """Return every structure violation in the checkout at `root`, empty when clean.
+
+    `pin_scripts=False` skips the script-content comparison; use it when linting
+    historical trees, which legitimately carry earlier script versions. The tree
+    that actually lands (and gets executed by agents) must keep the default.
+    """
     root = Path(root)
     errors: list[str] = []
 
@@ -47,7 +52,7 @@ def lint_repo(root: Path | str) -> list[str]:
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory))
 
-    errors.extend(_lint_scripts_directory(root))
+    errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
 
     for path in sorted(root.rglob("*")):
         if ".git" in path.parts or not path.is_file() or path.is_symlink():
@@ -92,7 +97,7 @@ def _canonical_scripts() -> dict[str, str]:
     return {"lint": Path(__file__).read_text(encoding="utf-8")}
 
 
-def _lint_scripts_directory(root: Path) -> list[str]:
+def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str]:
     base = root / "scripts"
     if not base.is_dir():
         return []
@@ -108,7 +113,7 @@ def _lint_scripts_directory(root: Path) -> list[str]:
             allowed = ", ".join(sorted(canonical))
             errors.append(f"{relative}: scripts/ may only contain {allowed}")
             continue
-        if path.read_text(encoding="utf-8", errors="replace") != canonical[path.name]:
+        if pin_scripts and path.read_text(encoding="utf-8", errors="replace") != canonical[path.name]:
             errors.append(f"{relative}: must match the script PostHog ships; restore it from a fresh clone")
     return errors
 

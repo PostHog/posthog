@@ -25,6 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.redis import get_client
 from posthog.storage import object_storage
 
+from products.context_layer.backend import repo_lint
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.repo_lint import lint_repo
 from products.context_layer.backend.scaffold import write_default_structure
@@ -240,6 +241,23 @@ def _has_changes(workdir: Path) -> bool:
     return bool(_run_git(["status", "--porcelain"], cwd=workdir))
 
 
+def _refresh_canonical_scripts(workdir: Path) -> None:
+    """Rewrite scripts/ to the content PostHog currently ships.
+
+    Landing is the upgrade point: a wiki scaffolded under an older script
+    version (or carrying a tampered copy) gets the canonical scripts restored
+    as part of the landing commit instead of failing the pinned lint forever.
+    """
+    scripts_dir = workdir / "scripts"
+    if not scripts_dir.is_dir():
+        return
+    for name, content in repo_lint._canonical_scripts().items():
+        target = scripts_dir / name
+        if not target.exists() or target.read_text(encoding="utf-8", errors="replace") != content:
+            target.write_text(content, encoding="utf-8")
+            target.chmod(0o755)
+
+
 def _lint_or_raise(workdir: Path) -> None:
     errors = lint_repo(workdir)
     if errors:
@@ -320,6 +338,7 @@ def apply_changes(
                 _clone_from_bundle(bundle_path, workdir)
 
                 mutate(workdir)
+                _refresh_canonical_scripts(workdir)
                 if not _has_changes(workdir):
                     return expected_head
                 _lint_or_raise(workdir)
