@@ -1076,7 +1076,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
-                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
