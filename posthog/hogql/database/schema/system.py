@@ -1205,7 +1205,7 @@ surveys: PostgresTable = PostgresTable(
     access_control_creator_id_field="created_by_id",
     description="In-app surveys; one row per survey, including its questions and display configuration.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Survey id."),
+        "id": UUIDDatabaseField(name="id", description="Survey id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Survey name."),
         "type": StringDatabaseField(name="type", description="Survey delivery type, e.g. 'popover', 'api', 'widget'."),
