@@ -1427,7 +1427,6 @@ class TestGoogleAdsQueryConstruction:
         *,
         api_version: str = "v23",
         window_rows: dict[str, int] | None = None,
-        earliest_date: str | None = None,
         **source_kwargs,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
@@ -1451,19 +1450,10 @@ class TestGoogleAdsQueryConstruction:
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
 
-        def fake_probe(_service, request):
-            queries.append(request["query"])
-            if earliest_date is None:
-                return iter([])
-            row = mock.Mock()
-            row.segments.date = earliest_date
-            return iter([row])
-
         with (
             mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
-            mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
         ):
             response = google_ads_source(
                 config,
@@ -1591,63 +1581,35 @@ class TestGoogleAdsQueryConstruction:
 
         assert any(f"segments.date >= '{data_past_gap.isoformat()}'" in q for q in queries)
 
-    def test_reset_resumes_where_the_account_data_begins(self):
-        # A reset clears the cursor, so the run looks like a first sync and the backfill bound would
-        # drop everything the wiped table held that predates it, with no later run going back for it.
-        # Asking the account where its data starts reproduces the whole range instead.
+    @pytest.mark.parametrize(
+        "floor,expected_start",
+        [
+            # A re-import of a table that reached past the bound resumes where it started: the bound
+            # would drop that history, and no later run walks back for it.
+            ("2020-02-08", "2020-02-08"),
+            # A table that never reached the bound still gets the bound. Restoring only what it held
+            # would give a re-import less than a first sync of the same source imports.
+            ("2025-03-01", "2024-07-17"),
+            # No floor recorded is a genuine first sync: nothing to lose to the bound, and the rows
+            # a wider range imports are billable.
+            (None, "2024-07-17"),
+        ],
+    )
+    def test_history_start_is_the_earlier_of_the_floor_and_the_bound(
+        self, floor: str | None, expected_start: str
+    ) -> None:
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
-                is_reset=True,
-                earliest_date="2020-02-08",
+                db_backfill_floor_value=floor,
+                is_reset=floor is not None,
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
             )
 
-        # The probe first, then the drain from the date it returned rather than from today - 730.
-        assert queries[0] == (
-            "SELECT segments.date FROM campaign_stats "
-            "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
-            "ORDER BY segments.date ASC LIMIT 1"
-        )
-        assert "WHERE segments.date >= '2020-02-08'" in queries[1]
-        assert all("2024-07-17" not in q for q in queries)
-
-    def test_first_sync_keeps_the_bound_and_does_not_probe(self):
-        # A schema that never synced has nothing to lose to the bound, and the rows it would import
-        # are billable, so widening its range is a product decision rather than this behaviour.
-        with freeze_time("2026-07-17"):
-            _response, queries = self._run_source(
-                self._stats_table(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                is_reset=False,
-                earliest_date="2020-02-08",
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-            )
-
-        assert all("LIMIT 1" not in q for q in queries)
-        assert "WHERE segments.date >= '2024-07-17'" in queries[0]
-
-    def test_reset_falls_back_to_the_bound_when_the_account_holds_nothing(self):
-        # An account with no rows for this resource answers the probe with nothing, which still has
-        # to resolve to a date: the walk needs a start either way.
-        with freeze_time("2026-07-17"):
-            _response, queries = self._run_source(
-                self._stats_table(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=None,
-                is_reset=True,
-                earliest_date=None,
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-            )
-
-        drain = [q for q in queries if "LIMIT 1" not in q]
-        assert "WHERE segments.date >= '2024-07-17'" in drain[0]
+        assert f"WHERE segments.date >= '{expected_start}'" in queries[0]
 
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from

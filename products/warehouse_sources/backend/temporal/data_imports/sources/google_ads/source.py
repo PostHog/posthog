@@ -244,6 +244,7 @@ class GoogleAdsSource(
             if inputs.should_use_incremental_field
             else None,
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            db_backfill_floor_value=inputs.db_backfill_floor_value,
             is_reset=inputs.reset_pipeline,
         )
 

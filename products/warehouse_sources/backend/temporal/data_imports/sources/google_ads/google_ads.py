@@ -87,10 +87,6 @@ GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
 # serves older rows than this, so raising it costs first-sync catch-up time rather than correctness.
 GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 
-# Lower bound for the "where does this account's data begin" probe. Google serves the query with a
-# date this old and returns nothing before an account existed, so it needs no per-account tuning.
-_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE = "1970-01-01"
-
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
 # serialize past 64 MiB — when that happens the gRPC client aborts the call with a
@@ -494,41 +490,6 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     return table_schemas
 
 
-def _earliest_date_with_data(
-    service: "GoogleAdsSearchService",
-    customer_id: str | None,
-    table: "GoogleAdsTable",
-    incremental_field: str,
-) -> dt.date | None:
-    """Return the first date this resource holds rows for, or None when it holds none.
-
-    One request: Google sorts and truncates server-side, so the cost doesn't grow with the range or
-    with how much the account holds. That makes it cheap enough to replace guessing how far back to
-    reach. Selects only the date, since the rows themselves are fetched by the windowed drain.
-
-    A rejection this can't retry is left to fail the run rather than caught. It was verified against
-    two resources, and the rest carry predicates this repeats verbatim, so a resource-specific
-    rejection is the shape a mistake here would take. Swallowing it would resume the run at the
-    bound, which is the silent truncation this exists to stop -- and it would do so on exactly the
-    re-import that has just wiped the table. A failed run leaves the schema re-runnable.
-    """
-    query = (
-        f"SELECT {incremental_field} FROM {table.name} "
-        f"WHERE {incremental_field} >= '{_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE}' "
-        f"AND {incremental_field} < '{(dt.date.today() + dt.timedelta(days=1)).isoformat()}'"
-    )
-    if table.extra_where:
-        query += f" AND {table.extra_where}"
-    query += f" ORDER BY {incremental_field} ASC LIMIT 1"
-
-    # Through the wrapper, so a manager account's missing login-customer-id header recovers here the
-    # same way it does for the drain's own queries.
-    for row in _search_with_transient_retry(service, {"customer_id": customer_id, "query": query}):
-        return dt.date.fromisoformat(_traverse_attributes(row, *incremental_field.split(".")))
-
-    return None
-
-
 def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     """Coerce a stored incremental cursor value to a plain date for window arithmetic.
 
@@ -553,6 +514,7 @@ def google_ads_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value_before_lookback: typing.Any = None,
+    db_backfill_floor_value: typing.Any = None,
     is_reset: bool = False,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
@@ -625,7 +587,7 @@ def google_ads_source(
         # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             bound = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
-            probed: dt.date | None = None
+            floor: dt.date | None = None
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
                 # The cursor arrives shifted back by the schema's lookback, so the windows up to the
@@ -635,26 +597,27 @@ def google_ads_source(
                     if db_incremental_field_last_value_before_lookback is not None
                     else start
                 )
-            elif is_reset:
-                # A reset clears the cursor, so this looks like a first sync. The bound would drop
-                # whatever the wiped table held before it, so ask the account where its data begins.
-                probed = _earliest_date_with_data(service, customer_id, table, incremental_field)
-                start = probed if probed is not None else bound
-                cursor_before_lookback = start
             else:
-                # A genuine first sync keeps the bound: its rows are billable to import.
-                start = bound
+                # No cursor means a first sync or a re-import, and they want different ranges. A
+                # first sync takes the bound: it has nothing to lose to it, and the rows it would
+                # import are billable. A re-import takes the earlier of the bound and where the
+                # wiped table started, recorded before the wipe: the bound alone would drop the
+                # history the table held, and the table's own start alone would give a table that
+                # never reached the bound less than a first sync would.
+                floor = _incremental_value_as_date(db_backfill_floor_value) if db_backfill_floor_value else None
+                start = min(floor, bound) if floor is not None else bound
                 cursor_before_lookback = start
 
-            if db_incremental_field_last_value is None:
-                # Where a re-import starts is the thing that went wrong before this fix, and it is
-                # decided per resource, so record which resource resolved what.
+                # Where a re-import starts is what went wrong before this fix, and it is decided per
+                # resource, so record which resource resolved what. `is_reset` earns its place here
+                # even though the range no longer reads it: a re-import that resolved to the bound
+                # means no floor was recorded, which is the shape a silent truncation takes.
                 logger.info(
                     "google_ads.history_start_resolved",
                     resource=table.name,
                     start=start.isoformat(),
                     is_reset=is_reset,
-                    resolved_from="probe" if probed is not None else "bound",
+                    resolved_from="floor" if floor is not None and floor < bound else "bound",
                 )
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)

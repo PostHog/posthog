@@ -99,6 +99,9 @@ class SourceInputs:
     # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
     # before it are overlap the table already holds rather than new ground.
     db_incremental_field_last_value_before_lookback: Optional[Any] = None
+    # Where the table's history started, read before a re-import wiped it. A re-import has no cursor
+    # to resume from, and the default bound would drop everything older than it.
+    db_backfill_floor_value: Optional[Any] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.

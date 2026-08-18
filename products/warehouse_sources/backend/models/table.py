@@ -567,6 +567,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return columns
 
     def get_max_value_for_column(self, column: str) -> Any | None:
+        return self._get_bound_value_for_column(column, largest=True)
+
+    def get_min_value_for_column(self, column: str) -> Any | None:
+        return self._get_bound_value_for_column(column, largest=False)
+
+    def _get_bound_value_for_column(self, column: str, *, largest: bool) -> Any | None:
         try:
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
@@ -583,12 +589,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 team_id=self.team.pk,
                 table_id=self.id,
                 warehouse_query=True,
-                name="get_max_value_for_column",
+                name="get_max_value_for_column" if largest else "get_min_value_for_column",
                 product=Product.WAREHOUSE,
                 feature=Feature.QUERY,
             )
+            escaped_column = escape_clickhouse_identifier(column)
+            bound = f"max({escaped_column})" if largest else f"min({escaped_column})"
             result = sync_execute(
-                f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
+                f"SELECT {bound} FROM {s3_table_func}",
                 args=placeholder_context.values,
                 settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
             )
