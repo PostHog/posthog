@@ -25,9 +25,9 @@ from posthog.models.instance_setting import get_instance_setting
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.audiences import resolve_audience_key
+from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
 
@@ -552,6 +552,31 @@ def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[s
         )
 
 
+def _stamp_digest_audiences(team_id: int, pr_obj: PullRequest, audiences: list[ResolvedAudience]) -> None:
+    """Create the audience rows the daily digest claims from.
+
+    ``ignore_conflicts`` covers a webhook redelivery racing the first capture: the unique
+    constraint decides, and a row that already exists keeps whatever digest_run it carries rather
+    than being reset to unclaimed.
+    """
+    if not audiences:
+        return
+    PullRequestAudience.objects.for_team(team_id).bulk_create(
+        [
+            PullRequestAudience(
+                team_id=team_id,
+                pull_request=pr_obj,
+                audience_key=audience.key,
+                reason=audience.reason,
+                owned_files=audience.owned_files,
+                owned_file_count=audience.owned_file_count,
+            )
+            for audience in audiences
+        ],
+        ignore_conflicts=True,
+    )
+
+
 def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> None:
     """Record merge facts on the PullRequest; stamp the digest audience only if eligible.
 
@@ -600,13 +625,13 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     # head that's later pushed to and merged without re-review would still count as approved --
     # normally `synchronize` supersedes and re-reviews, so this only closes that narrow gap.
     pr_head_sha = ((pr.get("head") or {}).get("sha") or "").strip()
+    approving_run = None
     if not pr_head_sha:
         logger.warning("stamphog_merged_pr_missing_head_sha", repo=repo, pr_number=pr_number)
-        approved = False
     else:
         # Writer pin: an auto-merge fires this webhook the instant GitHub records the approval, so
         # the APPROVED run post_verdict just committed may not have replicated to the reader yet.
-        approved = (
+        approving_run = (
             ReviewRun.objects.for_team(team_id)
             .using(router.db_for_write(ReviewRun))
             .filter(
@@ -617,12 +642,19 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
                 # have voided it and then refused, and the digest must not brand that merge approved.
                 approval_dismissed_at__isnull=True,
             )
-            .exists()
+            .order_by("-created_at")
+            .first()
         )
-    if repo_config.digest_enabled and approved:
-        pr_obj.audience_key = resolve_audience_key(repo_config, pr)
-        update_fields.append("audience_key")
+    approved = approving_run is not None
+    if repo_config.digest_enabled and approving_run is not None:
+        # The approving run reviewed exactly the head that merged, so its summary describes what
+        # landed and its ownership names the teams whose code moved. The digest has neither.
+        pr_obj.summary_line = approving_run.change_summary
+        update_fields.append("summary_line")
+        audiences = resolve_audiences(repo_config, pr, approving_run.gate_result)
     else:
+        audiences = []
+    if not audiences:
         logger.info(
             "stamphog_merged_pr_not_digest_eligible",
             repo=repo,
@@ -630,7 +662,12 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             digest_enabled=repo_config.digest_enabled,
             approved=approved,
         )
-    pr_obj.save(update_fields=update_fields)
+    # One transaction: `merged_at` is the redelivery guard at the top of this function, so committing
+    # it without the audience rows would let a retry return early and drop the merge from every
+    # digest for good. Both writes are local — the GitHub calls behind `audiences` already happened.
+    with transaction.atomic(using=router.db_for_write(PullRequest)):
+        pr_obj.save(update_fields=update_fields)
+        _stamp_digest_audiences(team_id, pr_obj, audiences)
 
     if delivery_id:
         _mark_pr_event_processed(delivery_id)
