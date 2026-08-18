@@ -85,6 +85,7 @@ class TestIncrementalConfigFactory:
         config = _incremental_config_factory("modifiedDate")
         assert config["start_param"] == "$filter"
         convert = config["convert"]
+        assert convert is not None
         assert convert(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)) == "modifiedDate gt '2026-03-04T02:58:14Z'"
 
 
