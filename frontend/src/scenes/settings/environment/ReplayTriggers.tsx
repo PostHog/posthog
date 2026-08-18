@@ -154,8 +154,8 @@ function UrlTriggerOptions(): JSX.Element | null {
             formKey="proposedUrlTrigger"
             addUrl={addUrlTrigger}
             validationWarning={urlTriggerInputValidationWarning}
-            title="Enable recordings when URL matches"
-            description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
+            title="Start recording when a URL matches"
+            description="Recording starts when a user visits a matching page, then continues for the rest of the session, even after they leave that page. To exclude pages from recording, add a URL blocklist under Recording exclusions below."
             checkUrl={checkUrlTrigger}
             checkUrlResults={checkUrlTriggerResults}
             setCheckUrl={setCheckUrlTrigger}
