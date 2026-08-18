@@ -441,8 +441,8 @@ class Team(UUIDTClassicModel):
 
     # Project-wide default for the tasks PR follow-up loop: whether an agent keeps
     # watching a pull request it opened, fixing CI and replying to review comments.
-    # Null means "no opinion" and defers to the per-origin and rollout gate; a task can
-    # override either way via `Task.pr_loop_enabled`.
+    # Null means "no opinion", which leaves the loop off for everything but the two
+    # origins that opt in; a task can override either way via `Task.pr_loop_enabled`.
     tasks_pr_loop_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys

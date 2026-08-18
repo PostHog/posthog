@@ -323,8 +323,8 @@ class Task(DeletedMetaFields, models.Model):
     )
     # Per-task override for the PR follow-up loop: once a PR is open the agent keeps
     # watching CI and review threads and pushes follow-up commits. Null defers to the
-    # project-wide `Team.tasks_pr_loop_enabled`, which in turn defers to the per-origin
-    # and rollout gate in the get_task_processing_context activity.
+    # project-wide `Team.tasks_pr_loop_enabled`, and with neither set the loop stays off
+    # except for the two origins that opt in (see the get_task_processing_context activity).
     pr_loop_enabled = models.BooleanField(
         null=True,
         blank=True,

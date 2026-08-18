@@ -410,39 +410,41 @@ class TestGetTaskProcessingContextActivity:
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "flag_value, expected",
-        [
-            (True, True),
-            (False, False),
-            (None, False),  # the activity coalesces None to False
-        ],
-    )
-    def test_pr_loop_enabled_reflects_feature_flag(self, activity_environment, test_task, flag_value, expected):
+    def test_pr_loop_disabled_by_default(self, activity_environment, test_task):
+        # Nobody asked for follow-up on a plain user-created task, so its PR is left alone.
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, **kwargs):
-            if flag_key == "tasks-pr-loop":
-                return flag_value
-            return False
-
         with patch(
             "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=feature_enabled,
+            return_value=False,
         ) as feature_enabled_mock:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.pr_loop_enabled is expected
+        assert result.pr_loop_enabled is False
         assert result.sandbox_event_ingest_enabled is False
-        args, kwargs = feature_enabled_mock.call_args_list[0]
-        assert args[0] == "tasks-pr-loop"
-        assert kwargs["distinct_id"] == get_actor_distinct_id(test_task.created_by)
-        org_id = str(test_task.team.organization_id)
-        assert kwargs["groups"] == {"organization": org_id}
-        assert kwargs["group_properties"] == {"organization": {"id": org_id}}
-        sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
-        assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+        # The `tasks-pr-loop` rollout flag used to switch this on for a whole org, over the
+        # head of whoever owned the PR. The toggles are now the only way in.
+        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
+        assert "tasks-pr-loop" not in called_flags
+        assert SANDBOX_EVENT_INGEST_FEATURE_FLAG in called_flags
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pr_loop_enabled_for_loop_task_asking_to_watch_ci(self, activity_environment, test_task):
+        # A Loop opts in through its own snapshotted behaviors, which is an explicit
+        # request and so survives the off-by-default rule.
+        test_task.origin_product = Task.OriginProduct.LOOP
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run(extra_state={"config_snapshot": {"behaviors": {"watch_ci": True}}})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is True
 
     @pytest.mark.django_db(transaction=True)
     def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
@@ -480,28 +482,21 @@ class TestGetTaskProcessingContextActivity:
         assert result.agent_proxy_keep_stream_open is False
 
     @pytest.mark.django_db(transaction=True)
-    def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
-        # Signals implementation PRs are bot-authored and always opt into the PR
-        # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
-        # rollout that gates other origins.
+    def test_pr_loop_enabled_for_signal_report_origin(self, activity_environment, test_task):
+        # Signals implementation PRs are bot-authored and still opt into the PR follow-up
+        # loop ("babysitting") without a toggle, unlike every other origin.
         test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         test_task.save(update_fields=["origin_product"])
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, **kwargs):
-            return False  # `tasks-pr-loop` disabled for the org
-
         with patch(
             "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=feature_enabled,
-        ) as feature_enabled_mock:
+            return_value=False,
+        ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.pr_loop_enabled is True
-        # The signal_report origin short-circuits the gate, so the flag is never consulted.
-        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
-        assert "tasks-pr-loop" not in called_flags
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -517,7 +512,7 @@ class TestGetTaskProcessingContextActivity:
             (None, True, True),
         ],
     )
-    def test_pr_loop_enabled_respects_explicit_settings_over_rollout(
+    def test_pr_loop_enabled_resolves_task_setting_before_project_setting(
         self, activity_environment, test_task, team_setting, task_setting, expected
     ):
         test_task.team.tasks_pr_loop_enabled = team_setting
@@ -527,20 +522,13 @@ class TestGetTaskProcessingContextActivity:
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, **kwargs):
-            # The org-level rollout says the opposite of what we expect, so a passing
-            # assertion can only come from the explicit setting.
-            return not expected if flag_key == "tasks-pr-loop" else False
-
         with patch(
             "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=feature_enabled,
-        ) as feature_enabled_mock:
+            return_value=False,
+        ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.pr_loop_enabled is expected
-        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
-        assert "tasks-pr-loop" not in called_flags
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_can_be_disabled_for_a_signal_report_task(self, activity_environment, test_task):
@@ -552,12 +540,9 @@ class TestGetTaskProcessingContextActivity:
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        def feature_enabled(flag_key, **kwargs):
-            return flag_key == "tasks-pr-loop"  # the org-level rollout is on
-
         with patch(
             "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=feature_enabled,
+            return_value=False,
         ):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
