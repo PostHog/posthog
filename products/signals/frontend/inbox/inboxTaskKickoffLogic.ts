@@ -16,7 +16,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { captureInboxReportActionCompleted } from './inboxAnalytics'
+import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -68,13 +68,38 @@ function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
 }
 
-// The per-report cap 429 carries its message under `error` (TaskRunErrorResponseSerializer);
-// DRF's rate-limit 429 carries `detail`. Both are user-facing copy the server owns.
+// The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
+// (TaskRunErrorResponseSerializer); the per-user creation throttle is DRF's `throttled` 429 with
+// `detail`. Both are user-facing copy the server owns. Matching on code, not status: other 429s
+// (e.g. the compute-quota gate) are not task limits and belong on the generic failure path.
 function taskLimitMessage(error: any): string | null {
-    if (error?.code === 'signal_report_task_cap' || error?.status === 429) {
+    if (error?.code === 'signal_report_task_cap' || error?.code === 'throttled') {
         return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
     }
     return null
+}
+
+// Shared error tail of both kickoff listeners: a recognized task-limit 429 gets the server's copy
+// and a `limited` outcome; anything else is a plain failure.
+function handleKickoffError(
+    error: any,
+    report: SignalReport,
+    actionType: InboxReportActionType,
+    fallbackMessage: string
+): void {
+    const limitMessage = taskLimitMessage(error)
+    if (limitMessage) {
+        lemonToast.error(limitMessage)
+        captureInboxReportActionCompleted({
+            report,
+            actionType,
+            outcome: 'limited',
+            limitCode: error?.code ?? null,
+        })
+        return
+    }
+    lemonToast.error(error?.detail || error?.message || fallbackMessage)
+    captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
 }
 
 async function createReportTask(
@@ -237,19 +262,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
-                const limitMessage = taskLimitMessage(error)
-                if (limitMessage) {
-                    lemonToast.error(limitMessage)
-                    captureInboxReportActionCompleted({
-                        report,
-                        actionType: 'discuss',
-                        outcome: 'blocked',
-                        blockedReason: limitMessage,
-                    })
-                } else {
-                    lemonToast.error(error?.detail || error?.message || "Couldn't ask AI about this report. Try again.")
-                    captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
-                }
+                handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
                 actions.discussReportFailure()
             }
         },
@@ -276,19 +289,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
-                const limitMessage = taskLimitMessage(error)
-                if (limitMessage) {
-                    lemonToast.error(limitMessage)
-                    captureInboxReportActionCompleted({
-                        report,
-                        actionType: 'create_pr',
-                        outcome: 'blocked',
-                        blockedReason: limitMessage,
-                    })
-                } else {
-                    lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
-                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
-                }
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
                 actions.createPrFailure()
             }
         },

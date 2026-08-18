@@ -546,7 +546,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # `internal` is deliberately not writable here: only server-side creators (auto-start,
     # research, loops) set it via the facade. A client-set `internal=True` on a signals-origin
     # task would drop the token's interactive-run marker and with it the `signals_interactive`
-    # budget and per-task spend ceiling (see _is_interactive_signals_task in temporal/oauth.py).
+    # budget and per-task spend ceiling (see is_interactive_signals_task in temporal/oauth.py).
     archived = serializers.BooleanField(
         required=False,
         help_text="If true, the task is hidden from default list responses.",

@@ -2110,6 +2110,21 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "signal_report_task_relationship")
 
+    def test_reserved_relationships_match_signals_pipeline_vocabulary(self):
+        # The serializer's reserved set is a string-literal copy (presentation must not import
+        # signals internals). If signals grows a pipeline label the serializer doesn't reserve,
+        # clients can assert it and the label is also exempt from the per-report discussion
+        # count — uncapped report-started runs.
+        from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+        from products.signals.backend.task_run_artefacts import _PIPELINE_TASK_RUN_TYPES
+        from products.tasks.backend.presentation.serializers import _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS
+
+        # `implementation` is the one pipeline label clients may assert (it opens the auto-start
+        # spend gate and is capped by the one-live-implementation rule instead).
+        self.assertEqual(
+            _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS, _PIPELINE_TASK_RUN_TYPES - {TASK_RUN_TYPE_IMPLEMENTATION}
+        )
+
     @parameterized.expand(
         [
             # a live implementation claims the report's one slot

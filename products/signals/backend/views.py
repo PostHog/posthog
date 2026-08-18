@@ -3512,18 +3512,27 @@ class SignalReportArtefactViewSet(
     @extend_schema(
         responses={
             204: OpenApiResponse(description="Artefact deleted."),
+            400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
         summary="Delete an artefact",
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
-            "the report's canonical status to the previous version (latest-wins over what remains)."
+            "the report's canonical status to the previous version (latest-wins over what remains). "
+            "`task_run` artefacts are an append-only work log and cannot be deleted."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type == SignalReportArtefact.ArtefactType.TASK_RUN:
+            # The work log is also what the per-report task cap counts; a deletable log would let
+            # a client at the cap free its own slots.
+            return Response(
+                {"error": "task_run artefacts are an append-only work log and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         report_id = str(artefact.report_id)
         artefact.delete()

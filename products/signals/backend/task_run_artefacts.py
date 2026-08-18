@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    TASK_RUN_TYPE_SCOUT,
     NoteArtefact,
     TaskRunArtefact,
 )
@@ -58,7 +59,7 @@ MAX_DISCUSSION_TASKS_PER_REPORT = 3
 # `scout` excluded too: it labels the scout run that authored the report, is server-written, and
 # is rejected as a client-asserted relationship by the tasks write serializer.
 _PIPELINE_TASK_RUN_TYPES = frozenset(
-    {TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, "scout"}
+    {TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT}
 )
 
 _TERMINAL_NO_PR_RUN_STATUSES = frozenset({"failed", "cancelled"})

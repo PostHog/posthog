@@ -25,8 +25,10 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, ParseError, Pe
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.schema import QuerySchemaRoot
 
@@ -288,7 +290,7 @@ class _SignalReportTaskCreateThrottle(UserRateThrottle):
     allows sweeping every report on a team. Reading `request.data` here is safe — DRF caches it.
     """
 
-    def allow_request(self, request, view):
+    def allow_request(self, request: Request, view: APIView) -> bool:
         data = request.data
         if not isinstance(data, dict) or data.get("origin_product") != "signal_report":
             return True
@@ -323,7 +325,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
 
-    def get_throttles(self):
+    def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
         if getattr(self, "action", None) == "create":
             throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
