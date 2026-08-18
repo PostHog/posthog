@@ -21,8 +21,8 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectType
-from ..models import DataQualityCheck
+from ..facade.enums import CheckRunStatus, SubjectType
+from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import denied_subject_names, is_subject_denied, referenced_subject_names, referencing_check_types
@@ -186,7 +186,7 @@ def notify_materialization_blocked(
                     team,
                     SubjectType.VIEW,
                     saved_query_id,
-                    referenced_names=_blocking_referenced_names(team_id, saved_query_id),
+                    referenced_names=_blocking_referenced_names(team_id, saved_query_id, job_id),
                 ),
             )
         )
@@ -194,24 +194,49 @@ def notify_materialization_blocked(
         LOGGER.exception("Could not send a materialization-blocked notification", saved_query_id=saved_query_id)
 
 
-def _blocking_referenced_names(team_id: int, saved_query_id: str) -> list[str]:
+def _blocking_referenced_names(team_id: int, saved_query_id: str, job_id: str) -> list[str]:
     """Every further subject the checks behind a blocked materialization read.
 
     The body's failure count aggregates those checks, so it is an oracle over everything they read,
     not just over the view the recipient is already allowed to see.
+
+    Read off the suite's persisted check runs, not the definitions' current state. ``enabled``,
+    ``severity``, ``last_status`` and ``deleted`` are all writable by anyone who can edit the view --
+    including a member denied a subject the check reads, since the write path only authorizes the
+    declared subject. Selecting on them would let that member edit their own denial out of this
+    filter in the window between the suite finishing and this notice being written, while the count
+    still counts their check. A run row is immutable, so it cannot be edited out of the set it
+    belongs to. The suite is the one the blocked job triggered, so the names and the count come from
+    the same batch, across every subject the batch covered.
     """
     names: set[str] = set()
-    # Only enabled checks ran in the suite that produced the count, so a check disabled while failing
-    # keeps a stale FAILED status that never belonged to this block. Exclude it, matching the suite's
-    # own selection and subject_health -- the three must never disagree.
-    blocking = checks_for_subject(team_id, SubjectType.VIEW, saved_query_id).filter(
-        check_type__in=referencing_check_types(),
-        severity=CheckSeverity.ERROR,
-        last_status=CheckRunStatus.FAILED,
-        enabled=True,
+    runs = (
+        DataQualityCheckRun.objects.for_team(team_id)
+        .filter(
+            suite_run__data_modeling_job_id=job_id,
+            status=CheckRunStatus.FAILED,
+            # No severity on the run row, so this takes warn-severity failures too. They did not
+            # block, so the set is wider than the count -- which over-filters rather than leaks.
+            check_type__in=referencing_check_types(),
+        )
+        .select_related("quality_check")
     )
-    for check in blocking:
+    # A run records which check ran, never the config it ran with. A definition that has since been
+    # hard-deleted or re-pointed at other tables leaves nothing to enumerate, and so does a suite
+    # retention already swept. Widen to every referencing check on the subject: wider than this
+    # block, but it can only drop more recipients, never admit one the count would leak to.
+    unbindable = not DataQualitySuiteRun.objects.for_team(team_id).filter(data_modeling_job_id=job_id).exists()
+    for run in runs:
+        check = run.quality_check
+        if check is None or check.fingerprint != run.check_fingerprint:
+            unbindable = True
+            continue
         names.update(referenced_subject_names(team_id, check.check_type, check.config))
+    if unbindable:
+        for check in checks_for_subject(team_id, SubjectType.VIEW, saved_query_id, include_deleted=True).filter(
+            check_type__in=referencing_check_types()
+        ):
+            names.update(referenced_subject_names(team_id, check.check_type, check.config))
     return sorted(names)
 
 

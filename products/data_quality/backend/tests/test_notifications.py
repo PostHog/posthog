@@ -25,7 +25,7 @@ from products.data_quality.backend.logic.notifications import (
 )
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
-from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
+from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.notifications.backend.facade.enums import TargetType
 
 from ee.models.rbac.access_control import AccessControl
@@ -251,13 +251,75 @@ class TestDataQualityNotifications(BaseTest):
         assert self.user.id in resolved
         assert blocked.id not in resolved
 
-    @parameterized.expand([("enabled", True, ["orders"]), ("disabled", False, [])])
-    def test_only_enabled_failing_referencing_checks_gate_recipients(
-        self, _name, enabled: bool, expected: list[str]
-    ) -> None:
-        # blocking_failures counts the suite's outcomes, and the suite runs only enabled checks, so a
-        # check disabled while failing keeps a stale FAILED status that never belonged to this block.
-        # Its referenced subjects must not narrow the recipient set.
+    def _blocking_relationships_check(self) -> tuple[DataWarehouseSavedQuery, str, DataQualityCheck]:
+        # A materialization of "customers" blocked by a relationships check reading "orders", with the
+        # suite run and check run the block left behind -- the state the notification reads.
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        check = self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="",
+            config={"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"},
+            severity=CheckSeverity.ERROR,
+            last_status=CheckRunStatus.FAILED,
+        )
+        job_id = str(uuid4())
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION, data_modeling_job_id=job_id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            quality_check=check,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=customers.id,
+            subject_name="customers",
+            check_type=CheckType.RELATIONSHIPS,
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=2,
+        )
+        return customers, job_id, check
+
+    @parameterized.expand(
+        [
+            ("untouched", {}),
+            ("disabled_after_the_suite", {"enabled": False}),
+            ("downgraded_after_the_suite", {"severity": CheckSeverity.WARN}),
+            ("recovered_after_the_suite", {"last_status": CheckRunStatus.PASSED}),
+            ("soft_deleted_after_the_suite", {"deleted": True}),
+        ]
+    )
+    def test_editing_a_check_after_its_suite_cannot_drop_it_from_the_recipient_filter(self, _name, edit: dict) -> None:
+        # The write path authorizes the declared subject only, so a member denied a referenced table
+        # can still edit a check that reads it. Were the filter selected from enabled/severity/
+        # last_status/deleted, that member could edit their own denial out of it between the suite
+        # finishing and this notice being written, and still receive a count their check fed.
+        customers, job_id, check = self._blocking_relationships_check()
+        if edit:
+            DataQualityCheck.objects.for_team(self.team.id).filter(pk=check.pk).update(**edit)
+
+        assert _blocking_referenced_names(self.team.id, str(customers.id), job_id) == ["orders"]
+
+    def test_a_failure_from_another_job_does_not_gate_this_blocks_recipients(self) -> None:
+        # The counterpart: binding to the blocking suite must also stay narrow. A check that failed
+        # under some earlier job never fed this count, so its referenced subjects must not
+        # permanently drop members denied them from every later notice for the view.
+        customers, _job_id, _check = self._blocking_relationships_check()
+        later_job_id = str(uuid4())
+        DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION, data_modeling_job_id=later_job_id
+        )
+
+        assert _blocking_referenced_names(self.team.id, str(customers.id), later_job_id) == []
+
+    def test_a_block_with_no_resolvable_suite_falls_back_to_every_referencing_check(self) -> None:
+        # Retention sweeps suite runs, and a definition can be hard-deleted or re-pointed. With
+        # nothing left to bind the count to, the filter widens to every referencing check on the
+        # subject rather than sending unfiltered.
         customers = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
@@ -267,12 +329,11 @@ class TestDataQualityNotifications(BaseTest):
             check_type=CheckType.RELATIONSHIPS,
             column_name="",
             config={"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"},
-            severity=CheckSeverity.ERROR,
-            last_status=CheckRunStatus.FAILED,
-            enabled=enabled,
+            enabled=False,
+            deleted=True,
         )
 
-        assert _blocking_referenced_names(self.team.id, str(customers.id)) == expected
+        assert _blocking_referenced_names(self.team.id, str(customers.id), str(uuid4())) == ["orders"]
 
     def test_a_blocked_run_carries_a_dedupe_key_stable_per_job(self) -> None:
         # The block activity runs twice when a slow attempt hits its start-to-close timeout; both
