@@ -346,7 +346,7 @@ export class IngestionApiServer implements NodeServer {
             mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
             mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
         })
-        // Which world person writes land in, deployment-wide: pg (the
+        // Which backend person writes land in, deployment-wide: pg (the
         // default) builds nothing new; the other modes construct the
         // personhog store, shadow keeping pg authoritative.
         const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)

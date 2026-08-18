@@ -539,7 +539,7 @@ class BatchBoundPersonsCache {
  * remaining dirty entries.
  */
 export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore {
-    readonly world = 'postgres' as const
+    readonly backend = 'postgres' as const
 
     private personCache: BatchWritingPersonsCache
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
@@ -1446,7 +1446,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * The Postgres world's merge, run by PostgresPersonMerge against
+     * The Postgres backend's merge, run by PostgresPersonMerge against
      * this store's own verbs and transactions.
      */
     mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {

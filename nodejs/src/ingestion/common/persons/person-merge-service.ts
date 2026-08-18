@@ -51,7 +51,7 @@ export const mergeFinalFailuresCounter = new Counter({
     help: 'Number of person merge final failures.',
     // The error class is the constructor name rather than the message, so a
     // failure carrying team ids or distinct ids cannot inflate cardinality.
-    labelNames: ['world', 'call', 'error'],
+    labelNames: ['backend', 'call', 'error'],
 })
 
 export const mergeFoldFallbackCounter = new Counter({
@@ -62,7 +62,7 @@ export const mergeFoldFallbackCounter = new Counter({
 
 export const mergeSettledFailureCounter = new Counter({
     name: 'person_merge_settled_failure_total',
-    help: 'Merges the merge world settled on a verdict that merged nothing.',
+    help: 'Merges the merge backend settled on a verdict that merged nothing.',
 })
 
 export const mergeMoveLimitDroppedCounter = new Counter({
@@ -190,7 +190,7 @@ export class PersonMergeService {
             })
             mergeFinalFailuresCounter
                 .labels({
-                    world: this.context.personStore.world,
+                    backend: this.context.personStore.backend,
                     call: this.context.event.event,
                     error: e instanceof Error ? e.constructor.name : 'unknown',
                 })
@@ -306,7 +306,7 @@ export class PersonMergeService {
     }
 
     /**
-     * One request for either world, single-source or folded. The event
+     * One request for either backend, single-source or folded. The event
      * uuid doubles as the op id: retries re-enter with the same id and
      * must not merge twice.
      */
@@ -446,7 +446,7 @@ export class PersonMergeService {
         const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
         if (sourceResult === undefined) {
             // No verdict for the source we asked about. That is a malformed
-            // response rather than an answer the merge world settled on, so
+            // response rather than an answer the merge backend settled on, so
             // it must not take the settled-failure path: nothing is recorded
             // against the op id, so a retry can genuinely reach a different
             // result, and acking here would lose the merge for good.
@@ -552,7 +552,7 @@ export class PersonMergeService {
                 )
             case 'error':
             default: {
-                // A verdict, not a transient fault: the merge world records it
+                // A verdict, not a transient fault: the merge backend records it
                 // against the op id and replays it for the retention window, so
                 // neither this event's retry nor its redelivery can reach a
                 // different answer — failing the batch would stall the partition
@@ -567,7 +567,7 @@ export class PersonMergeService {
                         targetPersonDistinctId: mergeIntoDistinctId,
                         distinctId: mergeIntoDistinctId,
                         eventUuid: this.context.event.uuid,
-                        // The Postgres world names the person by uuid; the saga
+                        // The Postgres backend names the person by uuid; the saga
                         // reports a row id and no uuid, so both travel and
                         // whichever exists identifies the person.
                         otherPersonId: sourceResult.sourcePersonUuid,

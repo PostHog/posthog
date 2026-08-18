@@ -8,13 +8,13 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { EventOps } from './person-update'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, PersonsWorld } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
 /**
- * The Postgres world's transactional verb surface, with batchId bound.
+ * The Postgres backend's transactional verb surface, with batchId bound.
  * Only the pg store's PostgresPersonMerge opens these transactions; the
- * cross-world PersonsStore interface has no transactional member.
+ * cross-backend PersonsStore interface has no transactional member.
  */
 export interface PersonsStoreTransactionForBatch {
     createPerson(
@@ -149,7 +149,7 @@ export type PersonsStoreForBatch = Omit<
 }
 
 /**
- * The batchId-bound view of the Postgres world's transactional surface;
+ * The batchId-bound view of the Postgres backend's transactional surface;
  * constructed by the pg store's PostgresPersonMerge around the raw
  * transaction its inTransaction hands out.
  */
@@ -296,8 +296,8 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         public readonly batchId: number
     ) {}
 
-    get world(): PersonsWorld {
-        return this.store.world
+    get backend(): PersonsBackend {
+        return this.store.backend
     }
 
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null> {

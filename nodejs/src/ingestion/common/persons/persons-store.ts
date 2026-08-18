@@ -24,7 +24,7 @@ export interface MergePersonsSource {
 }
 
 /**
- * Per-source verdicts a merge can answer. Both worlds share the
+ * Per-source verdicts a merge can answer. Both backends share the
  * vocabulary; 'skipped_race' and the 'failed_*' verdicts come only
  * from the Postgres merge's retrying transaction, and 'error' only
  * from the saga.
@@ -46,7 +46,7 @@ export type MergePersonsOutcome =
 export interface MergePersonsSourceResult {
     sourceDistinctId: string
     outcome: MergePersonsOutcome
-    /** The source person the verdict speaks about, when this world resolved one. */
+    /** The source person the verdict speaks about, when the backend resolved one. */
     sourcePersonUuid?: string
     /**
      * The source person this verdict destroyed, present only on a merged
@@ -75,7 +75,7 @@ export interface MergePersonsRequest {
      * initiator is not always the first source.
      */
     triggerSourceDistinctId?: string
-    /** The merge event's property ops; each world applies them to the survivor its own way. */
+    /** The merge event's property ops; each backend applies them to the survivor its own way. */
     eventOps: EventOps
     /** Retry key: a repeated call with the same op id must not merge twice. */
     opId: string
@@ -84,7 +84,7 @@ export interface MergePersonsRequest {
     /**
      * The caller's move policy, from the same config the processor's
      * over-limit handling reads. The Postgres merge bounds its
-     * distinct-id moves by it; the saga world uses LIMIT/ASYNC's limit
+     * distinct-id moves by it; the saga backend uses LIMIT/ASYNC's limit
      * as its move-limit guard and falls back to its own configured
      * guard for SYNC, which the saga cannot run unbounded.
      */
@@ -99,7 +99,7 @@ export interface MergePersonsResult {
     /** The surviving person; null when the merge settled without one. */
     survivor: InternalPerson | null
     results: MergePersonsSourceResult[]
-    /** Post-commit ClickHouse production the caller may chain on; absent when the world produced before returning. */
+    /** Post-commit ClickHouse production the caller may chain on; absent when the backend produced before returning. */
     kafkaAck?: Promise<void>
     /**
      * Whether the caller still needs its follow-up property update;
@@ -111,11 +111,11 @@ export interface MergePersonsResult {
     foldAborted?: MergeFoldAbortReason
 }
 
-/** Which person-storage world a store writes to. Labels metrics whose causes differ between them. */
-export type PersonsWorld = 'postgres' | 'personhog'
+/** Which person-storage backend a store writes to. Labels metrics whose causes differ between them. */
+export type PersonsBackend = 'postgres' | 'personhog'
 
 export interface PersonsStore extends BatchWritingStore<FlushResult> {
-    readonly world: PersonsWorld
+    readonly backend: PersonsBackend
 
     /**
      * Fetches a person by team ID and distinct ID for checking existence
@@ -175,7 +175,7 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     /**
-     * Merge the sources into the target through this world's own merge
+     * Merge the sources into the target through this backend's own merge
      * machinery — the identity service's saga, or the PostgresPersonMerge
      * the Postgres store runs internally. Settled verdicts come back as
      * per-source outcomes; retryable Postgres conflicts throw for the

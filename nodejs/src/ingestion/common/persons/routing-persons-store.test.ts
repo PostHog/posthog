@@ -3,7 +3,7 @@ import { InternalPerson } from '~/types'
 
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
-import { MergePersonsResult, PersonsStore, PersonsWorld } from './persons-store'
+import { MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
 import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMode } from './routing-persons-store'
 
 jest.mock('~/common/persons/metrics', () => ({
@@ -23,9 +23,9 @@ const emptyMergeResult = (): MergePersonsResult => ({ survivor: null, results: [
  * through a cast, so a member PersonhogPersonsStore adds beyond the
  * interface is not checked here and would surface at runtime.
  */
-function mockStore(world: PersonsWorld = 'postgres'): jest.Mocked<PersonsStore> {
+function mockStore(backend: PersonsBackend = 'postgres'): jest.Mocked<PersonsStore> {
     return {
-        world,
+        backend,
         fetchForChecking: jest.fn().mockResolvedValue(null),
         fetchForUpdate: jest.fn().mockResolvedValue(null),
         createPerson: jest.fn().mockResolvedValue({ success: true }),
@@ -47,13 +47,13 @@ describe('RoutingPersonsStore', () => {
         // sees during a shadow rollout came from Postgres and must say so.
         ['personhog' as const, 'personhog'],
         ['shadow' as const, 'postgres'],
-    ])('reports the authoritative world in %s mode', (mode, expected) => {
+    ])('reports the authoritative backend in %s mode', (mode, expected) => {
         const store = new RoutingPersonsStore(
             mockStore('postgres'),
             mockStore('personhog') as unknown as PersonhogPersonsStore,
             mode
         )
-        expect(store.world).toBe(expected)
+        expect(store.backend).toBe(expected)
     })
 
     const person = (teamId: number, id = '1'): InternalPerson =>
@@ -166,7 +166,7 @@ describe('RoutingPersonsStore', () => {
             await expect(store.flush()).resolves.toEqual([])
         })
 
-        it('mergePersons replays the same request against the personhog world, pg staying authoritative', async () => {
+        it('mergePersons replays the same request against the personhog backend, pg staying authoritative', async () => {
             const stores = makeStores()
             const pgResult = { survivor: person(1, '7'), results: [] }
             stores.pg.mergePersons.mockResolvedValue(pgResult)
@@ -210,7 +210,7 @@ describe('RoutingPersonsStore', () => {
         })
     })
 
-    describe('shadow writes resolve the personhog world person', () => {
+    describe('shadow writes resolve the personhog backend person', () => {
         it.each([
             [
                 'applyEventOps',
@@ -223,7 +223,7 @@ describe('RoutingPersonsStore', () => {
                     store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0),
                 (m: jest.Mocked<PersonsStore>) => m.updatePersonWithPropertiesDiffForUpdate,
             ],
-        ] as const)('%s ships the shadow world id, not the pg id', async (_verb, call, member) => {
+        ] as const)('%s ships the shadow backend id, not the pg id', async (_verb, call, member) => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
@@ -238,7 +238,7 @@ describe('RoutingPersonsStore', () => {
             expect((shadowArgs[0] as InternalPerson).id).toBe('99')
         })
 
-        it('skips the shadow write, counted, when the person does not exist in the personhog world', async () => {
+        it('skips the shadow write, counted, when the person does not exist in the personhog backend', async () => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)

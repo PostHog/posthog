@@ -89,7 +89,7 @@ export class PersonEventProcessor {
                     })
                     return dlq('Merge limit exceeded', error)
                 case 'SYNC':
-                    // The Postgres world cannot produce this error in SYNC mode
+                    // The Postgres backend cannot produce this error in SYNC mode
                     // (its moves are unbounded), but the personhog saga enforces
                     // a move limit in every mode, making this failure class
                     // personhog-new. Temporary while the permanent fix —
