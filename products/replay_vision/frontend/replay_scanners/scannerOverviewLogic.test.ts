@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -370,6 +371,36 @@ describe('scannerOverviewLogic', () => {
             failRequests = false
             await jest.advanceTimersByTimeAsync(16_000)
             expect(freshLogic.values.firstScanCheckFailing).toBe(false)
+        })
+
+        it('captures a failed load and shows a recoverable toast that a later success dismisses', async () => {
+            // An established scanner (no sweep timestamps) so the pending panel can't mask the failure,
+            // which is the case the firstScanPending guard leaves exposed.
+            failRequests = true
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const errorSpy = jest.spyOn(lemonToast, 'error')
+            const dismissSpy = jest.spyOn(lemonToast, 'dismiss')
+
+            const estLogic = scannerOverviewLogic({ scannerId: 'sid' })
+            estLogic.mount()
+            await expectLogic(estLogic).toFinishAllListeners()
+
+            expect(estLogic.values.firstScanPending).toBe(false)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_overview_stats_load_failed',
+                expect.objectContaining({ scanner_id: 'sid' })
+            )
+            expect(errorSpy).toHaveBeenCalledWith(
+                'Failed to load overview stats',
+                expect.objectContaining({ toastId: 'vision-overview-stats-error-sid' })
+            )
+
+            // Recovered data must clear the stale toast rather than leave it shouting over it.
+            failRequests = false
+            await expectLogic(estLogic, () => estLogic.actions.loadOverviewStats()).toFinishAllListeners()
+            expect(dismissSpy).toHaveBeenCalledWith('vision-overview-stats-error-sid')
+
+            estLogic.unmount()
         })
 
         it('caps a stuck first scan at an hour even when every check fails, then stops polling', async () => {

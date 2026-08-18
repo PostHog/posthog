@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -444,6 +445,9 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
     })),
 
     listeners(({ actions, cache, props, values }) => {
+        // A stable id per scanner, so repeat failures replace one toast instead of stacking, and a
+        // later successful load can dismiss it.
+        const overviewStatsErrorToastId = `vision-overview-stats-error-${props.scannerId}`
         const reloadStats = (): void => actions.loadOverviewStats()
         // Only the date range changes the impact window; verdict/tag filters don't apply to impact.
         const reloadDateScoped = (): void => {
@@ -517,7 +521,11 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                 reloadDateScoped()
                 syncFirstScanPoll()
             },
-            loadOverviewStatsSuccess: syncFirstScanPoll,
+            loadOverviewStatsSuccess: () => {
+                // Fresh data arrived, so clear any stale failure toast rather than leave it shouting over it.
+                lemonToast.dismiss(overviewStatsErrorToastId)
+                syncFirstScanPoll()
+            },
             loadOverviewStatsFailure: syncFirstScanPoll,
             scannerWatermarkRefreshed: syncFirstScanPoll,
             // Impact needs the scanner type; refire once the scanner (and its type) resolves. The
@@ -574,9 +582,15 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
+                    // Neither this path nor the chart overlay captured anything, so a failure was only
+                    // visible in a session recording. Record it so the rate is measurable.
+                    posthog.capture('replay_vision_overview_stats_load_failed', {
+                        scanner_id: props.scannerId,
+                        failure_count: values.overviewStatsFailureCount + 1,
+                    })
                     // Background retries behind the pending panel would otherwise stack a toast per interval.
                     if (!values.firstScanPending) {
-                        lemonToast.error('Failed to load overview stats')
+                        lemonToast.error('Failed to load overview stats', { toastId: overviewStatsErrorToastId })
                     }
                     actions.loadOverviewStatsFailure()
                 }
