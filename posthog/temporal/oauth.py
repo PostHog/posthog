@@ -80,6 +80,11 @@ INTERNAL_SCOPES: list[str] = [
     "internal_run:read",
 ]
 
+REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
+    "llm_gateway:read",
+    "internal_run:read",
+]
+
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
 # `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
 # granted through the OAuth consent flow. Reads use the public `signal_scout:read` scope.
@@ -155,7 +160,8 @@ def resolve_scopes(
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
         elif scopes == "report_canvas":
-            resolved = [*MCP_READ_SCOPES, "canvas:write", *internal]
+            report_canvas_internal = list(REPORT_CANVAS_INTERNAL_SCOPES) if include_internal_scopes else []
+            resolved = [*MCP_READ_SCOPES, "canvas:write", *report_canvas_internal]
         elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable

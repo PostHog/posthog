@@ -106,7 +106,7 @@ class SignalReportCanvasWorkflow:
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                 return False
-        return False
+        return True
 
 
 async def start_report_canvas_workflow(*, team_id: int, report_id: str, notify_reviewers: bool = True) -> bool:

@@ -59,3 +59,43 @@ async def test_workflow_rechecks_the_fingerprint_after_generation() -> None:
 
     assert result is True
     assert start_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_succeeds_after_three_changed_fingerprints() -> None:
+    generation = ReportCanvasGeneration(
+        canvas_id=uuid.uuid4(),
+        discussion_task_id=uuid.uuid4(),
+        generation_task_id=uuid.uuid4(),
+        generation_run_id=uuid.uuid4(),
+        fingerprint="a" * 64,
+    )
+    start_calls = 0
+
+    @activity.defn(name="start_report_canvas_generation_activity")
+    async def start_mock(input: ReportCanvasWorkflowInput) -> ReportCanvasGeneration:
+        nonlocal start_calls
+        start_calls += 1
+        return generation
+
+    @activity.defn(name="poll_report_canvas_generation_activity")
+    async def poll_mock(input: ReportCanvasWorkflowInput, current: ReportCanvasGeneration) -> bool:
+        return True
+
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=TASK_QUEUE,
+            workflows=[SignalReportCanvasWorkflow],
+            activities=[start_mock, poll_mock],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result = await environment.client.execute_workflow(
+                SignalReportCanvasWorkflow.run,
+                ReportCanvasWorkflowInput(team_id=1, report_id=str(uuid.uuid4())),
+                id=str(uuid.uuid4()),
+                task_queue=TASK_QUEUE,
+            )
+
+    assert result is True
+    assert start_calls == 3
