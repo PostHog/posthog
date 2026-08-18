@@ -19,6 +19,7 @@ import {
   useCanvasVersions,
   useDashboard,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -86,10 +87,16 @@ export function GridCanvasView({
   const { dashboard } = useDashboard(canvasId);
   const { layout, currentVersionId, isLoading } = useGridLayout(canvasId);
   const { patch } = usePatchLayout(canvasId);
-  const { generate } = useGenerateFreeformCanvas({
-    channelId: dashboard?.channelId ?? "",
-    channelName: "",
-  });
+  // Resolve the channel's display name from the shared channels query, like the
+  // freeform view does, so a started run names its channel in the agent prompt
+  // (an empty name drops the whole channel-context instruction).
+  const channelId = dashboard?.channelId ?? "";
+  const { channels } = useChannels();
+  const channelName = useMemo(
+    () => channels.find((channel) => channel.id === channelId)?.name ?? "",
+    [channels, channelId],
+  );
+  const { generate } = useGenerateFreeformCanvas({ channelId, channelName });
 
   const surfaceRef = useRef<HTMLDivElement>(null);
   // The surface mounts only after loading, so a plain ref never retriggers the
@@ -455,6 +462,7 @@ export function GridCanvasView({
             canvasId={canvasId}
             canvasName={dashboard.name}
             channelId={dashboard.channelId}
+            channelName={channelName}
             onBack={() => setWidgetTarget(null)}
             onMinimize={() => {
               setCollapsed(true);

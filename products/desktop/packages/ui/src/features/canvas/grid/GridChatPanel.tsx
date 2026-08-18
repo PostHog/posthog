@@ -40,6 +40,7 @@ export function GridChatPanel({
   canvasId,
   canvasName,
   channelId,
+  channelName,
   onBack,
   onMinimize,
   onStarted,
@@ -57,6 +58,8 @@ export function GridChatPanel({
   canvasId: string;
   canvasName: string;
   channelId: string;
+  /** The channel's display name, so a started run names its channel. */
+  channelName: string;
   /** Return from a widget's conversation to the canvas's. */
   onBack: () => void;
   onMinimize: () => void;
@@ -141,6 +144,7 @@ export function GridChatPanel({
           canvasId={canvasId}
           canvasName={canvasName}
           channelId={channelId}
+          channelName={channelName}
           onStarted={onStarted}
         />
       )}
@@ -236,18 +240,20 @@ function CanvasChatComposer({
   canvasId,
   canvasName,
   channelId,
+  channelName,
   onStarted,
 }: {
   canvasId: string;
   canvasName: string;
   channelId: string;
+  channelName: string;
   onStarted: (taskId: string) => void;
 }) {
   const [instruction, setInstruction] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const { generate } = useGenerateFreeformCanvas({
     channelId,
-    channelName: "",
+    channelName,
   });
 
   const submit = async () => {
