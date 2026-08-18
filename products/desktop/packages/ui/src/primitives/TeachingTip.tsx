@@ -53,8 +53,7 @@ export function TeachingTip({
   className?: string;
   children: ReactNode;
 }) {
-  const learned = useSettingsStore((state) => state.hints[id]?.learned);
-  const enabled = useSettingsStore((state) => state.tipsEnabled);
+  const offerable = useSettingsStore((state) => state.shouldShowHint(id));
   // Wait for persisted answers, or a restart would flash already-hidden tips.
   const hydrated = useSettingsStore((state) => state._hasHydrated);
   const markLearned = useSettingsStore((state) => state.markHintLearned);
@@ -66,7 +65,7 @@ export function TeachingTip({
     setOffered({ open, moment });
     if (open) setHidden(false);
   }
-  const showing = open && enabled && hydrated && !learned && !hidden;
+  const showing = open && offerable && hydrated && !hidden;
 
   return (
     <Popover

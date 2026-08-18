@@ -337,7 +337,6 @@ function usePiSubmit(
               TIP_KEYS.steerSafeBoundary,
               "Steering waits for a safe boundary",
               "Pi will apply it at the next safe boundary. The run stays active until then.",
-              1,
             );
           }
           onSuccess(action);

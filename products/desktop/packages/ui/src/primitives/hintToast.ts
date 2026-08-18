@@ -1,7 +1,4 @@
-import {
-  DEFAULT_HINT_MAX,
-  useSettingsStore,
-} from "@posthog/ui/features/settings/settingsStore";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { type ToastOptions, toast } from "@posthog/ui/primitives/toast";
 
 /**
@@ -20,11 +17,9 @@ export function hintToast(
   key: string,
   title: string,
   detail?: string | ToastOptions,
-  /** How many times to offer it before it stops on its own. */
-  max: number = DEFAULT_HINT_MAX,
 ): void {
   const store = useSettingsStore.getState();
-  if (!store.shouldShowHint(key, max)) return;
+  if (!store.shouldShowHint(key)) return;
   // Toasts off means this never reaches the screen, so don't spend the hint's
   // offer count on it; it is offered again once toasts come back on.
   if (!store.toastNotifications) return;

@@ -153,7 +153,6 @@ export function useSessionCallbacks({
             TIP_KEYS.steerSafeBoundary,
             "Steering waits for a safe boundary",
             "It will apply at the next safe boundary. The current command may keep running until then.",
-            1,
           );
         }
 

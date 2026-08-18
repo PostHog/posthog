@@ -5,7 +5,10 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  countRetiredHints,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 
@@ -20,8 +23,8 @@ export function TipsSection() {
   const enabled = useSettingsStore((state) => state.tipsEnabled);
   const setTipsEnabled = useSettingsStore((state) => state.setTipsEnabled);
   const resetHints = useSettingsStore((state) => state.resetHints);
-  const hiddenCount = useSettingsStore(
-    (state) => Object.values(state.hints).filter((hint) => hint.learned).length,
+  const retiredCount = useSettingsStore((state) =>
+    countRetiredHints(state.hints),
   );
 
   return (
@@ -48,17 +51,17 @@ export function TipsSection() {
         <SettingsCardRow
           label="Reset tips"
           description={
-            hiddenCount === 0
-              ? "You haven't hidden any tips"
-              : hiddenCount === 1
-                ? "Show the one tip you've hidden"
-                : `Show the ${hiddenCount} tips you've hidden`
+            retiredCount === 0
+              ? "Every tip is still showing"
+              : retiredCount === 1
+                ? "One tip has stopped showing"
+                : `${retiredCount} tips have stopped showing`
           }
         >
           <Button
             size="sm"
             variant="outline"
-            disabled={hiddenCount === 0}
+            disabled={retiredCount === 0}
             onClick={() => {
               resetHints();
               toast.success("Tips are back");
