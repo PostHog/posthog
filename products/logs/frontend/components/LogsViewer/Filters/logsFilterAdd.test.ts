@@ -18,6 +18,9 @@ const logFilter = (key: string, operator: PropertyOperator, value?: string | str
 const attributeFilter = (key: string, operator: PropertyOperator, value?: string | string[]): FilterEntry =>
     ({ key, type: PropertyFilterType.LogAttribute, operator, value }) as FilterEntry
 
+const resourceFilter = (key: string, operator: PropertyOperator, value?: string | string[]): FilterEntry =>
+    ({ key, type: PropertyFilterType.LogResourceAttribute, operator, value }) as FilterEntry
+
 describe('logsFilterAdd', () => {
     describe('mergeFilterIntoValues', () => {
         // Picking a filter that contradicts a standing one used to leave both in the group, which ANDs
@@ -61,12 +64,12 @@ describe('logsFilterAdd', () => {
         })
 
         it.each<[string, FilterEntry, FilterEntry]>([
-            // The type is half the identity: a resource attribute named service_name filters a
-            // different field from the service_name column, so the two must not fold together.
+            // A resource attribute maps to a group of its own, so its type is never in doubt and a
+            // resource attribute named service_name stays separate from the service_name column.
             [
-                'a different property type',
+                'a resource attribute of the same name',
                 logFilter('service_name', PropertyOperator.Exact, ['api']),
-                attributeFilter('service_name', PropertyOperator.Exact, ['worker']),
+                resourceFilter('service_name', PropertyOperator.Exact, ['worker']),
             ],
             [
                 'a different key',
@@ -116,7 +119,18 @@ describe('logsFilterAdd', () => {
         it.each<[string, PropertyFilterType, string, number]>([
             ['the filter on that attribute', PropertyFilterType.Log, 'service_name', 1],
             ['whatever operator it uses', PropertyFilterType.Log, 'message', 0],
-            ['no match for another type', PropertyFilterType.LogAttribute, 'service_name', -1],
+            [
+                'a log attribute pick matching the column of that name',
+                PropertyFilterType.LogAttribute,
+                'service_name',
+                1,
+            ],
+            [
+                'no match for a resource attribute of that name',
+                PropertyFilterType.LogResourceAttribute,
+                'service_name',
+                -1,
+            ],
             ['no match for another key', PropertyFilterType.Log, 'severity_level', -1],
         ])('finds %s', (_, type, key, expected) => {
             expect(indexOfFilterOn(values, { type, key })).toEqual(expected)
@@ -176,6 +190,88 @@ describe('logsFilterAdd', () => {
             const item = { name: 'level', propertyFilterType: PropertyFilterType.LogAttribute }
 
             expect(logsSelection(standing, LOG_ATTRIBUTES_GROUP, 'level', item)).toEqual({ kind: 'new' })
+        })
+    })
+
+    // The reported sequences, in both orders. A recent is recorded under the Log attributes group even
+    // when it came from a `log` column filter, so the group cannot decide the attribute.
+    describe('picking a recent against an applied filter', () => {
+        const recentOf = (
+            operator: PropertyOperator,
+            type: PropertyFilterType = PropertyFilterType.Log
+        ): Record<string, any> => ({
+            name: 'service_name',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.LogAttributes,
+                sourceGroupName: 'Log attributes',
+                sourceValue: 'service_name',
+                propertyFilter: { key: 'service_name', type, operator, value: ['posthog-db-1'] },
+            },
+        })
+        const applied = (operator: PropertyOperator): FilterEntry =>
+            ({ key: 'service_name', type: PropertyFilterType.Log, operator, value: ['posthog-db-1'] }) as FilterEntry
+        const applyRecent = (values: FilterEntry[], item: Record<string, any>): FilterEntry[] => {
+            const selection = logsSelection(values, LOG_ATTRIBUTES_GROUP, 'service_name', item)
+            if (selection.kind !== 'merge') {
+                throw new Error(`expected a merge, got ${selection.kind}`)
+            }
+            return mergeFilterIntoValues(values, selection.filter)
+        }
+
+        it.each<[string, PropertyOperator, PropertyOperator]>([
+            ['an applied = replaced by a picked ≠', PropertyOperator.Exact, PropertyOperator.IsNot],
+            ['an applied ≠ replaced by a picked =', PropertyOperator.IsNot, PropertyOperator.Exact],
+        ])('leaves one filter for %s', (_, appliedOperator, pickedOperator) => {
+            expect(applyRecent([applied(appliedOperator)], recentOf(pickedOperator))).toEqual([applied(pickedOperator)])
+        })
+
+        // A recent for a `log` column filter maps back to `log_attribute`, so before this the picked
+        // filter targeted an attribute of the same name and landed beside the column filter.
+        it('reuses the applied field when the picked type disagrees on the same key', () => {
+            const result = applyRecent(
+                [applied(PropertyOperator.IsNot)],
+                recentOf(PropertyOperator.Exact, PropertyFilterType.LogAttribute)
+            )
+
+            expect(result).toEqual([applied(PropertyOperator.Exact)])
+        })
+
+        // Picking both polarities straight from recents, with no facet-rail click involved.
+        it('leaves one filter when both polarities are picked in turn', () => {
+            const first = applyRecent([], recentOf(PropertyOperator.Exact))
+            expect(first).toEqual([applied(PropertyOperator.Exact)])
+
+            expect(applyRecent(first, recentOf(PropertyOperator.IsNot))).toEqual([applied(PropertyOperator.IsNot)])
+        })
+
+        it('keeps a filter on a genuinely different key', () => {
+            const other = logFilter('severity_level', PropertyOperator.Exact, ['error'])
+            const result = applyRecent([other, applied(PropertyOperator.IsNot)], recentOf(PropertyOperator.Exact))
+
+            expect(result).toEqual([other, applied(PropertyOperator.Exact)])
+        })
+
+        // The bare-key row the picker derives from a complete recent. Opening the applied filter has to
+        // leave its value alone, so the reported "adds an empty second chip" cannot happen.
+        it.each<[string, PropertyOperator]>([
+            ['an applied =', PropertyOperator.Exact],
+            ['an applied ≠', PropertyOperator.IsNot],
+        ])('opens %s when the bare key is picked, without touching its value', (_, operator) => {
+            const values = [applied(operator)]
+            const bare = {
+                name: 'service_name',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.LogAttributes,
+                    sourceGroupName: 'Log attributes',
+                    sourceValue: 'service_name',
+                },
+            }
+
+            expect(logsSelection(values, LOG_ATTRIBUTES_GROUP, 'service_name', bare)).toEqual({
+                kind: 'focus',
+                index: 0,
+            })
+            expect(values).toEqual([applied(operator)])
         })
     })
 

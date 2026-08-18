@@ -69,7 +69,8 @@ export function indexOfFilterOn(values: FilterEntry[], target: LogsFilterTarget 
     if (!target) {
         return -1
     }
-    return values.findIndex((entry) => isSameTarget(entry, target))
+    const reconciled = reconcileTarget(values, target)
+    return values.findIndex((entry) => isSameTarget(entry, reconciled))
 }
 
 function filterValues(filter: ReconcilableFilter): string[] {
@@ -94,7 +95,7 @@ function withValues(filter: ReconcilableFilter, values: string[]): FilterEntry {
  */
 export function mergeFilterIntoValues(values: FilterEntry[], incoming: FilterEntry): FilterEntry[] {
     const filter = asFilter(incoming)
-    const target = filter ? { type: filter.type, key: String(filter.key) } : null
+    const target = filter ? reconcileTarget(values, { type: filter.type, key: String(filter.key) }) : null
     const operator = filter?.operator
 
     if (!filter || !target || !operator || !MERGEABLE_OPERATORS.includes(operator)) {
@@ -142,20 +143,52 @@ export function mergeFilterIntoValues(values: FilterEntry[], incoming: FilterEnt
         })
         .filter((entry): entry is FilterEntry => entry !== null)
 
-    return mergedIntoExisting ? reconciled : [...reconciled, withValues(filter, incomingValues)]
+    if (mergedIntoExisting) {
+        return reconciled
+    }
+    // Adopt the reconciled type so a keyed pick never adds a second chip for a field nobody filtered.
+    return [...reconciled, withValues({ ...filter, type: target.type }, incomingValues)]
 }
 
 /**
- * The attribute a taxonomic selection would filter on — the item's own property-filter type when it
- * carries one (recents and attribute items do), otherwise the type its group maps to.
+ * The attribute a taxonomic selection would filter on.
+ *
+ * The group a selection arrives under cannot decide this on its own: both `log` and `log_attribute`
+ * filters are recorded under the Log attributes group, and mapping that group back always yields
+ * `log_attribute`. A recent recorded from a `service_name` column filter would then resolve to an
+ * attribute of the same name, which is a different field. So a filter the selection carries decides
+ * the type, and the group is the last resort.
  */
 export function selectionTarget(
     taxonomicGroup: TaxonomicFilterGroup,
     value: TaxonomicFilterValue,
     item: any
 ): LogsFilterTarget | null {
-    const type = item?.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
-    return type && value != null ? { type, key: String(value) } : null
+    const carried = hasRecentContext(item) ? asFilter(item._recentContext.propertyFilter as FilterEntry) : null
+    const type =
+        carried?.type ?? item?.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+    const key = carried?.key ?? value
+    return type && key != null ? { type, key: String(key) } : null
+}
+
+// The two types the picker cannot tell apart: PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+// records both under the Log attributes group, so mapping that group back can only ever answer
+// `log_attribute`. Resource attributes map to a group of their own and stay distinct.
+const AMBIGUOUS_TYPES: PropertyFilterType[] = [PropertyFilterType.Log, PropertyFilterType.LogAttribute]
+
+/**
+ * The attribute an incoming filter reconciles against. When no filter on that exact type and key is
+ * applied but one shares the key under the ambiguous pair above, the applied one wins: two filters
+ * that both render `service_name = api` read as a duplicate whichever field each one queries.
+ */
+function reconcileTarget(values: FilterEntry[], target: LogsFilterTarget): LogsFilterTarget {
+    if (values.some((entry) => isSameTarget(entry, target)) || !AMBIGUOUS_TYPES.includes(target.type)) {
+        return target
+    }
+    const sameKey = values
+        .map(asFilter)
+        .find((filter) => filter !== null && String(filter.key) === target.key && AMBIGUOUS_TYPES.includes(filter.type))
+    return sameKey ? { type: sameKey.type, key: String(sameKey.key) } : target
 }
 
 /** What the filter bar should do with a dropdown selection, given the filters it already holds. */
@@ -182,6 +215,10 @@ export function logsSelection(
     item: any
 ): LogsSelection {
     const recentFilter = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
+    // Only a recent that carries something to apply merges. A recent without a value is the bare-key
+    // row the picker derives from a complete one, and it falls through to the reuse path below. The
+    // shared addGroupFilter pushes any filter a recent carries, so an incomplete one has to be caught
+    // here or it lands as a second chip on an attribute that already has one.
     if (recentFilter && isCompleteRecentPropertyFilter(recentFilter)) {
         return { kind: 'merge', filter: recentFilter as FilterEntry }
     }
