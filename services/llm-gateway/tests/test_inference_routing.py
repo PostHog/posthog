@@ -22,6 +22,7 @@ from llm_gateway.modal import make_modal_anthropic_call
 from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
+GLM53_MODEL = "zai-org/glm-5.3"
 DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
 PRODUCT = "posthog_code"
@@ -180,18 +181,34 @@ async def test_baseten_flag_routes_each_surface(send_fn: Any, endpoint: str) -> 
     evaluate.assert_awaited_once_with("tasks-glm-baseten-inference", "d-1")
 
 
+@pytest.mark.parametrize("model", [DEEPSEEK_MODEL, GLM53_MODEL])
 @pytest.mark.parametrize(
     ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
 )
-async def test_deepseek_routes_each_surface_directly_to_baseten(send_fn: Any, endpoint: str) -> None:
+async def test_baseten_exclusive_models_route_each_surface_directly_to_baseten(
+    send_fn: Any, endpoint: str, model: str
+) -> None:
     handle = AsyncMock(return_value={"ok": True})
-    request = {"model": DEEPSEEK_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+    request = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
 
     _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, send_fn=send_fn, request_data=request)
 
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
-    assert handle.call_args.kwargs["model"] == DEEPSEEK_MODEL
+    assert handle.call_args.kwargs["model"] == model
     evaluate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
+)
+async def test_baseten_exclusive_model_case_variants_are_canonicalized(send_fn: Any, endpoint: str) -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    request = {"model": "ZAI-Org/GLM-5.3", "messages": [{"role": "user", "content": "hi"}]}
+
+    await _send(_settings(baseten_api_key="baseten-key"), handle, send_fn=send_fn, request_data=request)
+
+    assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
+    assert handle.call_args.kwargs["model"] == GLM53_MODEL
 
 
 async def test_deepseek_does_not_apply_glm_anthropic_normalization() -> None:
@@ -205,6 +222,20 @@ async def test_deepseek_does_not_apply_glm_anthropic_normalization() -> None:
     await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
 
     assert handle.call_args.kwargs["request_data"] == request
+
+
+async def test_baseten_exclusive_glm_still_applies_anthropic_normalization() -> None:
+    # A Baseten-exclusive GLM is still a GLM: the Claude-runtime reasoning rewrite must apply.
+    handle = AsyncMock(return_value={"ok": True})
+    request = {
+        "model": GLM53_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "output_config": {"effort": "high"},
+    }
+
+    await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
+
+    assert handle.call_args.kwargs["request_data"] == {**request, "thinking": {"type": "adaptive"}}
 
 
 async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
