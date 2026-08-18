@@ -89,19 +89,8 @@ impl GlobalRateLimiter {
         )
     }
 
-    /// Build the token-level rate limiter from the capture config, mirroring
-    /// `try_from_config`. Uses its own Redis connection off the same
-    /// configuration, so the two limiters' pipelines cannot head-of-line block
-    /// each other.
-    pub async fn try_token_from_config(
-        config: &Config,
-        shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<Self> {
-        let redis_client = Self::build_redis_client(config, shared_redis).await?;
-        Self::new_token(config, vec![redis_client])
-    }
-
     /// Create a per-token rate limiter sharing the given Redis instances.
+    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -114,13 +103,13 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_threshold,
             config.global_rate_limit_token_overrides_csv.as_ref(),
             config.global_rate_limit_token_local_cache_max_entries,
-            config.global_rate_limit_token_min_sync_floor,
+            config.global_rate_limit_min_sync_floor,
             &prefix,
             &metrics_scope,
-            // Same dynamic source as the tok_distid limiter: lookup keys here
-            // are bare tokens, so only the blob's token-level entries resolve
-            // (the hierarchical resolver's `:`-split fallback never fires).
-            config.global_rate_limit_custom_threshold_key.is_some(),
+            // The token-only limiter is not wired to the dynamic refresh source.
+            // (The hierarchical resolver is still set but is a no-op for bare
+            // token keys, which have no `:distinct_id` suffix.)
+            false,
         )
     }
 

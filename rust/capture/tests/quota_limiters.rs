@@ -130,7 +130,6 @@ async fn setup_router_with_limits(
         Arc::new(sink.clone()),
         redis,
         None,
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1184,7 +1183,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         Arc::new(sink.clone()),
         redis,
         None,
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1276,7 +1274,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         Arc::new(sink.clone()),
         redis,
         None,
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1372,7 +1369,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         Arc::new(sink.clone()),
         redis,
         None,
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1805,7 +1801,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         Arc::new(sink.clone()),
         redis,
         None,
-        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service

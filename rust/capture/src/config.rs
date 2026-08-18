@@ -213,29 +213,11 @@ pub struct Config {
     #[envconfig(default = "250")]
     pub global_rate_limit_write_timeout_ms: u64,
 
-    // --- Token-level (whole-token aggregate) limiter config ---
-    /// Enable the token-level limiter. Requires global_rate_limit_enabled.
-    /// Catches single-token floods that per-(token, distinct_id) keying cannot
-    /// see (identity rotation spreads volume so no per-identity key ever
-    /// approaches a threshold), and makes token-level dynamic overrides
-    /// enforceable as a whole-token aggregate.
-    #[envconfig(default = "false")]
-    pub global_rate_limit_token_enabled: bool,
-
-    /// Per-token rate limit threshold per window interval. The default is a
-    /// flood backstop sized several times above the largest legitimate
-    /// per-token window volume observed in production; per-token clamps below
-    /// it belong in the dynamic override blob, not here.
-    #[envconfig(default = "40000000")]
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
+    /// Per-token rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "5000000")]
     pub global_rate_limit_token_threshold: u64,
-
-    /// Sync floor for the token limiter (see global_rate_limit_min_sync_floor
-    /// for semantics). Token keys are few but individually high-volume, so a
-    /// much higher floor keeps Redis sync traffic to the handful of tokens
-    /// that could ever matter. The 1%-of-threshold cap in the limiter still
-    /// applies per key, so dynamic overrides below this stay enforceable.
-    #[envconfig(default = "10000")]
-    pub global_rate_limit_token_min_sync_floor: u64,
 
     /// CSV list of key=value pairs for custom per-token thresholds
     pub global_rate_limit_token_overrides_csv: Option<String>,

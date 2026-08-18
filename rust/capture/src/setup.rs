@@ -189,19 +189,6 @@ pub async fn build_components(
         None
     };
 
-    // Token-level aggregate limiter: catches single-token floods that
-    // per-(token, distinct_id) keying cannot see. Gated on both flags so the
-    // master switch still disables everything at once.
-    let global_rate_limiter_token =
-        if config.global_rate_limit_enabled && config.global_rate_limit_token_enabled {
-            let limiter = GlobalRateLimiter::try_token_from_config(&config, redis_client.clone())
-                .await
-                .expect("failed to create token-level global rate limiter");
-            Some(Arc::new(limiter))
-        } else {
-            None
-        };
-
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
     // global billing limiter applied here to every event batch. You must supply the
@@ -359,7 +346,6 @@ pub async fn build_components(
         sink,
         redis_client,
         global_rate_limiter_token_distinctid,
-        global_rate_limiter_token,
         quota_limiter,
         token_dropper,
         event_restriction_service.clone(),
