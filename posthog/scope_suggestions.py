@@ -1,4 +1,5 @@
 import json
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -13,6 +14,9 @@ from posthog.scopes import (
     OAUTH_HIDDEN_SCOPE_OBJECTS,
     PRIVILEGED_SCOPES,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +52,21 @@ would help.
 Return ONLY a JSON object, no prose, in exactly this shape:
 {"scopes": ["insight:read", "query:read"], "summary": "one sentence on why these"}
 """
+
+
+def scope_suggestion_flag_person_properties(user: "User") -> dict[str, object]:
+    """Person properties for evaluating the experiment flag server-side.
+
+    The staged rollout has to run off a person property, not the `project` group: PostHog rejects a
+    group-property release condition on a person-aggregated flag, and a group-aggregated one hashes
+    the group key instead of the distinct id, so every member of a project would land on one variant
+    and the experiment would measure nothing.
+
+    Mirrors what the app sends via `posthog.people.set` in `userLogic`, including withholding the
+    email of a user who asked to be anonymized. The frontend read picks the UI and this read guards
+    the endpoint, so a condition has to resolve the same on both sides.
+    """
+    return {"email": user.email if not user.anonymize_data else None}
 
 
 class ScopeSuggestion(BaseModel):

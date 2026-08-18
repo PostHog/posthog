@@ -19,7 +19,12 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.scope_suggestions import SCOPE_SUGGESTION_FEATURE_FLAG, SCOPE_SUGGESTION_TEST_VARIANT, suggest_scopes
+from posthog.scope_suggestions import (
+    SCOPE_SUGGESTION_FEATURE_FLAG,
+    SCOPE_SUGGESTION_TEST_VARIANT,
+    scope_suggestion_flag_person_properties,
+    suggest_scopes,
+)
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
@@ -346,6 +351,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
             str(user.distinct_id),
             groups={"organization": str(organization.id)},
             group_properties={"organization": {"id": str(organization.id)}},
+            person_properties=scope_suggestion_flag_person_properties(user),
             send_feature_flag_events=False,
         )
         if variant != SCOPE_SUGGESTION_TEST_VARIANT:

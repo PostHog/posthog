@@ -399,6 +399,26 @@ class TestPersonalAPIKeyScopeSuggestions(APIBaseTest):
 
     @patch("posthog.scope_suggestions.build_openai_client")
     @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_flag_sees_the_email_the_staged_rollout_targets(self, mock_flag, mock_build_client):
+        mock_build_client.return_value = self._client_returning('{"scopes": [], "summary": ""}')
+
+        self.client.post("/api/personal_api_keys/suggest_scopes/", {"description": "read insights"})
+
+        assert mock_flag.call_args.kwargs["person_properties"] == {"email": self.user.email}
+
+    @patch("posthog.scope_suggestions.build_openai_client")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
+    def test_flag_withholds_the_email_of_an_anonymized_user(self, mock_flag, mock_build_client):
+        mock_build_client.return_value = self._client_returning('{"scopes": [], "summary": ""}')
+        self.user.anonymize_data = True
+        self.user.save()
+
+        self.client.post("/api/personal_api_keys/suggest_scopes/", {"description": "read insights"})
+
+        assert mock_flag.call_args.kwargs["person_properties"] == {"email": None}
+
+    @patch("posthog.scope_suggestions.build_openai_client")
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
     def test_missing_description_is_rejected(self, _mock_flag, mock_build_client):
         response = self.client.post("/api/personal_api_keys/suggest_scopes/", {})
 
