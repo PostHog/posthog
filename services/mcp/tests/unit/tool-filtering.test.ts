@@ -880,9 +880,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'posthog-connect',
                 'experiment-behavior-comparison',
                 'data-warehouse-scene',
+                'data-quality-checks',
             ])
         )
-        expect(flags).toHaveLength(30)
+        expect(flags).toHaveLength(31)
     })
 
     it('every loops tool is gated on the loops flag', () => {

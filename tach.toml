@@ -1294,6 +1294,7 @@ path = "products.data_quality"
 depends_on = [
     "posthog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"

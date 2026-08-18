@@ -32,7 +32,19 @@ The same goes for patterns, not just components: before building a new scene or 
 
 > LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
-## Rule 2 — Don't handwrite API types; use the generated ones
+## Rule 2 — A product's UI goes in `products/<name>/frontend/`
+
+`frontend/src/scenes/<name>/` is not the default home for product UI, and an existing folder there is not evidence that new files belong in it — about 18 products currently have UI in both trees. App-level scenes (`settings`, `onboarding`, `billing`, `max`) do legitimately live here.
+
+Before adding a file or a directory under `scenes/`, check where that product stands:
+
+```sh
+python3 .agents/skills/placing-product-frontend-code/scripts/scene_product_split.py <scene-dir>
+```
+
+Invoke `/placing-product-frontend-code` for the decision table and for why the path matters — it drives merge-queue lane assignment, and a change anywhere under `frontend/` serializes against every other frontend PR.
+
+## Rule 3 — Don't handwrite API types; use the generated ones
 
 Django serializers are the source of truth. `hogli build:openapi` generates TypeScript types (suffix `Api`) and API functions. **Never write an `interface` that mirrors a backend serializer** — import the generated type instead.
 
@@ -44,7 +56,7 @@ Django serializers are the source of truth. `hogli build:openapi` generates Type
 
 When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API interface, invoke the `/adopting-generated-api-types` skill first.
 
-## Rule 3 — Business logic in kea, not React hooks
+## Rule 4 — Business logic in kea, not React hooks
 
 Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
@@ -83,4 +95,4 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/writing-ui-components`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
