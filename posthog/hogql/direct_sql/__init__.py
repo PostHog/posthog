@@ -10,7 +10,8 @@ from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 from posthog.hogql.direct_sql.snowflake_adapter import SnowflakeAdapter
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 register_adapter(PostgresAdapter())
 register_adapter(MySQLAdapter())

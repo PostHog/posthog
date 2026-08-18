@@ -3207,7 +3207,7 @@ def _start_mention_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    posthog_user: User | None,
+    posthog_user: User,
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
@@ -3222,13 +3222,8 @@ def _start_mention_workflow(
     is also threaded into the workflow inputs so the workflow runs the
     classifier activity at the top of its body and short-circuits if the
     mapping is gone by the time the followup activity runs.
-
-    ``posthog_user`` is optional only to keep the door open for the legacy
-    in-workflow resolution path; in practice both event types resolve the
-    user at routing time and pass it in.
     """
     if not untagged_followup:
-        assert posthog_user is not None, "app_mention path must always resolve a user before dispatch"
         _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
@@ -3237,7 +3232,7 @@ def _start_mention_workflow(
         integration_id=integration.id,
         slack_team_id=slack_team_id,
         slack_event_id=event_id,
-        user_id=posthog_user.id if posthog_user else None,
+        user_id=posthog_user.id,
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,
         is_ext_shared_channel=is_ext_shared_channel,

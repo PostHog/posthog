@@ -74,7 +74,7 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-from products.warehouse_sources.backend.facade.models import ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 tracer = trace.get_tracer(__name__)
 

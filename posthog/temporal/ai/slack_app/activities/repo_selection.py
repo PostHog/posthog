@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
-    user_id: int | None = None,
+    user_id: int,
     thread_messages: list[dict[str, str]] | None = None,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
@@ -35,21 +35,11 @@ def cascade_posthog_code_repository_activity(
     a mention-only read sends every ask whose link sits in an earlier message to a
     sandbox run that then finds the repo in text the fast path skipped.
 
-    ``user_id`` and ``thread_messages`` default to ``None`` for backwards compatibility
-    with older call shapes: if a worker drains an activity task that was scheduled by an
-    older workflow (recorded with two or three positional args), the call still binds.
-    An unidentifiable mentioner resolves no repos anyway, and a missing thread degrades
-    to the mention-only behavior.
+    ``thread_messages`` defaults to ``None`` for backwards compatibility with calls
+    recorded before the parameter existed: if a worker drains an activity task scheduled
+    by an older workflow, the call still binds and degrades to the mention-only behavior.
     """
     from posthog.models.integration import Integration
-
-    if user_id is None:
-        logger.warning(
-            "posthog_code_cascade_legacy_call",
-            integration_id=inputs.integration_id,
-            slack_team_id=inputs.slack_team_id,
-        )
-        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
     from products.slack_app.backend.api import _get_full_repo_names
 
