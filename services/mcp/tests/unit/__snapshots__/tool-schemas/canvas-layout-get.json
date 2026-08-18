@@ -4,10 +4,6 @@
         "id": {
             "description": "ID of the grid canvas whose layout to read.",
             "type": "string"
-        },
-        "version_id": {
-            "description": "Read this historical layout version instead of the head (for version browsing).",
-            "type": "string"
         }
     },
     "required": ["id"],

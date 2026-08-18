@@ -133,11 +133,16 @@ tools:
             idempotent: true
         title: Read grid canvas layout
         description: >
-            Read a grid canvas's layout document (grid definition + placements) and its `current_version_id`. Always
-            call this before patching or publishing: pass the returned version id as `expected_current_version_id` so
-            concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout
-            with a null version id. Placements reference component canvases (kind=component) — resolve their contracts
-            via canvas-list.
+            Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`.
+            Always call this before patching or publishing: pass the returned version id as
+            `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet
+            returns the default empty layout with a null version id. Placements reference component canvases
+            (kind=component) — resolve their contracts via canvas-list.
+        # Historical version browsing is a viewer feature, not an agent one: the response's
+        # current_version_id is always the live head, so an old layout paired with that guard
+        # would publish over newer versions without a 409.
+        exclude_params:
+            - version_id
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to read.
@@ -179,11 +184,18 @@ tools:
             incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The
             layout is validated first (grid bounds, overlaps, component references, per-placement config against each
             component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live
-            immediately — no build. Pass `expected_current_version_id` from canvas-layout-get so a concurrent edit is
-            rejected with 409 version_conflict instead of overwritten.
+            immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
+            the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
+            the document on the new head, and publish again.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
+            expected_current_version_id:
+                required: true
+                description:
+                    'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid
+                    canvas that has never published a layout). A whole document replaces the head, so without the guard
+                    a layout the user changed after you read it is silently discarded.'
     canvas-list:
         operation: canvases_list
         enabled: true

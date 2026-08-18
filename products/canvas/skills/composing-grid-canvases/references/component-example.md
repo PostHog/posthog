@@ -18,7 +18,7 @@ Start from it when building a checklist, settings, or any state-carrying widget,
 ```
 
 - `index.html` must load `/src/canvas.tsx` as a module and every imported package must be in `dependencies` — the retrieved shell and dependency map already satisfy both. Improvising a comment-only entry fails the build with `no_entry_module`; dropping the `@posthog/quill` or `lucide-react` entries fails it with `import_not_declared`.
-- Declare the full `capabilities.posthog` shape (`insights`, `inlineQueries`, `captureEvents`, `state`, `actions`) even when a field is empty, as this example does — the build freezes the declared capabilities into the artifact manifest, which older clients read expecting every field. Populate only what the code calls and leave the rest empty.
+- Declare the full `capabilities.posthog` shape (`insights`, `inlineQueries`, `captureEvents`, `state`, `actions`) even when a field is empty, as this example does — the build freezes the declared capabilities into the artifact manifest, which older clients read expecting every field. `insights`, `inlineQueries`, and `captureEvents` are also required by the API: a partial `posthog` object is rejected with a 400 before source validation runs. Populate only what the code calls and leave the rest empty.
 - `capabilities.posthog.state` must name every scope the code passes to `ph.state.*` — validation rejects an undeclared scope.
 - `component.size` is in grid units and advisory; the component still has to render at any size the user drags.
 

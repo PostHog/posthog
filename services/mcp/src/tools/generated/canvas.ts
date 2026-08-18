@@ -17,7 +17,6 @@ import {
     CanvasesLayoutPublishCreateBody,
     CanvasesLayoutPublishCreateParams,
     CanvasesLayoutRetrieveParams,
-    CanvasesLayoutRetrieveQueryParams,
     CanvasesListQueryParams,
     CanvasesPromoteCreateBody,
     CanvasesPromoteCreateParams,
@@ -171,9 +170,9 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
     },
 })
 
-const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true })
-    .extend(CanvasesLayoutRetrieveQueryParams.shape)
-    .extend({ id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.') })
+const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true }).extend({
+    id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.'),
+})
 
 const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutResponse> => ({
     name: 'canvas-layout-get',
@@ -183,9 +182,6 @@ const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.Canva
         const result = await context.api.request<Schemas.CanvasLayoutResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/`,
-            query: {
-                version_id: params.version_id,
-            },
         })
         return result
     },
@@ -225,6 +221,11 @@ const CanvasLayoutPublishSchema = CanvasesLayoutPublishCreateParams.omit({ proje
     .extend(CanvasesLayoutPublishCreateBody.shape)
     .extend({
         id: CanvasesLayoutPublishCreateParams.shape['id'].describe('ID of the grid canvas whose layout to publish.'),
+        expected_current_version_id: CanvasesLayoutPublishCreateBody.shape['expected_current_version_id']
+            .unwrap()
+            .describe(
+                'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded.'
+            ),
     })
 
 const canvasLayoutPublish = (): ToolBase<typeof CanvasLayoutPublishSchema, Schemas.CanvasLayoutPublishResponse> => ({

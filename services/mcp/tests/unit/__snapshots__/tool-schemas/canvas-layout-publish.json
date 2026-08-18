@@ -10,7 +10,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optimistic-concurrency guard: the current_version_id the layout was based on (null when the canvas has no versions yet). A moved head is rejected with 409 version_conflict. Omit to publish unguarded."
+            "description": "The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded."
         },
         "id": {
             "description": "ID of the grid canvas whose layout to publish.",
@@ -158,6 +158,6 @@
             "type": "string"
         }
     },
-    "required": ["id", "layout"],
+    "required": ["id", "layout", "expected_current_version_id"],
     "type": "object"
 }

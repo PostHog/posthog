@@ -1112,7 +1112,7 @@
         }
     },
     "canvas-layout-get": {
-        "description": "Read a grid canvas's layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
+        "description": "Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read grid canvas layout",
@@ -1140,7 +1140,7 @@
         }
     },
     "canvas-layout-publish": {
-        "description": "Publish a COMPLETE layout document as a grid canvas's new head version. Prefer canvas-layout-patch for incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The layout is validated first (grid bounds, overlaps, component references, per-placement config against each component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live immediately — no build. Pass `expected_current_version_id` from canvas-layout-get so a concurrent edit is rejected with 409 version_conflict instead of overwritten.",
+        "description": "Publish a COMPLETE layout document as a grid canvas's new head version. Prefer canvas-layout-patch for incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The layout is validated first (grid bounds, overlaps, component references, per-placement config against each component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild the document on the new head, and publish again.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Publish grid canvas layout",
