@@ -57,14 +57,18 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
 # the small form fields sent alongside the file.
 MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
 
-# Which request surface each transport attributes a table to. Agent transports that wrap MCP but
-# aren't separately tracked (the CLI, Max) land on `mcp` alongside plain MCP clients, and anything
-# without a surface of its own is a plain API caller.
+# Which request surface each transport attributes a table to. The PostHog apps and the headless
+# agents share `self_driving`, matching how the source path collapses them. Agent transports that
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
+# clients, and anything without a surface of its own is a plain API caller.
 _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.WEB: DataWarehouseTable.CreatedVia.WEB,
     EventSource.WIZARD: DataWarehouseTable.CreatedVia.WIZARD,
     EventSource.POSTHOG_CODE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
     EventSource.MCP: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTable.CreatedVia.MCP,
     EventSource.CLI: DataWarehouseTable.CreatedVia.MCP,
     EventSource.POSTHOG_AI: DataWarehouseTable.CreatedVia.MCP,
 }

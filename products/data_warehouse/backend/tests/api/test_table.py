@@ -33,6 +33,8 @@ class TestResolveCreatedVia(SimpleTestCase):
                 "self_driving",
             ),
             ("posthog_code", {"user-agent": "posthog/code 1.0.0"}, "self_driving"),
+            ("desktop_app", {"user-agent": "posthog/desktop.hog.dev 1.0.0"}, "self_driving"),
+            ("mobile_app", {"user-agent": "posthog/mobile.hog.dev 1.0.0"}, "self_driving"),
             # Terraform has no attribution value of its own, so it counts as a plain API caller
             # rather than silently borrowing an agent surface.
             ("terraform", {"user-agent": "posthog/terraform-provider 1.0.0"}, "api"),
