@@ -120,8 +120,7 @@ Draft status doesn't help, since runs are dispatched before draft/skip logic app
 
 #### Pre-push checks — merge queue guard
 
-The pre-push hook refuses to push a branch whose PR is sitting in the Trunk merge queue, mirroring how GitHub's native merge queue blocks such pushes server-side — a push there would knock the PR out of the queue.
-It maps the pushed branch to its open PR with `gh`, then asks Trunk via `trunk merge status <number>`, which requires a one-time `trunk login`.
+The pre-push hook refuses to push a branch whose PR is sitting in the Trunk merge queue — a push there would knock the PR out of the queue.
 A PR whose batch failed and is waiting for a retest does not block, so you can push a fix then — Trunk drops the PR from the queue on push, which is what you want after a failure.
 When it blocks you, leave the branch alone and put further changes on a new branch with a new PR; to intentionally update the queued PR instead, run `trunk merge cancel <number>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
 The check fails open (missing `gh` or `trunk`, not logged in, offline, API errors), and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
