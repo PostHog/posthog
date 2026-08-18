@@ -33,12 +33,12 @@ or contract questions. Keep it focused on usage and spend behavior.
 
 ## Available tools
 
-| Tool                             | Purpose                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `posthog:billing-list`           | Org billing context, subscribed products, team names, and usage summary |
-| `posthog:billing-usage-retrieve` | Time-series usage by day, usage type, and team                          |
-| `posthog:billing-spend-retrieve` | Optional spend context when the user asks about dollars                 |
-| Product-specific MCP tools       | Follow-up investigation inside the affected product/project             |
+| Tool                           | Purpose                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `posthog:billing-overview-get` | Org billing context, subscribed products, team names, and usage summary |
+| `posthog:billing-usage-get`    | Time-series usage by day, usage type, and team                          |
+| `posthog:billing-spend-get`    | Optional spend context when the user asks about dollars                 |
+| Product-specific MCP tools     | Follow-up investigation inside the affected product/project             |
 
 Only use this skill when the Billing read tools above are available. If the user asks
 about Billing usage and those tools are not available, do not continue with this
@@ -89,7 +89,7 @@ Choose the smallest path that answers the user:
 
 ### Step 2. Recreate the Billing view
 
-Call `posthog:billing-usage-retrieve` using the dashboard or prompt parameters:
+Call `posthog:billing-usage-get` using the dashboard or prompt parameters:
 
 - `start_date`: `date_from`, or about 30 days before the suspected change
 - `end_date`: `date_to`, the named date, or today if the user did not name a date
@@ -102,20 +102,20 @@ If the response shape makes the total hard to read, make a second call with
 date range unless you need a small extension to compare against the same weekday/weekend
 class.
 
-Call `posthog:billing-list` only when you need org context that usage time series cannot
+Call `posthog:billing-overview-get` only when you need org context that usage time series cannot
 answer: plan state, limits, trials, entitlements, docs links, product names, or team name
 hints. Do not call it by default for simple spike/high-usage questions. Do not use
 `usage_summary` as the source of truth for the alert, because it only reflects the
 current billing period.
 
-If the user asks about dollars, call `posthog:billing-spend-retrieve` with the same date
+If the user asks about dollars, call `posthog:billing-spend-get` with the same date
 range and breakdowns. Treat spend as an estimate/attribution layer over usage, not as a
 replacement for usage investigation.
 
 If spend spikes or drops while usage volume looks stable, check whether the date is near
 the start of a new billing period. Tiered pricing can make spend move differently from
 usage because tiers reset each period. The first tier is often free, and lower paid tiers
-are usually more expensive per unit. In this case, call `posthog:billing-list` and inspect
+are usually more expensive per unit. In this case, call `posthog:billing-overview-get` and inspect
 the product/addon `tiers`, `free_allocation`, and display-unit fields before treating the
 movement as a real usage spike or drop.
 
