@@ -15,7 +15,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
     ManagedWarehouseMonitoringSeriesQuerySerializer,
 )
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 def _snapshot(organization_id: object) -> dict[str, object]:

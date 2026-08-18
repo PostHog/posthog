@@ -3,7 +3,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from products.warehouse_sources.backend.facade.models import SSHTunnel
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 
 
 def _keypair_tunnel(private_key: str | None, passphrase: str | None) -> SSHTunnel:
