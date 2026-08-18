@@ -189,7 +189,7 @@ tools:
             idempotent: true
         title: Update a data quality check on a table
         description: >
-            Change a check's presentation (name, description, severity, enabled, tags, owner). The assertion itself —
+            Change a check's presentation (name, description, severity, enabled, tags). The assertion itself —
             check_type, column_name, config — is immutable; create a new check and delete this one instead.
         feature_flag: data-quality-checks
     data-quality-check-update-on-view:
@@ -204,7 +204,7 @@ tools:
             idempotent: true
         title: Update a data quality check on a view
         description: >
-            Change a check's presentation (name, description, severity, enabled, tags, owner). The assertion itself —
+            Change a check's presentation (name, description, severity, enabled, tags). The assertion itself —
             check_type, column_name, config — is immutable; create a new check and delete this one instead.
         feature_flag: data-quality-checks
     warehouse-saved-queries-check-suite-runs-check-runs-list:
