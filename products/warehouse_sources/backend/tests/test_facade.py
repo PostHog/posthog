@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
+from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.warehouse_sources.backend.facade import api, contracts, hogql, hooks, sources, temporal
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -62,6 +63,97 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert self.source.id in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id not in {s.id for s in api.list_sources(self.team.pk)}
         assert deleted.id in {s.id for s in api.list_sources(self.team.pk, include_deleted=True)}
+
+    def test_list_revenue_sources_maps_settings_schemas_and_tables(self) -> None:
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+            prefix="other_",
+        )
+        other_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="other_table",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/other/*",
+            external_data_source=other_source,
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=other_source,
+            name="orders",
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            table=other_table,
+        )
+
+        with self.assertNumQueries(2):
+            results = api.list_revenue_sources(self.team.pk, source_types=["Postgres"])
+
+        assert {source.id: source for source in results} == {
+            self.source.id: contracts.RevenueSource(
+                id=self.source.id,
+                source_type="Postgres",
+                prefix="stripe_",
+                enabled=False,
+                include_invoiceless_charges=True,
+                schemas=(
+                    contracts.RevenueSourceSchema(
+                        name="users",
+                        table=contracts.RevenueSourceTable(id=self.table.id, name="my_table"),
+                    ),
+                ),
+            ),
+            other_source.id: contracts.RevenueSource(
+                id=other_source.id,
+                source_type="Postgres",
+                prefix="other_",
+                enabled=False,
+                include_invoiceless_charges=True,
+                schemas=(
+                    contracts.RevenueSourceSchema(
+                        name="orders",
+                        table=contracts.RevenueSourceTable(id=other_table.id, name="other_table"),
+                    ),
+                ),
+            ),
+        }
+
+    def test_list_revenue_sources_enforces_team_isolation(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+
+        assert api.list_revenue_sources(other_team.pk) == []
+
+    def test_list_revenue_sources_does_not_create_missing_settings(self) -> None:
+        ExternalDataSourceRevenueAnalyticsConfig.objects.filter(external_data_source=self.source).delete()
+
+        results = api.list_revenue_sources(self.team.pk, source_types=["Postgres"])
+
+        assert results[0].enabled is False
+        assert not ExternalDataSourceRevenueAnalyticsConfig.objects.filter(external_data_source=self.source).exists()
+
+    def test_list_revenue_source_settings_can_include_deleted_sources(self) -> None:
+        self.source.deleted = True
+        self.source.save(update_fields=["deleted"])
+
+        with self.assertNumQueries(1):
+            results = api.list_revenue_source_settings(
+                self.team.pk,
+                include_deleted=True,
+                source_ids=[self.source.id],
+            )
+
+        assert results == [
+            contracts.RevenueSourceSettings(
+                id=self.source.id,
+                source_type="Postgres",
+                prefix="stripe_",
+                deleted=True,
+                enabled=False,
+            )
+        ]
 
     def test_get_schema_maps_fields_and_source_type(self) -> None:
         result = api.get_schema(self.schema.id, self.team.pk)
