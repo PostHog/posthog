@@ -97,7 +97,9 @@ Author, run once, read the result. A check nobody has run is a guess.
 
 A `failed` result on the first run is the interesting case: either you found real bad data, or the
 assertion is wrong. Take the `compiled_query` off the run, execute it with `posthog:execute-sql`, and
-look at what it actually matched before reporting anything. An `errored` result is never a data
+look at what it actually matched before reporting anything. That `compiled_query` comes from
+`posthog:data-quality-check-results-on-view`/`-on-table`; the information_schema poll in step 3 does
+not return it. An `errored` result is never a data
 problem — the query could not run at all, usually a column name typo or a subject that no longer
 exists.
 
