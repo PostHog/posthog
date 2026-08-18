@@ -320,14 +320,14 @@ def _mark_queued_threads(
             logger.exception("Could not add the queued 👀 reaction on thread %s", thread.thread_id)
 
 
-def _delivery_auth(integration_row_id: int) -> tuple[str, str | None]:
+def _delivery_auth(team_id: int, integration_row_id: int) -> tuple[str, str | None]:
     """A fresh token from the run-pinned installation, without re-running the selection probe.
 
     The probe answers *which* installation, not *may we write* — GitHub enforces access on every
     call — so a mid-run revocation surfaces as a 401/404 on the write itself, the same per-thread
     undelivered accounting the probe failure used to produce.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id))
+    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
     return github.get_access_token(), github.github_installation_id
 
 
@@ -364,7 +364,7 @@ def _deliver_side_effects(
     thread as undelivered — the reply is already persisted, so the next run's pre-filter redelivers
     just the resolve.
     """
-    token, installation_id = _delivery_auth(integration_row_id)
+    token, installation_id = _delivery_auth(input.team_id, integration_row_id)
     updated = verdict
     if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified is None:
         verified = commit_on_branch(

@@ -303,7 +303,7 @@ def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
     return github.get_access_token(), github.github_installation_id
 
 
-def _auth_from_row(integration_row_id: int) -> tuple[str, str | None]:
+def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | None]:
     """A fresh installation token from an already-pinned integration row, skipping `_auth`'s probe.
 
     A resolution run selects its installation once and refreshes the status comment after every
@@ -311,7 +311,7 @@ def _auth_from_row(integration_row_id: int) -> tuple[str, str | None]:
     answer the run already has. GitHub still enforces access on the edit itself, so a mid-run
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id))
+    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
     return github.get_access_token(), github.github_installation_id
 
 
@@ -543,7 +543,9 @@ def update_resolution_status_comment(
         if report is None or report.pr_number is None:
             return
         auth = (
-            _auth_from_row(integration_row_id) if integration_row_id is not None else _auth(team_id, report.repository)
+            _auth_from_row(team_id, integration_row_id)
+            if integration_row_id is not None
+            else _auth(team_id, report.repository)
         )
         if auth is None:
             return

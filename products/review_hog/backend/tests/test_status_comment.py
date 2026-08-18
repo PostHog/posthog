@@ -522,7 +522,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         )
 
         mock_integration.first_for_team_repository.assert_not_called()
-        mock_integration_model.objects.get.assert_called_once_with(id=42)
+        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=self.team.id)
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
 
 
