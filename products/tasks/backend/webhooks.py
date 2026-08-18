@@ -617,13 +617,19 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         if analytics_event == "pr_merged":
             merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
             pr_properties = {**pr_properties, **merged_by_properties}
-        # Marks a PR our agent opened, apart from one only branch-matched to the run. The
-        # pr_created and pr_closed streams then measure how often attribution acts.
-        pr_url = pr_properties.get("pr_url")
-        pr_opened_by_agent = isinstance(pr_url, str) and pr_url in read_agent_opened_pr_urls(task_run.output)
+        event_properties = {**pr_properties, "pr_source": "task"}
+        # Whether our agent opened this PR, apart from one only branch-matched to the run. Recorded
+        # only on the close and merge events: the agent writes the attestation in a separate request
+        # after opening the PR, which races the `opened` webhook, so pr_created would often be a false
+        # negative. By close time the write has landed, and that is where the measurement lives.
+        if analytics_event != "pr_created":
+            pr_url = pr_properties.get("pr_url")
+            event_properties["pr_opened_by_agent"] = isinstance(pr_url, str) and pr_url in read_agent_opened_pr_urls(
+                task_run.output
+            )
         task_run.capture_event(
             analytics_event,
-            {**pr_properties, "pr_source": "task", "pr_opened_by_agent": pr_opened_by_agent},
+            event_properties,
             event_uuid=event_uuid,
             distinct_id_override=merger_distinct_id,
         )
@@ -644,11 +650,13 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         **pr_properties,
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
-        "pr_opened_by_agent": False,
         "team_id": team.id,
         # title omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
     }
+    # Kept off pr_created for the same reason as the task path, so a present value is always settled.
+    if analytics_event != "pr_created":
+        properties["pr_opened_by_agent"] = False
 
     try:
         posthoganalytics.capture(
