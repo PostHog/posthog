@@ -6,14 +6,39 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
-from products.replay_vision.backend.temporal.constants import SWEEP_READ_BUDGET_BYTES_24H
-from products.replay_vision.backend.temporal.read_meter_types import sweep_spend_bytes_24h, sweep_throttle_factor
+from products.replay_vision.backend.temporal.constants import (
+    DEEP_SPEND_WINDOW_DAYS,
+    DEEP_SWEEP_INTERVAL,
+    DEEP_SWEEP_MAX_FACTOR,
+    DEEP_SWEEP_MAX_WINDOW,
+    SWEEP_READ_BUDGET_BYTES_24H,
+)
+from products.replay_vision.backend.temporal.read_meter_types import (
+    deep_spend_bytes_per_day,
+    deep_sweep_throttle_factor,
+    sweep_spend_bytes_24h,
+    sweep_throttle_factor,
+)
 
 _NOW = dt.datetime(2026, 8, 12, 12, 0, 0, tzinfo=dt.UTC)
 
 
 def _hour(hours_ago: int) -> str:
     return (_NOW - dt.timedelta(hours=hours_ago)).replace(minute=0, second=0, microsecond=0).isoformat()
+
+
+class TestDeepSweepCadenceInvariant:
+    def test_a_pass_covers_more_ground_than_the_gap_before_it(self) -> None:
+        # The one invariant tying the two constants together. Stretch the cadence past the ground one
+        # pass covers and the watermark loses the difference every time, permanently, until it is far
+        # enough behind that the recordings it reaches have aged out and the pass finds nothing.
+        longest_gap = DEEP_SWEEP_INTERVAL * DEEP_SWEEP_MAX_FACTOR
+        assert DEEP_SWEEP_MAX_WINDOW > longest_gap
+
+    def test_spend_is_priced_over_a_window_outlasting_the_longest_gap(self) -> None:
+        # Otherwise a stretched pass ages out of its own measurement, reads as zero spend, and drops
+        # straight back to the floor, which is the cadence it was stretched away from.
+        assert dt.timedelta(days=DEEP_SPEND_WINDOW_DAYS) > DEEP_SWEEP_INTERVAL * DEEP_SWEEP_MAX_FACTOR
 
 
 class TestThrottleMath:
@@ -33,6 +58,34 @@ class TestThrottleMath:
     )
     def test_sweep_throttle_factor(self, _name: str, spend: int, override: int | None, expected: int) -> None:
         assert sweep_throttle_factor(spend, override) == expected
+
+    @parameterized.expand(
+        [
+            ("under_budget", SWEEP_READ_BUDGET_BYTES_24H // 2, 1),
+            # Capped lower than the frequent sweep's ceiling, and deliberately: the deep pass cannot be
+            # stretched past the ground one pass covers without falling behind for good.
+            ("over_budget_hits_the_deep_cap", SWEEP_READ_BUDGET_BYTES_24H * 10, DEEP_SWEEP_MAX_FACTOR),
+            ("far_over_budget_stays_capped", SWEEP_READ_BUDGET_BYTES_24H * 500, DEEP_SWEEP_MAX_FACTOR),
+        ]
+    )
+    def test_deep_sweep_throttle_factor(self, _name: str, spend: int, expected: int) -> None:
+        assert deep_sweep_throttle_factor(spend) == expected
+
+    def test_deep_spend_survives_longer_than_the_interval_it_sets(self) -> None:
+        # A pass stretched past a day writes one bucket and then has to stay priced by it. Measuring
+        # over 24h instead would let that bucket age out, collapse the factor to 1, and cap the real
+        # cadence near a day however high the ceiling is set.
+        # Sized like the scanners this exists for: one pass costing ~150x the daily budget.
+        one_pass = {_hour(72): SWEEP_READ_BUDGET_BYTES_24H * 150}
+
+        assert sweep_spend_bytes_24h(one_pass, _NOW) == 0
+        rate = deep_spend_bytes_per_day(one_pass, _NOW)
+        assert rate == SWEEP_READ_BUDGET_BYTES_24H * 150 // DEEP_SPEND_WINDOW_DAYS
+        assert deep_sweep_throttle_factor(rate) == DEEP_SWEEP_MAX_FACTOR
+
+    def test_deep_spend_drops_out_past_the_pricing_window(self) -> None:
+        # Otherwise a scanner stays throttled on spend it no longer incurs.
+        assert deep_spend_bytes_per_day({_hour(24 * DEEP_SPEND_WINDOW_DAYS + 1): 10**12}, _NOW) == 0
 
     def test_spend_sums_only_trailing_24h_and_tolerates_junk(self) -> None:
         buckets = {
@@ -65,8 +118,8 @@ class TestMeterScannerReadsActivity:
         with patch(
             "products.replay_vision.backend.temporal.activities.meter_scanner_reads.sync_execute",
             return_value=[
-                ("not-a-uuid", hour.replace(tzinfo=None), 11),
-                (str(scanner.id), hour.replace(tzinfo=None), 22),
+                ("not-a-uuid", hour.replace(tzinfo=None), 11, 0, 0),
+                (str(scanner.id), hour.replace(tzinfo=None), 22, 7, 15),
             ],
         ):
             result = meter_scanner_read_bytes_activity()
@@ -74,6 +127,11 @@ class TestMeterScannerReadsActivity:
         assert result.scanners_updated == 1
         scanner.refresh_from_db()
         assert scanner.sweep_read_bytes_by_hour == {hour.isoformat(): 22}
+        # Deep spend is metered separately so it can stretch the deep interval without
+        # dragging the frequent sweep's cadence down with it.
+        assert scanner.deep_read_bytes_by_hour == {hour.isoformat(): 7}
+        # Metered, not derived: the 22 total includes backfill reads that must not reach this bucket.
+        assert scanner.fast_read_bytes_by_hour == {hour.isoformat(): 15}
 
     def test_folds_query_log_rows_into_hour_buckets_and_prunes(self) -> None:
         from products.replay_vision.backend.tests.test_sweep import _make_scanner
@@ -89,15 +147,18 @@ class TestMeterScannerReadsActivity:
             "products.replay_vision.backend.temporal.activities.meter_scanner_reads.sync_execute",
             return_value=[
                 # Re-scanned bucket overwrites (never sums with) the stored value for the same hour.
-                (str(scanner.id), fresh_hour.replace(tzinfo=None), 70),
-                (str(scanner.id), current_hour.replace(tzinfo=None), 40),
-                ("00000000-0000-0000-0000-000000000000", current_hour.replace(tzinfo=None), 123),
+                (str(scanner.id), fresh_hour.replace(tzinfo=None), 70, 0, 70),
+                (str(scanner.id), current_hour.replace(tzinfo=None), 40, 0, 40),
+                ("00000000-0000-0000-0000-000000000000", current_hour.replace(tzinfo=None), 123, 0, 123),
             ],
         ):
             result = meter_scanner_read_bytes_activity()
 
         assert result.scanners_updated == 1
         scanner.refresh_from_db()
+        # Every mocked row here has zero deep spend, and zeros are not stored: keeping them would
+        # double this table's hourly write volume for the scanners that never run a deep pass.
+        assert scanner.deep_read_bytes_by_hour == {}
         assert scanner.sweep_read_bytes_by_hour == {
             fresh_hour.isoformat(): 70,
             current_hour.isoformat(): 40,

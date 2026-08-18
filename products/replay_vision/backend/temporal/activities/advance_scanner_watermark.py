@@ -1,6 +1,6 @@
 from temporalio import activity
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import DeepSweepState, ReplayScanner
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.sweep_types import AdvanceScannerWatermarkInputs
 
@@ -13,7 +13,10 @@ def advance_scanner_watermark_activity(inputs: AdvanceScannerWatermarkInputs) ->
         "last_seen_session_id": inputs.new_last_seen_session_id,
     }
     if inputs.new_last_deep_swept_at is not None:
-        updates["last_deep_swept_at"] = inputs.new_last_deep_swept_at
+        updates["deep_sweep_state"] = DeepSweepState.patch(
+            swept_through=inputs.new_last_deep_swept_at.isoformat(),
+            seen_session_id=inputs.new_last_deep_seen_session_id,
+        )
     updated = ReplayScanner.objects.filter(pk=inputs.scanner_id).update(**updates)
     if updated == 0:
         activity.logger.info(

@@ -1,10 +1,13 @@
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models import F, Func, JSONField, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.utils import UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
@@ -74,6 +77,65 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
 
     def get_queryset(self) -> "models.QuerySet[ReplayScanner]":
         return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
+
+
+@frozen
+class DeepSweepState:
+    """Where the deep catch-up pass has got to.
+
+    `swept_through` plus `seen_session_id` are one keyset: a watermark moved without its tiebreaker
+    skips every session tied at that timestamp. `attempted_at` is deliberately not part of it, because
+    when the pass last ran and how far it got diverge whenever a pass ends early.
+    """
+
+    swept_through: dt.datetime | None = None
+    seen_session_id: str = ""
+    attempted_at: dt.datetime | None = None
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any] | None) -> "DeepSweepState":
+        """Tolerant: this is read on the sweep path, where raising would stop the scanner outright."""
+        if not isinstance(raw, dict):
+            return cls()
+        return cls(
+            swept_through=_parse_dt(raw.get("swept_through")),
+            seen_session_id=str(raw.get("seen_session_id") or ""),
+            attempted_at=_parse_dt(raw.get("attempted_at")),
+        )
+
+    @staticmethod
+    def patch(**fields: Any) -> Func:
+        """Merge just these keys into the stored object, leaving the rest alone.
+
+        The attempt stamp and the progress are written at different points in one tick, so whichever
+        goes second must not replace the object and drop what the first wrote. Built as a jsonb `||`
+        so the merge happens in the one statement, with no read-modify-write to lose a race in.
+        """
+        return Func(
+            Coalesce(F("deep_sweep_state"), Value({}, JSONField())),
+            Value(fields, JSONField()),
+            function="",
+            arg_joiner=" || ",
+            output_field=JSONField(),
+        )
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "swept_through": self.swept_through.isoformat() if self.swept_through else None,
+            "seen_session_id": self.seen_session_id,
+            "attempted_at": self.attempted_at.isoformat() if self.attempted_at else None,
+        }
+
+
+def _parse_dt(value: Any) -> dt.datetime | None:
+    """Local rather than shared with the meter's parser: models must not import from `temporal`."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.UTC)
 
 
 class ReplayScanner(UUIDModel):
@@ -151,20 +213,30 @@ class ReplayScanner(UUIDModel):
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
-    last_deep_swept_at = models.DateTimeField(
+    deep_sweep_state = models.JSONField(
         null=True,
         blank=True,
-        help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
+        help_text="Where the deep catch-up pass has got to: how far it swept, the keyset row it stopped on, and when it last ran. One object because a watermark moved without its keyset skips every session tied at that timestamp.",
     )
     sweep_read_bytes_by_hour = models.JSONField(
         null=True,
         blank=True,
-        help_text="ClickHouse read bytes per hour bucket (ISO hour -> bytes), maintained by the read-metering workflow; drives the sweep throttle.",
+        help_text="Total ClickHouse read bytes per hour bucket (ISO hour -> bytes) across every pass, maintained by the read-metering workflow. Reporting only: each pass throttles on its own bucket.",
+    )
+    fast_read_bytes_by_hour = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse read bytes per hour bucket for the frequent sweep's own queries; drives its throttle, so backfill and catch-up reads do not stretch the cadence users see.",
+    )
+    deep_read_bytes_by_hour = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse read bytes per hour bucket for the deep catch-up pass only; drives its own cadence stretch independently of the frequent sweep.",
     )
     sweep_throttle_factor_override = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
-        help_text="Manual cadence-stretch multiplier; overrides the computed read-budget throttle. 1 disables throttling; null means automatic.",
+        help_text="Manual cadence-stretch multiplier for the frequent sweep; overrides its computed read-budget throttle. 1 disables throttling; null means automatic. Does not affect the deep catch-up pass, which stretches on its own spend.",
     )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
@@ -274,6 +346,10 @@ class ReplayScanner(UUIDModel):
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
     _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
 
+    @property
+    def deep_sweep(self) -> DeepSweepState:
+        return DeepSweepState.from_json(self.deep_sweep_state)
+
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
@@ -296,6 +372,10 @@ class ReplayScanner(UUIDModel):
                         "enabled",
                         "last_swept_at",
                         "last_seen_session_id",
+                        "deep_sweep_state",
+                        "sweep_read_bytes_by_hour",
+                        "fast_read_bytes_by_hour",
+                        "deep_read_bytes_by_hour",
                         "limit_notified_period_start",
                         *relevant,
                     )
@@ -307,6 +387,14 @@ class ReplayScanner(UUIDModel):
                         # clobber a concurrent sweep's watermark or notification stamp.
                         self.last_swept_at = old.last_swept_at
                         self.last_seen_session_id = old.last_seen_session_id
+                        # Carried too, or a full save from the API drops the deep pass's keyset and
+                        # attempt stamp, which is the lost update the jsonb patching exists to avoid.
+                        self.deep_sweep_state = old.deep_sweep_state
+                        # Same for the metered spend: a PATCH landing mid-metering would restore stale
+                        # buckets, and a scanner would run its expensive queries at a lower throttle.
+                        self.sweep_read_bytes_by_hour = old.sweep_read_bytes_by_hour
+                        self.fast_read_bytes_by_hour = old.fast_read_bytes_by_hour
+                        self.deep_read_bytes_by_hour = old.deep_read_bytes_by_hour
                         self.limit_notified_period_start = old.limit_notified_period_start
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
                     extra_fields = []
@@ -322,8 +410,8 @@ class ReplayScanner(UUIDModel):
                         self.last_seen_session_id = ""
                         # The deep pass sweeps from this watermark up to the fast one, so leaving it
                         # behind would make its first window span the whole disabled gap.
-                        self.last_deep_swept_at = self.last_swept_at
-                        extra_fields.extend(["last_swept_at", "last_seen_session_id", "last_deep_swept_at"])
+                        self.deep_sweep_state = DeepSweepState(swept_through=self.last_swept_at).as_json()
+                        extra_fields.extend(["last_swept_at", "last_seen_session_id", "deep_sweep_state"])
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)
