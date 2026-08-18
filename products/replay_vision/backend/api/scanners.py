@@ -642,7 +642,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in daily digest so the overview has a summary to show.
+        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
         provision_scanner_digest(scanner, user)
         report_user_action(
             user,

@@ -209,7 +209,7 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
-    return add_alert_check(alert, None, None, error)
+    return add_alert_check(alert, None, error)
 
 
 @temporalio.activity.defn
@@ -253,14 +253,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert.save(update_fields=finished_fields)
             return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
 
-        value: float | None = None
         breaches: list[str] | None = None
         error: dict | None = None
         alert_evaluation_result = None
 
         try:
             alert_evaluation_result = check_alert_for_insight(alert)
-            value = alert_evaluation_result.value
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
@@ -327,12 +325,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 new_state=AlertState.ERRORED,
             )
 
-        anomaly_scores = alert_evaluation_result.anomaly_scores if alert_evaluation_result else None
-        triggered_points = alert_evaluation_result.triggered_points if alert_evaluation_result else None
-        triggered_dates = alert_evaluation_result.triggered_dates if alert_evaluation_result else None
-        interval = alert_evaluation_result.interval if alert_evaluation_result else None
-        triggered_metadata = alert_evaluation_result.triggered_metadata if alert_evaluation_result else None
-
         should_start_investigation = False
         should_gate_notification = False
         should_run_metrics_investigation = False
@@ -343,17 +335,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 .get(id=inputs.alert_id)
             )
             previous_state = alert.state
-            alert_check, should_notify = add_alert_check(
-                alert,
-                value,
-                breaches,
-                error,
-                anomaly_scores,
-                triggered_points,
-                triggered_dates,
-                interval,
-                triggered_metadata,
-            )
+            alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
             if should_trigger_investigation(
                 alert,

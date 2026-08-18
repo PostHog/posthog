@@ -79,7 +79,9 @@ def _captured_events(mock_capture) -> list:
 
 
 def _register_provisioning_partner(url: str = VALID_CIMD_URL) -> OAuthApplication:
-    """Register a CIMD app and opt it into provisioning, the way client_registration does."""
+    """Register a CIMD app and opt it into provisioning, skipping the document declaration the
+    registration endpoint requires, so a test that is about a partner's config does not also
+    have to publish one."""
     app = fetch_and_upsert_cimd_application(url)
     assert app is not None
     return apply_provisioning_defaults(app)
@@ -644,6 +646,28 @@ class TestApplyProvisioningDefaults(APIBaseTest):
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
+    @parameterized.expand(
+        [
+            ("registration_call", True, True),
+            # The /authorize and background-refresh paths read the same document. Promoting
+            # there would grant the capabilities outside the registration endpoint, so past its
+            # per-client_id, per-IP and per-domain throttles, and on a request the client did
+            # not make.
+            ("ordinary_fetch", False, False),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_only_the_registration_call_promotes_a_declaring_document(
+        self, _name, register_provisioning, expected_partner, mock_get, _url_mock
+    ):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"provisioning": True}), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL, register_provisioning=register_provisioning)
+
+        assert app is not None
+        self.assertEqual(app.is_provisioning_partner, expected_partner)
+        self.assertEqual(app.provisioning.can_create_accounts, expected_partner)
+
     @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registration_event_fires_once_on_the_transition(self, mock_get, mock_capture, _url_mock):
@@ -675,6 +699,25 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         app.refresh_from_db()
         self.assertFalse(app.is_provisioning_partner)
         self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_registration_does_not_overwrite_a_partner_created_mid_fetch(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        # An admin registers and restricts the client through a separate row read, the way it
+        # looks to a registration whose metadata fetch overlapped the edit. `existing` still
+        # says non-partner, so only the locked read can tell the defaults not to land.
+        admin_copy = OAuthApplication.objects.get(pk=existing.pk)
+        admin_copy.is_provisioning_partner = True
+        admin_copy.save(update_fields=["is_provisioning_partner"])
+        admin_copy.update_provisioning(active=False, can_create_accounts=False)
+
+        app = apply_provisioning_defaults(existing)
+
+        app.refresh_from_db()
+        self.assertFalse(app.provisioning.active)
+        self.assertFalse(app.provisioning.can_create_accounts)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registration_does_not_restore_a_capability_revoked_mid_fetch(self, mock_get, _url_mock):

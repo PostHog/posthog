@@ -33,6 +33,7 @@ from posthog.utils import (
     HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
     HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
     HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
+    DayRange,
     PotentialSecurityProblemException,
     _build_flag_provider,
     _read_preload_manifest,
@@ -1493,3 +1494,16 @@ class TestReadPreloadManifest(SimpleTestCase):
         path = self._write_manifest(content)
 
         assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")
+
+
+class TestDayRange(SimpleTestCase):
+    START = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+
+    @parameterized.expand([("same_instant", timedelta(0)), ("full_day", timedelta(days=1))])
+    def test_accepts_ordered_bounds(self, _name: str, delta: timedelta) -> None:
+        day_range = DayRange(start=self.START, end=self.START + delta)
+        assert day_range.end - day_range.start == delta
+
+    def test_rejects_reversed_bounds(self) -> None:
+        with pytest.raises(ValueError, match="start"):
+            DayRange(start=self.START, end=self.START - timedelta(seconds=1))

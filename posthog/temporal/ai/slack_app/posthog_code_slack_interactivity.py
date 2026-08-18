@@ -44,6 +44,7 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.temporal.common.client import sync_connect
 
+    from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
@@ -112,7 +113,8 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
         if channel and thread_ts:
             try:
                 slack_client = SlackIntegration(integration).client
-                slack_client.chat_postMessage(
+                post_slack_thread_reply(
+                    slack_client,
                     channel=channel,
                     thread_ts=thread_ts,
                     text=f"This run is already `{task_run.status}`. There is nothing to terminate.",
