@@ -86,11 +86,11 @@ export interface issueFiltersLogicActions {
 export interface issueFiltersLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        negatedUnsetPropertyKeys: (filterGroup: UniversalFiltersGroup) => string[]
         mergedFilterGroup: (
             filterGroup: UniversalFiltersGroup,
             selectedQuickFilters: Record<string, SelectedQuickFilter>
         ) => UniversalFiltersGroup
-        negatedUnsetPropertyKeys: (filterGroup: UniversalFiltersGroup) => string[]
     }
 }
 
