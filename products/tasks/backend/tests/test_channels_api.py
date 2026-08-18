@@ -85,13 +85,13 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_list_provisions_general_channel_starred_once(self):
+    def test_list_provisions_general_channel_once(self):
         first = self.client.get(self._channels_url()).json()
         general = [c for c in first if c["system_role"] == "general"]
         self.assertEqual(len(general), 1)
         self.assertEqual(general[0]["name"], "general")
         self.assertEqual(general[0]["channel_type"], "public")
-        self.assertTrue(general[0]["starred"])
+        self.assertFalse(general[0]["starred"])
 
         # Listing again reuses the same #general channel rather than creating another.
         again = self.client.get(self._channels_url()).json()
@@ -99,24 +99,6 @@ class ChannelsAPITestCase(TestCase):
             [c["id"] for c in again if c["system_role"] == "general"],
             [general[0]["id"]],
         )
-
-    def test_unstarring_general_sticks_on_later_lists(self):
-        first = self.client.get(self._channels_url()).json()
-        general_id = next(c["id"] for c in first if c["system_role"] == "general")
-
-        unstar = self.client.post(f"{self._channels_url()}{general_id}/star/", {"starred": False}, format="json")
-        self.assertEqual(unstar.status_code, status.HTTP_204_NO_CONTENT)
-
-        again = self.client.get(self._channels_url()).json()
-        self.assertFalse(next(c["starred"] for c in again if c["system_role"] == "general"))
-
-    def test_second_users_first_list_also_stars_general(self):
-        self.client.get(self._channels_url())  # provisions #general for the team
-
-        other_client = APIClient()
-        other_client.force_authenticate(self.other_user)
-        theirs = other_client.get(self._channels_url()).json()
-        self.assertTrue(next(c["starred"] for c in theirs if c["system_role"] == "general"))
 
     @parameterized.expand(
         [

@@ -59,8 +59,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for task channels — the shared feeds tasks are kicked off in. Listing lazily
     provisions the requester's personal "#me" channel and the team's shared "#general"
-    channel (starred by default, like Slack); creation is resolve-or-create by
-    normalized name so clients can map channel-like surfaces onto backend channels.
+    channel; creation is resolve-or-create by normalized name so clients can map
+    channel-like surfaces onto backend channels.
     """
 
     authentication_classes = [
@@ -101,7 +101,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List channels",
         description=(
             "All live public channels plus the requester's personal #me channel and the team's "
-            "#general channel, both provisioned and starred for the requester on first list."
+            "#general channel, both provisioned for the requester on first list."
         ),
     )
     def list(self, request, *args, **kwargs):

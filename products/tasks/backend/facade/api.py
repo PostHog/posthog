@@ -6331,18 +6331,10 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     personal first, then the general channel, then the rest by name. ``starred`` reflects
     the requester's stars."""
     channels: list[Channel] = []
-    general_id: UUID | None = None
-    # Everyone is a member of #general by default, Slack-style: star it for the requester
-    # the moment either #general or their personal channel is provisioned for the first
-    # time (i.e. this is their first list in the team). Later lists leave the star alone,
-    # so an explicit unstar sticks.
-    just_joined = False
     if user_id is not None:
-        personal_channel, personal_created = _ensure_personal_channel(team_id, user_id)
+        personal_channel, _ = _ensure_personal_channel(team_id, user_id)
         channels.append(personal_channel)
-        general_channel, general_created = _ensure_general_channel(team_id, user_id)
-        general_id = general_channel.id
-        just_joined = personal_created or general_created
+        _ensure_general_channel(team_id, user_id)
 
     public_channels = list(
         Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
@@ -6357,9 +6349,6 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         if user_id is not None
         else set()
     )
-    if user_id is not None and just_joined and general_id is not None:
-        _set_channel_star(general_id, team_id, user_id, starred=True)
-        starred_ids.add(general_id)
     return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
 
 
