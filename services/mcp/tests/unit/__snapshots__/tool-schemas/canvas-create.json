@@ -12,7 +12,7 @@
         },
         "kind": {
             "default": "freeform",
-            "description": "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). Search the store (canvas-list kind=component) before creating a new component.",
+            "description": "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component.",
             "enum": ["freeform", "grid", "component"],
             "type": "string"
         },
