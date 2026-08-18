@@ -35,6 +35,9 @@ import {
 
 const DEFAULT_GRID = { columns: 6, rowHeight: 96, gap: 8 };
 
+// Outer radius of a lattice dot's fade (the gradient's transparent stop).
+const DOT_FADE_RADIUS = 4;
+
 function gridItemStyle(rect: GridRect): React.CSSProperties {
   return {
     gridColumn: `${rect.x + 1} / span ${rect.w}`,
@@ -321,23 +324,29 @@ export function GridCanvasView({
           // whole visible page is drawable (and dotted) rather than a strip.
           minHeight: `max(100%, ${surfaceRows(placements) * pitchY}px)`,
           cursor: interactive ? "crosshair" : undefined,
-          // Edit mode reveals the lattice: a soft dot (the fade to transparent
-          // is the blur) on each cell corner, i.e. where tiles snap and drawing
-          // starts. Shifting the tiled background by half a pitch minus half a
-          // gap lands each dot's center mid-gap, on the shared corner.
-          ...(interactive && surfaceWidth > 0
-            ? {
-                backgroundImage:
-                  "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
-                backgroundSize: `${pitchX}px ${pitchY}px`,
-                backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${pitchY / 2 - grid.gap / 2}px`,
-              }
-            : {}),
         }}
         onPointerDown={onSurfacePointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
+        {interactive && surfaceWidth > 0 ? (
+          // Edit mode reveals the lattice: a soft dot (the fade to transparent
+          // is the blur) on each cell corner, where tiles snap and drawing
+          // starts, gently pulsing to invite a drag. The overlay's top edge
+          // starts at the first interior corner row so no clipped dots hug the
+          // top of the page.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 animate-pulse opacity-60"
+            style={{
+              top: pitchY - grid.gap / 2 - DOT_FADE_RADIUS,
+              backgroundImage:
+                "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
+              backgroundSize: `${pitchX}px ${pitchY}px`,
+              backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${DOT_FADE_RADIUS - pitchY / 2}px`,
+            }}
+          />
+        ) : null}
         {placements.length === 0 && !drag ? (
           // How-to placed on the grid as a tile of its own, instead of a
           // full-width overlay that looks like broken chrome. Pointer events

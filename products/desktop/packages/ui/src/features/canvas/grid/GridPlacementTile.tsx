@@ -12,6 +12,7 @@ import {
 } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { taskCardNavigation } from "@posthog/ui/features/canvas/taskCardNavigation";
+import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -96,6 +97,15 @@ function GeneratingTile({
   // skill, gave up) — spinning forever would hide that.
   const stalled =
     !!task?.latest_run && isTerminalStatus(task.latest_run.status);
+  // A run blocked on a permission request looks identical to one that's
+  // working — from this tile, forever. Surface the wait so the user knows
+  // the next move is theirs.
+  const runId = useSessionStore((s) =>
+    taskId ? s.taskIdIndex[taskId] : undefined,
+  );
+  const pendingApprovals = useSessionStore((s) =>
+    runId ? (s.sessions[runId]?.pendingPermissions?.size ?? 0) : 0,
+  );
 
   const viewTask = taskId ? (
     <Button
@@ -124,6 +134,36 @@ function GeneratingTile({
             </Button>
           ) : null}
           {viewTask}
+        </div>
+      </div>
+    );
+  }
+
+  if (pendingApprovals > 0) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
+        <Text size="sm" className="line-clamp-2">
+          The agent is waiting for your approval.
+        </Text>
+        <div className="flex items-center gap-1">
+          {taskId ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => navigate(taskCardNavigation(channelId, taskId))}
+            >
+              Review request
+            </Button>
+          ) : null}
+          {interactive ? (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => actions.remove(placement)}
+            >
+              Remove
+            </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -192,12 +232,12 @@ function DescribeTile({
     }
   };
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-2 p-3">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
       {failed ? (
         <Text size="sm">This widget failed to build. Describe it again:</Text>
       ) : null}
       <form
-        className="flex items-center gap-1"
+        className="flex w-full items-center gap-1"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
