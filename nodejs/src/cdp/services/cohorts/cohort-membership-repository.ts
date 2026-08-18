@@ -11,17 +11,11 @@ export interface CohortMembershipRepository {
      * Returns a map of cohort_id -> is_member covering every requested cohort.
      * A cohort without a membership row is a non-member (`false`) — the write
      * side only ever upserts rows, so absence means the person never entered.
+     *
+     * There is deliberately no degraded implementation that fakes non-membership:
+     * environments without the behavioral cohorts pipeline (e.g. hobby) are kept
+     * fail-closed at save time, and a failed lookup must surface as an error
+     * rather than silently routing a person as a non-member.
      */
     getMemberships(teamId: number, personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>>
-}
-
-/**
- * Used where the behavioral cohorts database is not available (e.g. hobby
- * deploys, where the pool falls back to the main app DB without the
- * `cohort_membership` table). Conservatively reports non-membership.
- */
-export class NoOpCohortMembershipRepository implements CohortMembershipRepository {
-    getMemberships(_teamId: number, _personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>> {
-        return Promise.resolve(new Map(cohortIds.map((id) => [id, false])))
-    }
 }
