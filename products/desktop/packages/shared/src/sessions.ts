@@ -82,6 +82,12 @@ export interface AgentSession {
    * means the host must cancel + resend. Drives the steer-vs-resend decision.
    */
   steering?: string;
+  /**
+   * Adapter's `/clear` capability (`_meta.posthog.conversationClear`, relayed on
+   * `_posthog/run_started`). Absent on agents that predate it — the host must not
+   * record a conversation-cleared boundary they would ignore on resume.
+   */
+  conversationClear?: boolean;
   pendingPermissions: Map<string, PermissionRequest>;
   pausedDurationMs: number;
   messageQueue: QueuedMessage[];

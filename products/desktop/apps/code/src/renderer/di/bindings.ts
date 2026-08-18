@@ -214,6 +214,10 @@ import {
   type McpSandboxProxyUrlProvider,
 } from "@posthog/ui/features/mcp-apps/identifiers";
 import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
+import {
   NAVIGATION_TASK_BINDER,
   type NavigationTaskBinder,
 } from "@posthog/ui/features/navigation/taskBinder";
@@ -225,6 +229,10 @@ import {
   NOTIFICATION_SETTINGS_PROVIDER,
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
+import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
 import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
@@ -296,6 +304,8 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
+  [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;
+  [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;

@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from products.marketing_analytics.backend.services.attribution_health import AttributionHealthResponse
@@ -42,6 +43,7 @@ def _integration(
     last_error=None,
     schema_missing=None,
     unmatched=0,
+    matched=0,
 ) -> IntegrationDiagnostic:
     data_source = None
     if status != "events_only":
@@ -68,14 +70,14 @@ def _integration(
         )
 
     attribution = None
-    if unmatched:
+    if unmatched or matched:
         from products.marketing_analytics.backend.services.attribution_health import AttributionHealthEntry
 
         attribution = AttributionHealthEntry(
             integration_key=key,
             display_name=key,
-            events_with_utm_last_7d=unmatched,
-            events_matched_last_7d=0,
+            events_with_utm_last_7d=unmatched + matched,
+            events_matched_last_7d=matched,
             events_unmatched_likely_yours_last_7d=unmatched,
             last_event_with_matching_utm_at=None,
             matched_pct=0.0,
@@ -95,7 +97,7 @@ def _integration(
 
 def _goal(goal_id="g1", name="Signup", count=1000, misconfigured=False) -> ConversionGoalSummary:
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         # What the inspector actually emits — it defaults to "EventsNode", not "events".
         kind="EventsNode",
@@ -592,6 +594,35 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
 
         assert any(s.kind == SuggestionKind.FIX_SYNC for s in plan.suggestions)
         assert not any(s.kind == SuggestionKind.RECONNECT_OAUTH for s in plan.suggestions)
+
+    @parameterized.expand(
+        [
+            ("exact_utm_source_match_only", 0, 700, 700),
+            ("fuzzy_match_only", 500, 0, 500),
+            ("both_kinds_of_match", 500, 700, 1200),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_connect_suggestion_counts_every_event_carrying_the_utm_source(
+        self, _name, unmatched, matched, expected
+    ):
+        # `events_only` is set when either counter is non-zero, so a platform whose utm_source
+        # matched exactly used to advertise "0 events" as the reason to connect it.
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[
+                _integration(
+                    "pinterest_ads", "PinterestAds", status="events_only", unmatched=unmatched, matched=matched
+                )
+            ],
+            overall_status="degraded",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+
+        plan = await get_setup_plan(self.team)
+
+        connect = next(s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE)
+        assert connect.event_volume == expected
+        assert f"{expected:,} events" in connect.evidence
 
     @pytest.mark.asyncio
     async def test_healthy_integration_produces_nothing(self):

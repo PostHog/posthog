@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import requests
 from disposable_email_domains import blocklist as disposable_email_domains_list
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
@@ -38,23 +38,26 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
-    AwsS3Integration,
+    AWSS3Integration,
     Credentials,
     DatabricksIntegration,
     DatabricksIntegrationError,
+    DuplicateNameError,
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
+    InstagramIntegration,
     Integration,
+    IntegrationError,
     JiraIntegration,
     LinearIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    RedshiftIntegration,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
@@ -63,6 +66,7 @@ from posthog.models.integration import (
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
+    validate_aws_credentials,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -310,6 +314,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
+        "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
+        "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
     }
 
     def create_integration(
@@ -387,7 +393,7 @@ class TestOauthIntegrationModel(BaseTest):
             url = OauthIntegration.authorize_url("google-calendar", token="state_token", next="/projects/test")
             assert (
                 url
-                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -527,6 +533,26 @@ class TestOauthIntegrationModel(BaseTest):
                         "code": "code",
                         "state": "next=/projects/test",
                     },
+                )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_oauth_without_advertiser_accounts_raises_validation_error(self, mock_post):
+        # TikTok completes OAuth even when the user granted no advertiser account, leaving
+        # `advertiser_ids` empty. That must surface as a ValidationError (→ 400 with an actionable
+        # message) rather than the bare Exception (→ 500) the missing-id guard would otherwise raise.
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "code": 0,
+                "data": {"access_token": "FAKE_ACCESS_TOKEN", "advertiser_ids": []},
+            }
+
+            with pytest.raises(ValidationError, match="ad accounts"):
+                OauthIntegration.integration_from_oauth_response(
+                    "tiktok-ads",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
                 )
 
     @patch("posthog.models.integration.requests.post")
@@ -713,6 +739,37 @@ class TestOauthIntegrationModel(BaseTest):
 
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_refresh_uses_business_api_and_unwraps_data(self, mock_post, mock_reload):
+        # TikTok Business API refreshes against its own endpoint with app_id/secret (JSON) and nests
+        # the refreshed tokens under `data` — not the Login Kit client_key/open.tiktokapis.com flow.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "code": 0,
+            "data": {"access_token": "REFRESHED_ACCESS_TOKEN", "refresh_token": "ROTATED_REFRESH_TOKEN"},
+        }
+
+        integration = self.create_integration(kind="tiktok-ads", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_called_with(
+            "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+            json={
+                "app_id": "tiktok-app-id",
+                "secret": "tiktok-secret",
+                "refresh_token": "REFRESH",
+                "grant_type": "refresh_token",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "ROTATED_REFRESH_TOKEN"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -1068,6 +1125,30 @@ class TestOauthIntegrationModel(BaseTest):
             ),
             ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
             ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
+            (
+                "meta_dead_token",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating access token: The session has been invalidated because the user changed their password.",
+                        "type": "OAuthException",
+                        "code": 190,
+                        "error_subcode": 460,
+                    }
+                },
+                "meta-ads",
+                "invalid_grant",
+            ),
+            (
+                "instagram_dead_token",
+                400,
+                {"error": {"type": "OAuthException", "code": 190}},
+                "instagram",
+                "invalid_grant",
+            ),
+            ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
+            ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
+            ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
@@ -3373,10 +3454,10 @@ class TestDatabricksIntegrationModel(BaseTest):
             )
 
 
-class TestAwsS3IntegrationModel(BaseTest):
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+class TestAWSS3IntegrationModel(BaseTest):
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_with_valid_config(self, mock_validate):
-        integration = AwsS3Integration.integration_from_config(
+        integration = AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
@@ -3396,27 +3477,27 @@ class TestAwsS3IntegrationModel(BaseTest):
         }
         # display_name surfaces AWS account so users can tell integrations apart.
         assert integration.display_name == "prod-aws (AWS account 123456789012)"
-        assert AwsS3Integration(integration).aws_account_id == "123456789012"
+        assert AWSS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
-        with pytest.raises(S3CredentialIntegrationError, match="A name is required"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(IntegrationError, match="A name is required"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="",
                 aws_access_key_id="AKIAEXAMPLE",
                 aws_secret_access_key="secret",
             )
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_rejects_duplicate_name(self, mock_validate):
-        AwsS3Integration.integration_from_config(
+        AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'prod-aws' already exists"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(DuplicateNameError, match="An integration named 'prod-aws' already exists"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="prod-aws",
                 aws_access_key_id="AKIAOTHER",
@@ -3425,36 +3506,34 @@ class TestAwsS3IntegrationModel(BaseTest):
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
     @patch("boto3.client")
-    def test_validate_credentials_returns_account_id(self, mock_boto_client):
+    def test_validate_aws_credentials_returns_account_id(self, mock_boto_client):
         mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
-        assert AwsS3Integration.validate_credentials("key", "secret") == "123456789012"
+        assert validate_aws_credentials("key", "secret") == "123456789012"
 
     @patch("boto3.client")
-    def test_validate_credentials_raises_on_invalid_credentials(self, mock_boto_client):
+    def test_validate_aws_credentials_raises_on_invalid_credentials(self, mock_boto_client):
         from botocore.exceptions import ClientError
 
         mock_boto_client.return_value.get_caller_identity.side_effect = ClientError(
             {"Error": {"Code": "InvalidClientTokenId", "Message": "The security token is invalid."}},
             "GetCallerIdentity",
         )
-        with pytest.raises(
-            S3CredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
-        ):
-            AwsS3Integration.validate_credentials("key", "secret")
+        with pytest.raises(IntegrationError, match="AWS credentials are not valid: The security token is invalid."):
+            validate_aws_credentials("key", "secret")
 
     def test_wrapping_wrong_kind_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
         )
-        with pytest.raises(S3CredentialIntegrationError, match="is not an AWS S3 integration"):
-            AwsS3Integration(integration)
+        with pytest.raises(IntegrationError, match="is not the expected AWS integration"):
+            AWSS3Integration(integration)
 
     def test_wrapping_missing_credentials_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x", sensitive_config={}
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing"):
-            AwsS3Integration(integration)
+        with pytest.raises(IntegrationError, match="missing"):
+            AWSS3Integration(integration)
 
 
 class TestS3CompatibleIntegrationModel(BaseTest):
@@ -3478,7 +3557,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
 
     def test_integration_from_config_requires_endpoint_url(self):
-        with pytest.raises(S3CredentialIntegrationError, match="endpoint URL is required"):
+        with pytest.raises(IntegrationError, match="Endpoint URL is required"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3495,7 +3574,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             aws_access_key_id="key",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'my-r2' already exists"):
+        with pytest.raises(DuplicateNameError, match="An integration named 'my-r2' already exists"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3508,7 +3587,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
     # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
     @override_settings(FORCE_URL_VALIDATION=True)
     def test_integration_from_config_rejects_internal_endpoint(self):
-        with pytest.raises(S3CredentialIntegrationError, match="Invalid endpoint URL"):
+        with pytest.raises(IntegrationError, match="Invalid endpoint URL"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3525,7 +3604,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             config={"name": "x"},
             sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
+        with pytest.raises(IntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
 
 
@@ -4341,7 +4420,22 @@ class TestGitLabIntegrationSSRFProtection:
         mock_post.assert_not_called()
 
 
+@parameterized_class(
+    [
+        {
+            "integration_cls": PostgreSQLIntegration,
+            "integration_kind": Integration.IntegrationKind.POSTGRESQL,
+        },
+        {
+            "integration_cls": RedshiftIntegration,
+            "integration_kind": Integration.IntegrationKind.AWS_REDSHIFT,
+        },
+    ]
+)
 class TestPostgreSQLIntegrationModel(BaseTest):
+    integration_kind: Integration.IntegrationKind
+    integration_cls: type[RedshiftIntegration] | type[PostgreSQLIntegration]
+
     @parameterized.expand(
         [
             (
@@ -4385,13 +4479,13 @@ class TestPostgreSQLIntegrationModel(BaseTest):
 
         integration = Integration.objects.create(
             team=self.team,
-            kind=Integration.IntegrationKind.POSTGRESQL,
+            kind=self.integration_kind,
             integration_id=f"{self.team.pk}-db.example.com-5432-exporter",
             config=config,
             sensitive_config=sensitive_config,
         )
 
-        pq = PostgreSQLIntegration(integration)
+        pq = self.integration_cls(integration)
         assert pq.tls() == expected_tls
 
     @parameterized.expand(
@@ -4416,23 +4510,24 @@ class TestPostgreSQLIntegrationModel(BaseTest):
     def test_integration_from_config(self, _name, overrides, expected_tls):
         kwargs = {
             "team_id": self.team.pk,
-            "host": "db.example.com",
+            "host": "localhost",
             "port": 5432,
             "user": "exporter",
             "password": "super-secret",
         }
         kwargs.update(overrides)
 
-        integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
-        pq = PostgreSQLIntegration(integration)
+        integration = self.integration_cls.integration_from_config(**kwargs)  # type: ignore
+        pq = self.integration_cls(integration)
 
-        assert pq.authority() == Authority(host="db.example.com", port=5432)
+        assert pq.authority() == Authority(host="localhost", port=5432)
         assert pq.credentials() == Credentials(user="exporter", password="super-secret")
         assert pq.tls() == expected_tls
 
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+        assert pq.integration_kind == self.integration_kind
 
 
 def _make_resend_jwt(payload: dict) -> str:
@@ -4632,3 +4727,95 @@ class TestPardotIntegrationModel(BaseTest):
 
         assert integration.integration_id == "https://acme.my.salesforce.com"
         assert integration.config["expires_in"] == 3600
+
+
+@override_settings(
+    YOUTUBE_ANALYTICS_APP_CLIENT_ID="youtube-client-id",
+    YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="youtube-client-secret",
+)
+class TestYouTubeAnalyticsIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+        assert config.authorize_url == "https://accounts.google.com/o/oauth2/v2/auth"
+        assert config.token_url == "https://oauth2.googleapis.com/token"
+        assert config.client_id == "youtube-client-id"
+        assert config.client_secret == "youtube-client-secret"
+        assert config.id_path == "sub"
+        assert config.name_path == "email"
+        # A refresh token only comes back when consent is forced, and the sync depends on one.
+        assert config.additional_authorize_params == {"access_type": "offline", "prompt": "consent"}
+
+    def test_oauth_config_requests_analytics_and_channel_read_scopes(self):
+        scopes = set(OauthIntegration.oauth_config_for_kind("youtube-analytics").scope.split())
+
+        assert "https://www.googleapis.com/auth/yt-analytics.readonly" in scopes
+        assert "https://www.googleapis.com/auth/youtube.readonly" in scopes
+        # Channel reports carry no revenue metrics, so the monetary scope is never asked for.
+        assert "https://www.googleapis.com/auth/yt-analytics-monetary.readonly" not in scopes
+
+    @override_settings(YOUTUBE_ANALYTICS_APP_CLIENT_ID="", YOUTUBE_ANALYTICS_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
+            OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(INSTAGRAM_APP_CLIENT_ID="instagram-client-id", INSTAGRAM_APP_CLIENT_SECRET="instagram-client-secret")
+class TestInstagramIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("instagram")
+
+        # Same Graph version as the other Meta kinds: an older pin here makes the OAuth dialog
+        # reject the permission set before anyone reaches a consent screen.
+        assert config.authorize_url == "https://www.facebook.com/v25.0/dialog/oauth"
+        assert config.token_url == "https://graph.facebook.com/v25.0/oauth/access_token"
+        assert config.token_info_url == "https://graph.facebook.com/v25.0/me"
+        assert config.client_id == "instagram-client-id"
+        assert config.client_secret == "instagram-client-secret"
+        assert config.id_path == "id"
+        assert config.name_path == "name"
+        # Instagram is reached through the Facebook page it is linked to, so the page scopes
+        # are as load-bearing as the Instagram ones.
+        assert set(config.scope.split(" ")) == {
+            "instagram_business_basic",
+            "instagram_business_manage_insights",
+            "instagram_business_manage_comments",
+            "pages_show_list",
+            "pages_read_engagement",
+        }
+
+    @override_settings(INSTAGRAM_APP_CLIENT_ID="", INSTAGRAM_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Instagram app not configured"):
+            OauthIntegration.oauth_config_for_kind("instagram")
+
+    def test_the_instagram_grant_is_separate_from_the_meta_ads_one(self):
+        # Both ride the same Meta app, but an ads grant carries none of the Instagram scopes,
+        # so pointing the Instagram source at a meta-ads integration must not be possible.
+        integration = Integration.objects.create(team=self.team, kind="meta-ads", integration_id="1")
+
+        with pytest.raises(Exception, match="wrong 'kind'"):
+            InstagramIntegration(integration)
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_exchanges_the_long_lived_token_rather_than_a_refresh_token(self, mock_post):
+        # Meta issues no refresh token: the current access token is swapped for a fresh one.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="instagram",
+            integration_id="fb-user-1",
+            config={"expires_in": 100, "refreshed_at": int(time.time()) - 90},
+            sensitive_config={"access_token": "old-token"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "new-token", "expires_in": 5184000}
+
+        InstagramIntegration(integration).refresh_access_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["grant_type"] == "fb_exchange_token"
+        assert sent["fb_exchange_token"] == "old-token"
+        assert sent["client_id"] == "instagram-client-id"
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "new-token"
+        assert integration.errors == ""

@@ -23,6 +23,7 @@ import {
 } from 'products/integrations/frontend/generated/api'
 import type {
     GitHubAvailableInstallationApi,
+    GitHubAvailableInstallationsResponseApi,
     GitHubRepoApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -72,6 +73,7 @@ export interface integrationsLogicValues {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -90,11 +92,14 @@ export interface integrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
-    githubAvailableInstallationsLoading: boolean
+    githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+    githubAvailableInstallationsResponseLoading: boolean
     githubIntegrations: IntegrationType[]
+    githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
     integrations: IntegrationType[] | null
@@ -151,6 +156,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -169,6 +175,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         searchParams: any
     }
     linkExistingGithubInstallation: (installationId?: string) => string
@@ -217,10 +224,10 @@ export interface integrationsLogicActions {
         errorObject?: any
     }
     loadGithubAvailableInstallationsSuccess: (
-        githubAvailableInstallations: GitHubAvailableInstallationApi[],
+        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi,
         payload?: any
     ) => {
-        githubAvailableInstallations: GitHubAvailableInstallationApi[]
+        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi
         payload?: any
     }
     loadIntegrations: () => any
@@ -263,6 +270,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -281,6 +289,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -315,6 +324,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -333,6 +343,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -384,6 +395,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -402,6 +414,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -440,6 +453,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -458,6 +472,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -489,6 +504,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -507,6 +523,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
     }
     openSetupModal: (
         integration?: IntegrationType,
@@ -549,6 +566,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -566,7 +584,8 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
-            | 'vercel',
+            | 'vercel'
+            | 'youtube-analytics',
         payload?: {
             kind: IntegrationKind
         }
@@ -594,6 +613,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -612,6 +632,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         payload?: {
             kind: IntegrationKind
         }
@@ -626,6 +647,12 @@ export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
         githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
+        githubAvailableInstallations: (
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+        ) => GitHubAvailableInstallationApi[] | null
+        githubPersonalConnected: (
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+        ) => boolean | null
         getIntegrationsByKind: (
             integrations: IntegrationType[] | null
         ) => (
@@ -652,6 +679,7 @@ export interface integrationsLogicMeta {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -670,6 +698,7 @@ export interface integrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined
@@ -863,16 +892,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 },
             },
         ],
-        githubAvailableInstallations: [
-            null as GitHubAvailableInstallationApi[] | null,
+        githubAvailableInstallationsResponse: [
+            null as GitHubAvailableInstallationsResponseApi | null,
             {
                 // The org's other GitHub installations, so the UI can offer a picker when there's
                 // more than one, rather than failing the auto-resolve link as ambiguous.
                 loadGithubAvailableInstallations: async () => {
-                    const response = await integrationsGithubAvailableInstallationsRetrieve(
-                        String(values.currentProjectId)
-                    )
-                    return response.installations
+                    return await integrationsGithubAvailableInstallationsRetrieve(String(values.currentProjectId))
                 },
             },
         ],
@@ -1056,6 +1082,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] => {
                 return integrations?.filter((x) => x.kind === 'github') ?? []
+            },
+        ],
+        githubAvailableInstallations: [
+            (s) => [s.githubAvailableInstallationsResponse],
+            (response: GitHubAvailableInstallationsResponseApi | null): GitHubAvailableInstallationApi[] | null => {
+                return response?.installations ?? null
+            },
+        ],
+        githubPersonalConnected: [
+            (s) => [s.githubAvailableInstallationsResponse],
+            (response: GitHubAvailableInstallationsResponseApi | null): boolean | null => {
+                return response ? response.personal_github_connected : null
             },
         ],
         getIntegrationsByKind: [

@@ -6,10 +6,14 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_product_access,
     enforce_throttles,
+    get_authenticated_user,
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
@@ -76,6 +80,25 @@ def _make_user(auth_method: str = "personal_api_key", user_id: int = 1) -> Authe
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
+
+
+class TestGetAuthenticatedUser:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,expected_status",
+        [
+            pytest.param(InvalidProjectScopeError(), 400, id="invalid_project"),
+            pytest.param(UnauthorizedProjectScopeError(), 403, id="unauthorized_project"),
+        ],
+    )
+    async def test_rejects_invalid_oauth_project_scope(self, error: Exception, expected_status: int) -> None:
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=error)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_authenticated_user(_make_request(), MagicMock(), auth_service)
+
+        assert exc_info.value.status_code == expected_status
 
 
 class TestExtractEndUserIdFromBody:
@@ -327,9 +350,6 @@ class TestFreeTierModelGateWiring:
     @pytest.mark.asyncio
     async def test_multipart_transcription_model_is_gated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # the gate must see form-encoded models, not just JSON ones
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_form_request(
@@ -354,9 +374,6 @@ class TestFreeTierModelGateWiring:
     @pytest.mark.asyncio
     async def test_gated_model_is_rejected_on_the_enforcement_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_throttles actually consults the gate on the request path
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-fable-5", "messages": []}, path="/array/v1/messages")
@@ -381,6 +398,114 @@ class TestFreeTierModelGateWiring:
             get_settings.cache_clear()
 
 
+class TestPreviewModelGateWiring:
+    @pytest.fixture(autouse=True)
+    def billed_org(self):
+        with patch(
+            "llm_gateway.dependencies.resolve_plan_and_quota",
+            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+        ):
+            yield
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_preview_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
+        # flag_result=None is the eval-outage case: must fail closed (403), not fail open.
+        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        assert exc_info.value.status_code == 403
+        error = exc_info.value.detail["error"]
+        assert error["code"] == "model_gate"
+        assert "moonshotai/kimi-k3" in error["message"]
+        assert error["message"].endswith("(rate_limit)")
+
+    @pytest.mark.asyncio
+    async def test_preview_model_allowed_when_flag_enabled(self) -> None:
+        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)) as flag,
+        ):
+            await enforce_throttles(request=request, user=user, runner=runner)
+
+        flag.assert_awaited_once()
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == "tasks-kimi-k3"
+
+
+class TestBasetenExclusiveModelGateWiring:
+    @pytest.fixture(autouse=True)
+    def billed_org(self):
+        with patch(
+            "llm_gateway.dependencies.resolve_plan_and_quota",
+            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+        ):
+            yield
+
+    # Baseten-only models with no fallback aren't cleared for external rollout, so each is blocked
+    # behind its own access flag (not the GLM Baseten routing flag).
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("model", "access_flag", "path"),
+        [
+            (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_PUBLIC_MODEL, "tasks-glm-baseten-inference", "/posthog_code/v1/messages"),
+        ],
+    )
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_baseten_exclusive_model_blocked_when_flag_off_or_unavailable(
+        self, flag_result: bool | None, model: str, access_flag: str, path: str
+    ) -> None:
+        request = _make_request({"model": model, "messages": []}, path=path)
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)) as flag,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["error"]["code"] == "model_gate"
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == access_flag
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL])
+    async def test_baseten_exclusive_model_allowed_when_flag_enabled(self, model: str) -> None:
+        request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),
+        ):
+            await enforce_throttles(request=request, user=user, runner=runner)
+
+
 class TestServerCredentialRequirementWiring:
     def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
         return AuthenticatedUser(
@@ -395,9 +520,6 @@ class TestServerCredentialRequirementWiring:
     @pytest.mark.asyncio
     async def test_marker_less_oauth_token_rejected_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_product_access actually applies the server-credential check on the path
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
@@ -412,13 +534,107 @@ class TestServerCredentialRequirementWiring:
     async def test_marker_token_allowed_on_sibling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # pins that enforce_product_access forwards the token scopes; without scopes=user.scopes a
         # real server-minted token (carrying the marker) would be wrongly rejected here.
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
             user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
             assert await enforce_product_access(request=request, user=user) is user
+        finally:
+            get_settings.cache_clear()
+
+
+class TestDesktopAccessGate:
+    def _oauth_user(self, scopes: list[str] | None = None) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=7,
+            team_id=1,
+            auth_method="oauth_access_token",
+            distinct_id="test-distinct-id-7",
+            scopes=scopes if scopes is not None else ["llm_gateway:read"],
+            application_id=POSTHOG_CODE_US_APP_ID,
+        )
+
+    def _request(self, resolver_answer: bool, path: str = "/posthog_code/v1/messages") -> Request:
+        request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
+        resolver = MagicMock()
+        resolver.has_access = AsyncMock(return_value=resolver_answer)
+        request.app.state.desktop_access_resolver = resolver
+        return request
+
+    @pytest.mark.asyncio
+    async def test_unentitled_user_blocked(self) -> None:
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(False), user=self._oauth_user())
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail["error"]["code"] == "code_access_required"
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_entitled_user_allowed(self) -> None:
+        get_settings.cache_clear()
+        try:
+            user = self._oauth_user()
+            assert await enforce_product_access(request=self._request(True), user=user) is user
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "env_var",
+        [
+            pytest.param("LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED", id="kill_switch"),
+            pytest.param("LLM_GATEWAY_DEBUG", id="debug"),
+        ],
+    )
+    async def test_gate_short_circuits(self, monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
+        monkeypatch.setenv(env_var, "false" if env_var.endswith("GATE_ENABLED") else "true")
+        get_settings.cache_clear()
+        try:
+            request = self._request(False)
+            user = self._oauth_user()
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_server_minted_token_exempt(self) -> None:
+        get_settings.cache_clear()
+        try:
+            request = self._request(False)
+            user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("path", ["/array/v1/messages", "/twig/v1/messages"])
+    async def test_alias_path_is_gated(self, path: str) -> None:
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(False, path=path), user=self._oauth_user())
+            assert exc_info.value.status_code == 403
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_other_products_untouched(self) -> None:
+        get_settings.cache_clear()
+        try:
+            request = self._request(False, path="/wizard/v1/messages")
+            user = AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="personal_api_key",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+            )
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()

@@ -88,6 +88,8 @@ function auditEvent(index: number): MCPAuditEventApi {
             handle: 'posthog-support',
         },
         actor_label: 'posthog-support',
+        credential_owner: null,
+        grant_scope: '',
     }
 }
 

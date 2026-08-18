@@ -1,7 +1,9 @@
 import {
+  groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
   type RunArtifact,
+  type RunArtifactVersions,
 } from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
@@ -16,8 +18,10 @@ import type {
 } from "@posthog/shared/domain-types";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
+export type RunFile = RunArtifact & { runId: string };
+
 export type ArtifactRow =
-  | { kind: "pr"; key: string; url: string }
+  | { kind: "pr"; key: string; url: string; ts: number }
   | {
       kind: "canvas";
       key: string;
@@ -25,6 +29,7 @@ export type ArtifactRow =
       url: string | null;
       /** The canvas row id, the stable comment target (never the name). */
       dashboardId: string | null;
+      ts: number;
     }
   | {
       kind: "file";
@@ -33,6 +38,7 @@ export type ArtifactRow =
       name: string;
       runId: string | null;
       size: number | undefined;
+      group: RunArtifactVersions<RunFile>;
     }
   | { kind: "slack"; key: string; url: string };
 
@@ -139,16 +145,16 @@ export function buildRows(
   const rows: ArtifactRow[] = [];
   const seenPrUrls = new Set<string>();
 
-  const addPr = (url: string, key: string) => {
+  const addPr = (url: string, key: string, ts: number) => {
     if (seenPrUrls.has(url)) return;
     seenPrUrls.add(url);
-    rows.push({ kind: "pr", key, url });
+    rows.push({ kind: "pr", key, url, ts });
   };
 
   for (const row of timeline) {
     if (row.kind !== "artifact") continue;
     if (row.artifact.kind === "pr") {
-      addPr(row.artifact.url, row.message.id);
+      addPr(row.artifact.url, row.message.id, row.timestamp);
     } else {
       const url = row.artifact.url;
       rows.push({
@@ -157,6 +163,7 @@ export function buildRows(
         name: row.artifact.name,
         url,
         dashboardId: canvasDashboardId(url),
+        ts: row.timestamp,
       });
     }
   }
@@ -164,36 +171,28 @@ export function buildRows(
   const allRuns =
     runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
 
-  // Re-uploading a file replaces it rather than adding a second one: agents
-  // revise a deliverable and upload it again under the same name, so keeping
-  // every copy would bury the current one under its own drafts.
-  const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
-  const undismissedNames = new Set<string>();
+  const files: RunFile[] = [];
   for (const run of allRuns) {
+    // Runs added straight from output have no announcing timeline message, so
+    // the run's own updated_at is the closest stand-in for the PR's age.
+    const runTs = Date.parse(run.updated_at) || 0;
     for (const outputPr of readPrUrls(run.output)) {
-      addPr(outputPr, `output-pr:${outputPr}`);
+      addPr(outputPr, `output-pr:${outputPr}`, runTs);
     }
-    for (const file of readRunOutputs(run)) {
-      if (!file.name) continue;
-      if (!file.dismissed_at) undismissedNames.add(file.name);
-      const previous = newestByName.get(file.name);
-      const isNewer =
-        !previous ||
-        (file.uploaded_at ?? "") >= (previous.file.uploaded_at ?? "");
-      if (isNewer) newestByName.set(file.name, { file, runId: run.id });
-    }
+    files.push(
+      ...readRunOutputs(run).map((file) => ({ ...file, runId: run.id })),
+    );
   }
-  for (const [name, { file, runId }] of newestByName) {
-    // A file goes only when every version of it is dismissed, so dismissing the
-    // one on show cannot resurface the copy it replaced.
-    if (!undismissedNames.has(name)) continue;
+  for (const group of groupRunArtifactVersions(files)) {
+    if (group.dismissed) continue;
     rows.push({
       kind: "file",
-      key: `file:${file.id ?? file.storage_path ?? name}`,
-      artifactId: file.id ?? null,
-      name,
-      runId,
-      size: file.size,
+      key: `file:${group.name}`,
+      artifactId: group.latest.id ?? null,
+      name: group.name,
+      runId: group.latest.runId,
+      size: group.latest.size,
+      group,
     });
   }
 
