@@ -126,9 +126,8 @@ def query_cache_raw_client() -> Redis | RedisCluster:
 
 
 def query_cache_read_client() -> Redis | RedisCluster:
-    # write=False keeps GETs on the reader replica, as the replaced caches[alias].get() did.
-    # get_redis_connection's default write client would silently shift the cache's full read
-    # QPS onto the primary wherever a reader is configured.
+    # write=False keeps reads on the reader replica, as the replaced caches[alias].get() did;
+    # the default write client would shift the cache's full read load onto the primary.
     return get_redis_connection(QUERY_CACHE_ALIAS, write=False)
 
 
@@ -267,9 +266,8 @@ def _organization_id_for_team(team_id: int) -> Optional[str]:
     except Team.DoesNotExist:
         return None
     except Exception:
-        # Caching is an optimization, so nothing that fails here (a struggling Postgres, a
-        # dropped pgbouncer connection, anything unexpected) may abort the write path;
-        # returning None sends the caller to the inline Redis path.
+        # Caching is an optimization: a failure here (struggling Postgres, dropped pgbouncer
+        # connection, anything unexpected) must degrade to the inline path, not abort the write.
         logger.warning("query_cache_s3_org_lookup_failed", team_id=team_id, exc_info=True)
         return None
 
@@ -286,9 +284,9 @@ def s3_write_mode(team_id: int) -> QueryCacheS3Mode:
         QUERY_CACHE_S3_FLAG,
         organization_id,
         groups={"organization": organization_id},
-        # Local evaluation matches property filters only against properties supplied in the
-        # call; without the id, an id-targeted rollout evaluates inconclusive and reads as
-        # off. Filters on any other organization property still read as off.
+        # Local evaluation only sees properties supplied here, so an id-filtered rollout needs
+        # the id or it evaluates inconclusive and reads as off. Filters on any other
+        # organization property still read as off.
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,

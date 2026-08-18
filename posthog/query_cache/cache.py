@@ -74,18 +74,18 @@ class QueryCache:
     def store_result(self, *, response: dict, target_age: Optional[datetime]) -> None:
         if isinstance(response.get("results"), list):
             # Split format keeps `results` as its own JSON segment so cache hits can skip
-            # parsing it — see CachedEntry. Pods that predate this
-            # format treat split entries as cache misses and recompute, so entries written
-            # during a rolling deploy may be recomputed once — accepted, deploys are quick.
+            # parsing it (see CachedEntry). Pods that predate the format treat split entries
+            # as cache misses and recompute once during a rolling deploy. Accepted: deploys
+            # are quick.
             fresh_response_serialized = encode_split_cached_response(response)
         else:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
-        # Encode and set cache with per-team size limit enforcement. The tracker budgets the
-        # bytes actually stored in Redis (compressed blob or pointer), while the write metrics
-        # below keep counting the uncompressed payload. Caching is an optimization: the query has
-        # already run, so an encoding or bookkeeping failure here must not fail the response.
+        # The tracker budgets the bytes actually stored in Redis (compressed blob or pointer);
+        # the write metrics below keep counting the uncompressed payload. Caching is an
+        # optimization: the query has already run, so a failure in this block must not fail
+        # the response.
         try:
             storage_bytes = encode_inline_value(fresh_response_serialized)
             tracker = TeamCacheSizeTracker(self.team_id)
