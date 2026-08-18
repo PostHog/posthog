@@ -4,6 +4,8 @@ import { AlertCalculationInterval } from '~/queries/schema/schema-general'
  *  which is the source of truth. Same name in both languages so one grep finds both halves. */
 export const MAX_FORECAST_REACH_DAYS = 183
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
 /** Days each interval covers. Mirrors _INTERVAL_DAYS in the same backend module. */
 const INTERVAL_DAYS: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.REAL_TIME]: 1 / 24,
@@ -18,4 +20,20 @@ const INTERVAL_DAYS: Record<AlertCalculationInterval, number> = {
  *  ceiling would refuse most of the valid hourly range and accept far too much on monthly. */
 export function maxHorizonForInterval(interval: AlertCalculationInterval): number {
     return Math.floor(MAX_FORECAST_REACH_DAYS / (INTERVAL_DAYS[interval] ?? 1))
+}
+
+/** Why a target date cannot be forecast, or null when it can. Mirrors horizon_for_target_date in
+ *  products/alerts/backend/forecasting/engine.py so the editor and the server agree on the wording. */
+export function forecastTargetDateError(targetDate: string | undefined, today: Date): string | null {
+    if (!targetDate) {
+        return null
+    }
+    const days = Math.floor((new Date(targetDate).getTime() - today.getTime()) / MS_PER_DAY)
+    if (days <= 0) {
+        return 'The target date must be in the future.'
+    }
+    if (days > MAX_FORECAST_REACH_DAYS) {
+        return 'A forecast target must be within 6 months. Move the date closer, or use an insight with a coarser interval.'
+    }
+    return null
 }

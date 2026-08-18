@@ -12,7 +12,7 @@ import {
     ForecastTargetDirection,
 } from '~/queries/schema/schema-general'
 
-import { maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
+import { forecastTargetDateError, maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
 
 const HORIZON_UNIT: Record<AlertCalculationInterval, string> = {
     [AlertCalculationInterval.REAL_TIME]: 'intervals',
@@ -75,6 +75,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
     // The backend caps how far a forecast reaches as a duration, so this ceiling moves with the
     // insight's interval. Clamping on change stops a horizon surviving a switch to a coarser one.
     const maxHorizon = maxHorizonForInterval(calculationInterval)
+    const targetDateError = forecastTargetDateError(config.target_date, new Date())
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LemonSelect
@@ -101,7 +102,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                 ]}
             />
             {config.condition === ForecastConditionType.TARGET_BY_DATE && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <LemonSelect
                         data-attr="alertForm-forecast-target-direction"
                         value={config.target_direction ?? ForecastTargetDirection.AT_LEAST}
@@ -113,7 +114,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                     />
                     <LemonInput
                         type="number"
-                        className="w-32"
+                        className="w-24"
                         data-attr="alertForm-forecast-target"
                         value={config.target ?? undefined}
                         onChange={(target) => onChange({ ...config, target: target ?? undefined })}
@@ -124,6 +125,11 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         value={config.target_date ? dayjs(config.target_date) : null}
                         onChange={(d) => onChange({ ...config, target_date: d ? d.format('YYYY-MM-DD') : undefined })}
                     />
+                    {targetDateError ? (
+                        <div className="w-full text-danger text-xs" data-attr="alertForm-forecast-target-date-error">
+                            {targetDateError}
+                        </div>
+                    ) : null}
                 </div>
             )}
             {config.condition === ForecastConditionType.FUTURE_BREACH && (
@@ -178,12 +184,12 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         options={[
                             {
                                 value: ForecastSensitivity.FORECAST,
-                                label: 'The forecast says so',
+                                label: 'Forecast',
                                 tooltip: 'Warns earlier, and can change its mind while the forecast is uncertain.',
                             },
                             {
                                 value: ForecastSensitivity.BEST_CASE,
-                                label: 'Even the best case says so',
+                                label: 'Best case',
                                 tooltip: 'Quieter. Waits until the outcome is no longer avoidable.',
                             },
                         ]}

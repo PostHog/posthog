@@ -52,6 +52,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadToolDataEvents',
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'simulateAlert', // alertFormLogic toasts the reason itself, including non-API failures
+    'simulateForecast', // alertFormLogic toasts the reason itself, including non-API failures
 ]
 
 /*
