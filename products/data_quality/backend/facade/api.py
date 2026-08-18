@@ -7,9 +7,20 @@ the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler int
 data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
+from ..logic.checks import (
+    checks_for_subject,
+    ensure_name_available,
+    soft_delete_check,
+    start_check_suite,
+    subject_health,
+    update_check,
+    upsert_check,
+    validate_check,
+)
 from ..logic.compiler import compile_check, related_subject_ref
 from ..logic.contracts import CompiledCheck, SubjectRef
 from ..logic.errors import CheckConfigError, SubjectUnresolvableError
+from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subjects import resolve_subject
@@ -18,17 +29,27 @@ from .contracts import CheckTypeInfo
 
 __all__ = [
     "CheckConfigError",
+    "CheckStatusRow",
     "CheckTypeInfo",
     "CompiledCheck",
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
+    "checks_for_subject",
     "compile_check",
     "compute_fingerprint",
+    "ensure_name_available",
     "from_config_entry",
     "list_check_types",
     "quality_audit_mode",
     "related_subject_ref",
     "resolve_subject",
+    "roll_up_health",
+    "soft_delete_check",
+    "start_check_suite",
+    "subject_health",
     "to_config_entry",
+    "update_check",
+    "upsert_check",
+    "validate_check",
 ]

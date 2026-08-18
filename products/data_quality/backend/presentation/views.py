@@ -1,0 +1,255 @@
+"""DRF views for data quality checks.
+
+Thin: validate via the serializer, call the facade, serialize the result. Nothing here runs a
+check -- every trigger hands off to Temporal and returns a suite-run handle to poll.
+"""
+
+from typing import cast
+
+from django.db.models import QuerySet
+
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import mixins, status, viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.models import Team, User
+
+from ..facade import api
+from ..facade.enums import CheckRunStatus
+from ..facade.flags import is_data_quality_checks_enabled
+from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from .serializers import (
+    CheckTypeSerializer,
+    DataQualityCheckRunSerializer,
+    DataQualityCheckSerializer,
+    DataQualitySuiteRunSerializer,
+    RunForSubjectSerializer,
+    SubjectHealthQuerySerializer,
+    SubjectHealthSerializer,
+)
+
+_RECENT_RUNS_LIMIT = 50
+
+
+class _DataQualityGateMixin:
+    """Gate every entry point on the product flag, including the ones that never touch the queryset."""
+
+    team: Team
+    # Authoring a check writes HogQL a worker will execute, running one executes it now, and the
+    # result columns are a count oracle over the underlying rows. Each needs query access on top of
+    # data_quality access, or a member denied `query` reads warehouse data through a check.
+    # Reading check *definitions* is not gated: that is schema metadata, already visible elsewhere.
+    QUERY_GATED_ACTIONS: frozenset[str] = frozenset()
+
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)  # type: ignore[misc]
+        self._require_flag()
+        if getattr(self, "action", None) in self.QUERY_GATED_ACTIONS:
+            self._require_query_access()
+
+    def _require_flag(self) -> None:
+        if not is_data_quality_checks_enabled(self.team):
+            raise PermissionDenied("Data quality checks are not enabled for this project.")
+
+    def _require_query_access(self) -> None:
+        # required_scopes gates tokens; session users carry no scopes and AccessControlPermission
+        # only checks the data_quality resource, so enforce query RBAC explicitly too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):  # type: ignore[attr-defined]
+            raise PermissionDenied("You need query access to work with data quality checks.")
+
+
+class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """CRUD for data quality checks, plus the actions that run them and report on them."""
+
+    QUERY_GATED_ACTIONS = frozenset({"create", "update", "partial_update", "run", "run_for_subject", "runs"})
+    scope_object = "data_quality"
+    serializer_class = DataQualityCheckSerializer
+    queryset = DataQualityCheck.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # Token callers carry scopes but no RBAC, so the query gate has to be a scope for them.
+        if getattr(view, "action", None) in self.QUERY_GATED_ACTIONS:
+            return [f"{self.scope_object}:{'read' if request.method in SAFE_METHODS else 'write'}", "query:read"]
+        return None
+
+    def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
+        queryset = queryset.filter(team_id=self.team_id, deleted=False)
+        for param in ("subject_type", "subject_uuid", "check_type"):
+            value = self.request.query_params.get(param)
+            if value:
+                queryset = queryset.filter(**{param: value})
+        return queryset.order_by("-created_at")
+
+    @extend_schema(
+        description="Create a check, or refine the one already carrying the same fingerprint. "
+        "Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.",
+        parameters=[
+            OpenApiParameter("subject_type", str, description="Filter the list to 'table' or 'view' subjects."),
+            OpenApiParameter("subject_uuid", str, description="Filter the list to one table or view."),
+            OpenApiParameter("check_type", str, description="Filter the list to one check type."),
+        ],
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        optional = {
+            key: data[key]
+            for key in (
+                "name",
+                "description",
+                "severity",
+                "enabled",
+                "tags",
+                "run_on_materialization",
+                "schedule_interval_minutes",
+                "created_source",
+                "ai_model",
+                "confidence",
+                "reasoning",
+            )
+            if key in data
+        }
+        check, created = api.upsert_check(
+            team=self.team,
+            user=cast(User, request.user),
+            subject_type=data["subject_type"],
+            subject_uuid=str(data["subject_uuid"]),
+            check_type=data["check_type"],
+            column_name=data.get("column_name", ""),
+            config=data.get("config") or {},
+            **optional,
+        )
+        return Response(
+            self.get_serializer(check).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def perform_destroy(self, instance: DataQualityCheck) -> None:
+        api.soft_delete_check(instance)
+
+    @extend_schema(
+        description="Run this check now. Returns the suite run to poll for the report.",
+        request=None,
+        responses={200: DataQualitySuiteRunSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def run(self, request: Request, **kwargs) -> Response:
+        check = self.get_object()
+        suite_run = api.start_check_suite(team=self.team, user=cast(User, request.user), check_ids=[str(check.id)])
+        return Response(DataQualitySuiteRunSerializer(suite_run).data)
+
+    @extend_schema(
+        description="Run every enabled check on a table or view. Returns the suite run to poll for the report.",
+        request=RunForSubjectSerializer,
+        responses={200: DataQualitySuiteRunSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="run_for_subject")
+    def run_for_subject(self, request: Request, **kwargs) -> Response:
+        serializer = RunForSubjectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        suite_run = api.start_check_suite(
+            team=self.team,
+            user=cast(User, request.user),
+            subject_type=serializer.validated_data["subject_type"],
+            subject_uuids=[str(serializer.validated_data["subject_uuid"])],
+        )
+        return Response(DataQualitySuiteRunSerializer(suite_run).data)
+
+    @extend_schema(
+        description="Recent run history for this check, newest first.",
+        responses={200: DataQualityCheckRunSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def runs(self, request: Request, **kwargs) -> Response:
+        check = self.get_object()
+        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(quality_check=check).order_by("-created_at")
+        return Response(DataQualityCheckRunSerializer(runs[:_RECENT_RUNS_LIMIT], many=True).data)
+
+    @extend_schema(
+        description="Health rollup for one table or view, from the denormalized status of its checks.",
+        parameters=[SubjectHealthQuerySerializer],
+        responses={200: SubjectHealthSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def health(self, request: Request, **kwargs) -> Response:
+        query = SubjectHealthQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        subject_type = query.validated_data["subject_type"]
+        subject_uuid = str(query.validated_data["subject_uuid"])
+
+        checks = api.checks_for_subject(self.team_id, subject_type, subject_uuid).filter(enabled=True)
+        failing = checks.filter(last_status=CheckRunStatus.FAILED)
+        return Response(
+            SubjectHealthSerializer(
+                {
+                    "subject_type": subject_type,
+                    "subject_uuid": subject_uuid,
+                    "health": api.subject_health(self.team_id, subject_type, subject_uuid),
+                    "checks_total": checks.count(),
+                    "checks_failing": failing.count(),
+                }
+            ).data
+        )
+
+    @extend_schema(
+        description="The check types this project can author, with the JSON schema of each type's config.",
+        responses={200: CheckTypeSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, url_path="check_types", pagination_class=None)
+    def check_types(self, request: Request, **kwargs) -> Response:
+        return Response(
+            CheckTypeSerializer(
+                [
+                    {
+                        "check_type": spec.type_name,
+                        "description": getattr(spec, "description", ""),
+                        "requires_column": spec.requires_column,
+                        "config_schema": spec.json_schema,
+                    }
+                    for spec in api.all_specs()
+                ],
+                many=True,
+            ).data
+        )
+
+
+class DataQualitySuiteRunViewSet(
+    _DataQualityGateMixin,
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read-only reports for batches of check executions."""
+
+    QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "check_runs"})
+    scope_object = "data_quality"
+    serializer_class = DataQualitySuiteRunSerializer
+    queryset = DataQualitySuiteRun.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # Suite reports carry the counts a denied user must not be able to read.
+        if getattr(view, "action", None) in self.QUERY_GATED_ACTIONS:
+            return ["data_quality:read", "query:read"]
+        return None
+
+    def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
+        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+
+    @extend_schema(
+        description="Every check execution in this suite run.",
+        responses={200: DataQualityCheckRunSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=True, url_path="check_runs", pagination_class=None)
+    def check_runs(self, request: Request, **kwargs) -> Response:
+        suite_run = self.get_object()
+        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run).order_by("-created_at")
+        return Response(DataQualityCheckRunSerializer(runs, many=True).data)
