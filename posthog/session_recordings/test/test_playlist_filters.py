@@ -4,7 +4,10 @@ from parameterized import parameterized
 
 from posthog.schema import FilterLogicalOperator, RecordingPropertyFilter
 
-from posthog.session_recordings.playlist_filters import convert_filters_to_recordings_query
+from posthog.session_recordings.playlist_filters import (
+    convert_filters_to_recordings_query,
+    convert_legacy_filters_to_universal_filters,
+)
 
 
 def _visited_page(value: str) -> dict:
@@ -78,3 +81,17 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         }
         query = convert_filters_to_recordings_query(filters)
         assert query.operand == expected
+
+
+class TestConvertLegacyFiltersToUniversalFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("events", "events"),
+            ("actions", "actions"),
+            ("properties", "properties"),
+        ]
+    )
+    def test_ignores_non_list_filter_values(self, _name: str, key: str) -> None:
+        filters = convert_legacy_filters_to_universal_filters({key: {"invalid": True}})
+
+        assert filters["filter_group"]["values"][0]["values"] == []

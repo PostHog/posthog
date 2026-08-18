@@ -84,6 +84,10 @@ def _derive_operand(filter_group: Optional[dict[str, Any]]) -> FilterLogicalOper
     return FilterLogicalOperator.AND_
 
 
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
     Convert legacy filters to universal filters format.
@@ -94,9 +98,9 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
     if not filters:
         return {}
 
-    events = filters.get("events", [])
-    actions = filters.get("actions", [])
-    properties = filters.get("properties", [])
+    events = _as_list(filters.get("events"))
+    actions = _as_list(filters.get("actions"))
+    properties = _as_list(filters.get("properties"))
 
     log_level_filters = []
     if filters.get("console_logs"):
