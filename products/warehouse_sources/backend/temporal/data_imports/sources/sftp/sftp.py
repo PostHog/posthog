@@ -18,7 +18,7 @@ import paramiko
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.settings import (
     CHUNK_SIZE,
     CONNECT_TIMEOUT_SECONDS,

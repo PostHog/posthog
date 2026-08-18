@@ -14,7 +14,7 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sftp import (
     SFTPAuthTypeConfig,
     SFTPCombineFilesConfig,
@@ -168,6 +168,9 @@ class TestSFTPSourceConfig:
 
         assert group.default is False
         assert [field.name for field in group.fields or []] == ["table_name"]
+
+    def test_port_change_requires_credential_reentry(self) -> None:
+        assert self.source.connection_host_fields == ["port"]
 
     def test_non_retryable_errors_cover_connection_and_auth_failures(self) -> None:
         errors = self.source.get_non_retryable_errors()

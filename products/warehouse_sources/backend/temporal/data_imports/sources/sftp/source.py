@@ -12,14 +12,11 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sftp import SFTPSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
@@ -48,6 +45,12 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SFTP
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The port picks which service on the host receives the stored password or key, so editing
+        # only the port retargets the credential just as a host change would.
+        return ["port"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
