@@ -4,9 +4,6 @@ import re
 import math
 import time
 import errno
-import socket
-import ipaddress
-import threading
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -36,6 +33,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -773,79 +771,7 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _is_ip_literal(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-        return True
-    except ValueError:
-        return False
-
-
-def _resolve_hostaddr_with_timeout(host: str, port: int, timeout: float) -> list[str] | None:
-    """Resolve `host` to its addresses under a wall-clock `timeout`, to hand psycopg as `hostaddr`.
-
-    psycopg3 resolves hostnames in Python before libpq ever connects — `conninfo_attempts` calls
-    `socket.getaddrinfo` (see psycopg/_conninfo_attempts.py) and only then passes the resolved
-    address(es) to libpq. `connect_timeout` bounds establishing the socket, never that name lookup, so
-    a stalled or unresponsive resolver blocks the (threaded, non-interruptible) sync activity for as
-    long as the OS resolver takes. It never trips `connect_timeout`; the activity instead runs until
-    Temporal's `start_to_close_timeout` cancels the worker thread mid-`getaddrinfo`, surfacing a
-    misleading `CancelledError` and burning the whole activity's retry budget. Resolving here turns a
-    stalled resolver into a fast, retryable error instead.
-
-    Returns every resolved address, not just one: when a host resolves to more than one address (most
-    commonly a dual-stack host with both an AAAA and an A record), `Connection.connect` tries each
-    `hostaddr` attempt in turn and only fails once all of them do (see `conninfo_attempts` /
-    `Connection.connect`'s attempt loop) — a network that can't route one address family (e.g. no IPv6
-    egress) still connects via the other. Handing psycopg a single pre-resolved `hostaddr` would
-    collapse that to one attempt and turn an unreachable-address-family blip into a hard failure.
-
-    Returns None when there is nothing to bound — an empty host, a Unix-socket path, or a host that is
-    already an IP literal — and also on a genuine resolution failure, so psycopg connects (and
-    re-raises that failure) exactly as before and the existing "Name or service not known"
-    classification still applies. Only a resolver that exceeds `timeout` becomes an `OperationalError`;
-    its message deliberately avoids the non-retryable "could not translate host name" /
-    "Name or service not known" fragments because a stalled resolver is usually transient.
-    """
-    if not host or host.startswith("/") or _is_ip_literal(host):
-        return None
-
-    addrinfo: list[Any] = []
-    lookup_error: list[BaseException] = []
-
-    def _lookup() -> None:
-        try:
-            addrinfo.extend(socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP, type=socket.SOCK_STREAM))
-        except BaseException as e:  # noqa: BLE001 — surfaced to the caller below via lookup_error
-            lookup_error.append(e)
-
-    # Daemon thread so a stalled getaddrinfo can be abandoned without blocking worker shutdown or
-    # piling up non-daemon threads — the OS resolver bounds the orphaned lookup on its own.
-    thread = threading.Thread(target=_lookup, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
-    # A genuine resolution failure falls through to None so psycopg connects and re-raises it,
-    # preserving the existing "Name or service not known" classification.
-    if lookup_error:
-        if isinstance(lookup_error[0], OSError):
-            return None
-        raise lookup_error[0]
-    if not addrinfo:
-        return None
-    # sockaddr[0] is the address string (getaddrinfo types it as str | int across the IPv4/IPv6
-    # tuple variants, so coerce to satisfy the str return type). Dedupe while preserving order —
-    # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
-    # names), and a duplicate `hostaddr` attempt would just fail the same way twice.
-    seen: set[str] = set()
-    addresses: list[str] = []
-    for info in addrinfo:
-        address = str(info[4][0])
-        if address not in seen:
-            seen.add(address)
-            addresses.append(address)
-    return addresses
+_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:

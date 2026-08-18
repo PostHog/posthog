@@ -148,6 +148,7 @@ export function ConversationView({
     isCompacting,
     isClearing,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -495,6 +496,7 @@ export function ConversationView({
         isCompacting={isCompacting}
         isClearing={isClearing}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );

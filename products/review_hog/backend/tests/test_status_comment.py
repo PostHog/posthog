@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
 from products.review_hog.backend.reviewer.status_comment import (
+    FinalizeStatusCommentInput,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
@@ -347,11 +348,13 @@ class TestFinalizeStatusComment(BaseTest):
             persist_verdict(team_id=self.team.id, report_id=report_id, issue=issue, validation=validation, run_index=1)
 
         finalize_status_comment(
-            self.team.id,
-            report_id,
-            run_index=1,
-            urgency_threshold=IssuePriority.SHOULD_FIX.value,
-            review_url="https://g/review",
+            FinalizeStatusCommentInput(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                urgency_threshold=IssuePriority.SHOULD_FIX.value,
+                review_url="https://g/review",
+            )
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
