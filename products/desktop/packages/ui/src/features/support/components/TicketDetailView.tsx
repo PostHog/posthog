@@ -34,7 +34,7 @@ import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-const TICKET_SIDEBAR_MIN_WIDTH = 340;
+const TICKET_SIDEBAR_MIN_WIDTH = 400;
 
 export function TicketDetailView({
   ticketId,

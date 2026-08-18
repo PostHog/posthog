@@ -31,23 +31,12 @@ export function TicketAgentPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Empty className="flex-1 p-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <RobotIcon size={18} />
-          </EmptyMedia>
-          <EmptyTitle>Ask the agent about this ticket</EmptyTitle>
-          <EmptyDescription>
-            The first message starts a task seeded with the ticket and its
-            conversation, shared with everyone who opens it.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-
+    <div className="flex h-full min-h-0 flex-col justify-end p-3">
       <ChannelHomeComposer
         contextKey={`ticket:${ticket.id}`}
         preferredWorkspaceMode="cloud"
+        placeholder="Ask the agent about this ticket…"
+        editorHeight="default"
         channelContext={buildTicketAgentPrompt(ticket, messages, "")}
         channelName={`Support ticket #${ticket.ticket_number}`}
         onTaskCreated={(task) => linkTask(task.id)}

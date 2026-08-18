@@ -46,7 +46,7 @@ const DEFAULT_STATE: SupportQueueState = {
   sidebarTab: "ticket",
   composerMode: "reply",
   listWidth: 280,
-  sidebarWidth: 340,
+  sidebarWidth: 400,
 };
 
 export const useSupportQueueStore = create<SupportQueueStore>()(

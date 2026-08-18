@@ -61,6 +61,8 @@ interface ChannelHomeComposerProps {
   /** Identity for the draft and session when there is no channel. */
   contextKey?: string;
   preferredWorkspaceMode?: WorkspaceMode;
+  placeholder?: string;
+  editorHeight?: "default" | "large";
   channelName?: string;
   /** Channel CONTEXT.md, attached to the created task as background. */
   channelContext?: string;
@@ -87,6 +89,8 @@ export const ChannelHomeComposer = forwardRef<
     channelId,
     contextKey,
     preferredWorkspaceMode,
+    placeholder = "What do you want to ship?",
+    editorHeight = "large",
     channelName,
     channelContext,
     channelRepositories = [],
@@ -459,8 +463,8 @@ export const ChannelHomeComposer = forwardRef<
       <PromptInput
         ref={editorRef}
         sessionId={sessionId}
-        placeholder="What do you want to ship?"
-        editorHeight="large"
+        placeholder={placeholder}
+        editorHeight={editorHeight}
         disabled={isBusy}
         isLoading={isBusy}
         autoFocus
