@@ -31,7 +31,7 @@ import {
   Text,
 } from "@posthog/quill";
 import { TicketRow } from "@posthog/ui/features/support/components/TicketRow";
-import { useSupportTickets } from "@posthog/ui/features/support/hooks/useSupportTickets";
+import { useSupportTicketsInfinite } from "@posthog/ui/features/support/hooks/useSupportTickets";
 import { useSupportTicketViews } from "@posthog/ui/features/support/hooks/useSupportTicketViews";
 import {
   QUEUE_STATUSES,
@@ -84,8 +84,14 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
     [assigneeScope, orderBy, debouncedSearch, viewShortId],
   );
 
-  const { data, isPending, isError } = useSupportTickets(listOptions);
-  const tickets = data?.results ?? [];
+  const {
+    tickets,
+    isPending,
+    isError,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useSupportTicketsInfinite(listOptions);
 
   const activeView = views?.find((view) => view.short_id === viewShortId);
 
@@ -208,6 +214,19 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
         )}
 
         <TicketRows tickets={tickets} activeTicketId={activeTicketId} />
+
+        {hasNextPage && (
+          <div className="flex justify-center py-2">
+            <Button
+              variant="outline"
+              size="sm"
+              loading={isFetchingNextPage}
+              onClick={() => void fetchNextPage({ cancelRefetch: false })}
+            >
+              Load more
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
