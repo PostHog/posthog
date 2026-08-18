@@ -48,7 +48,7 @@ export interface AgentServerConfig {
   posthogExecPermissionRegex?: string;
   /**
    * Names of desktop-only local MCP servers to expose through loopback relay
-   * endpoints (docs/cloud-mcp-relay.md). Names only; the desktop resolves
+   * endpoints (docs/CLOUD-MCP-RELAY.md). Names only; the desktop resolves
    * each name against local config at execution time.
    */
   relayMcpServers?: string[];

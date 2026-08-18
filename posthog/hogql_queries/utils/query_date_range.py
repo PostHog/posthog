@@ -9,9 +9,16 @@ from posthog.schema import DateRange, HogQLFilters, IntervalType
 
 from posthog.hogql.parser import ast
 
+from posthog.dataclasses import frozen
 from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+
+@frozen
+class DateRangeBounds:
+    date_from: datetime
+    date_to: datetime
 
 
 def compare_interval_length(

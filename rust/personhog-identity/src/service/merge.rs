@@ -102,16 +102,17 @@ impl MergeEntrance {
         // compared on the ORIGINAL call and driven with its own frozen
         // request — never re-classified. Two racing FIRST calls can still
         // classify divergently and the insert loser then sees the engine's
-        // full-request mismatch; that surfaces as FAILED_PRECONDITION once
-        // and self-heals — the next retry attaches here.
+        // full-request mismatch; that surfaces as retryable UNAVAILABLE
+        // (see MergeOpExecutor::execute) and the retry attaches here.
         if let Some(row) = self.ops.find(op_id).await? {
             if row.op_type != OP_TYPE_MERGE
                 || row.team_id != request.team_id
                 || !same_merge(row.request.get("original"), &original)
             {
-                return Err(Status::failed_precondition(format!(
-                    "op_id {op_id} was already used for a different request"
-                )));
+                return Err(personhog_common::grpc::semantic_refusal(
+                    format!("op_id {op_id} was already used for a different request"),
+                    "op_id_reused",
+                ));
             }
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
@@ -604,15 +605,15 @@ fn merge_original(
     event_set: &Value,
     event_set_once: &Value,
 ) -> Value {
+    // event_uuid is deliberately absent: the proto documents it as
+    // advisory data the merge never reads, so a retry that regenerated
+    // its event uuids must still match the recorded request.
     serde_json::json!({
         "target_distinct_id": request.target_distinct_id,
         "sources": request
             .sources
             .iter()
-            .map(|s| serde_json::json!({
-                "distinct_id": s.source_distinct_id,
-                "event_uuid": s.event_uuid,
-            }))
+            .map(|s| &s.source_distinct_id)
             .collect::<Vec<_>>(),
         "event_set": event_set,
         "event_set_once": event_set_once,
@@ -722,6 +723,9 @@ fn merge_response(
             ))
         })?
         .unwrap_or_default();
+    // Loud on a misshapen frozen shape, like inline_results above: a
+    // silent empty here would answer OK with no results for a corrupt
+    // row.
     let original_sources: Vec<String> = row
         .request
         .get("original")
@@ -730,11 +734,13 @@ fn merge_response(
         .map(|sources| {
             sources
                 .iter()
-                .filter_map(|s| s.get("distinct_id").and_then(|d| d.as_str()))
+                .filter_map(|s| s.as_str())
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default();
+        .ok_or_else(|| {
+            Status::internal(format!("op {} original sources are malformed", row.op_id))
+        })?;
 
     let results = original_sources
         .iter()

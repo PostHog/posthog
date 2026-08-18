@@ -34,6 +34,7 @@
     'account',
     'action',
     'ai_observability_clusters',
+    'customer_analytics',
     'customer_journey',
     'dashboard',
     'dataset',

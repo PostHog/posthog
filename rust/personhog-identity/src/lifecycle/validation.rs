@@ -14,6 +14,13 @@ pub const MAX_DELETE_BATCH_SIZE: usize = 250;
 /// Maximum sources per MergePersons request — the same per-op cap.
 pub const MAX_MERGE_BATCH_SIZE: usize = 250;
 
+/// Carried operations are leader writes issued before the durable op row
+/// exists, so they are capped well below the source limit: a caller carries
+/// one lane per distinct id its batch folded, not one per merge source.
+pub const MAX_CARRIED_OPERATIONS: usize = 32;
+
+const MAX_DISTINCT_ID_LENGTH: usize = 400;
+
 /// Longer than the `posthog_persondistinctid.distinct_id` column admits.
 /// The limit counts characters, not bytes — `varchar(400)` counts
 /// characters, and capture emits multibyte ids whose UTF-8 length passes
@@ -24,13 +31,6 @@ pub const MAX_MERGE_BATCH_SIZE: usize = 250;
 pub fn is_distinct_id_oversized(id: &str) -> bool {
     id.chars().count() > MAX_DISTINCT_ID_LENGTH
 }
-
-/// Carried operations are leader writes issued before the durable op row
-/// exists, so they are capped well below the source limit: a caller carries
-/// one lane per distinct id its batch folded, not one per merge source.
-pub const MAX_CARRIED_OPERATIONS: usize = 32;
-
-const MAX_DISTINCT_ID_LENGTH: usize = 400;
 
 // Mirrors ingestion's isDistinctIdIllegal (nodejs/src/common/persons/
 // person-utils.ts): generic ids that stem from a bug or mistake must never
