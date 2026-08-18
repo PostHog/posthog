@@ -2254,9 +2254,15 @@ _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, 
 # go through `_merge_caller_output`, not merge caller output directly.
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
 
+# Keys only server code may set on a run's output. `output` is a free-form JSONField, so without this
+# a `task:write` caller could post `agent_opened_pr_urls` directly and forge the attestation the PR
+# close guard trusts. A caller-supplied value is dropped and the stored one kept, so the set can only
+# grow through the agent-identity-gated writers below.
+_SERVER_OWNED_RUN_OUTPUT_KEYS = frozenset({"agent_opened_pr_urls"})
+
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
-    """Enforce the webhook-attested keys on a caller's output write.
+    """Enforce the webhook-attested and server-owned keys on a caller's output write.
 
     `merged` is whatever the writer built from `incoming` (a wholesale replacement for
     `set_task_run_output`, a merge over stored output for the PATCH path); this drops any attested
@@ -2269,6 +2275,11 @@ def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
     for key in _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS:
         merged.pop(key, None)
         if same_pr and existing.get(key):
+            merged[key] = existing[key]
+    # Server-owned keys never take a caller value; keep whatever server code stored, regardless of PR.
+    for key in _SERVER_OWNED_RUN_OUTPUT_KEYS:
+        merged.pop(key, None)
+        if existing.get(key) is not None:
             merged[key] = existing[key]
     return merged
 
@@ -2724,7 +2735,7 @@ def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *
 
 
 def set_task_run_output(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, caller_is_agent: bool = False
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -2736,8 +2747,11 @@ def set_task_run_output(
     existing = run.output if isinstance(run.output, dict) else {}
     merged = merge_pr_output(existing, output)
     applied = _apply_caller_output(existing, output, merged)
-    # set_output is a caller-facing agent surface, so a PR URL it reports is one we opened.
-    run.output = with_agent_opened_pr_urls(applied, read_pr_urls(output))
+    # Only the sandbox agent identity attests a PR as ours; a human `task:write` caller reporting a
+    # URL here must not mark it agent-opened (the PR close guard trusts that flag).
+    if caller_is_agent:
+        applied = with_agent_opened_pr_urls(applied, read_pr_urls(output))
+    run.output = applied
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:

@@ -517,8 +517,9 @@ class TestGitHubPRWebhook(TestCase):
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
         self.assertEqual(run.state["verified_pr_urls"], [pr_url])
-        # A SHA-verified backstop match is proof we opened the PR, so the close guard can act on it.
-        self.assertEqual(run.output["agent_opened_pr_urls"], [pr_url])
+        # The backstop links the PR but never attests ownership: a pushed head SHA does not prove the
+        # agent opened the PR, so the agent-opened set stays empty until the agent reports it itself.
+        self.assertNotIn("agent_opened_pr_urls", run.output)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -931,7 +932,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/42"]},
-            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+            output={
+                "pr_url": "https://github.com/posthog/posthog/pull/42",
+                "agent_opened_pr_urls": ["https://github.com/posthog/posthog/pull/42"],
+            },
         )
         self.report = SignalReport.objects.create(
             team=self.team,
@@ -1005,6 +1009,47 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
+
+    @parameterized.expand([("merged", True), ("closed_unmerged", False)])
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_branch_matched_non_agent_pr_does_not_transition_report(
+        self, _name, merged, _mock_capture, mock_get_secret
+    ):
+        # A customer PR on a branch the run also used matches the run, but the agent never opened it.
+        # It must not resolve or suppress the report, which would close the report's real agent PR.
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="feature/collide",
+            output={
+                "pr_url": "https://github.com/posthog/posthog/pull/42",
+                "agent_opened_pr_urls": ["https://github.com/posthog/posthog/pull/42"],
+            },
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/999",
+                "merged": merged,
+                "head": {"ref": "feature/collide", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        response = self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=generate_github_signature(payload_bytes, self.webhook_secret),
+            HTTP_X_GITHUB_EVENT="pull_request",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")

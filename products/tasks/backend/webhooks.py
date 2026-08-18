@@ -24,7 +24,6 @@ from products.tasks.backend.pr_urls import (
     read_agent_opened_pr_urls,
     read_pr_urls,
     read_pushed_commit_shas,
-    with_agent_opened_pr_urls,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -190,9 +189,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
-    claimed_pr_urls = (
-        read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
-    )
+    task_run_output = task_run.output if task_run is not None and isinstance(task_run.output, dict) else {}
+    claimed_pr_urls = read_pr_urls(task_run_output) if task_run is not None else []
+    # PRs our agent is attested to have opened. Only these may drive a report's state, so a customer
+    # PR on a colliding branch cannot resolve or suppress the report (and trigger closing its real PR).
+    agent_opened_pr_urls = read_agent_opened_pr_urls(task_run_output) if task_run is not None else []
 
     logger.info(
         "github_pr_webhook_processed",
@@ -217,11 +218,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         and repository_full_name is not None
         and head_repo_full_name.strip().lower() == repository_full_name.strip().lower()
     )
-    # A same-repo branch name is not proof we opened the PR: a customer PR on a colliding
-    # branch (e.g. "main") would otherwise be claimed. To bind a *new* URL, require the PR
-    # head to be a commit this run pushed, so the backstop attests ownership instead of
-    # guessing from the name. A URL the run already carries was trusted when first recorded,
-    # so re-seeing it (e.g. to repair a missing artifact) needs no fresh proof.
+    # This backstop only *links* a PR to a run (inbox notification, CI follow-up, later lookups);
+    # it never attests ownership — that comes solely from the agent's own report. A bare same-repo
+    # branch name is weak, so to link a new URL require the PR head to be a commit this run pushed.
+    # A URL the run already carries stays linked, so re-seeing it (e.g. to repair an artifact) needs
+    # no fresh proof.
     head_sha = (pull_request.get("head") or {}).get("sha")
     run_pushed_pr_head = (
         task_run is not None
@@ -229,9 +230,18 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         and bool(head_sha)
         and head_sha in read_pushed_commit_shas(task_run.output)
     )
-    already_trusted = task_run is not None and pr_url in read_pr_urls(task_run.output)
-    if task_run is not None and is_internal_branch and (run_pushed_pr_head or already_trusted):
+    already_linked = task_run is not None and pr_url in read_pr_urls(task_run.output)
+    if task_run is not None and is_internal_branch and (run_pushed_pr_head or already_linked):
         _record_run_pr_url(task_run, pr_url)
+    elif task_run is not None and is_internal_branch:
+        # Matched by branch but the head is not a commit we recorded pushing. Log it so a stale
+        # commit_push (a later push overwrote it) reads differently from a real foreign PR.
+        logger.info(
+            "github_pr_webhook_backstop_declined_unproven_head",
+            pr_url=pr_url,
+            run_id=str(task_run.id),
+            head_sha=head_sha,
+        )
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
@@ -243,22 +253,23 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # same-branch webhook for a different PR from marking this run's PR as merged.
         if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
-        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
-        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
-        # doesn't apply — a merged PR resolves its report.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
-        )
+        # Gate on agent authorship: only a PR our agent opened may resolve its report. Keying off
+        # task_id alone let a branch-matched customer PR resolve the report and close its real PR.
+        if pr_url in agent_opened_pr_urls:
+            _transition_signal_reports_for_task(
+                task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
+            )
 
     if task_run and action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
         if pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
-        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
-        # archives (suppresses) its report so it leaves the inbox instead of lingering.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
-        )
+        # Same agent-authorship gate as the resolve branch: a closed-unmerged PR the agent opened
+        # suppresses its report so it leaves the inbox, but a branch-matched customer PR cannot.
+        if pr_url in agent_opened_pr_urls:
+            _transition_signal_reports_for_task(
+                task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
+            )
 
     return HttpResponse(status=200)
 
@@ -355,9 +366,10 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
                 task_run.state = locked.state
                 task_run.output = locked.output
                 return False
-            # This path runs only after the caller confirmed the PR head against a commit the run
-            # pushed. The URL is therefore ours, so attest it as agent-opened for the close guard.
-            locked.output = with_agent_opened_pr_urls(merge_pr_output(locked.output, {"pr_urls": [pr_url]}), [pr_url])
+            # Binds the URL for linking only. A pushed head SHA does not prove the agent opened the
+            # PR (a customer can open one from the same branch), so this never writes the agent-opened
+            # attestation the close guard reads — that comes solely from the agent's own report.
+            locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
             locked.save(update_fields=["state", "output", "updated_at"])
         task_run.state = locked.state
         task_run.output = locked.output

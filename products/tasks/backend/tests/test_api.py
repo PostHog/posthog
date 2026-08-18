@@ -5020,6 +5020,57 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual((run.output or {}).get("pr_merged", False), expected)
 
+    @parameterized.expand(
+        [
+            # Both caller-controlled output writers must enforce this: the dedicated set_output
+            # action and the generic run PATCH. This client is a human session, not the sandbox
+            # agent, so caller_is_agent is False on both.
+            (endpoint, case_name, stored, caller_output, expected)
+            for endpoint in ("set_output/", "")
+            for case_name, stored, caller_output, expected in [
+                ("caller_cannot_forge_directly", None, {"agent_opened_pr_urls": [_PR_URL]}, None),
+                (
+                    "stored_survives_and_caller_cannot_add",
+                    [_PR_URL],
+                    {"pr_url": _PR_URL, "agent_opened_pr_urls": [_OTHER_PR_URL]},
+                    [_PR_URL],
+                ),
+                ("non_agent_pr_report_is_not_attested", None, {"pr_url": _PR_URL}, None),
+            ]
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_caller_output_writes_never_set_agent_opened_pr_urls(
+        self,
+        endpoint: str,
+        _case_name: str,
+        stored: list[str] | None,
+        caller_output: dict,
+        expected: list[str] | None,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        # agent_opened_pr_urls attests that our sandbox agent opened a PR, and the report-dismissal
+        # close guard acts on it. A task:write caller must not write it directly, and a PR URL a
+        # human caller reports must not become an attestation.
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        if stored is not None:
+            run.output = {"agent_opened_pr_urls": list(stored)}
+            run.save(update_fields=["output"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{endpoint}",
+            {"output": caller_output},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual((run.output or {}).get("agent_opened_pr_urls"), expected)
+
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
