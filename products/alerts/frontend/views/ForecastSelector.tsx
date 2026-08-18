@@ -108,14 +108,14 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                     {
                         label: 'On track for a target',
                         value: ForecastConditionType.TARGET_BY_DATE,
-                        tooltip: 'Alert when the metric is projected to miss a number you set by a date you set.',
+                        tooltip: 'Alert when the value forecast for a date you set misses a number you set.',
                     },
                 ]}
             />
             <SettingHelp text="What counts as a problem: heading for a limit, abnormal right now, or not on course for a number." />
             {config.condition === ForecastConditionType.TARGET_BY_DATE && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <SettingHelp text="The number you need to hit and by when. Use at least for goals such as signups, and at most for budgets such as churn or latency." />
+                    <SettingHelp text="The value this metric should reach on that date. Use at least for goals such as active users, and at most for budgets such as churn. For a running total rather than the value on the day, point this at a cumulative insight." />
                     <LemonSelect
                         data-attr="alertForm-forecast-target-direction"
                         value={config.target_direction ?? ForecastTargetDirection.AT_LEAST}
@@ -132,7 +132,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         value={config.target ?? undefined}
                         onChange={(target) => onChange({ ...config, target: target ?? undefined })}
                     />
-                    <span className="whitespace-nowrap">by</span>
+                    <span className="whitespace-nowrap">on</span>
                     <LemonCalendarSelectInput
                         data-attr="alertForm-forecast-target-date"
                         value={config.target_date ? dayjs(config.target_date) : null}
