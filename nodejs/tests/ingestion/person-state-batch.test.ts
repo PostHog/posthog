@@ -4081,6 +4081,169 @@ describe('PersonState.processEvent()', () => {
             expect(deathMessages[0].value).toMatchObject({ is_deleted: 1, version: 1, properties: '{}' })
         })
 
+        describe('on batch replay after a crash', () => {
+            // A merge commits its identity changes (distinct id moves, source delete)
+            // mid-batch, while the target's row update (the property union) only reaches
+            // the in-memory cache and is written by the batch-end flush. These tests pin
+            // what a crash between those two points means: the batch replays on a fresh
+            // process whose cache is empty, so replay must converge on the merged
+            // identity and recover everything the event itself carries — while the
+            // source's pre-merge properties, whose only copy was the cache, are lost.
+            // The loss assertions document that known window; a change that makes the
+            // union durable should flip them deliberately.
+
+            function createProcessorWithStore(
+                store: BatchWritingPersonsStore,
+                event: Partial<PluginEvent>,
+                mergeTombstoneEnabled: boolean
+            ) {
+                const fullEvent = { team_id: teamId, properties: {}, ...event }
+                const context = new PersonContext(
+                    fullEvent as any,
+                    mainTeam,
+                    event.distinct_id!,
+                    timestamp,
+                    true,
+                    createPersonOutputs(kafkaProducer),
+                    new BatchBoundPersonsStore(store, 0),
+                    0,
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false,
+                    { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+                    undefined,
+                    mergeTombstoneEnabled
+                )
+                return new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context)
+                )
+            }
+
+            it.each([
+                ['hard-delete', false],
+                ['tombstone', true],
+            ])(
+                'replaying a merge that committed but never flushed converges on identity but loses the source properties (%s mode)',
+                async (mode, tombstone) => {
+                    const repository = tombstone
+                        ? new PostgresPersonRepository(hub.postgres, { personMergeTombstoneTeamAllowlist: '*' })
+                        : personRepository
+                    await createPerson(hub, timestamp, { plan: 'pro' }, {}, {}, teamId, null, false, oldUserUuid, {
+                        distinctId: oldUserDistinctId,
+                    })
+                    const target = await createPerson(
+                        hub,
+                        timestamp,
+                        { role: 'admin' },
+                        {},
+                        {},
+                        teamId,
+                        null,
+                        false,
+                        newUserUuid,
+                        { distinctId: newUserDistinctId }
+                    )
+
+                    const identifyEvent: Partial<PluginEvent> = {
+                        event: '$identify',
+                        distinct_id: newUserDistinctId,
+                        uuid: new UUIDT().toString(),
+                        properties: { $anon_distinct_id: oldUserDistinctId, $set: { from_event: 'yes' } },
+                    }
+
+                    // First attempt: the merge transaction commits, the target's update
+                    // (union of source + target properties) only reaches store1's cache.
+                    const store1 = new BatchWritingPersonsStore(repository, createPersonOutputs(kafkaProducer))
+                    const result1 = await createProcessorWithStore(store1, identifyEvent, tombstone).processEvent()
+                    expect(result1.type).toBe(PipelineResultType.OK)
+
+                    // The crash point: store1 is never flushed. What is durable?
+                    const durable = await fetchPostgresPersonsH()
+                    expect(durable.length).toEqual(1)
+                    expect(durable[0].id).toEqual(target.id)
+                    expect(durable[0].properties).toEqual({ role: 'admin' })
+
+                    // Replay on a fresh process: empty cache, same event, then flush.
+                    const store2 = new BatchWritingPersonsStore(repository, createPersonOutputs(kafkaProducer))
+                    const result2 = await createProcessorWithStore(store2, identifyEvent, tombstone).processEvent()
+                    expect(result2.type).toBe(PipelineResultType.OK)
+                    await store2.flush()
+
+                    // Identity converges: one live person owning both distinct ids, no
+                    // double-merge, no resurrected source.
+                    const persons = await fetchPostgresPersonsH()
+                    expect(persons.length).toEqual(1)
+                    expect(persons[0].id).toEqual(target.id)
+                    const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.postgres, target.id)
+                    expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+
+                    // What the event carries is recovered by the replay.
+                    expect(persons[0].properties).toMatchObject({ role: 'admin', from_event: 'yes' })
+                    expect(persons[0].is_identified).toEqual(true)
+
+                    // The source's pre-merge properties are not: their last durable copy
+                    // was destroyed by the committed merge, and the replay's no-op merge
+                    // never recomputes the union. This is the documented lossy window.
+                    expect(persons[0].properties.plan).toBeUndefined()
+                }
+            )
+
+            it('replaying a flushed batch converges to the same person state', async () => {
+                // The companion guarantee: once the flush has run, replaying the whole
+                // batch (offsets not yet committed) must be a pure no-op — same
+                // properties, same single person — because every person operation is
+                // idempotent against the already-updated rows.
+                await createPerson(hub, timestamp, { plan: 'pro' }, {}, {}, teamId, null, false, oldUserUuid, {
+                    distinctId: oldUserDistinctId,
+                })
+                const target = await createPerson(
+                    hub,
+                    timestamp,
+                    { role: 'admin' },
+                    {},
+                    {},
+                    teamId,
+                    null,
+                    false,
+                    newUserUuid,
+                    { distinctId: newUserDistinctId }
+                )
+
+                const identifyEvent: Partial<PluginEvent> = {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    uuid: new UUIDT().toString(),
+                    properties: { $anon_distinct_id: oldUserDistinctId, $set: { from_event: 'yes' } },
+                }
+
+                const store1 = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+                const result1 = await createProcessorWithStore(store1, identifyEvent, false).processEvent()
+                expect(result1.type).toBe(PipelineResultType.OK)
+                await store1.flush()
+
+                const afterFirstRun = await fetchPostgresPersonsH()
+                expect(afterFirstRun.length).toEqual(1)
+
+                const store2 = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+                const result2 = await createProcessorWithStore(store2, identifyEvent, false).processEvent()
+                expect(result2.type).toBe(PipelineResultType.OK)
+                await store2.flush()
+
+                const afterReplay = await fetchPostgresPersonsH()
+                expect(afterReplay.length).toEqual(1)
+                expect(afterReplay[0].id).toEqual(target.id)
+                expect(afterReplay[0].properties).toEqual(afterFirstRun[0].properties)
+                expect(afterReplay[0].properties).toMatchObject({
+                    plan: 'pro',
+                    role: 'admin',
+                    from_event: 'yes',
+                })
+                expect(afterReplay[0].is_identified).toEqual(true)
+            })
+        })
+
         describe('SYNC mode with batch processing', () => {
             it('merges all distinct IDs when batch size is larger than total distinct IDs', async () => {
                 const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
