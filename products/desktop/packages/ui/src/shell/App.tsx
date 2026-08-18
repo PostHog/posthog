@@ -14,7 +14,10 @@ import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeRea
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
-import { keepListForNextRoute } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import {
+  keepListForRoute,
+  showChannelList,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
@@ -121,7 +124,8 @@ function App({ devToolbar }: AppProps) {
         if (firstRun) {
           // First run lands on #general with the spaces list showing and
           // #general expanded, instead of sliding into the single-space pane.
-          keepListForNextRoute();
+          showChannelList();
+          keepListForRoute(firstRun.generalChannelId);
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }
         router.history.replace(href);

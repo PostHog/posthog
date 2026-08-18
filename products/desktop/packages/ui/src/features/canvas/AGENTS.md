@@ -199,7 +199,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 
