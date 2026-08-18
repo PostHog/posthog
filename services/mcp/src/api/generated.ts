@@ -10376,6 +10376,8 @@ export namespace Schemas {
       kind: AutocompleteCompletionItemKind;
       /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
       label: string;
+      /** Overrides the editor's default ordering for this item. Set when the backend can rank a suggestion, for example a function whose return type fits the comparison being written. */
+      sortText?: string | null;
     }
 
     /**
