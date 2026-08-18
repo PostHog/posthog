@@ -79,6 +79,8 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
+# nosemgrep: prefer-frozen-dataclasses -- shared contract for every source; adding a field here
+# shouldn't carry a decorator migration for 40 implementations. Tracked by the ratchet baseline.
 @dataclasses.dataclass
 class SourceInputs:
     """Contextual info required by a source to actually run"""
