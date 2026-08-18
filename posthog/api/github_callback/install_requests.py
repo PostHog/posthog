@@ -28,7 +28,9 @@ def record_install_request(user: User, code: str | None, *, redirect_uri: str | 
     if code:
         try:
             authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
-        except requests.RequestException:
+        except (requests.RequestException, ValueError):
+            # ValueError: GitHub answered 200 with a non-JSON body (outage page, proxy
+            # interstitial); the callback redirect must still proceed.
             authorization = None
         if authorization is not None:
             login = authorization.gh_login
