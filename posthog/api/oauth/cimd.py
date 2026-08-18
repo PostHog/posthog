@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -740,11 +740,27 @@ def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> 
         )
 
 
+def _describe_validation_error(error: ValidationError) -> str:
+    """Flatten a model ValidationError into one line a partner can act on.
+
+    Field names are safe to name: every field the update writes comes from the document itself,
+    which is public by construction.
+    """
+    error_dict = getattr(error, "message_dict", None)
+    if not error_dict:
+        return " ".join(error.messages)
+    return "; ".join(
+        " ".join(messages) if field == NON_FIELD_ERRORS else f"{field}: {' '.join(messages)}"
+        for field, messages in error_dict.items()
+    )
+
+
 def _update_cimd_application(
     app: OAuthApplication,
     metadata: CIMDMetadataDocument,
     *,
     allow_confidential: bool = False,
+    strict: bool = False,
     capture_ph_event: CapturePhEvent = posthoganalytics.capture,
 ) -> OAuthApplication:
     """
@@ -752,6 +768,14 @@ def _update_cimd_application(
 
     On validation failure, refreshes from the database so the caller never
     sees a partially-mutated in-memory object.
+
+    ``strict=True`` turns that rejection into a ``CIMDValidationError`` instead of a kept row.
+    Registration asks for it, because a rejected save leaves the row describing an older
+    document, and everything registration then decides - the provisioning promotion, the
+    client_type it derives from the stored key set, the response it reports - would describe
+    metadata the client no longer publishes, with the caller told the fetch succeeded. Every
+    other caller leaves it False: a refresh that cannot store a document is a partner keeping
+    the config it last published, not a reason to break it.
     """
     client_name = metadata.get("client_name")
     if client_name:
@@ -811,6 +835,8 @@ def _update_cimd_application(
         capture_exception(e)
         # Refresh from DB so we don't return a mutated-but-unsaved object
         app.refresh_from_db()
+        if strict:
+            raise CIMDValidationError(f"Metadata document was rejected: {_describe_validation_error(e)}") from e
     else:
         if verification is not None:
             _touch_verification_token(verification)
@@ -889,7 +915,9 @@ def fetch_and_upsert_cimd_application(
     grant anything: the freshly fetched document also has to declare the opt-in, so the
     capabilities follow the client's published intent rather than whoever sent the request. The
     ordinary /authorize and background-refresh paths leave it False, so registration stays an
-    explicit act at one endpoint instead of a side effect of any fetch.
+    explicit act at one endpoint instead of a side effect of any fetch. It also makes a document
+    that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
+    granted off metadata we could not store; see ``_update_cimd_application``.
     """
     if is_cimd_url_blocked(url):
         logger.warning("cimd_blocked_url_fetch_attempt", url=url)
@@ -906,7 +934,11 @@ def fetch_and_upsert_cimd_application(
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
             updated = _update_cimd_application(
-                app, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+                app,
+                metadata,
+                allow_confidential=allow_confidential,
+                strict=register_provisioning,
+                capture_ph_event=capture_ph_event,
             )
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
             _register_partner_if_declared(updated, metadata, register_provisioning=register_provisioning)

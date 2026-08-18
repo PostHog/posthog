@@ -284,6 +284,33 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
 
+    def test_a_document_we_could_not_store_is_not_promoted(self):
+        # A rejected save leaves the row describing the previous document. Promoting off it
+        # would grant provisioning, and derive client_type from a stored key set, that the
+        # client's current document does not describe, while the response called the fetch fine.
+        self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=None,
+            _provisioning_config=provisioning_config(active=False, can_create_accounts=False),
+        )
+        document = self._document()
+        # Passes CIMD document validation, which does not look at fragments, and is refused by
+        # the model.
+        document["redirect_uris"] = ["https://newpartner.example.com/callback#fragment"]
+
+        res = self._register({"client_id": CIMD_URL}, document=document)
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"]["ok"] is False
+        assert "fragment not allowed" in checks["metadata_document"]["detail"]
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.is_provisioning_partner is False
+        assert app.provisioning.can_create_accounts is False
+        assert app.client_type == OAuthApplication.CLIENT_PUBLIC
+        assert app.redirect_uris == "https://newpartner.example.com/callback"
+
     def test_deactivated_partner_is_not_reactivated_by_re_registering(self):
         # Only a client that is not yet a partner gets the defaults applied. Registering again
         # must not undo an admin turning a partner off, which would make the endpoint a way for

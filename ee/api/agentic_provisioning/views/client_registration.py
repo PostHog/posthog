@@ -139,8 +139,9 @@ class ClientRegistrationView(ProvisioningAPIView):
             _record(checks, "metadata_document", False, str(exc))
             if existing is None:
                 return None
-            # A document we could not read cannot have declared anything, so a client that is
-            # not already a partner stays one short of registered until the fetch succeeds.
+            # A document we could not read or could not store leaves the row describing an
+            # older one, so a client that is not already a partner stays one short of
+            # registered until a document we can act on arrives.
             app = existing
         else:
             _record(checks, "metadata_document", True, "Fetched and validated")
