@@ -1,5 +1,5 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Spinner, Text } from "@posthog/quill";
+import { Button, Spinner, Text } from "@posthog/quill";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import { usePinnedArtifact } from "../freeform/usePinnedArtifact";
 export function ComponentFrame({ placement }: { placement: GridPlacement }) {
   const componentId = placement.component ?? "";
   const queryClient = useQueryClient();
-  const { lifecycle, dataUpdatedAt } = useCanvasBuilds(
+  const { lifecycle, isError, dataUpdatedAt, refetch } = useCanvasBuilds(
     componentId || undefined,
   );
   const publishedBuild = useMemo(
@@ -75,6 +75,22 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
           <Text size="xs" variant="muted">
             Open the component canvas to fix and republish.
           </Text>
+        </div>
+      );
+    }
+    // The build lifecycle fetch failed for good (retries exhausted) and there's
+    // no data to fall back on — a permanent failure like a deleted component
+    // canvas. Without this the tile spins forever with no way out.
+    if (isError && !lifecycle) {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center">
+          <Text size="sm">This widget couldn't load.</Text>
+          <Text size="xs" variant="muted">
+            It may have been removed, or the connection dropped.
+          </Text>
+          <Button variant="outline" size="sm" onClick={refetch}>
+            Retry
+          </Button>
         </div>
       );
     }
