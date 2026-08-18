@@ -6,65 +6,25 @@ Every item mutation creates a dataset revision, which makes prior dataset conten
 
 ## Dataset (`system.datasets`)
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Stable dataset ID
-`team_id` | integer | NOT NULL | Owning project
-`name` | text | NOT NULL | Dataset name, unique within the project
-`description` | text | NOT NULL | Description of what the dataset contains
-`metadata` | jsonb | NOT NULL | Dataset-level metadata object
-`archived` | boolean | NOT NULL | Whether the dataset is archived
-`current_revision_id` | uuid | NULL | Latest committed revision, or NULL before the first item mutation
-`created_by_id` | integer | NULL | User who created the dataset
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last change to dataset fields or item contents
+{{ schema_columns('system.datasets') }}
 
 ## Dataset revision (`system.dataset_revisions`)
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Dataset revision ID
-`team_id` | integer | NOT NULL | Owning project
-`dataset_id` | uuid | NOT NULL | Parent dataset ID
-`revision` | integer | NOT NULL | Monotonic revision number within the dataset
-`created_by_id` | integer | NULL | User who committed the revision
-`created_at` | timestamp with tz | NOT NULL | Commit timestamp
+{{ schema_columns('system.dataset_revisions') }}
 
 Dataset revisions describe item-content snapshots.
 Editing dataset name, description, or metadata does not create a revision.
 
 ## Dataset item (`system.dataset_items`)
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Stable item ID shared by every version
-`team_id` | integer | NOT NULL | Owning project
-`dataset_id` | uuid | NOT NULL | Parent dataset ID
-`client_item_id` | varchar(255) | NULL | Optional caller-owned stable key, unique within the dataset
-`current_version_id` | uuid | NULL | Latest immutable version ID
-`created_by_id` | integer | NULL | User who created the stable item
-`created_at` | timestamp with tz | NOT NULL | Item creation timestamp
-`updated_at` | timestamp with tz | NULL | Timestamp of the latest item version
+{{ schema_columns('system.dataset_items') }}
 
 The stable item row does not carry content or archive state.
 Join `current_version_id` to `system.dataset_item_versions.id` for the current values.
 
 ## Dataset item version (`system.dataset_item_versions`)
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Immutable item version ID
-`team_id` | integer | NOT NULL | Owning project
-`dataset_id` | uuid | NOT NULL | Parent dataset ID
-`dataset_item_id` | uuid | NOT NULL | Stable item ID
-`dataset_revision_id` | uuid | NOT NULL | Revision that introduced this version
-`version` | integer | NOT NULL | Monotonic version number within the item
-`archived` | boolean | NOT NULL | Whether this version archives the item
-`input` | jsonb | NOT NULL | Input supplied to the system under test
-`expected_output` | jsonb | NULL | User-authored target output
-`source_output` | jsonb | NULL | Actual output copied from a source trace
-`metadata` | jsonb | NOT NULL | Item metadata object
-`source_trace_id` | varchar(255) | NULL | Source AI trace ID
-`source_event_id` | varchar(255) | NULL | Source event ID within the trace
-`source_timestamp` | timestamp with tz | NULL | Timestamp used to retrieve the source trace event
-`created_by_id` | integer | NULL | User who created this version
-`created_at` | timestamp with tz | NOT NULL | Version creation timestamp
+{{ schema_columns('system.dataset_item_versions') }}
 
 Source output and trace provenance are immutable after item creation.
 User edits create another version and may change only input, expected output, metadata, and archive state.

@@ -1,0 +1,22 @@
+# Support Tickets
+
+## Ticket (`system.support_tickets`)
+
+Support tickets from the conversations product, created via widget, email, or Slack channels.
+
+### Columns
+
+{{ schema_columns('system.support_tickets') }}
+
+### Key Relationships
+
+- Tickets belong to a **Team** (`team_id`)
+- Tickets are linked to a **Person** via `distinct_id`
+- Ticket assignments are managed via `TicketAssignment` (not exposed as a system table)
+
+### Important Notes
+
+- The `status` field follows a lifecycle: `new` -> `open` -> `pending`/`on_hold` -> `resolved`
+- The `anonymous_traits` field contains customer-provided key-value pairs, commonly including `name` and `email`
+- The `session_context` field may contain `session_replay_url`, `current_url`, and other session metadata
+- Tickets are never deleted; filter by `status` to exclude resolved tickets

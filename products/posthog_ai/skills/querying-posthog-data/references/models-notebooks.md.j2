@@ -6,24 +6,7 @@ Notebooks are collaborative documents combining text, insights, and code.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key (UUID)
-`short_id` | varchar(12) | NOT NULL | Unique short identifier for URLs
-`title` | varchar(256) | NULL | Notebook title
-`content` | jsonb | NULL | Notebook content blocks
-`markdown` | text | NULL | Markdown source when the notebook is stored as a markdown notebook; NULL for legacy rich-text notebooks
-`text_content` | text | NULL | Plain text extraction for search
-`deleted` | boolean | NOT NULL | Soft delete flag
-`visibility` | varchar(20) | NOT NULL | `private`, `shared`, or `public`
-`version` | integer | NOT NULL | Content version number
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`last_modified_at` | timestamp with tz | NOT NULL | Last modification timestamp
-`created_by_id` | integer | NULL | Creator user ID
-`last_modified_by_id` | integer | NULL | Last modifier user ID
-`team_id` | integer | NOT NULL | FK to `system.teams.id`
-`kernel_cpu_cores` | double precision | NULL | Jupyter kernel CPU allocation
-`kernel_memory_gb` | double precision | NULL | Jupyter kernel memory allocation
-`kernel_idle_timeout_seconds` | integer | NULL | Kernel idle timeout
+{{ schema_columns('system.notebooks') }}
 
 ### Content Structure
 

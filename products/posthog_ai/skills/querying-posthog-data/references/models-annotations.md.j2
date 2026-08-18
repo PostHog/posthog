@@ -6,19 +6,7 @@ Annotations are timestamped notes used to mark product changes, incidents, or re
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | integer | NOT NULL | Primary key (auto-generated)
-`team_id` | integer | NOT NULL | Project/team ID for isolation
-`content` | varchar(8192) | NULL | Annotation text content
-`scope` | varchar(24) | NOT NULL | Annotation scope: `project`, `organization`, `dashboard`, `dashboard_item`, `recording`
-`creation_type` | varchar(3) | NOT NULL | Creation source: `USR` (user) or `GIT` (GitHub/bot)
-`date_marker` | timestamp with tz | NULL | Timestamp shown on charts
-`deleted` | boolean | NOT NULL | Soft delete flag
-`dashboard_item_id` | integer | NULL | Linked insight ID (if scoped to insight)
-`dashboard_id` | integer | NULL | Linked dashboard ID (if scoped to dashboard)
-`created_by_id` | integer | NULL | Creator user ID
-`created_at` | timestamp with tz | NULL | Creation timestamp
-`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+{{ schema_columns('system.annotations') }}
 
 ### Key Relationships
 

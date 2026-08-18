@@ -12,20 +12,7 @@ One row per account.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Team this account belongs to
-`name` | varchar | NOT NULL | Display name of the account
-`external_id` | varchar | NULL | Identifier of the account in the source system
-`properties` | json | NOT NULL | Account properties: role assignments `csm`, `account_executive`, `account_owner` (each `{id, email}` of a PostHog user) plus external system identifiers
-`stripe_customer_id` | varchar | NULL | Extracted from `properties`
-`hubspot_deal_id` | varchar | NULL | Extracted from `properties`
-`billing_id` | varchar | NULL | Extracted from `properties`
-`sfdc_id` | varchar | NULL | Extracted from `properties`
-`zendesk_id` | varchar | NULL | Extracted from `properties`
-`created_by_id` | integer | NULL | User who created the account record
-`created_at` | timestamptz | NOT NULL | When the account was created
-`updated_at` | timestamptz | NULL | When the account was last updated
+{{ schema_columns('system.accounts') }}
 
 Lazy-joined fields: `tags` (tag names), `custom_properties` (see below), `relationships` (active assignments keyed by definition id), `notebooks`.
 
@@ -35,28 +22,11 @@ A **relationship definition** is a team-defined relationship type between a Post
 
 ### `system.account_relationship_definitions` columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Team this definition belongs to
-`name` | varchar(400) | NOT NULL | Relationship name (e.g. `CSM`); unique within the team
-`description` | text | NULL | What the relationship means
-`is_single_holder` | integer | NOT NULL | `1` if only one user can hold it per account at a time
-`created_by_id` | integer | NULL | User who created the definition
-`created_at` | timestamptz | NOT NULL | When the definition was created
-`updated_at` | timestamptz | NULL | When the definition was last updated
+{{ schema_columns('system.account_relationship_definitions') }}
 
 ### `system.account_relationships` columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Team this assignment belongs to
-`definition_id` | uuid | NOT NULL | Join to `system.account_relationship_definitions.id`
-`account_id` | uuid | NOT NULL | Join to `system.accounts.id`
-`user_id` | integer | NULL | Assigned PostHog user id; NULL when the user was deleted
-`started_at` | timestamptz | NOT NULL | When the assignment became effective
-`ended_at` | timestamptz | NULL | When the assignment ended; **NULL while active**
-`created_by_id` | integer | NULL | User who made the assignment
-`created_at` | timestamptz | NOT NULL | When the assignment row was created
+{{ schema_columns('system.account_relationships') }}
 
 ### Important notes
 
@@ -69,16 +39,7 @@ Custom properties let a team attach typed attributes to accounts. A **definition
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key. Use this to read an account's value (see below)
-`team_id` | integer | NOT NULL | Team this definition belongs to
-`name` | varchar(400) | NOT NULL | Human-readable property name; unique within the team
-`description` | text | NULL | Optional description of what the property represents
-`display_type` | varchar(20) | NOT NULL | How the value is typed and rendered: `text`, `number`, `currency`, `percent`, `date`, `datetime`, or `boolean`
-`is_big_number` | integer | NOT NULL | `1` if large numeric values are abbreviated (e.g. 10,000 -> 10K), `0` otherwise. Only meaningful for numeric display types
-`created_by_id` | integer | NULL | User who created the definition
-`created_at` | timestamptz | NOT NULL | When the definition was created
-`updated_at` | timestamptz | NULL | When the definition was last updated
+{{ schema_columns('system.custom_property_definitions') }}
 
 ### Important notes
 

@@ -6,14 +6,7 @@ Messaging preferences per recipient, one row per recipient. The `preferences` ma
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | string (UUID) | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`identifier` | varchar(512) | NOT NULL | Recipient identifier, usually an email address
-`preferences` | jsonb | NOT NULL | Map of message category ID to `OPTED_OUT` or `OPTED_IN`. The key `$all` covers all marketing messages; other keys are `message_categories` ids
-`deleted` | integer (0/1) | NOT NULL | 1 if soft-deleted; filter with `deleted = 0`
-`created_at` | timestamp with tz | NOT NULL | When the recipient was first recorded
-`updated_at` | timestamp with tz | NOT NULL | When preferences last changed
+{{ schema_columns('system.message_recipient_preferences') }}
 
 ## Message categories (`system.message_categories`)
 
@@ -21,17 +14,7 @@ Message categories recipients can opt out of, one row per category. Category IDs
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | string (UUID) | NOT NULL | Primary key, used as the key in recipient preferences
-`team_id` | integer | NOT NULL | Owning team
-`key` | varchar(64) | NOT NULL | Stable category key used in the API, e.g. `newsletter`
-`name` | varchar(128) | NOT NULL | Display name
-`description` | text | NOT NULL | Internal description
-`public_description` | text | NOT NULL | Description shown to recipients on the preferences page
-`category_type` | varchar | NOT NULL | `marketing` (opt-out applies) or `transactional`
-`deleted` | integer (0/1) | NOT NULL | 1 if soft-deleted; filter with `deleted = 0`
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+{{ schema_columns('system.message_categories') }}
 
 ### Query Examples
 

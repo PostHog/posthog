@@ -6,24 +6,7 @@ Cohorts are groups of persons used for segmentation and targeting.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | integer | NOT NULL | Primary key (auto-generated)
-`name` | varchar(400) | NULL | Cohort display name
-`description` | varchar(1000) | NOT NULL | Cohort description
-`deleted` | boolean | NOT NULL | Soft delete flag
-`filters` | jsonb | NULL | Modern filter structure for cohort criteria
-`query` | jsonb | NULL | HogQL query for analytical cohorts
-`version` | integer | NULL | Current calculation version
-`pending_version` | integer | NULL | Version being calculated
-`count` | integer | NULL | Cached person count
-`created_at` | timestamp with tz | NULL | Creation timestamp
-`is_calculating` | boolean | NOT NULL | Whether calculation is in progress
-`last_calculation` | timestamp with tz | NULL | Timestamp of last successful calculation
-`errors_calculating` | integer | NOT NULL | Consecutive error count
-`last_error_at` | timestamp with tz | NULL | Timestamp of last calculation error
-`is_static` | boolean | NOT NULL | Static (manually uploaded) vs dynamic cohort
-`cohort_type` | varchar(50) | NULL | One of: `static`, `person_property`, `behavioral`, `realtime`, `analytical`
-`created_by_id` | integer | NULL | Creator user ID
+{{ schema_columns('system.cohorts') }}
 
 ### Cohort Types
 
@@ -114,16 +97,7 @@ Audit trail for cohort calculation jobs.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`filters` | jsonb | NOT NULL | Cohort filters at calculation time
-`count` | integer | NULL | Number of persons in cohort (>= 0)
-`started_at` | timestamp with tz | NOT NULL | Calculation start time
-`finished_at` | timestamp with tz | NULL | Calculation end time (NULL = in progress)
-`queries` | jsonb | NULL | Array of query statistics
-`error` | text | NULL | Full error message if failed
-`error_code` | varchar(64) | NULL | Categorized error code
-`cohort_id` | integer | NOT NULL | FK to `system.cohorts.id`
+{{ schema_columns('system.cohort_calculation_history') }}
 
 ### Error Codes
 
@@ -168,7 +142,7 @@ system.cohorts (main cohort definition)
 **Find cohorts by name:**
 
 ```sql
-SELECT id, name, count, cohort_type, is_static
+SELECT id, name, count, is_static
 FROM system.cohorts
 WHERE name ILIKE '%paying%' AND NOT deleted
 ```

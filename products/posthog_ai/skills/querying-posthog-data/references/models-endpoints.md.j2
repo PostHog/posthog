@@ -6,15 +6,7 @@ API endpoints that expose saved HogQL or insight queries as callable API routes.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`name` | varchar(128) | NOT NULL | URL-safe endpoint name (unique per team)
-`is_active` | integer | NOT NULL | Whether endpoint is available via the API (0/1)
-`current_version` | integer | NOT NULL | Latest version number
-`derived_from_insight` | varchar(12) | NULL | Short ID of the source insight
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
-`last_executed_at` | timestamp with tz | NULL | When endpoint was last executed
+{{ schema_columns('system.data_modeling_endpoints') }}
 
 ### Example Queries
 
@@ -49,16 +41,7 @@ A new version is created each time an endpoint's query changes.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`endpoint_id` | uuid | NOT NULL | FK to endpoints.id
-`version` | integer | NOT NULL | Version number (1-based, ascending)
-`description` | text | NOT NULL | Version description
-`query` | jsonb | NOT NULL | Immutable query snapshot
-`data_freshness_seconds` | integer | NOT NULL | How fresh the data should be, in seconds (one of: 900, 1800, 3600, 21600, 43200, 86400, 604800)
-`is_active` | integer | NOT NULL | Whether this version can be executed (0/1)
-`columns` | jsonb | NULL | Column names and types
-`created_at` | timestamp with tz | NOT NULL | When this version was created
+{{ schema_columns('system.data_modeling_endpoint_versions') }}
 
 ### Example Queries
 

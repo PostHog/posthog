@@ -16,21 +16,7 @@ Hog functions are programmable event handlers in PostHog's CDP (Customer Data Pl
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | string (UUID) | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`name` | varchar(400) | NULL | Display name
-`description` | text | NOT NULL | What the function does
-`type` | varchar(24) | NULL | Function type (see values above)
-`enabled` | boolean | NOT NULL | Whether the function is active (1 = yes, 0 = no)
-`deleted` | boolean | NOT NULL | Soft-delete flag (1 = deleted, 0 = active)
-`icon_url` | text | NULL | URL for the function's icon
-`template_id` | varchar(400) | NULL | ID of the template this function was created from
-`execution_order` | integer | NULL | Execution priority for transformations (lower runs first)
-`inputs_schema` | jsonb | NULL | Schema defining configurable input parameters
-`filters` | jsonb | NULL | Event filters controlling which events trigger the function
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
+{{ schema_columns('system.hog_functions') }}
 
 ### Query Examples
 

@@ -6,14 +6,7 @@ Error tracking issues represent grouped exceptions captured by PostHog SDKs. Eac
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`status` | varchar | NOT NULL | Issue status (see Status Values below)
-`severity` | varchar | NULL | Assigned severity: `low`, `medium`, `high`, or `critical`
-`name` | text | NULL | Issue name (typically the exception type/message)
-`description` | text | NULL | User-provided description
+{{ schema_columns('system.error_tracking_issues') }}
 
 ### Status Values
 
@@ -49,14 +42,7 @@ Rows can also track missing symbol sets so future uploads know which stack frame
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
-`ref` | text | NOT NULL | Symbol set reference matched from stack frames
-`release_id` | uuid | NULL | Associated error tracking release ID
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`last_used` | timestamp with tz | NULL | Last time this symbol set was used for frame resolution
-`failure_reason` | text | NULL | Reason lookup failed when the source map is missing or invalid
+{{ schema_columns('system.error_tracking_symbol_sets') }}
 
 ### Important Notes
 

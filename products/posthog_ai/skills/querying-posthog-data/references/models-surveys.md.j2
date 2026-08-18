@@ -1,0 +1,49 @@
+# Surveys
+
+## Survey (`system.surveys`)
+
+Surveys collect feedback from users through questions and forms.
+
+### Columns
+
+{{ schema_columns('system.surveys') }}
+`response_sampling_*` | various | NULL | Response sampling configuration
+
+### Question Types
+
+```json
+[
+  {
+    "id": "uuid",
+    "type": "open",
+    "question": "How can we improve?",
+    "optional": false,
+    "buttonText": "Submit"
+  },
+  {
+    "id": "uuid",
+    "type": "rating",
+    "question": "How would you rate us?",
+    "display": "number",
+    "scale": 10,
+    "lowerBoundLabel": "Not likely",
+    "upperBoundLabel": "Very likely"
+  },
+  {
+    "id": "uuid",
+    "type": "single_choice",
+    "question": "Which feature do you use most?",
+    "choices": ["Feature A", "Feature B", "Feature C"]
+  }
+]
+```
+
+### Key Relationships
+
+- **Feature Flags**: Multiple flag relationships via `system.feature_flags`
+
+### Important Notes
+
+- Survey name must be unique per team
+- Internal flags (`targeting_flag`, `internal_targeting_flag`, `internal_response_sampling_flag`) are auto-managed
+- `linked_flag` is user-managed and optional

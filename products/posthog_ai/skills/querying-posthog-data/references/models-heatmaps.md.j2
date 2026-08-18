@@ -7,19 +7,7 @@ This is a first-class HogQL table (no `system.` prefix). Coordinates are stored 
 
 ### Columns
 
-Column | Type | Nullable | Description
-`session_id` | varchar | NOT NULL | Session the interaction belongs to (join to `session_recordings.session_id`)
-`team_id` | integer | NOT NULL | Team this interaction belongs to
-`distinct_id` | varchar | NOT NULL | Person who interacted
-`timestamp` | DateTime64 | NOT NULL | When the interaction happened
-`x` | integer | NOT NULL | Horizontal position, stored scaled down by `scale_factor` (multiply to get CSS px)
-`y` | integer | NOT NULL | Vertical position, stored scaled down by `scale_factor` (multiply to get CSS px)
-`scale_factor` | integer | NOT NULL | Factor the coordinates were divided by at ingestion (always 16); multiply stored values by it to recover CSS pixels
-`viewport_width` | integer | NOT NULL | Viewport width, stored scaled down by `scale_factor` (multiply to get CSS px)
-`viewport_height` | integer | NOT NULL | Viewport height, stored scaled down by `scale_factor` (multiply to get CSS px)
-`pointer_target_fixed` | boolean | NOT NULL | Whether the clicked element is fixed-position
-`current_url` | varchar | NOT NULL | Full URL of the page the interaction happened on
-`type` | varchar | NOT NULL | `click`, `rageclick`, `mousemove`, or `scrolldepth`
+{{ schema_columns('heatmaps') }}
 
 ### Example: top click hotspots on a page (last 7 days)
 
