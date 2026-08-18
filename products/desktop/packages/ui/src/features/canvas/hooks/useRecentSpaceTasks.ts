@@ -62,6 +62,10 @@ function spaceTaskPageQuery(
       return (await client.getTasksPage({
         channel: spaceId,
         limit: TREE_FETCH_LIMIT,
+        // The tree shows a handful of rows out of a whole space, so which end the server cuts
+        // the page from decides what can appear at all: by creation date, a session that has
+        // been running since Monday is already off the page before this list sorts anything.
+        ordering: "-last_activity_at",
       })) as SpaceTaskPage;
     },
     gcTime: SPACE_QUERY_GC_TIME_MS,
@@ -70,7 +74,7 @@ function spaceTaskPageQuery(
   };
 }
 
-/** A space's rows: the newest few, and how many sessions it holds in all. */
+/** A space's rows: the most recently active few, and how many sessions it holds in all. */
 export interface SpaceTasks {
   items: ChannelItemModel[];
   /** Everything in the space, not just the rows shown. */
@@ -118,7 +122,8 @@ function attentionTier(
 
 /**
  * The order a space's rows are cut to five in: pinned sessions, then the rest,
- * each run ordered by what it wants from you and still newest first inside that.
+ * each run ordered by what it wants from you and still newest-activity first
+ * inside that.
  *
  * Two keys rather than one, because they answer different questions. Pinning is
  * the reader's own filing and outranks everything, the way it does in the Code
@@ -126,8 +131,8 @@ function attentionTier(
  * behind it: by recency alone the session its dot is counting can sit below the
  * cut, leaving a marked space that opens onto five quiet rows.
  *
- * Buckets rather than a comparator: the list arrives newest first, and pushing
- * in order keeps that inside each run without a second sort key.
+ * Buckets rather than a comparator: the page arrives newest-activity first, and
+ * pushing in order keeps that inside each run without a second sort key.
  */
 function spaceTreeOrder(
   items: ChannelItemModel[],
@@ -159,7 +164,7 @@ function combineTaskPages(
 const SPACE_TREE_POLL_INTERVAL_MS = 30_000;
 
 /**
- * The newest sessions in each of the given spaces, keyed by space id, as the
+ * The most recently active sessions in each of the given spaces, keyed by space id, as the
  * same item model the space's own session list is built from — so a tree row
  * can wear the status dot and badges those rows do.
  *
@@ -286,8 +291,8 @@ const NO_OVERVIEW: SpaceOverview = { people: [], total: null };
  * opens over it, so this costs no request of its own.
  *
  * The people are who has been working here, not a membership list: the backend
- * has no such list, and the page is the newest `TREE_FETCH_LIMIT` sessions
- * rather than the space's whole history.
+ * has no such list, and the page is the `TREE_FETCH_LIMIT` most recently
+ * active sessions rather than the space's whole history.
  *
  * The creator leads, whether or not they appear in that page. They are the one
  * name the space itself carries, and a group that opened with whoever happened
@@ -320,7 +325,7 @@ export function useSpaceOverview(
 
 /**
  * The space's faces, in the order the group stacks them: the creator, then
- * whoever ran the sessions, newest first, each person once and no more than
+ * whoever ran the sessions, most recently active first, each person once and no more than
  * `limit` of them.
  *
  * The creator leads whether or not they ran anything, and is not counted twice
