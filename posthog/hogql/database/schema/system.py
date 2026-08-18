@@ -1086,7 +1086,7 @@ insight_variables: PostgresTable = PostgresTable(
     postgres_table_name="posthog_insightvariable",
     description="Reusable insight/dashboard template variables; one row per variable.",
     fields={
-        "id": IntegerDatabaseField(name="id", description="Variable id."),
+        "id": UUIDDatabaseField(name="id", description="Variable id (UUID)."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name", description="Display name of the variable."),
         "type": StringDatabaseField(name="type", description="Variable type, e.g. 'String', 'Number', 'List', 'Date'."),
