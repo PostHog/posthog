@@ -35,11 +35,20 @@ class AccountsTableAccountField(StrEnum):
     EXTERNAL_ID = "external_id"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
+    CHURNED_AT = "churned_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
     SFDC_ID = "sfdc_id"
     ZENDESK_ID = "zendesk_id"
+
+
+class AccountsTableAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    MEDIAN = "median"
 
 
 class WindowDays(float, Enum):
@@ -70,6 +79,15 @@ class AccountsTableCustomPropertyOperator(StrEnum):
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class AccountsTableThresholdOperator(StrEnum):
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    EXACT = "exact"
+    IS_NOT = "is_not"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -190,6 +208,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    SCATTER_PLOT = "ScatterPlot"
 
 
 class Scale(StrEnum):
@@ -507,6 +526,7 @@ class Display(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    SCATTER_PLOT = "ScatterPlot"
 
 
 class MetricSummary(StrEnum):
@@ -637,6 +657,7 @@ class ChartDisplayType(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    SCATTER_PLOT = "ScatterPlot"
 
 
 class Curve(StrEnum):
@@ -2523,6 +2544,19 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    CLOUDINARY = "Cloudinary"
+    UPLOADCARE = "Uploadcare"
+    WHMCS = "WHMCS"
+    MSG91 = "MSG91"
+    DEPOT = "Depot"
+    SCHEMATIC = "Schematic"
+    DOKPLOY = "Dokploy"
+    RAKUTEN_ADVERTISING = "RakutenAdvertising"
+    ZITADEL = "Zitadel"
+    DEEL_FLOWS = "DeelFlows"
+    HOOTSUITE = "Hootsuite"
+    WISPR_FLOW = "WisprFlow"
+    SAM_CART = "SamCart"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2701,6 +2735,12 @@ class GoogleAdsDefaultSources(StrEnum):
     GOOGLE_DISCOVER = "google_discover"
     ADMOB = "admob"
     WAZE = "waze"
+
+
+class GroupMathType(StrEnum):
+    UNIQUE_GROUP = "unique_group"
+    FIRST_TIME_FOR_GROUP = "first_time_for_group"
+    FIRST_MATCHING_EVENT_FOR_GROUP = "first_matching_event_for_group"
 
 
 class GradientScaleMode(StrEnum):
@@ -2921,6 +2961,7 @@ class IntegrationKind(StrEnum):
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    YOUTUBE_ANALYTICS = "youtube-analytics"
 
 
 class IntervalType(StrEnum):
@@ -3719,6 +3760,11 @@ class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class XScale(StrEnum):
+    LINEAR = "linear"
+    LOGARITHMIC = "logarithmic"
 
 
 class SessionAttributionGroupBy(StrEnum):

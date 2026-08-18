@@ -79,6 +79,7 @@ export type GatewayLimitCause = "model_gate" | "org_limit";
 const MODEL_GATE_PATTERNS = ["needs a paid posthog plan"] as const;
 
 const ORG_LIMIT_PATTERNS = [
+  "cloud usage limit reached",
   "reached its posthog desktop usage limit",
   // Older gateway deployments still send the pre-rename wording.
   "reached its posthog code usage limit",

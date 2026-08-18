@@ -10,6 +10,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.canvas.backend.models import Canvas
 from products.tasks.backend.models import Channel, Task
 
 
@@ -43,29 +44,47 @@ class TestCanvasOAuthAccess(APIBaseTest):
         )
         return token.token
 
-    def _list_canvases(self, scope: str) -> int:
+    def _list_canvases(self, scope: str, client_id: str | None = None):
         with team_scope(self.team.id):
             channel = Channel.objects.create(team=self.team, name="general")
-        token = self._bearer(scope)
+            Canvas.objects.create(team=self.team, channel=channel, name="Signups", created_by=self.user)
+        token = self._bearer(scope, client_id=client_id)
         self.client.logout()
-        res = self.client.get(
+        return self.client.get(
             f"/api/projects/{self.team.id}/canvases/?channel={channel.id}&limit=200",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        return res.status_code
 
     def test_list_canvases_with_wildcard_oauth_token(self):
-        assert self._list_canvases("*") == 200
+        assert self._list_canvases("*").status_code == 200
 
     def test_list_canvases_with_canvas_read_oauth_token(self):
-        assert self._list_canvases("canvas:read") == 200
+        assert self._list_canvases("canvas:read").status_code == 200
 
     def test_list_canvases_denied_without_canvas_scope(self):
         # A token whose enumerated grant predates the canvas scope: other scopes
         # present, canvas absent. This is what a stale desktop session narrowed
         # to an app's scope ceiling looks like; the client's OAUTH_SCOPE_VERSION
         # bump exists to re-auth these.
-        assert self._list_canvases("task:read task:write dashboard:read") == 403
+        assert self._list_canvases("task:read task:write dashboard:read").status_code == 403
+
+    def test_list_canvases_with_an_interactive_desktop_grant(self):
+        # The desktop app's own grants come from the same OAuth apps that mint
+        # sandbox tokens, so treating a client-id match as sandbox origin empties
+        # every canvas list in the app: no bound task means nothing to scope to.
+        response = self._list_canvases("*", client_id=ARRAY_APP_CLIENT_ID_DEV)
+
+        assert response.status_code == 200
+        assert [row["name"] for row in response.json()["results"]] == ["Signups"]
+
+    def test_list_canvases_with_an_unbound_server_minted_sandbox_token(self):
+        response = self._list_canvases(
+            "canvas:read internal_run:read",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["results"] == []
 
     def _create_canvas(
         self,

@@ -1,23 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { match } from 'ts-pattern'
 
 import { Spinner } from '@posthog/lemon-ui'
 
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { identifierToHuman } from 'lib/utils/strings'
 
-import {
-    AnyPropertyFilter,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
-
-import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import { issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
+import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
 import { PropertiesTable } from '../PropertiesTable'
 
 export type ContextDisplayProps = {
@@ -31,32 +21,9 @@ export function ContextDisplay({
     exceptionAttributes,
     additionalProperties,
 }: ContextDisplayProps): JSX.Element {
-    const { filterGroup } = useValues(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
-    const { setFilterGroup } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
+    const { addPropertyFilter } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const onFilterValue = (key: string, value: string | number | boolean): void => {
-        const firstValue = filterGroup.values[0]
-        const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
-            ? firstValue
-            : {
-                  type: FilterLogicalOperator.And,
-                  values: firstValue ? [firstValue] : [],
-              }
-        const newFilter: AnyPropertyFilter = {
-            key,
-            type: PropertyFilterType.Event,
-            operator: PropertyOperator.Exact,
-            value: [value],
-        }
-        setFilterGroup({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    ...firstGroup,
-                    values: [...firstGroup.values, newFilter],
-                },
-                ...filterGroup.values.slice(1),
-            ],
-        })
+        addPropertyFilter(key, value)
     }
     const additionalEntries = Object.entries(additionalProperties)
         .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))

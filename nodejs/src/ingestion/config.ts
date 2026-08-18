@@ -137,6 +137,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
+    PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -248,7 +250,6 @@ export type IngestionConsumerConfig = {
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -300,6 +301,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config
@@ -388,7 +390,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),

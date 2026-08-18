@@ -1,11 +1,11 @@
 ---
 name: writing-pr-descriptions
-description: >
+description: >-
   Shapes a PR body into something a reviewer understands at a glance.
   Use ALWAYS before writing or editing a PR description, before `gh pr create` or `gh pr edit --body`, and when asked to improve an existing description.
   Puts the effect a person sees in the first line and the mechanism under it, routes each remaining fact to the form that carries it fastest (bullet, table, diagram, screenshot, collapsed block), cuts everything a reviewer does not need, then holds what survives to a checkable shape: one fact per bullet, sentences under 25 words, active voice, no idioms.
   Makes the body stand alone, so a reader who opens no files still knows why the PR is necessary and what it does, sizes the body to the change so a small PR reads as small, and makes every claim either linked to its evidence or labeled as unchecked.
-  Ends with a scan test the agent runs over its own draft, reading only the title and the first line of two sections.
+  Ends with a scan test over the title and the first lines of Problem and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or user-facing product copy (see `/writing-user-facing-copy`).
 ---
 
@@ -200,7 +200,10 @@ Copy the second one. It is shorter, not just flatter.
 - Sentence case for titles, headings, and bolded text. Only the first word and proper nouns.
 - Spare use of inline code. Limited use of the colon and semicolon.
 - Do not hard-wrap at a column width and do not space-align tables. GitHub renders markdown and flows the text.
-- Write in first person as the author. When an agent did the work, say so: "I (actually Claude) moved the derivation into one place."
+- The subject of a sentence is the change, not its author. Never "I", "me" or "my", and keep "we" for PostHog.
+  "The exporter now retries once", never "I made the exporter retry once".
+  An agent writing as "I" hands the assignee an account of work they did not do, and a parenthetical does not undo it.
+  Authorship is one stated fact in `## 🤖 Agent context`, not a voice the body speaks in.
 
 ## Pass 5: check your own draft
 
@@ -226,12 +229,13 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 6. Read each bullet alone. Does it state one fact? If it states two, split it.
 7. Count the words in the longest sentence. Over 25, split it.
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
-9. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
-10. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-11. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-12. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-13. Does the body claim manual testing that did not happen? Delete it.
-14. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
+10. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
+11. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+12. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+13. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+14. Does the body claim manual testing that did not happen? Delete it.
+15. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 
