@@ -325,11 +325,14 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
             maximum = size.get(f"max{axis}")
             if value < minimum or (maximum is not None and value > maximum):
                 cap = f"-{maximum}" if maximum is not None else "+"
+                # Advisory only: the user sizes their own grid, and components
+                # are responsible for rendering responsively at any box size.
+                # The contract's range still informs defaults and this hint.
                 diagnostics.append(
                     diagnostic(
-                        "error",
+                        "warning",
                         "placement_size_out_of_contract",
-                        f"{label} is {value} {axis.lower()} units; the component allows {minimum}{cap}",
+                        f"{label} is {value} {axis.lower()} units; the component suggests {minimum}{cap}",
                     )
                 )
         schema = meta.get("configSchema")

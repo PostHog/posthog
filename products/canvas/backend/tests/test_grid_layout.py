@@ -235,16 +235,17 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert any(entry["code"] == "placement_config_invalid" for entry in response.json()["diagnostics"])
 
-    def test_placement_size_outside_component_contract_rejected(self):
+    def test_placement_size_outside_component_contract_is_advisory(self):
+        # The user sizes their own grid; a size outside the component's
+        # suggested range must not block the publish.
         grid_id = self._create_grid()
         component_id = self._create_component()
         meta = {**COMPONENT_META, "size": {"defaultW": 2, "defaultH": 1, "minW": 2, "minH": 1, "maxW": 3}}
         response = self._publish(component_id, self._project(component=meta))
         assert response.status_code == status.HTTP_200_OK
         doc = layout(placements=[placement(status="live", component=component_id, w=1)])
-        rejected = self._publish_layout(grid_id, doc)
-        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
-        assert any(entry["code"] == "placement_size_out_of_contract" for entry in rejected.json()["diagnostics"])
+        published = self._publish_layout(grid_id, doc)
+        assert published.status_code == status.HTTP_200_OK, published.json()
 
 
 class TestHomeProvisioning(GridLayoutAPIBaseTest):
