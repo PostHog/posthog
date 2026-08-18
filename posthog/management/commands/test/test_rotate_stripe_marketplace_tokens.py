@@ -1,0 +1,195 @@
+from datetime import timedelta
+from io import StringIO
+
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Team
+from posthog.models.integration import Integration, StripeIntegration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+
+
+def _oauth_app(client_id: str) -> OAuthApplication:
+    return OAuthApplication.objects.create(
+        name=f"App {client_id}",
+        client_id=client_id,
+        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://example.com/callback",
+        algorithm="RS256",
+    )
+
+
+class TestRotateStripeMarketplaceTokens(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.new_app = _oauth_app("marketplace_client_id")
+        self.old_app = _oauth_app("legacy_client_id")
+
+    def _create_integration_with_token(
+        self, team: Team, integration_id: str, application: OAuthApplication, created_by=None
+    ) -> tuple[Integration, OAuthAccessToken, OAuthRefreshToken]:
+        integration = Integration.objects.create(
+            team=team,
+            kind="stripe",
+            integration_id=integration_id,
+            config={},
+            sensitive_config={},
+            created_by=created_by,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            token=f"access_{integration_id}",
+            user=created_by,
+            expires=timezone.now() + timedelta(days=14),
+            scope=StripeIntegration.SCOPES,
+            scoped_teams=[team.pk],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=application,
+            token=f"refresh_{integration_id}",
+            user=created_by,
+            access_token=access_token,
+            scoped_teams=[team.pk],
+        )
+        return integration, access_token, refresh_token
+
+    @patch("stripe.StripeClient")
+    def test_dry_run_makes_no_changes(self, MockStripeClient) -> None:
+        integration, access_token, refresh_token = self._create_integration_with_token(
+            self.team, "acct_dry_run", self.old_app, created_by=self.user
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+        ):
+            call_command("rotate_stripe_marketplace_tokens", "--dry-run")
+
+        assert OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
+        assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
+        assert OAuthAccessToken.objects.count() == 1
+        MockStripeClient.assert_not_called()
+
+    @patch("stripe.StripeClient")
+    def test_real_run_revokes_old_tokens_and_mints_on_marketplace_app(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        integration, old_access, old_refresh = self._create_integration_with_token(
+            self.team, "acct_rotate", self.old_app, created_by=self.user
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens")
+
+        assert not OAuthAccessToken.objects.filter(pk=old_access.pk).exists()
+        assert not OAuthRefreshToken.objects.filter(pk=old_refresh.pk).exists()
+
+        new_access = OAuthAccessToken.objects.get(application=self.new_app, scoped_teams__contains=[self.team.pk])
+        assert new_access.user_id == self.user.id
+        assert OAuthRefreshToken.objects.filter(access_token=new_access).exists()
+
+        secret_calls = mock_client.apps.secrets.create.call_args_list
+        assert len(secret_calls) == 5
+        for call in secret_calls:
+            assert call.kwargs["options"] == {"stripe_account": "acct_rotate"}
+
+    def test_skips_integration_with_no_created_by(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            integration_id="acct_no_owner",
+            config={},
+            sensitive_config={},
+            created_by=None,
+        )
+
+        out = StringIO()
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        assert integration.created_by is None
+        assert OAuthAccessToken.objects.count() == 0
+        assert "no created_by user" in out.getvalue()
+        assert "Skipped: 1" in out.getvalue()
+        assert "Rotated: 0" in out.getvalue()
+
+    @patch("stripe.StripeClient")
+    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.capture_exception")
+    def test_one_failure_does_not_block_other_integrations(self, mock_capture, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        failing_integration, failing_access, failing_refresh = self._create_integration_with_token(
+            self.team, "acct_fails", self.old_app, created_by=self.user
+        )
+        ok_integration, ok_access, ok_refresh = self._create_integration_with_token(
+            other_team, "acct_ok", self.old_app, created_by=self.user
+        )
+
+        original_write_secrets = StripeIntegration.write_posthog_secrets
+
+        def flaky_write_posthog_secrets(self, team_id, created_by):
+            if self.integration.pk == failing_integration.pk:
+                raise Exception("simulated Stripe API failure")
+            return original_write_secrets(self, team_id, created_by)
+
+        out = StringIO()
+        with (
+            self.settings(
+                STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+                STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+                STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+                STRIPE_APP_SECRET_KEY="sk_test",
+            ),
+            patch.object(StripeIntegration, "write_posthog_secrets", flaky_write_posthog_secrets),
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        mock_capture.assert_called_once()
+
+        # The run must not abort, and the failure must be reported rather than swallowed.
+        output = out.getvalue()
+        assert "Rotated: 1" in output
+        assert "Failed: 1" in output
+        assert "simulated Stripe API failure" in output
+
+        # The failing integration keeps a working credential: revocation only happens once the
+        # replacement is confirmed live in Stripe. Nothing orphaned is left behind either.
+        assert OAuthAccessToken.objects.filter(pk=failing_access.pk).exists()
+        assert not OAuthAccessToken.objects.filter(
+            application=self.new_app, scoped_teams__contains=[self.team.pk]
+        ).exists()
+
+        # The other integration still rotated successfully.
+        assert not OAuthAccessToken.objects.filter(pk=ok_access.pk).exists()
+        assert OAuthAccessToken.objects.filter(
+            application=self.new_app, scoped_teams__contains=[other_team.pk]
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("client_id_unset", ""),
+            ("client_id_set_but_no_matching_app", "not_yet_created_client_id"),
+        ]
+    )
+    def test_refuses_to_run_when_not_configured(self, _name, client_id) -> None:
+        with self.settings(STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=client_id):
+            with self.assertRaises(CommandError):
+                call_command("rotate_stripe_marketplace_tokens")

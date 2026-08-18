@@ -4949,6 +4949,17 @@ class S3CompatibleIntegration:
         )
 
 
+# Keep in sync with SECRET_NAMES in services/stripe-app/src/posthog/auth.ts; the app reads
+# these by name and a mismatch reads as "not connected" rather than as an error.
+STRIPE_POSTHOG_SECRET_NAMES = (
+    "posthog_region",
+    "posthog_access_token",
+    "posthog_refresh_token",
+    "posthog_project_id",
+    "posthog_oauth_client_id",
+)
+
+
 class StripeIntegration:
     integration: Integration
 
@@ -4996,13 +5007,18 @@ class StripeIntegration:
             return None
         return StripeClient(oauth_config.client_secret)
 
-    def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
-        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
+    def write_posthog_secrets(self, team_id: int, created_by: "User") -> list[str]:
+        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs.
+
+        Returns the names of any secrets that could not be written. Callers that revoke the
+        previous credential must treat a non-empty result as failure: Stripe would still be
+        holding the old token, so revoking it leaves the customer with nothing that works.
+        """
 
         oauth_app = self._get_posthog_oauth_app()
         if not oauth_app:
             logger.warning("PostHog OAuth app not found, cannot write secrets to Stripe")
-            return
+            return list(STRIPE_POSTHOG_SECRET_NAMES)
 
         access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
@@ -5039,8 +5055,9 @@ class StripeIntegration:
 
         client = self._stripe_client()
         if client is None:
-            return
+            return list(secrets)
 
+        failed: list[str] = []
         for name, payload in secrets.items():
             try:
                 client.apps.secrets.create(
@@ -5052,6 +5069,7 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
+                failed.append(name)
                 capture_exception(
                     e,
                     {
@@ -5059,6 +5077,8 @@ class StripeIntegration:
                         "stripe_user_id": stripe_user_id,
                     },
                 )
+
+        return failed
 
     def clear_posthog_secrets(self) -> None:
         """Best-effort clear of PostHog secrets from Stripe and revoke local OAuth tokens."""
@@ -5071,13 +5091,7 @@ class StripeIntegration:
             self._destroy_posthog_oauth_tokens()
             return
 
-        for name in (
-            "posthog_region",
-            "posthog_access_token",
-            "posthog_refresh_token",
-            "posthog_project_id",
-            "posthog_oauth_client_id",
-        ):
+        for name in STRIPE_POSTHOG_SECRET_NAMES:
             try:
                 client.apps.secrets.delete_where(
                     params={
@@ -5099,13 +5113,13 @@ class StripeIntegration:
 
     def _destroy_posthog_oauth_tokens(self) -> None:
         """Delete the local OAuth access and refresh tokens created for this Stripe integration."""
-        oauth_app = self._get_posthog_oauth_app()
-        if not oauth_app:
+        oauth_apps = self._posthog_oauth_apps_for_revocation()
+        if not oauth_apps:
             return
 
         team_id = self.integration.team_id
         access_tokens = OAuthAccessToken.objects.filter(
-            application=oauth_app,
+            application__in=oauth_apps,
             scoped_teams__contains=[team_id],
         )
         # Delete refresh tokens first since their FK to access_token is SET_NULL
@@ -5113,10 +5127,39 @@ class StripeIntegration:
         access_tokens.delete()
 
     def _get_posthog_oauth_app(self):
-        if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-            return OAuthApplication.objects.filter(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID).first()
+        """The application new marketplace tokens are minted on.
 
-        return None
+        Deliberately not the orchestrator's application. This token lands in the customer's
+        Stripe Secret Store at account scope, readable by every member of their Stripe account,
+        while ee/partners/stripe/api/provisioning/authentication.py authorizes purely on
+        application identity. Sharing one application therefore lets any of those people mint a
+        deep-link login session as the admin who installed the app.
+        """
+        client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
+        if not client_id:
+            logger.warning(
+                "stripe.marketplace_oauth_app_unconfigured",
+                fallback_client_id_configured=bool(settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID),
+            )
+            client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+
+        if not client_id:
+            return None
+
+        return OAuthApplication.objects.filter(client_id=client_id).first()
+
+    @staticmethod
+    def _posthog_oauth_apps_for_revocation() -> list["OAuthApplication"]:
+        """Every application a marketplace token may have been minted on, current and legacy.
+
+        Revocation has to span both or tokens issued before the application split survive it.
+        """
+        client_ids = [
+            cid for cid in (settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID, settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID) if cid
+        ]
+        if not client_ids:
+            return []
+        return list(OAuthApplication.objects.filter(client_id__in=client_ids))
 
 
 class Credentials(NamedTuple):
