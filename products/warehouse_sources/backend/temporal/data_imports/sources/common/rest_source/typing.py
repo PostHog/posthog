@@ -1,8 +1,11 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Literal, NotRequired, Optional, TypedDict
 
 from requests import Session
+
+from posthog.dataclasses import frozen
 
 from .auth import (
     APIKeyAuth,
@@ -44,6 +47,22 @@ PaginatorType = Literal[
     "offset",
     "page_number",
 ]
+
+
+@frozen
+class ParentRowFilter:
+    """Bounds a warehouse parent scan to rows the parent API would still list.
+
+    The API path's row set is shaped by the vendor's server-side list semantics (default
+    windows, retention), which a full snapshot scan does not reproduce: an incremental
+    parent table accumulates every row ever seen, so children fan out over parents the API
+    stopped listing long ago. `field` is the parent's API field name; rows where it is NULL
+    are kept, matching the per-row cutoff the Sentry tag-values iterator established.
+    Omit the filter only for parents whose API genuinely returns the full collection.
+    """
+
+    field: str
+    not_older_than: timedelta
 
 
 class PaginatorTypeConfig(TypedDict, total=True):
@@ -300,6 +319,10 @@ class EndpointResourceBase(ResourceBase, total=False):
     # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
     # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
     data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+    # When set, the resource's pages come from this callable instead of HTTP pagination —
+    # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
+    # child from an already-synced warehouse parent table.
+    data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

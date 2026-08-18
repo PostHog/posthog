@@ -358,6 +358,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(pending_calculation)
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        # The real exposure runner rejects a feature_flag dict without a non-empty "key".
+        exposure_query = mock_exposure_runner_class.call_args.kwargs["query"]
+        self.assertEqual(exposure_query.feature_flag["key"], "query-runner-test")
         # The agent can't poll, so it always blocks on stale cache rather than dropping pending metrics.
         self.assertEqual(
             mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
@@ -469,6 +472,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
+
+        # Saved metrics must surface under their display name, not an event-derived fallback
+        self.assertEqual(context.primary_metrics_results[0].name, "1. Team Growth NSM")
+        self.assertEqual(context.secondary_metrics_results[0].name, "1. Onboarding Completion")
 
         # Verify the saved metric queries were actually passed to the query runner
         query_runner_calls = mock_query_runner_class.call_args_list

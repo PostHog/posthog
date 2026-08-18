@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -528,3 +529,17 @@ class TestCollectThreadMessages:
         assert len(result) == 2
         assert result[0]["user"] == "PostHog"
         assert result[1]["text"] == "still here"
+
+    @parameterized.expand(["thread_not_found", "message_not_found"])
+    def test_deleted_root_reads_as_an_empty_thread(self, error):
+        # Raising instead would exhaust the activity's retries and land in the workflow's
+        # error handler, which announces the failure in Slack — for a retracted prompt.
+        self.slack.client.conversations_replies.side_effect = SlackApiError(error, {"error": error})
+
+        assert collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None) == []
+
+    def test_other_slack_errors_still_propagate(self):
+        self.slack.client.conversations_replies.side_effect = SlackApiError("ratelimited", {"error": "ratelimited"})
+
+        with pytest.raises(SlackApiError):
+            collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)

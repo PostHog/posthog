@@ -443,9 +443,10 @@ export interface ReviewPerspectiveStatsApi {
  * * `review_only` - review_only
  * * `resolve_only` - resolve_only
  */
-export type RunModeEnumApi = (typeof RunModeEnumApi)[keyof typeof RunModeEnumApi]
+export type ReviewTriggerRequestRunModeEnumApi =
+    (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
 
-export const RunModeEnumApi = {
+export const ReviewTriggerRequestRunModeEnumApi = {
     Review: 'review',
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
@@ -459,7 +460,7 @@ export interface ReviewTriggerRequestApi {
      * * `review` - review
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only */
-    run_mode?: RunModeEnumApi
+    run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 
 export interface ReviewTriggerResponseApi {
