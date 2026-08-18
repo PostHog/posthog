@@ -177,8 +177,7 @@ class TestFollowupDeliveryFailure:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    # The run now exits through the inactivity timer, so the
-                    # time-skipped clock jumps hours past the failed delivery.
+                    # The inactivity exit time-skips hours past the failed delivery.
                     execution_timeout=timedelta(days=2),
                 )
 
@@ -242,8 +241,7 @@ class TestFollowupDeliveryFailure:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    # A background run must fail fast so poll_for_turn callers
-                    # stop waiting - well before the inactivity timeout.
+                    # The short timeout is the assertion: failing fast, not at the inactivity exit.
                     execution_timeout=timedelta(minutes=2),
                 )
 
