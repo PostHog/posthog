@@ -243,12 +243,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        # Dual-accept during the app migration: the PostHog Code ids stay listed until every
-        # region has a Signals application row and its runs mint under it. Dropping them is
-        # what finally makes this product unreachable from a Desktop-app token.
-        allowed_application_ids=frozenset(
-            {POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID, SIGNALS_DEV_APP_ID}
-        ),
+        # Only the dedicated Signals app: this is what makes the product unreachable from a
+        # Desktop-app token. US/EU application ids arrive through `product_extra_application_ids`
+        # (their rows are provisioned per region), so those settings must be in place in every
+        # region before this pinning deploys.
+        allowed_application_ids=frozenset({SIGNALS_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,

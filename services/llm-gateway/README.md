@@ -277,7 +277,7 @@ locks an entitled user out for at most a minute after their cached grant expires
 
 `signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
 Its US and EU application rows are created per region, so their ids are supplied through `LLM_GATEWAY_PRODUCT_EXTRA_APPLICATION_IDS` (`{"signals": ["<app id>"]}`) rather than pinned in `products/config.py`.
-The PostHog Code application ids stay listed on `signals` until every region mints under the new app; removing them completes the isolation.
+The PostHog Code application ids are no longer accepted for `signals`, so the extra-application-ids setting must be populated in a region before this config reaches it; a region without it rejects every Signals OAuth run at the gateway.
 
 ### Adding a new product
 
