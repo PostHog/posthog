@@ -161,13 +161,13 @@ def _generation_prompt(
     report: SignalReport,
     canvas_id: UUID,
     *,
-    collaborative: bool,
+    draft: bool,
     signals: list[dict],
     pr_url: str | None,
 ) -> str:
     save_instruction = (
         "Stage the complete result as a draft. Do not publish or replace the live head."
-        if collaborative
+        if draft
         else "Publish the complete result as the live canvas."
     )
     context = {
@@ -311,7 +311,10 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         prompt = _generation_prompt(
             report,
             session.canvas_id,
-            collaborative=session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE,
+            draft=(
+                session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE
+                or not report_canvas_publishing_enabled(team)
+            ),
             signals=signals,
             pr_url=pr_url,
         )
