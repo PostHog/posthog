@@ -23,10 +23,29 @@
                     "description": "The grid placements are laid out on.",
                     "properties": {
                         "columns": {
-                            "description": "Grid width in columns. One of 4, 6, 8, 10, or 12.",
-                            "maximum": 12,
-                            "minimum": 4,
-                            "type": "number"
+                            "anyOf": [
+                                {
+                                    "const": 4,
+                                    "type": "number"
+                                },
+                                {
+                                    "const": 6,
+                                    "type": "number"
+                                },
+                                {
+                                    "const": 8,
+                                    "type": "number"
+                                },
+                                {
+                                    "const": 10,
+                                    "type": "number"
+                                },
+                                {
+                                    "const": 12,
+                                    "type": "number"
+                                }
+                            ],
+                            "description": "Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n* `4` - 4\n* `6` - 6\n* `8` - 8\n* `10` - 10\n* `12` - 12"
                         },
                         "gap": {
                             "description": "Gap between placements, in pixels.",
@@ -45,7 +64,7 @@
                     "type": "object"
                 },
                 "placements": {
-                    "description": "The placed widgets. Placements may not overlap or extend past the grid.",
+                    "description": "The placed widgets, at most 24. Placements may not overlap or extend past the grid.",
                     "items": {
                         "description": "One placed widget on a grid canvas.",
                         "properties": {
@@ -94,6 +113,7 @@
                             "id": {
                                 "description": "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
                                 "maxLength": 64,
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$",
                                 "type": "string"
                             },
                             "prompt": {
@@ -146,7 +166,8 @@
                     "type": "array"
                 },
                 "schemaVersion": {
-                    "description": "Layout schema version. Currently always 1.",
+                    "const": 1,
+                    "description": "Layout schema version. Currently always 1.\n\n* `1` - 1",
                     "type": "number"
                 }
             },

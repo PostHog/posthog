@@ -17,7 +17,7 @@
             "type": "string"
         },
         "operations": {
-            "description": "Operations applied in order to the canvas's current layout.",
+            "description": "Operations applied in order to the canvas's current layout, at most 64.",
             "items": {
                 "description": "One surgical layout operation.",
                 "properties": {
@@ -116,10 +116,29 @@
                         "description": "For set_grid: the new grid definition.",
                         "properties": {
                             "columns": {
-                                "description": "Grid width in columns. One of 4, 6, 8, 10, or 12.",
-                                "maximum": 12,
-                                "minimum": 4,
-                                "type": "number"
+                                "anyOf": [
+                                    {
+                                        "const": 4,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 6,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 8,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 10,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 12,
+                                        "type": "number"
+                                    }
+                                ],
+                                "description": "Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n* `4` - 4\n* `6` - 6\n* `8` - 8\n* `10` - 10\n* `12` - 12"
                             },
                             "gap": {
                                 "description": "Gap between placements, in pixels.",
@@ -195,6 +214,7 @@
                             "id": {
                                 "description": "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.",
                                 "maxLength": 64,
+                                "pattern": "^[A-Za-z0-9_-]{1,64}$",
                                 "type": "string"
                             },
                             "prompt": {
