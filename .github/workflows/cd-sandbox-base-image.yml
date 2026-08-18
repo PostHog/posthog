@@ -4,12 +4,16 @@ on:
     push:
         branches:
             - master
-    # paths mirror the changes job's dorny filter, which still gates push events.
+    # Narrower than the changes job's dorny filter, which also gates push events.
+    # A skills edit changes a COPY payload rather than a build instruction, so it
+    # cannot break the image build, and the :sha image a PR build pushes is never
+    # pulled by anything. `ci-agent-skills.yml` already builds the same skills on
+    # the same PR. Master keeps rebuilding on skills changes through the filter
+    # below, so the :master image production resolves still gets current skills.
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - 'products/tasks/backend/sandbox/images/**'
-            - 'products/*/skills/**'
             - 'products/posthog_ai/scripts/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
@@ -40,7 +44,9 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # Keep in sync with the trigger-level pull_request paths above.
+                  # Wider than the trigger-level pull_request paths above, because
+                  # this also gates push events, where a skills change does have to
+                  # rebuild the image that :master serves.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
