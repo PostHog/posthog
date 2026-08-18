@@ -1254,6 +1254,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("expression_only", False),
+            ("mixed_with_structured_cohort", True),
+        ]
+    )
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_rejects_hand_authored_incohort_calls(self, _name, include_structured_leaf, _mock_flag):
+        # Hand-authored inCohort() skips cohort eligibility validation, so the compiler rejects it
+        # outright — including alongside a structured cohort leaf that turns cohort support on.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        properties: list[dict[str, Any]] = [{"key": "inCohort(999999)", "type": "hogql"}]
+        if include_structured_leaf:
+            properties.insert(0, {"key": "id", "type": "cohort", "value": cohort.id})
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "Can't call inCohort() directly in filters" in response.json()["detail"]
+
     def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(

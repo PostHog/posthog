@@ -141,6 +141,9 @@ class BytecodeCompiler(Visitor):
         self.args = args
         self.cohort_membership_supported = cohort_membership_supported
         self.null_safe_comparisons = null_safe_comparisons
+        # True only while compiling the call visit_compare_operation generates for IN COHORT;
+        # visit_call rejects inCohort/notInCohort outside of it
+        self._compiling_cohort_membership_call = False
         # we're in a function definition
         if args is not None:
             for arg in args:
@@ -225,10 +228,17 @@ class BytecodeCompiler(Visitor):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
             if self.cohort_membership_supported:
-                if operation == Operation.IN_COHORT:
-                    return self.visit(ast.Call(name="inCohort", args=[node.right]))
-                else:
-                    return self.visit(ast.Call(name="notInCohort", args=[node.right]))
+                # The STL implementations are pure two-arg functions (stl/ chunks execute without
+                # globals), so pass the runtime-prefetched `cohort_ids` global as the second
+                # argument. Marked internal: only calls generated here pass the visit_call guard,
+                # since hand-authored calls would skip cohort eligibility validation.
+                name = "inCohort" if operation == Operation.IN_COHORT else "notInCohort"
+                call = ast.Call(name=name, args=[node.right, ast.Field(chain=["cohort_ids"])])
+                self._compiling_cohort_membership_call = True
+                try:
+                    return self.visit(call)
+                finally:
+                    self._compiling_cohort_membership_call = False
             else:
                 cohort_name = ""
                 if isinstance(node.right, ast.Constant):
@@ -450,10 +460,11 @@ class BytecodeCompiler(Visitor):
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
     def visit_call(self, node: ast.Call):
-        if node.name in ("inCohort", "notInCohort") and len(node.args) == 1:
-            # The STL implementations are pure two-arg functions (stl/ chunks execute without
-            # globals), so pass the runtime-prefetched `cohort_ids` global as the second argument
-            return self.visit(ast.Call(name=node.name, args=[node.args[0], ast.Field(chain=["cohort_ids"])]))
+        if node.name in ("inCohort", "notInCohort") and not self._compiling_cohort_membership_call:
+            # Hand-authored calls (e.g. inCohort(42) in a HogQL expression filter) would skip the
+            # save-time cohort eligibility validation, which only sees cohort property filters —
+            # an ineligible cohort id would then silently evaluate as a non-member for everyone
+            raise QueryError(f"Can't call {node.name}() directly in filters. Use a cohort property filter instead.")
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
