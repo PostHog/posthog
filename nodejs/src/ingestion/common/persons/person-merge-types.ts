@@ -24,6 +24,40 @@ export class PersonMergeLimitExceededError extends PersonMergeError {
 }
 
 /**
+ * A merge response that carried no verdict for the source it was asked
+ * about. Distinct from a settled failure: nothing is recorded against the
+ * op id, so a retry can still reach a real answer, and the batch must fail
+ * rather than ack a merge that never happened.
+ */
+export class PersonMergeResponseMismatchError extends PersonMergeError {
+    readonly type = 'RESPONSE_MISMATCH' as const
+
+    constructor(message: string) {
+        super(message)
+    }
+}
+
+/**
+ * A merge call that failed with no verdict at all — transport failure,
+ * a rejected request, an unclassifiable server error. The remote saga's
+ * state is unknowable from here, so the batch must fail and redeliver:
+ * the saga replays recorded outcomes idempotently, which makes the
+ * redelivery converge where an ack would lose the merge. Personhog-only
+ * by construction — the Postgres merge never wraps its errors in this,
+ * so its failure handling is untouched.
+ */
+export class PersonMergeCallFailedError extends PersonMergeError {
+    readonly type = 'CALL_FAILED' as const
+
+    constructor(
+        message: string,
+        public readonly failure: unknown
+    ) {
+        super(message)
+    }
+}
+
+/**
  * Error when race condition is detected during merge
  */
 export class PersonMergeRaceConditionError extends PersonMergeError {
@@ -154,6 +188,14 @@ export function determineMergeMode(
     personMergeAsyncEnabled: boolean,
     personMergeSyncBatchSize: number
 ): MergeMode {
+    // The limit becomes the saga's move_limit, which it rejects unless it is
+    // a positive integer, and which a non-integer turns into a RangeError at
+    // request time. Both would fail every merge in the deployment, so a bad
+    // value fails startup here instead — this runs once, at step construction.
+    if (personMergeMoveDistinctIdLimit > 0 && !Number.isInteger(personMergeMoveDistinctIdLimit)) {
+        throw new Error(`PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT must be an integer, got ${personMergeMoveDistinctIdLimit}`)
+    }
+
     // If async merge is enabled, use async mode for over-limit merges
     if (personMergeAsyncEnabled && personMergeMoveDistinctIdLimit > 0) {
         return {
