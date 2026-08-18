@@ -4568,7 +4568,6 @@ export interface TableApi {
      * @maxLength 500
      */
     url_pattern: string
-    /** Credentials PostHog reads the files with. Required on create, and only ever used against the bucket in `url_pattern`. */
     credential: CredentialApi
     readonly columns: readonly TableApiColumnsItem[]
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
@@ -4648,7 +4647,6 @@ export interface PatchedTableApi {
      * @maxLength 500
      */
     url_pattern?: string
-    /** Credentials PostHog reads the files with. Required on create, and only ever used against the bucket in `url_pattern`. */
     credential?: CredentialApi
     readonly columns?: readonly PatchedTableApiColumnsItem[]
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi

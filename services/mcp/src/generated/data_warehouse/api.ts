@@ -725,17 +725,17 @@ export const warehouseTablesCreateBodyNameMax = 128
 
 export const warehouseTablesCreateBodyUrlPatternMax = 500
 
-export const warehouseTablesCreateBodyCredentialOneCreatedByOneDistinctIdMax = 200
+export const warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax = 200
 
-export const warehouseTablesCreateBodyCredentialOneCreatedByOneFirstNameMax = 150
+export const warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax = 150
 
-export const warehouseTablesCreateBodyCredentialOneCreatedByOneLastNameMax = 150
+export const warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax = 150
 
-export const warehouseTablesCreateBodyCredentialOneCreatedByOneEmailMax = 254
+export const warehouseTablesCreateBodyCredentialCreatedByOneEmailMax = 254
 
-export const warehouseTablesCreateBodyCredentialOneAccessKeyMax = 500
+export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
 
-export const warehouseTablesCreateBodyCredentialOneAccessSecretMax = 500
+export const warehouseTablesCreateBodyCredentialAccessSecretMax = 500
 
 export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
     .object({
@@ -760,66 +760,59 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
             .describe(
                 "HTTPS URL of the files to read, with `\*` matching any part of a path segment (e.g. `https:\/\/your-bucket.s3.amazonaws.com\/orders\/\*.parquet`). All matched files are read as one table. Must point at a bucket you control, not at PostHog's own storage."
             ),
-        credential: zod
-            .object({
-                id: zod.string().optional(),
-                created_by: zod
-                    .object({
-                        id: zod.number().optional(),
-                        uuid: zod.string().optional(),
-                        distinct_id: zod
-                            .string()
-                            .max(warehouseTablesCreateBodyCredentialOneCreatedByOneDistinctIdMax)
-                            .nullish(),
-                        first_name: zod
-                            .string()
-                            .max(warehouseTablesCreateBodyCredentialOneCreatedByOneFirstNameMax)
-                            .optional(),
-                        last_name: zod
-                            .string()
-                            .max(warehouseTablesCreateBodyCredentialOneCreatedByOneLastNameMax)
-                            .optional(),
-                        email: zod.email().max(warehouseTablesCreateBodyCredentialOneCreatedByOneEmailMax),
-                        is_email_verified: zod.boolean().nullish(),
-                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
-                        role_at_organization: zod
-                            .union([
-                                zod
-                                    .enum([
-                                        'engineering',
-                                        'data',
-                                        'product',
-                                        'founder',
-                                        'leadership',
-                                        'marketing',
-                                        'sales',
-                                        'student',
-                                        'other',
-                                    ])
-                                    .describe(
-                                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
-                                    ),
-                                zod.enum(['']),
-                                zod.null(),
-                            ])
-                            .optional(),
-                    })
-                    .optional(),
-                created_at: zod.iso.datetime({ offset: true }).optional(),
-                access_key: zod
-                    .string()
-                    .max(warehouseTablesCreateBodyCredentialOneAccessKeyMax)
-                    .describe(
-                        'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
-                    ),
-                access_secret: zod
-                    .string()
-                    .max(warehouseTablesCreateBodyCredentialOneAccessSecretMax)
-                    .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
-            })
-            .describe(
-                'Credentials PostHog reads the files with. Required on create, and only ever used against the bucket in `url_pattern`.'
-            ),
+        credential: zod.object({
+            id: zod.string().optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                    email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'student',
+                                    'other',
+                                ])
+                                .describe(
+                                    '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.null(),
+                        ])
+                        .optional(),
+                })
+                .optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
+            access_key: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessKeyMax)
+                .describe(
+                    'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
+                ),
+            access_secret: zod
+                .string()
+                .max(warehouseTablesCreateBodyCredentialAccessSecretMax)
+                .describe('Secret for the access key. Stored encrypted and never returned by the API.'),
+        }),
         options: zod
             .record(zod.string(), zod.unknown())
             .optional()

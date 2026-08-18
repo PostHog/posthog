@@ -53073,7 +53073,6 @@ export namespace Schemas {
          * @maxLength 500
          */
       url_pattern: string;
-      /** Credentials PostHog reads the files with. Required on create, and only ever used against the bucket in `url_pattern`. */
       credential: Credential;
       readonly columns: readonly TableColumnsItem[];
       readonly external_data_source: SimpleExternalDataSourceSerializers;
@@ -61945,7 +61944,6 @@ export namespace Schemas {
          * @maxLength 500
          */
       url_pattern?: string;
-      /** Credentials PostHog reads the files with. Required on create, and only ever used against the bucket in `url_pattern`. */
       credential?: Credential;
       readonly columns?: readonly PatchedTableColumnsItem[];
       readonly external_data_source?: SimpleExternalDataSourceSerializers;

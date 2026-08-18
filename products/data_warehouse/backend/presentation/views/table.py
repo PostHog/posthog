@@ -146,10 +146,7 @@ class CredentialSerializer(serializers.ModelSerializer):
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    credential = CredentialSerializer(
-        help_text="Credentials PostHog reads the files with. Required on create, and only ever used "
-        "against the bucket in `url_pattern`."
-    )
+    credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
     hogql_name = serializers.SerializerMethodField(
         read_only=True,
