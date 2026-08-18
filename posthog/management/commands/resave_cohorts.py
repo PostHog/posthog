@@ -150,14 +150,16 @@ class Command(BaseCommand):
             realtime_unclassified_count=len(global_realtime_unclassified),
         )
         self.stdout.write("")
-        final_style = self.style.WARNING if (global_errors > 0 or global_validation_errors > 0) else self.style.SUCCESS
+        healthy = global_errors == 0 and global_validation_errors == 0 and not global_realtime_unclassified
+        final_style = self.style.SUCCESS if healthy else self.style.WARNING
         self.stdout.write(
             final_style(
                 f"Done{dry_run_label}. "
                 f"{teams_processed} teams, {global_total} cohorts, "
                 f"{global_changed} changed ({change_pct}%), "
                 f"{global_prospective_realtime} realtime ({realtime_pct}%), "
-                f"{global_errors} errors, {global_validation_errors} validation errors"
+                f"{global_errors} errors, {global_validation_errors} validation errors, "
+                f"{len(global_realtime_unclassified)} unclassified realtime"
             )
         )
 
@@ -179,29 +181,47 @@ class Command(BaseCommand):
             "Fix their filters and rerun before treating the team as classified."
         )
 
+    def _existing_team_ids(self, requested: list[int]) -> list[int]:
+        """Refuse team ids that do not exist, so a typo cannot pass as a clean run over no cohorts."""
+        found = set(Team.objects.filter(id__in=requested).values_list("id", flat=True))
+        missing = sorted({team_id for team_id in requested if team_id not in found})
+        if missing:
+            raise CommandError(f"No team with id {', '.join(str(team_id) for team_id in missing)}")
+        return sorted(found)
+
     def _resolve_teams(self, options: dict[str, Any]) -> tuple[list[int] | None, str]:
         """Resolve the team selector into explicit ids, or None for every team."""
         team_id: int | None = options.get("team_id")
         raw_team_ids: str | None = options.get("team_ids")
         realtime_allowlist: bool = bool(options.get("realtime_allowlist"))
 
-        selectors = [name for name, given in (("--team-id", team_id), ("--team-ids", raw_team_ids)) if given]
-        if realtime_allowlist:
-            selectors.append("--realtime-allowlist")
+        # Presence, not truthiness: `--team-id 0` and `--team-ids ""` are mistakes, and reading them
+        # as "no selector given" would quietly widen the run to every team.
+        selectors = [
+            name
+            for name, given in (
+                ("--team-id", team_id is not None),
+                ("--team-ids", raw_team_ids is not None),
+                ("--realtime-allowlist", realtime_allowlist),
+            )
+            if given
+        ]
         if len(selectors) > 1:
             raise CommandError(f"Pass only one of {', '.join(selectors)}")
 
-        if team_id:
-            return [team_id], f"team {team_id}"
+        if team_id is not None:
+            if team_id <= 0:
+                raise CommandError("--team-id must be a positive integer")
+            return self._existing_team_ids([team_id]), f"team {team_id}"
 
-        if raw_team_ids:
+        if raw_team_ids is not None:
             try:
                 parsed = [int(part.strip()) for part in raw_team_ids.split(",") if part.strip()]
             except ValueError as err:
                 raise CommandError(f"--team-ids must be a comma-separated list of integers: {err}")
             if not parsed:
                 raise CommandError("--team-ids matched no team ids")
-            return parsed, f"{len(parsed)} teams"
+            return self._existing_team_ids(parsed), f"{len(parsed)} teams"
 
         if realtime_allowlist:
             allowed = [

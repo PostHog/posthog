@@ -9,6 +9,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -549,6 +551,24 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
     def test_conflicting_team_selectors_fail(self):
         with pytest.raises(CommandError, match="only one of"):
             call_command("resave_cohorts", team_id=self.team.id, realtime_allowlist=True)
+
+    @parameterized.expand(
+        [
+            ("unknown_team_id", {"team_id": 9999999}, "No team with id 9999999"),
+            ("unknown_team_ids", {"team_ids": "9999999"}, "No team with id 9999999"),
+            ("zero_team_id", {"team_id": 0}, "must be a positive integer"),
+            ("empty_team_ids", {"team_ids": ""}, "matched no team ids"),
+        ]
+    )
+    def test_selector_matching_no_team_fails(self, _name: str, kwargs: dict[str, Any], message: str):
+        cohort = Cohort.objects.create(team=self.team, name="rt", filters=_make_realtime_filters())
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None)
+
+        with pytest.raises(CommandError, match=message):
+            call_command("resave_cohorts", **kwargs)
+
+        cohort.refresh_from_db()
+        assert cohort.condition_type is None
 
 
 class TestResaveCohortsCommandConditionTypeVerification(BaseTest):
