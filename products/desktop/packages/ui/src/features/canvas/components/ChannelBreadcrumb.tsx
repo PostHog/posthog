@@ -136,10 +136,6 @@ export function ChannelBreadcrumb({
           <>
             <BreadcrumbSeparator />
             {editing && onRename ? (
-              // Matches the segment it replaces — same height, padding and type
-              // scale as a `size="sm"` button — so opening the editor doesn't
-              // jump the row. It takes the rest of the row, since a long name is
-              // exactly what you're most likely to be editing.
               <HeaderTitleEditor
                 initialTitle={leafLabel}
                 onSubmit={(next) => {
@@ -150,16 +146,10 @@ export function ChannelBreadcrumb({
                 className="h-6 px-2 font-normal text-[13px]"
               />
             ) : onRename ? (
-              // Only a renamable leaf gets a tooltip: it carries a user-authored
-              // name that can be long enough to truncate. Fixed section labels
-              // never overflow, so a tooltip there is just noise.
               <Tooltip>
                 <TooltipTrigger render={<span className="flex min-w-0" />}>
-                  {/* A renamable leaf is a live control — a click opens the
-                      editor — so it reads as one: full-strength text, pointer
-                      cursor, hover fill. */}
                   <BreadcrumbSegment
-                    icon={leafIcon}
+                    icon={<span className="mr-0.5">{leafIcon}</span>}
                     label={leafLabel}
                     onClick={() => setEditingScope(currentEditScope)}
                   />

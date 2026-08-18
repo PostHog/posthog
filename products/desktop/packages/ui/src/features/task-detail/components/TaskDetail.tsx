@@ -38,7 +38,7 @@ import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
 import { HeaderTitleEditor } from "../HeaderTitleEditor";
 import { useTaskData } from "../hooks/useTaskData";
 import { CustomImageBadge } from "./CustomImageBadge";
-import { TaskHeaderBadges, TaskHeaderMark } from "./TaskHeaderStatus";
+import { TaskHeaderActions, TaskHeaderMark } from "./TaskHeaderStatus";
 
 const MIN_REVIEW_WIDTH = 300;
 const log = logger.scope("task-detail");
@@ -216,8 +216,8 @@ export function TaskDetail({
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
           leafTrailing={
-            <span className="flex shrink-0 items-center gap-1">
-              <TaskHeaderBadges task={task} />
+            <span className="flex shrink-0 items-center gap-0">
+              <TaskHeaderActions task={task} />
               {trailing}
             </span>
           }
@@ -247,7 +247,7 @@ export function TaskDetail({
                   {task.title}
                 </Text>
               </Tooltip>
-              <TaskHeaderBadges task={task} />
+              <TaskHeaderActions task={task} />
             </Flex>
           )}
           {trailing}
