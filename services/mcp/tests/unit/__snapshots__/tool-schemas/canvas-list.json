@@ -19,7 +19,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Only return canvases whose name or description contains this text (case-insensitive).",
+            "description": "Case-insensitive match on name and description — use to find store components by what they show.",
             "type": "string"
         }
     },

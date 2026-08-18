@@ -7,12 +7,12 @@
         },
         "description": {
             "default": "",
-            "description": "Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls.",
+            "description": "Short prose describing the canvas. For components this is the store-search text — say what the widget shows and what its config controls, so future searches find it.",
             "type": "string"
         },
         "kind": {
             "default": "freeform",
-            "description": "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+            "description": "What to create: 'freeform' (a standalone app — the default), 'component' (a reusable widget for grid canvases; its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited via canvas-layout-patch). See canvas-list (kind=component) before creating a component.",
             "enum": ["freeform", "grid", "component"],
             "type": "string"
         },
