@@ -138,6 +138,7 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   startGithubUserIntegrationConnect: vi.fn(),
   getTaskRunSessionLogs: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
+  getTaskRunSessionLogsPage: vi.fn(),
 }));
 
 type MockAuthenticatedClient = typeof mockAuthenticatedClient;
@@ -501,6 +502,11 @@ describe("SessionService", () => {
       entries: [],
       complete: true,
       truncatedHeadCount: 0,
+    });
+    mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+      entries: [],
+      hasMore: false,
+      matchingCount: 0,
     });
     mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
     mockSessionStoreSetters.getSessions.mockReturnValue({});
@@ -1719,10 +1725,10 @@ describe("SessionService", () => {
           },
         } as AcpMessage,
       ];
-      mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
         entries: finalEntries,
-        complete: true,
-        truncatedHeadCount: 0,
+        hasMore: false,
+        matchingCount: finalEntries.length,
       });
       mockConvertStoredEntriesToEvents.mockReturnValueOnce(finalEvents);
 
@@ -1758,8 +1764,8 @@ describe("SessionService", () => {
       expect(onStatusChange).not.toHaveBeenCalled();
       await vi.waitFor(() => {
         expect(
-          mockAuthenticatedClient.getTaskRunSessionLogsResult,
-        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 100000 });
+          mockAuthenticatedClient.getTaskRunSessionLogsPage,
+        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 5000 });
       });
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -1783,6 +1789,13 @@ describe("SessionService", () => {
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": session,
+      });
+      // Without a matching-count header the window fetch falls back to the
+      // capped sequential fetch, which is the path that reports a dropped head.
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: [{ timestamp: "2024-01-01T00:00:00Z", notification: {} }],
+        hasMore: true,
+        matchingCount: null,
       });
       mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
         entries: [
@@ -1819,6 +1832,114 @@ describe("SessionService", () => {
           }),
         );
       });
+    });
+
+    it("renders the tail of an oversized chain and loads older pages on demand", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      const chainEntries = Array.from({ length: 12000 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
+        notification: { method: `entry-${i}` },
+      }));
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockImplementation(
+        async (
+          _taskId: string,
+          _runId: string,
+          options: { limit: number; offset?: number },
+        ) => {
+          const offset = options.offset ?? 0;
+          const entries = chainEntries.slice(offset, offset + options.limit);
+          return {
+            entries,
+            hasMore: offset + entries.length < chainEntries.length,
+            matchingCount: chainEntries.length,
+          };
+        },
+      );
+      mockConvertStoredEntriesToEvents.mockImplementation(
+        (entries: unknown[]) =>
+          entries.map(
+            (_, i) =>
+              ({
+                type: "acp_message",
+                ts: i,
+                message: { jsonrpc: "2.0", method: "session/update" },
+              }) as AcpMessage,
+          ),
+      );
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        undefined,
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "completed",
+      );
+
+      // Tail window commit: only the newest page renders, offset by its
+      // absolute start.
+      await vi.waitFor(() => {
+        expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({
+            transcriptWindowStart: 7000,
+            cloudTranscriptEntryCount: 12000,
+          }),
+        );
+      });
+      expect(mockConvertStoredEntriesToEvents).toHaveBeenCalledWith(
+        chainEntries.slice(7000),
+        undefined,
+        { taskRunId: "run-123", startEntryIndex: 7000 },
+      );
+      // Hydration fetches the probe and the tail page and nothing else - no
+      // eager backfill of the older history.
+      const hydrationOffsets = new Set(
+        mockAuthenticatedClient.getTaskRunSessionLogsPage.mock.calls.map(
+          (call) => (call[2] as { offset?: number }).offset ?? 0,
+        ),
+      );
+      expect(hydrationOffsets).toEqual(new Set([0, 7000]));
+
+      // Scrolling up loads exactly one older page and prepends it.
+      const hydrated = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+        transcriptWindowStart: 7000,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(hydrated);
+      await service.loadOlderCloudTranscript("task-123");
+
+      expect(
+        mockAuthenticatedClient.getTaskRunSessionLogsPage,
+      ).toHaveBeenLastCalledWith("task-123", "run-123", {
+        limit: 5000,
+        offset: 2000,
+      });
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ transcriptWindowStart: 2000 }),
+      );
     });
 
     it("falls back to the run log URL when terminal chain hydration is empty", async () => {
@@ -2021,8 +2142,8 @@ describe("SessionService", () => {
       // instead of being deduped onto the in-flight resume-chain hydration.
       await vi.waitFor(() => {
         expect(
-          mockAuthenticatedClient.getTaskRunSessionLogsResult,
-        ).toHaveBeenCalledTimes(3);
+          mockAuthenticatedClient.getTaskRunSessionLogsPage,
+        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 5000 });
       });
       resolveFirstHydration({
         entries: [],
@@ -4234,63 +4355,64 @@ describe("SessionService", () => {
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": completedSession,
       });
-      mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
-        complete: true,
-        truncatedHeadCount: 0,
-        entries: [
-          {
-            type: "notification",
-            notification: {
-              method: "_posthog/sdk_session",
-              params: {
-                taskRunId: "run-123",
-                sessionId: "acp-session-1",
-                adapter: "claude",
-              },
+      const pendingQuestionEntries = [
+        {
+          type: "notification",
+          notification: {
+            method: "_posthog/sdk_session",
+            params: {
+              taskRunId: "run-123",
+              sessionId: "acp-session-1",
+              adapter: "claude",
             },
           },
-          {
-            type: "notification",
-            notification: {
-              method: "_posthog/run_started",
-              params: {
-                sessionId: "acp-session-1",
-                runId: "run-123",
-                taskId: "task-123",
-              },
+        },
+        {
+          type: "notification",
+          notification: {
+            method: "_posthog/run_started",
+            params: {
+              sessionId: "acp-session-1",
+              runId: "run-123",
+              taskId: "task-123",
             },
           },
-          {
-            type: "notification",
-            notification: {
-              method: "_posthog/permission_request",
-              params: {
-                requestId: "request-1",
-                toolCall: {
-                  toolCallId: "tool-1",
-                  title: "What animal do you prefer?",
-                  kind: "other",
-                  _meta: {
-                    codeToolKind: "question",
-                    questions: [
-                      {
-                        question: "What animal do you prefer?",
-                        options: [
-                          { label: "cats", description: "Cats" },
-                          { label: "dogs", description: "Dogs" },
-                        ],
-                      },
-                    ],
-                  },
+        },
+        {
+          type: "notification",
+          notification: {
+            method: "_posthog/permission_request",
+            params: {
+              requestId: "request-1",
+              toolCall: {
+                toolCallId: "tool-1",
+                title: "What animal do you prefer?",
+                kind: "other",
+                _meta: {
+                  codeToolKind: "question",
+                  questions: [
+                    {
+                      question: "What animal do you prefer?",
+                      options: [
+                        { label: "cats", description: "Cats" },
+                        { label: "dogs", description: "Dogs" },
+                      ],
+                    },
+                  ],
                 },
-                options: [
-                  { optionId: "option_0", name: "cats", kind: "allow_once" },
-                  { optionId: "option_1", name: "dogs", kind: "allow_once" },
-                ],
               },
+              options: [
+                { optionId: "option_0", name: "cats", kind: "allow_once" },
+                { optionId: "option_1", name: "dogs", kind: "allow_once" },
+              ],
             },
           },
-        ],
+        },
+      ];
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: pendingQuestionEntries,
+        hasMore: false,
+        matchingCount: pendingQuestionEntries.length,
       });
 
       service.watchCloudTask(

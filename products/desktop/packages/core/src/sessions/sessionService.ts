@@ -10,10 +10,12 @@ import type {
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
-import type {
-  CreateResourceCommentRequest,
-  ResourceComment,
-  TaskRunSessionLogsResult,
+import {
+  type CreateResourceCommentRequest,
+  type PostHogAPIClient,
+  type ResourceComment,
+  SESSION_LOGS_MAX_PAGE_SIZE,
+  type TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -223,6 +225,22 @@ interface CloudHydrationResult {
   historyEntryCount: number;
   liveStreamLineCount: number;
 }
+
+/** Oldest entries a hydration keeps in memory across a cloud resume chain. */
+const CLOUD_HYDRATION_MAX_ENTRIES = 100_000;
+
+interface ChainTranscriptWindow {
+  entries: StoredLogEntry[];
+  /** Absolute index in the chain log of `entries[0]`. */
+  windowStart: number;
+  /** Chain log entry count at fetch time. */
+  chainTotal: number;
+}
+
+type SessionLogsClient = Pick<
+  PostHogAPIClient,
+  "getTaskRunSessionLogsPage" | "getTaskRunSessionLogsResult"
+>;
 
 interface CloudTaskWatcher {
   runId: string;
@@ -1688,6 +1706,7 @@ export class SessionService {
   private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
+  private olderTranscriptLoads = new Set<string>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
   /** Maps toolCallId → cloud requestId for routing permission responses */
   private cloudPermissionRequestIds = new Map<string, string>();
@@ -6522,6 +6541,159 @@ export class SessionService {
     }
   }
 
+  /**
+   * Fetch the newest window of a run's chain log: one probe page to learn the
+   * total, then the tail pages. Small logs come back whole (windowStart 0);
+   * oversized ones come back as just the newest page - older pages load on
+   * demand as the thread scrolls up. Returns null when the fetch fails.
+   */
+  private async fetchChainTranscriptWindow(
+    client: SessionLogsClient,
+    taskId: string,
+    taskRunId: string,
+  ): Promise<ChainTranscriptWindow | null> {
+    try {
+      const first = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+        limit: SESSION_LOGS_MAX_PAGE_SIZE,
+      });
+      if (!first.hasMore || first.entries.length === 0) {
+        return {
+          entries: first.entries,
+          windowStart: 0,
+          chainTotal: first.entries.length,
+        };
+      }
+      if (first.matchingCount === null) {
+        // Servers without the matching-count header cannot report the total,
+        // so fall back to the sequential capped fetch.
+        const result = await client.getTaskRunSessionLogsResult(
+          taskId,
+          taskRunId,
+          { limit: CLOUD_HYDRATION_MAX_ENTRIES },
+        );
+        if (!result.complete) return null;
+        return {
+          entries: result.entries,
+          windowStart: result.truncatedHeadCount,
+          chainTotal: result.truncatedHeadCount + result.entries.length,
+        };
+      }
+      const tailStart = Math.max(
+        first.entries.length,
+        first.matchingCount - SESSION_LOGS_MAX_PAGE_SIZE,
+      );
+      const tail: StoredLogEntry[] = [];
+      let offset = tailStart;
+      while (offset < first.matchingCount) {
+        const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+          limit: Math.min(
+            SESSION_LOGS_MAX_PAGE_SIZE,
+            first.matchingCount - offset,
+          ),
+          offset,
+        });
+        if (page.entries.length === 0) break;
+        tail.push(...page.entries);
+        offset += page.entries.length;
+      }
+      const chainTotal = tailStart + tail.length;
+      if (tailStart === first.entries.length) {
+        return {
+          entries: [...first.entries, ...tail],
+          windowStart: 0,
+          chainTotal,
+        };
+      }
+      this.d.log.info("Hydrating cloud transcript tail window", {
+        taskId,
+        taskRunId,
+        windowStart: tailStart,
+        chainTotal,
+      });
+      return {
+        entries: tail,
+        windowStart: tailStart,
+        chainTotal,
+      };
+    } catch (error) {
+      this.d.log.warn("Cloud transcript window fetch failed", {
+        taskId,
+        taskRunId,
+        error,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Fetch the page of chain history just above the hydrated window and
+   * prepend it. Driven by the thread scrolling near the top; each call loads
+   * one page. Older pages carry no stream positions - position stamping only
+   * matters for live-stream dedup, and windowed hydration only runs for
+   * terminal runs.
+   */
+  async loadOlderCloudTranscript(taskId: string): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session?.isCloud) return;
+    const taskRunId = session.taskRunId;
+    const windowStart = session.transcriptWindowStart ?? 0;
+    if (windowStart <= 0 || this.olderTranscriptLoads.has(taskRunId)) return;
+    this.olderTranscriptLoads.add(taskRunId);
+    this.d.store.updateSession(taskRunId, { isLoadingOlderTranscript: true });
+    try {
+      const authStatus = await this.getAuthCredentialsStatus();
+      if (authStatus.kind !== "ready") return;
+
+      const pageStart = Math.max(0, windowStart - SESSION_LOGS_MAX_PAGE_SIZE);
+      const older: StoredLogEntry[] = [];
+      let offset = pageStart;
+      while (offset < windowStart) {
+        const page = await authStatus.auth.client.getTaskRunSessionLogsPage(
+          taskId,
+          taskRunId,
+          {
+            limit: Math.min(SESSION_LOGS_MAX_PAGE_SIZE, windowStart - offset),
+            offset,
+          },
+        );
+        if (page.entries.length === 0) break;
+        older.push(...page.entries.slice(0, windowStart - offset));
+        offset += page.entries.length;
+      }
+      if (older.length === 0) return;
+
+      const current = this.d.store.getSessionByTaskId(taskId);
+      if (!current || current.taskRunId !== taskRunId) return;
+      if ((current.transcriptWindowStart ?? 0) !== windowStart) return;
+
+      const olderEvents = convertStoredEntriesToEvents(older);
+      this.d.store.updateSession(taskRunId, {
+        events: [...olderEvents, ...current.events],
+        transcriptWindowStart: windowStart - older.length,
+      });
+      this.d.log.info("Older cloud transcript page loaded", {
+        taskId,
+        taskRunId,
+        pageStart,
+        loadedCount: older.length,
+      });
+    } catch (error) {
+      this.d.log.warn("Older cloud transcript page load failed", {
+        taskId,
+        taskRunId,
+        windowStart,
+        error,
+      });
+    } finally {
+      this.olderTranscriptLoads.delete(taskRunId);
+      if (this.d.store.getSessions()[taskRunId]) {
+        this.d.store.updateSession(taskRunId, {
+          isLoadingOlderTranscript: false,
+        });
+      }
+    }
+  }
+
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
@@ -6533,9 +6705,11 @@ export class SessionService {
     let rawEntries: StoredLogEntry[];
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
-    // How many entries the tail fetch dropped off the front of rawEntries. The
-    // stream cursors count from the start of the chain, and the engine's own
-    // totals still include those entries, so they have to be added back.
+    let transcriptWindow: ChainTranscriptWindow | null = null;
+    // How many entries a capped fetch dropped off the front of rawEntries on
+    // paths that produce no window. The stream cursors count from the start of
+    // the chain, and the engine's own totals still include those entries, so
+    // they have to be added back.
     let truncatedHeadCount = 0;
     const resumeFromRunId =
       typeof runState?.resume_from_run_id === "string"
@@ -6554,13 +6728,12 @@ export class SessionService {
       }
       if (resumeFromRunId) {
         if (isTerminalStatus(runStatus)) {
-          const result =
-            await authStatus.auth.client.getTaskRunSessionLogsResult(
-              taskId,
-              taskRunId,
-              { limit: 100000 },
-            );
-          if (!result.complete) {
+          const window = await this.fetchChainTranscriptWindow(
+            authStatus.auth.client,
+            taskId,
+            taskRunId,
+          );
+          if (!window) {
             this.d.log.warn("Resume session log hydration was incomplete", {
               taskId,
               taskRunId,
@@ -6568,9 +6741,8 @@ export class SessionService {
             });
             return;
           }
-          this.logHydrationTruncation(taskId, taskRunId, result);
-          rawEntries = result.entries;
-          truncatedHeadCount = result.truncatedHeadCount;
+          transcriptWindow = window;
+          rawEntries = window.entries;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
           );
@@ -6585,12 +6757,12 @@ export class SessionService {
             authStatus.auth.client.getTaskRunSessionLogsResult(
               taskId,
               resumeFromRunId,
-              { limit: 100000 },
+              { limit: CLOUD_HYDRATION_MAX_ENTRIES },
             ),
             authStatus.auth.client.getTaskRunSessionLogsResult(
               taskId,
               taskRunId,
-              { limit: 100000 },
+              { limit: CLOUD_HYDRATION_MAX_ENTRIES },
             ),
           ]);
           if (!ancestorResult.complete || !currentRunResult.complete) {
@@ -6636,28 +6808,28 @@ export class SessionService {
           );
         }
       } else {
-        const result = await authStatus.auth.client.getTaskRunSessionLogsResult(
+        const window = await this.fetchChainTranscriptWindow(
+          authStatus.auth.client,
           taskId,
           taskRunId,
-          { limit: 100000 },
         );
-        if (!result.complete) {
+        if (!window) {
           this.d.log.warn("Session log hydration was incomplete", {
             taskId,
             taskRunId,
           });
           return;
         }
-        this.logHydrationTruncation(taskId, taskRunId, result);
-        rawEntries = result.entries;
-        truncatedHeadCount = result.truncatedHeadCount;
-        liveStreamLineCount = rawEntries.length;
+        transcriptWindow = window;
+        rawEntries = window.entries;
+        liveStreamLineCount = window.chainTotal;
         // A terminal run whose persisted chain comes back empty can still
         // have a complete S3 session log (persistence raced teardown); fall
         // back to it rather than hydrating an empty final transcript.
         if (rawEntries.length === 0 && logUrl) {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           if (parsed.rawEntries.length > 0) {
+            transcriptWindow = null;
             rawEntries = parsed.rawEntries;
             truncatedHeadCount = 0;
             liveStreamLineCount = parsed.totalLineCount;
@@ -6675,11 +6847,23 @@ export class SessionService {
       return;
     }
 
-    let events = convertStoredEntriesToEvents(rawEntries, undefined, {
-      taskRunId,
-      startEntryIndex: 0,
-      firstPositionedEntryIndex: resumeLeafEntryStartIndex,
-    });
+    const chainTotal =
+      transcriptWindow?.chainTotal ?? rawEntries.length + truncatedHeadCount;
+    const windowStart = transcriptWindow?.windowStart ?? 0;
+    // Resume-chain positions are leaf-relative (stamped from the leaf marker);
+    // single-run positions are indexes into the run's own log, so a tail
+    // window offsets them by its absolute start.
+    let events = convertStoredEntriesToEvents(
+      rawEntries,
+      undefined,
+      isResumeRun || windowStart === 0
+        ? {
+            taskRunId,
+            startEntryIndex: 0,
+            firstPositionedEntryIndex: resumeLeafEntryStartIndex,
+          }
+        : { taskRunId, startEntryIndex: windowStart },
+    );
     if (isResumeRun && session.events.length > 0) {
       const inheritedEvents = reconcileLiveEventsWithHydratedEvents(
         session.events,
@@ -6740,12 +6924,11 @@ export class SessionService {
       };
     }
 
-    const chainEntryCount = rawEntries.length + truncatedHeadCount;
     // If live updates already populated a processed count, don't overwrite
     // that newer state with the persisted baseline fetched during startup.
     // Terminal hydration is different: it is the final transcript, so apply
     // it whenever the persisted chain has more lines than the local stream.
-    const effectiveLineCount = Math.max(liveStreamLineCount, chainEntryCount);
+    const effectiveLineCount = Math.max(liveStreamLineCount, chainTotal);
     const alreadyApplied = isTerminalRun
       ? (session.processedLineCount ?? 0) >= effectiveLineCount
       : session.processedLineCount !== undefined &&
@@ -6755,7 +6938,7 @@ export class SessionService {
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
-        historyEntryCount: chainEntryCount,
+        historyEntryCount: chainTotal,
         liveStreamLineCount: session.processedLineCount ?? liveStreamLineCount,
       };
     }
@@ -6773,7 +6956,8 @@ export class SessionService {
       events,
       isCloud: true,
       logUrl: logUrl ?? session.logUrl,
-      cloudTranscriptEntryCount: chainEntryCount,
+      cloudTranscriptEntryCount: chainTotal,
+      transcriptWindowStart: windowStart,
       // Terminal hydration records the whole chain as processed so nothing
       // re-applies it; live resume runs keep the leaf-stream cursor.
       processedLineCount: isTerminalRun
@@ -6790,7 +6974,7 @@ export class SessionService {
       this.clearTerminalCloudPromptState(taskRunId);
     }
     return {
-      historyEntryCount: chainEntryCount,
+      historyEntryCount: chainTotal,
       liveStreamLineCount,
     };
   }

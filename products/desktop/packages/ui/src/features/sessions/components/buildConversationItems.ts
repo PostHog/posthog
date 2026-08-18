@@ -118,6 +118,10 @@ interface TurnState {
   context: TurnContext;
   gitAction: ReturnType<typeof parseGitActionMessage>;
   itemCount: number;
+  /** Per-turn id sequence. Derived from the turn's own events alone, so item
+   *  ids stay identical when older history is prepended and the whole
+   *  conversation rebuilds - the virtualized thread anchors on them. */
+  nextItemId: number;
 }
 
 export interface ItemBuilder {
@@ -131,7 +135,6 @@ export interface ItemBuilder {
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
-  nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
    *  event for the same id mutates the same card, regardless of which turn is
@@ -156,7 +159,6 @@ export interface ItemBuilder {
 }
 
 export function createItemBuilder(): ItemBuilder {
-  let idCounter = 0;
   return {
     items: [],
     currentTurn: null,
@@ -165,7 +167,6 @@ export function createItemBuilder(): ItemBuilder {
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
-    nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
@@ -237,7 +238,7 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   turn.itemCount++;
   b.items.push({
     type: "session_update",
-    id: `${turn.id}-item-${b.nextId()}`,
+    id: `${turn.id}-item-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
     timestamp: ts,
@@ -566,6 +567,7 @@ function handlePromptRequest(
     context,
     gitAction,
     itemCount: 0,
+    nextItemId: 0,
   };
 
   b.pendingPrompts.set(msg.id, b.currentTurn);
@@ -998,6 +1000,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     context,
     gitAction: { isGitAction: false, actionType: null, prompt: "" },
     itemCount: 0,
+    nextItemId: 0,
   };
 }
 
@@ -1034,7 +1037,7 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
   turn.itemCount++;
   children.push({
     type: "session_update",
-    id: `${turn.id}-child-${b.nextId()}`,
+    id: `${turn.id}-child-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
   });
@@ -1080,7 +1083,7 @@ function appendTextChunkToChildren(
     turn.itemCount++;
     children.push({
       type: "session_update",
-      id: `${turn.id}-child-${b.nextId()}`,
+      id: `${turn.id}-child-${turn.nextItemId++}`,
       update: { ...update, content: { ...update.content } },
       turnContext: turn.context,
     });

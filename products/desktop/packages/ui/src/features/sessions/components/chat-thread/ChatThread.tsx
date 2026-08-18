@@ -1246,6 +1246,12 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  /** True when older transcript history exists above the loaded window. */
+  hasOlderHistory?: boolean;
+  /** True while an older history page is loading. */
+  isLoadingOlderHistory?: boolean;
+  /** Invoked when the thread scrolls near the top of the loaded window. */
+  onLoadOlderHistory?: () => void;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1344,6 +1350,9 @@ function ChatThreadRenderer({
   footerState,
   hasPendingPermission,
   promptRecallRef,
+  hasOlderHistory,
+  isLoadingOlderHistory,
+  onLoadOlderHistory,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
   const diffsPoolOptions = useMemo(
@@ -1540,6 +1549,9 @@ function ChatThreadRenderer({
                 footer={footer}
                 renderNav={renderNav}
                 resumeRef={threadResumeRef}
+                hasOlderHistory={hasOlderHistory}
+                isLoadingOlderHistory={isLoadingOlderHistory}
+                onLoadOlderHistory={onLoadOlderHistory}
               />
             ) : (
               <>
