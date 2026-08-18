@@ -229,16 +229,18 @@ class TestBuildChartImageUrls:
 
 
 class TestChartsOnSlackMessages:
-    def test_charts_sit_between_the_title_and_the_report(self) -> None:
+    def test_charts_follow_the_report_text(self) -> None:
+        # Insight subscriptions put the AI summary above their images; this matches that order.
         message = _build_ai_slack_message(
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
 
-        assert [block["type"] for block in message.blocks[:3]] == ["section", "image", "section"]
-        assert message.blocks[1]["image_url"] == _CHART["image_url"]
-        assert message.blocks[1]["alt_text"] == "signups by day"
+        assert [block["type"] for block in message.blocks[:3]] == ["section", "section", "image"]
+        assert message.blocks[1]["text"]["text"] == "A short report."
+        assert message.blocks[2]["image_url"] == _CHART["image_url"]
+        assert message.blocks[2]["alt_text"] == "signups by day"
         # The block title is what a reader sees above the chart; alt_text only serves screen readers.
-        assert message.blocks[1]["title"] == {"type": "plain_text", "text": "signups by day"}
+        assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
         # Slack rejects an empty plain_text title, so an untitled chart must omit the field.
@@ -249,8 +251,8 @@ class TestChartsOnSlackMessages:
             charts=[{"title": "", "image_url": "https://ph.test/img.png"}],
         )
 
-        assert "title" not in message.blocks[1]
-        assert message.blocks[1]["alt_text"] == "Chart"
+        assert "title" not in message.blocks[2]
+        assert message.blocks[2]["alt_text"] == "Chart"
 
     def test_a_chartless_report_posts_no_image_blocks(self) -> None:
         message = _build_message("A short report.")

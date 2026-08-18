@@ -336,8 +336,11 @@ def _build_ai_slack_message(
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
 
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}}]
-    # Charts lead: the picture is the point, the prose explains it.
+    blocks: list[dict] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
+    ]
+    # Charts follow the report, matching how insight subscriptions order summary then images.
     for chart in charts or []:
         # Slack rejects an empty alt_text; the block's own `title` is what readers see.
         caption = chart.get("title") or "Chart"
@@ -345,7 +348,6 @@ def _build_ai_slack_message(
         if chart.get("title"):
             image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
         blocks.append(image_block)
-    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": first_section}})
     if len(sections) > 1:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}

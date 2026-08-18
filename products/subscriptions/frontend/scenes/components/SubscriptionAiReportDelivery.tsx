@@ -413,6 +413,16 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                     {prompt}
                 </div>
             ) : null}
+            {report ? (
+                <div className="flex flex-col gap-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered report</div>
+                    <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
+                        {/* LLM-generated content: disableImages so an image URL in the report can't auto-fire a
+                            request (tracking pixel / IP leak / internal-address probe) when a teammate opens this. */}
+                        <LemonMarkdown disableImages>{report}</LemonMarkdown>
+                    </div>
+                </div>
+            ) : null}
             {charts.length > 0 && currentTeamId ? (
                 <div className="flex flex-col gap-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Charts</div>
@@ -422,22 +432,12 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                             <img
                                 className="max-w-full rounded border"
                                 // First-party PNGs the backend rendered, addressed by asset id — not urls
-                                // the model wrote, which is what disableImages below guards against.
+                                // the model wrote, which is what disableImages above guards against.
                                 src={getExportsContentRetrieveUrl(String(currentTeamId), chart.export_asset_id)}
                                 alt={chart.title}
                             />
                         </div>
                     ))}
-                </div>
-            ) : null}
-            {report ? (
-                <div className="flex flex-col gap-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered report</div>
-                    <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
-                        {/* LLM-generated content: disableImages so an image URL in the report can't auto-fire a
-                            request (tracking pixel / IP leak / internal-address probe) when a teammate opens this. */}
-                        <LemonMarkdown disableImages>{report}</LemonMarkdown>
-                    </div>
                 </div>
             ) : null}
             {recipients.length > 0 ? (
