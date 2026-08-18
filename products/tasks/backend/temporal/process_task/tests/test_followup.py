@@ -46,6 +46,21 @@ def _mock_get_context(_input) -> TaskProcessingContext:
         github_integration_id=1,
         repository="org/repo",
         distinct_id="user-1",
+        state={"mode": "interactive"},
+    )
+
+
+@activity.defn(name="get_task_processing_context")
+def _mock_get_context_background(_input) -> TaskProcessingContext:
+    return TaskProcessingContext(
+        task_id="task-1",
+        run_id="run-1",
+        team_id=1,
+        team_uuid=str(uuid.uuid4()),
+        organization_id=str(uuid.uuid4()),
+        github_integration_id=1,
+        repository="org/repo",
+        distinct_id="user-1",
     )
 
 
@@ -101,12 +116,12 @@ def _mock_send_followup_raises(_input) -> None:
     raise RuntimeError("Sandbox session is dead")
 
 
-_progress_events: list[tuple[str, str, str, str | None]] = []
+_progress_events: list[tuple[str, str, str, str | None, str]] = []
 
 
 @activity.defn(name="emit_progress_activity")
 def _mock_emit_progress(input: EmitProgressInput) -> None:
-    _progress_events.append((input.step, input.status, input.label, input.detail))
+    _progress_events.append((input.step, input.status, input.label, input.detail, input.group))
 
 
 @activity.defn(name="track_workflow_event")
@@ -129,10 +144,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 class TestFollowupDeliveryFailure:
     @pytest.mark.timeout(30, func_only=True)
-    async def test_failed_followup_keeps_run_alive_and_surfaces_the_failure(self):
-        """A follow-up that cannot be delivered must not terminalize the run:
-        the failure surfaces as a failed progress card and the run stays
-        alive until its normal inactivity exit."""
+    async def test_failed_interactive_followup_keeps_run_alive_and_surfaces_the_failure(self):
         _status_updates.clear()
         _progress_events.clear()
 
@@ -173,7 +185,10 @@ class TestFollowupDeliveryFailure:
                 # Let setup activities complete before signaling
                 await asyncio.sleep(2)
 
-                await handle.signal(ProcessTaskWorkflow.send_followup_message, "test followup")
+                await handle.signal(
+                    ProcessTaskWorkflow.send_followup_message,
+                    args=["test followup", [], "msg-1"],
+                )
 
                 result = await handle.result()
 
@@ -189,8 +204,61 @@ class TestFollowupDeliveryFailure:
                 "failed",
                 "Couldn't deliver your message",
                 "RuntimeError: Sandbox session is dead",
+                "followup-delivery:msg-1:run-1",
             )
         ]
+
+    @pytest.mark.timeout(30, func_only=True)
+    async def test_failed_background_followup_marks_run_as_failed_promptly(self):
+        _status_updates.clear()
+        _progress_events.clear()
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[ProcessTaskWorkflow],
+                activities=[
+                    _mock_get_context_background,
+                    _mock_update_status,
+                    _mock_prepare_sandbox,
+                    _mock_create_sandbox,
+                    _mock_clone_repository,
+                    _mock_start_agent,
+                    _mock_forward,
+                    _mock_send_followup_raises,
+                    _mock_emit_progress,
+                    _mock_track,
+                    _mock_read_logs,
+                    _mock_cleanup,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=5),
+            ):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    # A background run must fail fast so poll_for_turn callers
+                    # stop waiting - well before the inactivity timeout.
+                    execution_timeout=timedelta(minutes=2),
+                )
+
+                # Let setup activities complete before signaling
+                await asyncio.sleep(2)
+
+                await handle.signal(ProcessTaskWorkflow.send_followup_message, "test followup")
+
+                result = await handle.result()
+
+        assert result.success is True
+
+        failed_updates = [(s, e) for s, e, _ in _status_updates if s == "failed"]
+        assert failed_updates == [("failed", "Follow-up delivery failed: RuntimeError: Sandbox session is dead")]
+        assert [event for event in _progress_events if event[0] == "followup_delivery"] == []
 
 
 _ci_context_overrides: dict = {}

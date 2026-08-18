@@ -326,6 +326,13 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+# Keeps an interactive run alive when a follow-up delivery exhausts retries: the
+# failure surfaces as a progress card and the message's dedupe key is released so a
+# retry can land. Background runs keep the fail-fast terminalization their
+# poll_for_turn callers read as "stop waiting". Same two-step cleanup lifecycle as
+# the patches above.
+_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -2608,18 +2615,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            if workflow.patched("followup-failure-keeps-run-2026-08"):
-                # A dead-letter follow-up must not kill a healthy run: the agent
-                # keeps its current turn, and a later follow-up (for example the
-                # task creator's) can still land. Surface the failure on the
-                # stream instead of terminalizing the run.
-                await self._emit_progress(
-                    step="followup_delivery",
-                    status="failed",
-                    label="Couldn't deliver your message",
-                    group=f"followup-delivery:{message_id or workflow.uuid4()}",
-                    detail=str(cause_message or e),
-                )
+            if self.context.mode == "interactive" and workflow.patched(_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN):
+                # A dead-letter follow-up must not kill a healthy interactive
+                # run: the agent keeps its current turn, and a later follow-up
+                # can still land.
+                if message_id:
+                    dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
+                    if dedupe_key in self._accepted_message_id_set:
+                        # Release the idempotency key so a retry of this exact
+                        # message is delivered instead of deduped away.
+                        self._accepted_message_id_set.discard(dedupe_key)
+                        self._accepted_message_ids.remove(dedupe_key)
+                    await self._emit_progress(
+                        step="followup_delivery",
+                        status="failed",
+                        label="Couldn't deliver your message",
+                        group=f"followup-delivery:{message_id}",
+                        detail=str(cause_message or e),
+                    )
                 return None
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
