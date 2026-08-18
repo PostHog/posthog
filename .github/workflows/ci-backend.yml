@@ -1153,7 +1153,7 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true'
-        timeout-minutes: 15
+        timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:

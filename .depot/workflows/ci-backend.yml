@@ -988,7 +988,7 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
-        timeout-minutes: 15
+        timeout-minutes: 10
         permissions:
             contents: read
             pull-requests: read # list PR files for the deleted-migration check
