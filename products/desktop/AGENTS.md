@@ -219,6 +219,22 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
+- `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
+
+## Mobile Host Types
+
+`apps/mobile` typechecks against a baseline of pre-existing errors, not against zero.
+`pnpm typecheck` runs it like every other package; `scripts/check-mobile-types.mjs` fails only on errors absent from `scripts/mobile-type-baseline.json`.
+
+Metro strips types instead of checking them, so before this the mobile host was the one place a shared-package change could break without CI noticing — a new method on a `@posthog/platform` interface, a renamed `@posthog/core` export.
+
+After fixing baselined errors, shrink the baseline:
+
+```bash
+node scripts/check-mobile-types.mjs --prune
+```
+
+Do not use `--init` to baseline new errors.
 
 ## UI Components
 
