@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
+import { MaybeBuyHedgehogCoffeeModal } from 'lib/components/BuyHedgehogCoffee/BuyHedgehogCoffee'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
-import { MaybeBuyHedgehogCoffeeModal } from 'lib/components/BuyHedgehogCoffee/BuyHedgehogCoffee'
 import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
 import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
