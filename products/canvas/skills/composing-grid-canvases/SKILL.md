@@ -62,13 +62,16 @@ with three additions:
   }
   ```
 
-  Size is in grid units (widths 1–12, heights 1–40); `minW <= defaultW <= maxW`. The config schema
+  Size is in grid units (widths 1–12, heights 1–40); `minW <= defaultW <= maxW`. The range is
+  advisory: users may resize a placement to any size, so it informs defaults and warnings, never
+  rejections. The config schema
   vocabulary is an allowlist — `type`, `title`, `description`, `default`, `properties`, `required`,
   `additionalProperties`, `items`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`,
   `minItems`, `maxItems`, `format`. No `$ref`, no `pattern` — validation rejects them.
 
-- **Design for the size range.** A 2×1 placement is a glanceable tile; a 6×4 is a full app surface.
-  Render usefully at `minW`×`minH`, and treat `config` as the only per-placement input.
+- **Design responsively.** Fill 100% of the box's width and height, and adapt the layout to any
+  size the user drags: a 2×1 placement is a glanceable tile; a 6×4 is a full app surface. Render
+  usefully at `minW`×`minH`, and treat `config` as the only per-placement input.
 
 Publish and wait for the build like any canvas — a component with no ready build cannot go live on
 a grid.
@@ -102,7 +105,7 @@ A placement's `status` tells the renderer what to show:
 - `failed` — generation failed; keep the `prompt` so the user can retry or re-describe.
 
 When a task asks you to fill a placement, its prompt and the box's size are your brief: honor the
-drawn `w`×`h` (the component's size contract must admit it) and keep the placement's `prompt`
+drawn `w`×`h` and keep the placement's `prompt`
 intact for provenance.
 
 ## Validation you will hit
@@ -113,7 +116,8 @@ Layout publishes validate atomically; every error names its placement. The commo
   user (a component in someone else's personal channel is not placeable).
 - `component_not_published` — the component has never published a placement contract.
 - `placement_config_invalid` — `config` does not match the component's `configSchema`.
-- `placement_size_out_of_contract` — the box's `w`/`h` falls outside the component's size range.
+- `placement_size_out_of_contract` — a warning, not an error: the box's `w`/`h` is outside the
+  component's suggested range. The publish still succeeds; the component must render responsively.
 - `placements_overlap` / `invalid_placement` — geometry; fix coordinates rather than removing the
   other widget.
 
