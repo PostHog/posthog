@@ -117,6 +117,16 @@ const LOCAL_SESSION_RECONNECT_BACKOFF = {
   initialDelayMs: 1_000,
   maxDelayMs: 5_000,
 };
+const CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF = {
+  initialDelayMs: 1_000,
+  maxDelayMs: 30_000,
+};
+/**
+ * Recovery keeps retrying past this point (a later attempt can still succeed,
+ * e.g. after the main process finishes restarting), but from here on the
+ * session shows the retryable error banner instead of stalling silently.
+ */
+const CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS = 3;
 const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
@@ -234,6 +244,9 @@ interface CloudTaskWatcher {
   bufferedResumeUpdates: CloudTaskUpdatePayload[];
   processCloudUpdate: (update: CloudTaskUpdatePayload) => void;
   subscription: { unsubscribe: () => void };
+  subscriptionRecoveryAttempts: number;
+  subscriptionRecoveryTimeoutId: ReturnType<typeof setTimeout> | null;
+  subscriptionErrorSurfaced: boolean;
   onStatusChange?: () => void;
 }
 
@@ -6285,38 +6298,19 @@ export class SessionService {
       bufferedResumeUpdates: [],
       processCloudUpdate,
       subscription: { unsubscribe: () => undefined },
+      subscriptionRecoveryAttempts: 0,
+      subscriptionRecoveryTimeoutId: null,
+      subscriptionErrorSurfaced: false,
       onStatusChange,
     };
     this.cloudTaskWatchers.set(taskId, watcher);
 
     // Subscribe before starting the main-process watcher so the first replayed
     // SSE/log burst cannot race ahead of the renderer subscription.
-    watcher.subscription = this.d.trpc.cloudTask.onUpdate.subscribe(
-      { taskId, runId },
-      {
-        onData: (update: CloudTaskUpdatePayload) => {
-          const activeWatcher = this.cloudTaskWatchers.get(taskId);
-          if (!activeWatcher || activeWatcher.runId !== runId) {
-            return;
-          }
-          if (activeWatcher.bufferResumeUpdates) {
-            activeWatcher.bufferedResumeUpdates.push(update);
-            return;
-          }
-          activeWatcher.processCloudUpdate(update);
-        },
-        onError: (err: unknown) =>
-          this.d.log.error("Cloud task subscription error", { taskId, err }),
-        onComplete: () => {
-          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
-            return;
-          }
-          this.d.log.warn(
-            "Cloud task subscription ended without an error, updates stop until the task is reopened",
-            { taskId, runId },
-          );
-        },
-      },
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      startToken,
     );
 
     if (shouldHydrateSession) {
@@ -6798,6 +6792,155 @@ export class SessionService {
     return watcher?.runId === runId && watcher.startToken === startToken;
   }
 
+  private attachCloudTaskSubscription(
+    taskId: string,
+    runId: string,
+    startToken: number,
+  ): { unsubscribe: () => void } {
+    return this.d.trpc.cloudTask.onUpdate.subscribe(
+      { taskId, runId },
+      {
+        onData: (update: CloudTaskUpdatePayload) => {
+          const activeWatcher = this.cloudTaskWatchers.get(taskId);
+          if (!activeWatcher || activeWatcher.runId !== runId) {
+            return;
+          }
+          activeWatcher.subscriptionRecoveryAttempts = 0;
+          if (activeWatcher.bufferResumeUpdates) {
+            activeWatcher.bufferedResumeUpdates.push(update);
+            return;
+          }
+          activeWatcher.processCloudUpdate(update);
+        },
+        onError: (err: unknown) => {
+          this.d.log.error("Cloud task subscription error", { taskId, err });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
+        },
+        onComplete: () => {
+          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+            return;
+          }
+          this.d.log.warn(
+            "Cloud task subscription ended without an error, updates stop until the task is reopened",
+            { taskId, runId },
+          );
+        },
+      },
+    );
+  }
+
+  /**
+   * The tRPC subscription carrying cloud updates died (an error in the host
+   * stream, or transport teardown). Without recovery the transcript silently
+   * stops advancing until an app reload rebuilds the subscription — none of
+   * the existing recovery triggers fire, because the session never reaches an
+   * error status. Rebuild both sides here: a fresh subscription, plus a watch
+   * call whose snapshot replay backfills whatever was missed while the
+   * channel was down (the dead subscription's server-side teardown may also
+   * have unwatched, and thereby stopped, the main-process watcher).
+   */
+  private scheduleCloudSubscriptionRecovery(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (watcher.subscriptionRecoveryTimeoutId) return;
+
+    const delay = getBackoffDelay(
+      watcher.subscriptionRecoveryAttempts,
+      CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF,
+    );
+    watcher.subscriptionRecoveryTimeoutId = setTimeout(() => {
+      watcher.subscriptionRecoveryTimeoutId = null;
+      void this.recoverCloudSubscription(taskId, runId);
+    }, delay);
+  }
+
+  private async recoverCloudSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+
+    watcher.subscriptionRecoveryAttempts += 1;
+    watcher.subscription.unsubscribe();
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      watcher.startToken,
+    );
+
+    try {
+      await this.d.trpc.cloudTask.watch.mutate({
+        taskId,
+        runId,
+        apiHost: watcher.apiHost,
+        teamId: watcher.teamId,
+        resumeFromEntryCount: watcher.resumeFromEntryCount,
+      });
+      this.d.log.info("Cloud task subscription recovered", {
+        taskId,
+        attempts: watcher.subscriptionRecoveryAttempts,
+      });
+      this.clearCloudSubscriptionRecoveryError(taskId, runId);
+    } catch (err) {
+      this.d.log.warn("Cloud task subscription recovery failed", {
+        taskId,
+        attempt: watcher.subscriptionRecoveryAttempts,
+        err,
+      });
+      this.maybeSurfaceCloudSubscriptionError(taskId, runId);
+      this.scheduleCloudSubscriptionRecovery(taskId, runId);
+    }
+  }
+
+  private maybeSurfaceCloudSubscriptionError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (watcher.subscriptionErrorSurfaced) return;
+    if (
+      watcher.subscriptionRecoveryAttempts <
+      CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS
+    ) {
+      return;
+    }
+    const session = this.d.store.getSessions()[runId];
+    if (!session || session.status === "error") return;
+
+    watcher.subscriptionErrorSurfaced = true;
+    this.d.store.updateSession(runId, {
+      status: "error",
+      errorTitle: "Stream connection lost",
+      errorMessage: "Lost connection to the cloud run. Reconnecting…",
+      errorRetryable: true,
+      isPromptPending: false,
+    });
+  }
+
+  private clearCloudSubscriptionRecoveryError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (!watcher.subscriptionErrorSurfaced) return;
+
+    watcher.subscriptionErrorSurfaced = false;
+    const session = this.d.store.getSessions()[runId];
+    if (session?.status !== "error") return;
+    this.d.store.updateSession(runId, {
+      status: "disconnected",
+      errorTitle: undefined,
+      errorMessage: undefined,
+      errorRetryable: undefined,
+    });
+  }
+
   /**
    * Fully stop a cloud task watcher. The tRPC subscription unwatches from the
    * main process in its finally handler; the in-flight watch path below sends a
@@ -6808,6 +6951,10 @@ export class SessionService {
     if (!watcher) return;
 
     this.cloudTaskWatchers.delete(taskId);
+    if (watcher.subscriptionRecoveryTimeoutId) {
+      clearTimeout(watcher.subscriptionRecoveryTimeoutId);
+      watcher.subscriptionRecoveryTimeoutId = null;
+    }
     watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
