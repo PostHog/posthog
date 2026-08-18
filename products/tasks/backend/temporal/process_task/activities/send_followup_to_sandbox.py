@@ -60,15 +60,17 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_RETRY_DELAY_SECONDS = 0.5
 
-# The agent-server refuses a session refresh while it is still finishing a turn
-# and returns JSON-RPC -32002. This clears on its own the moment the turn ends,
-# so it is the dominant reason a follow-up rebind fails: the two quick retries
-# run out before the turn does, and only a manual resend minutes later succeeds.
-# Poll for the turn to finish instead of failing the follow-up closed. The
-# activity heartbeats from a side thread, so waiting here does not trip the
-# heartbeat timeout, and the -32002 rejection returns at once, so each poll is
-# cheap.
-REFRESH_TURN_IN_FLIGHT_CODE = -32002
+# The agent-server refuses a session refresh while it is still finishing a turn.
+# This clears on its own the moment the turn ends, so it is the dominant reason a
+# follow-up rebind fails: the two quick retries run out before the turn does, and
+# only a manual resend minutes later succeeds. Poll for the turn to finish instead
+# of failing the follow-up closed. The activity heartbeats from a side thread, so
+# waiting here does not trip the heartbeat timeout, and the rejection returns at
+# once, so each poll is cheap.
+#
+# Match the turn-in-flight message, not the JSON-RPC code: the agent-server reuses
+# -32002 for permanent refusals too (an unsupported model, no started thread), and
+# polling those would just stall the follow-up for the whole budget before it fails.
 REFRESH_TURN_IN_FLIGHT_ERROR = "prompt turn is in flight"
 REFRESH_TURN_IN_FLIGHT_POLL_SECONDS = 5
 REFRESH_TURN_IN_FLIGHT_MAX_WAIT_SECONDS = 120
@@ -141,13 +143,10 @@ def _refresh_blocked_by_active_turn(result: CommandResult) -> bool:
     """True when the agent-server refused the refresh because a turn is still running.
 
     This is a self-clearing condition: the refresh succeeds once the turn ends, so the
-    caller waits for it rather than failing the follow-up closed.
+    caller waits for it rather than failing the follow-up closed. Other refusals share
+    the same JSON-RPC code but never clear, so match the message.
     """
-    if result.error and REFRESH_TURN_IN_FLIGHT_ERROR in result.error:
-        return True
-    data = result.data if isinstance(result.data, dict) else None
-    rpc_error = data.get("error") if data else None
-    return isinstance(rpc_error, dict) and rpc_error.get("code") == REFRESH_TURN_IN_FLIGHT_CODE
+    return bool(result.error and REFRESH_TURN_IN_FLIGHT_ERROR in result.error)
 
 
 def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:

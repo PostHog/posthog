@@ -93,8 +93,18 @@ def _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refre
 class TestRefreshBlockedByActiveTurn:
     @parameterized.expand(
         [
-            ("message", CommandResult(success=False, status_code=200, error="prompt turn is in flight"), True),
-            ("json_rpc_code", CommandResult(success=False, status_code=200, data={"error": {"code": -32002}}), True),
+            ("active_turn", CommandResult(success=False, status_code=200, error="prompt turn is in flight"), True),
+            # Shares the -32002 code but never clears, so it must not trigger the wait.
+            (
+                "unsupported_model",
+                CommandResult(
+                    success=False,
+                    status_code=200,
+                    error="Model claude-haiku-4-5 does not support MCP injection; cannot refresh",
+                    data={"error": {"code": -32002}},
+                ),
+                False,
+            ),
             ("unrelated", CommandResult(success=False, status_code=502, error="Connection to sandbox failed"), False),
         ]
     )
