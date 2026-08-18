@@ -8,10 +8,14 @@ individually so a broken setup names its own cause instead of surfacing as a bar
 
 Deliberately unauthenticated: a partner that has not registered yet has no credential to
 present, so requiring one would make the endpoint useless for the case it exists to serve.
-What that exposes is bounded — the only URL a caller can make us dereference is the one it is
-claiming as its own client_id, which goes through the same SSRF validation, DNS check and
-blocklist as any other CIMD fetch — and it is rate limited per client_id, per IP and per
-domain because the fetch is synchronous.
+What that exposes is bounded on two counts. The only URL a caller can make us dereference is
+the one it is claiming as its own client_id, which goes through the same SSRF validation, DNS
+check and blocklist as any other CIMD fetch, and it is rate limited per client_id, per IP and
+per domain because the fetch is synchronous. The capabilities that registration grants come
+from the fetched document declaring the opt-in, never from the request, so the caller decides
+which client_id we look at and nothing else. Without that, sending a third party's client_id
+would be enough to conscript its OAuth client into a provisioning partner, since a CIMD
+client_id is a public URL and a public client's only credential is that same URL.
 """
 
 from __future__ import annotations
@@ -24,7 +28,6 @@ from rest_framework.response import Response
 from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
-    apply_provisioning_defaults,
     fetch_and_upsert_cimd_application,
     get_application_by_client_id,
     is_cimd_client_id,
@@ -122,29 +125,32 @@ class ClientRegistrationView(ProvisioningAPIView):
         # unreachable, so a failed re-fetch is reported as one failed check rather than
         # suppressing every other diagnostic the caller came for.
         existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
-        app: OAuthApplication | None
         try:
-            app = fetch_and_upsert_cimd_application(client_id)
+            # A CIMD client that has never been used for provisioning carries no provisioning
+            # config yet, and this is the call that gives it one, so the rest of the namespace
+            # becomes reachable. The upsert only opts the client in if the document it just
+            # fetched declares it, which is why the promotion lives with the fetch rather than
+            # here: this request cannot show that its sender owns the client_id it named.
+            app = fetch_and_upsert_cimd_application(client_id, register_provisioning=True)
             if app is None:
                 raise CIMDFetchError("Registration is already in progress, retry shortly")
         except (CIMDFetchError, CIMDValidationError) as exc:
             _record(checks, "metadata_document", False, str(exc))
             if existing is None:
                 return None
-            app = existing
-        else:
-            _record(checks, "metadata_document", True, "Fetched and validated")
+            # A document we could not read or could not store leaves the row describing an
+            # older one, so a client that is not already a partner stays one short of
+            # registered until a document we can act on arrives.
+            return self._require_partner(existing, checks, document_read=False)
+        _record(checks, "metadata_document", True, "Fetched and validated")
 
-        # A CIMD client that has never been used for provisioning carries no provisioning
-        # config yet, so registering here is what makes the rest of the namespace reachable.
-        if not app.is_provisioning_partner:
-            apply_provisioning_defaults(app)
-            app.refresh_from_db()
         return self._require_partner(app, checks)
 
-    def _require_partner(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> OAuthApplication | None:
+    def _require_partner(
+        self, app: OAuthApplication, checks: list[dict[str, Any]], *, document_read: bool = True
+    ) -> OAuthApplication | None:
         if not app.is_provisioning_partner:
-            _record(checks, "provisioning_enabled", False, "This client is not enabled for agentic provisioning")
+            _record(checks, "provisioning_enabled", False, _not_a_partner_detail(app, document_read=document_read))
             return None
         if not app.provisioning.active:
             _record(checks, "provisioning_enabled", False, "Provisioning is deactivated for this client")
@@ -178,6 +184,33 @@ class ClientRegistrationView(ProvisioningAPIView):
             _record(checks, "client_assertion", False, str(exc))
             return
         _record(checks, "client_assertion", True, "Verified, and its jti is now consumed")
+
+
+def _not_a_partner_detail(app: OAuthApplication, *, document_read: bool) -> str:
+    """Why this client is not a provisioning partner, in terms of what its owner can change.
+
+    A CIMD client registers by publishing the opt-in, so the detail has to name the key. The
+    caller may not be the client's owner, but nothing here is a secret: the key is documented,
+    and the document it goes in is public by construction.
+
+    ``document_read`` is False when this answer rests on a stored row rather than the document
+    the client publishes now, which is a different situation to report: the key may well be
+    there already, and telling its owner to add it would send them after a problem they fixed.
+    """
+    if app.provisioning.disabled:
+        return "Provisioning is blocked for this client. Contact PostHog support if that is unexpected."
+    if app.is_cimd_client and not document_read:
+        return (
+            "This client is not registered for agentic provisioning, and its metadata document "
+            "could not be read to check for the opt-in. Fix the error in the metadata_document "
+            "check, then register again."
+        )
+    if app.is_cimd_client:
+        return (
+            "This client is not enabled for agentic provisioning. Add "
+            '"com.posthog": {"provisioning": true} to your client metadata document, then register again.'
+        )
+    return "This client is not enabled for agentic provisioning"
 
 
 def _record(checks: list[dict[str, Any]], name: str, ok: bool, detail: str) -> None:
