@@ -398,7 +398,10 @@ export const ChannelHomeComposer = forwardRef<
 
   return (
     <div className="relative flex w-full flex-col">
-      <div className="absolute bottom-full left-0 mb-2 flex items-center gap-2 rounded-sm bg-card">
+      {/* The row sits in normal flow above the input, mirroring the new-task
+          page's composer (the composer scrolls with the feed, so nothing may
+          float over the cards below). */}
+      <div className="mb-1 flex min-w-0 items-center gap-1">
         <WorkspaceModeSelect
           value={workspaceMode}
           onChange={setWorkspaceMode}

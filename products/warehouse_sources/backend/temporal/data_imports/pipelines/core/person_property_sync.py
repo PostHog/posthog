@@ -22,6 +22,9 @@ import json
 import asyncio
 import hashlib
 import dataclasses
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
 
@@ -103,16 +106,36 @@ def bundle_hash(bundle: dict) -> str:
     return hashlib.sha256(json.dumps(bundle, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce a warehouse column value into something ``json.dumps`` accepts. Timestamp/date/time
+    columns arrive as datetime objects and numeric columns as Decimal — neither is JSON-serializable,
+    so the Kafka produce (which serializes the intent with plain ``json.dumps``) would raise. Mirrors
+    ``bundle_hash``'s ``default=str`` posture: temporal types get an ISO-8601 string PostHog reads as a
+    DateTime property, decimals become floats, and anything else falls back to ``str``."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
 def build_bundles(rows: list[dict], key_column: str, column_property_map: dict[str, str]) -> list[tuple[str, dict]]:
     """(distinct_id, {person_property: value}) for each row with a non-null key and at least one
     non-null mapped value. Missing columns are simply absent (a misconfigured source degrades to
-    fewer properties rather than erroring)."""
+    fewer properties rather than erroring). Values are coerced to JSON-safe scalars so a timestamp or
+    numeric column doesn't crash the downstream Kafka produce."""
     bundles: list[tuple[str, dict]] = []
     for row in rows:
         key = row.get(key_column)
         if key is None:
             continue
-        bundle = {prop: row[col] for col, prop in column_property_map.items() if row.get(col) is not None}
+        bundle = {prop: _json_safe(row[col]) for col, prop in column_property_map.items() if row.get(col) is not None}
         if bundle:
             bundles.append((str(key), bundle))
     return bundles

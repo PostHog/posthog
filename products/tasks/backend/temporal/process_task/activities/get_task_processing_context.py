@@ -14,7 +14,6 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -98,7 +97,7 @@ class TaskProcessingContext:
     # activity retries. This means "create any Modal resume snapshot"; filesystem
     # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = False
+    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -667,35 +666,6 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _is_modal_directory_resume_snapshots_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "modal_directory_resume_snapshots_flag_checked",
-        run_id=run_id,
-        use_modal_directory_resume_snapshots=enabled,
-    )
-    return enabled
-
-
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
     """Loop runs opt into the CI/review-comment follow-up loop when the loop's
     snapshotted behaviors ask for it (see products/tasks/docs/LOOPS.md "Behaviors":
@@ -996,16 +966,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
-    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
-    )
     agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1072,8 +1032,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
-        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
+        use_modal_resume_snapshots=True,
+        use_modal_directory_resume_snapshots=True,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
