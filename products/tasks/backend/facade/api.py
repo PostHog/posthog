@@ -16,6 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 import re
+import json
 import hashlib
 import logging
 from collections.abc import Collection, Iterable, Sequence
@@ -46,7 +47,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
@@ -961,10 +962,23 @@ def get_agent_opened_pr_urls_by_task(task_ids: Iterable[str | UUID]) -> dict[str
     ids = [str(t) for t in task_ids]
     if not ids:
         return {}
-    rows = TaskRun.objects.filter(task_id__in=ids, output__has_key="agent_opened_pr_urls").values("task_id", "output")
+    # Project just the URL list, not the whole ``output`` blob — that column also carries the
+    # multi-KB agent ``final_message``, and this runs for every PR-bearing run on the inbox page.
+    rows = (
+        TaskRun.objects.filter(task_id__in=ids, output__has_key="agent_opened_pr_urls")
+        .annotate(agent_opened_pr_urls=KeyTransform("agent_opened_pr_urls", "output"))
+        .values("task_id", "agent_opened_pr_urls")
+    )
     result: dict[str, set[str]] = {}
     for row in rows:
-        result.setdefault(str(row["task_id"]), set()).update(read_agent_opened_pr_urls(row["output"]))
+        raw = row["agent_opened_pr_urls"]
+        # Depending on the driver the jsonb expression may land as a decoded list or a JSON string.
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = None
+        result.setdefault(str(row["task_id"]), set()).update(read_agent_opened_pr_urls({"agent_opened_pr_urls": raw}))
     return result
 
 
