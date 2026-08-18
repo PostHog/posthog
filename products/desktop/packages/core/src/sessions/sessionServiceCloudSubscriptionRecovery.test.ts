@@ -18,7 +18,11 @@ function makeSession(): AgentSession {
     taskTitle: "Test task",
     channel: "",
     events: [
-      { type: "acp_message", ts: 1, message: { jsonrpc: "2.0", method: "noop" } },
+      {
+        type: "acp_message",
+        ts: 1,
+        message: { jsonrpc: "2.0", method: "noop" },
+      },
     ],
     processedLineCount: 1,
     startedAt: 1,
