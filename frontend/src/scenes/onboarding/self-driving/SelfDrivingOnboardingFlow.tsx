@@ -221,7 +221,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             />
                         ))}
                     </div>
-                    <div className="shrink-0 flex justify-end">
+                    <div className="min-w-0 flex justify-end">
                         {/* On the install step, live verification: flips when the team's first event
                             lands, whichever install path produced it. Past the install step, the run
                             keeps a quiet presence up here; on the install step itself the tracker
