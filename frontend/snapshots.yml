@@ -7688,6 +7688,22 @@ snapshots:
         hash: v1.k794b7964.ffb964f61f0771bb4560c6d754a9673747b0ea5d6643ba741cd4b13f01ab7c95.SDwAPYQ0JyZMmgBTHh56d434aKNWdNiNCJN51UaDg8U
     scenes-app-sidepanels--side-panel-support--light:
         hash: v1.k794b7964.50d7924caa4bfab7d0099308586ffe1b92c0a609d460345c2827d9c14e7ad268.DqqxgOWoF4kRn33GTYxmO6LBVZQthTmzG5Og91gGv-4
+    scenes-app-stamphog-digests--digests-list--dark:
+        hash: v1.k794b7964.2127c10daa152b6228e7c30bd244ad5c617fdc3d6189c1db901c8601c6c17a06.DcCstay9kCkyzMUS8M7VSNpcEQDWxoqFTH2E5NyGjNA
+    scenes-app-stamphog-digests--digests-list--light:
+        hash: v1.k794b7964.ddff2703171b9eba35d46d00abed645cd768a1da97dd7ec61fcaa69c431aacc0._lfzWjKTd20ygHFjWIsWX1DwhqBTVEau0qkKf7eIZfk
+    scenes-app-stamphog-digests--digests-list-empty--dark:
+        hash: v1.k794b7964.fd5e3fa0b7a122ea7ebbe15d768c37f3d7ee3034a93cb963693a54cc2a415b90.o_ITUUHriRKnmh9HwQBd4jbEbWe0bRkpkssGmAVp8f8
+    scenes-app-stamphog-digests--digests-list-empty--light:
+        hash: v1.k794b7964.263fbb5b5a3f273fceb1caf8df91f638c6583c498204c8c13379c7d1bbbfcbef.yfy_HmjihBxV9yHsx2q-DIBQAZOorDfP7F44Eq_lJCw
+    scenes-app-stamphog-runs--runs-list--dark:
+        hash: v1.k794b7964.0f6fb2d21628b8c0f8781d21610ca6fd605216cb07cfeae30f9fc6189ca72d2b.GzyJek2YNFSPSBQoznkgE_FcldLmSLCiVa0gCaHUIxI
+    scenes-app-stamphog-runs--runs-list--light:
+        hash: v1.k794b7964.0a5f37c1c888fd4231e2c635103aa6d159c160d40be2cb809dbfad07d0fc7c00.ySBwJI-qfeOUCyydO_cnLKGMLLFbK_kSEfkBN6OKKY0
+    scenes-app-stamphog-runs--runs-list-empty--dark:
+        hash: v1.k794b7964.97190abf6b2cb1c02e955555559874e975140d4479843089f1a9535e6100a194.t9t3ni1Sd9qf56MyNquC5SbflzhcT9m5d3GyZhBkUZo
+    scenes-app-stamphog-runs--runs-list-empty--light:
+        hash: v1.k794b7964.e3f2449aaf242198553ecade4b10006f816108242c273060fa456e9504ee3fcf.vsiDO5c59UASwyXQZZtwifVbT-qaaUdTa-TxoKNSpmE
     scenes-app-support-threadreportentry--fix-merged--dark:
         hash: v1.k794b7964.e0c8db4f933b58c3af999c559176838e77f9e8b9d5b0566ec8ed08771f62cb30.FTz_l6gFhX_pFY7GyxECQ7-z2PTBJd6bvTO9emHIdM8
     scenes-app-support-threadreportentry--fix-merged--light:
