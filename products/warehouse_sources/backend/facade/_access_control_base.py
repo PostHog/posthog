@@ -1,9 +1,7 @@
 """Shared fixtures for warehouse access-control tests.
 
-Saved-query, folder, and table test classes all need the same org-feature
-enablement, the same test users at different access levels, and the same
-helpers for creating `AccessControl` rows. Centralizing them here avoids
-duplicating ~15 lines across three test files.
+Lives inside facade/ so the contract-check inputs always watch it; reach it through
+``facade.testing``, which resolves it lazily.
 """
 
 from posthog.test.base import APIBaseTest
@@ -21,7 +19,10 @@ except ImportError:
 class WarehouseAccessControlTestMixin(APIBaseTest):
     """Base test case that enables RBAC features and creates standard test users.
 
-    Subclasses should set `resource` to `"warehouse_view"` or `"warehouse_table"`.
+    Saved-query, folder, and table test classes all need the same org-feature
+    enablement, the same test users at different access levels, and the same
+    helpers for creating `AccessControl` rows. Subclasses should set `resource`
+    to `"warehouse_view"` or `"warehouse_table"`.
     """
 
     resource: str = "warehouse_view"
