@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -10,7 +11,7 @@ from posthog.cdp.filters import hog_function_filters_to_expr
 
 from common.hogvm.python.execute import execute_bytecode
 
-SLACK_MESSAGE_GLOBALS = {
+SLACK_MESSAGE_GLOBALS: dict[str, Any] = {
     "event": "$slack_message_received",
     "properties": {
         "channel": "C0ALERTS",

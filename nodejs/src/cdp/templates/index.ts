@@ -35,6 +35,7 @@ import { template as posthogSetHogflowVariableTemplate } from './_destinations/p
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as retainTemplate } from './_destinations/retain/retain.template'
+import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
@@ -64,6 +65,7 @@ import { template as logRedactAttributesTemplate } from './_transformations_log/
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
+    slackTemplate,
     webhookTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
