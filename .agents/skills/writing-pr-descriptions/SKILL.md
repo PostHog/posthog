@@ -231,7 +231,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
 9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 10. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
-11. Does the PR change a flow or topology? Include branded before-and-after diagrams. If the change is too trivial for a diagram, explain the omission in `## 🤖 Agent context`.
+11. Does the PR change a flow or topology? Include branded before-and-after diagrams.
 12. Does prose compare several values across the same dimensions? Replace it with a table.
 13. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 14. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
