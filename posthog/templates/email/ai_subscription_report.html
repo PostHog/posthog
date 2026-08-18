@@ -5,6 +5,9 @@
 {% block section %}
 
 {% for chart in charts %}
+    {% if chart.title %}
+        <p style="margin: 0 0 4px 0; font-weight: bold;">{{ chart.title }}</p>
+    {% endif %}
     <img class="insight-image mb" src="{{ chart.image_url }}" alt="{{ chart.title }}" />
 {% endfor %}
 

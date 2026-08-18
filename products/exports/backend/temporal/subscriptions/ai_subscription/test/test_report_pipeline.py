@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
@@ -726,7 +728,7 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
 
 
-def _charted_spec(charts: int = 1) -> EnrichedPromptSpec:
+def _charted_spec(charts: int = 1, chart_title: str | None = None) -> EnrichedPromptSpec:
     return EnrichedPromptSpec(
         cleaned_prompt="p",
         context_blob="c",
@@ -736,7 +738,9 @@ def _charted_spec(charts: int = 1) -> EnrichedPromptSpec:
                 QueryPlanStep(
                     description=f"s{n}",
                     hogql="SELECT toDate(timestamp) AS day, count() AS signups FROM events WHERE {{date_range}}",
-                    chart=StepChart(display="ActionsLineGraph", x_column="day", y_columns=["signups"]),
+                    chart=StepChart(
+                        display="ActionsLineGraph", title=chart_title, x_column="day", y_columns=["signups"]
+                    ),
                 )
                 for n in range(charts)
             ],
@@ -764,6 +768,29 @@ async def test_a_charted_step_yields_a_chart_over_the_executed_sql(mock_executor
     # The chart must render the SQL that ran, not the planner's window-agnostic template.
     assert "{{date_range}}" not in charts[0].hogql
     assert diagnostics[0].chart_dropped_reason is None
+
+
+@parameterized.expand(
+    [
+        # The planner writes a short label; without one the caption falls back to its rationale
+        # sentence, which is the only other text describing that step.
+        ("planner_title", "New signups per day", "New signups per day"),
+        ("no_title_falls_back_to_description", None, "s0"),
+    ]
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_the_chart_caption_prefers_the_planner_title(
+    _name: str, chart_title: str | None, expected: str, mock_executor_cls: MagicMock
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=("formatted", None, _CHART_RESPONSE)
+    )
+
+    _, _, _, charts = await _run_steps(
+        _charted_spec(chart_title=chart_title), MagicMock(), MagicMock(), _test_window(), None
+    )
+
+    assert charts[0].title == expected
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")

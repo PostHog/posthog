@@ -15,6 +15,8 @@ MAX_CHART_SERIES = 4
 MIN_CHART_ROWS = 3
 # Past this the bars stop being separable at the render width.
 MAX_CHART_CATEGORIES = 25
+# A chart caption is a label, not a sentence. Long enough for "New signups per day, by plan".
+MAX_CHART_TITLE_LENGTH = 80
 
 # Only displays a planner can pick correctly from column names alone. Table, pie, and map either
 # defeat the purpose or need settings it cannot choose.
@@ -23,6 +25,11 @@ ChartDisplay = Literal["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph"]
 
 class StepChart(BaseModel):
     display: ChartDisplay = Field(..., description="How to draw the chart.")
+    title: Optional[str] = Field(
+        None,
+        max_length=MAX_CHART_TITLE_LENGTH,
+        description="Short label shown above the chart, e.g. 'New signups per day'.",
+    )
     x_column: str = Field(..., max_length=200, description="Result column for the x axis, by its SELECT alias.")
     y_columns: list[str] = Field(
         ...,

@@ -298,6 +298,9 @@ Some steps are worth showing as a picture. Set `chart` on at most 3 steps — th
 reader would act on, not simply the first ones in the plan. Leave `chart` unset on every other step.
 
 A chart needs:
+- `title`: a short label shown above the chart, at most 80 characters. Name what the chart plots, the
+  way an axis label reads: "New signups per day", "Uploads by plan". Not a sentence, and not the
+  reason you ran the query — that belongs in `description`.
 - `display`: `ActionsLineGraph` for a value moving over time, `ActionsAreaGraph` for the same when the
   volume matters more than the exact value, `ActionsBar` for comparing named categories.
 - `x_column`: the SELECT alias the chart reads along — the time bucket for a line, the category for bars.

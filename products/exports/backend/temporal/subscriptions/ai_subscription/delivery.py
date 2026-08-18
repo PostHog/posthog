@@ -214,6 +214,8 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 # match: it should not outlive the bytes it points at, and a scheduled report is archival enough that
 # people scroll back to a delivery from two months ago.
 CHART_IMAGE_URL_TTL = timedelta(days=180)
+# Slack truncates an image block title past this, so cut it where we can see the cut.
+SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def build_chart_image_urls(charts: list[Any], *, team_id: int) -> list[dict]:
@@ -337,14 +339,12 @@ def _build_ai_slack_message(
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}}]
     # Charts lead: the picture is the point, the prose explains it.
     for chart in charts or []:
-        blocks.append(
-            {
-                "type": "image",
-                "image_url": chart["image_url"],
-                # Slack rejects an empty alt_text and caps it at 2000 chars.
-                "alt_text": (chart.get("title") or "Chart")[:2000],
-            }
-        )
+        # Slack rejects an empty alt_text; the block's own `title` is what readers see.
+        caption = chart.get("title") or "Chart"
+        image_block: dict = {"type": "image", "image_url": chart["image_url"], "alt_text": caption[:2000]}
+        if chart.get("title"):
+            image_block["title"] = {"type": "plain_text", "text": caption[:SLACK_IMAGE_TITLE_LIMIT]}
+        blocks.append(image_block)
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": first_section}})
     if len(sections) > 1:
         blocks.append(

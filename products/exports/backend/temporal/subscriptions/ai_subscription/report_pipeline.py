@@ -35,6 +35,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHART_TITLE_LENGTH,
     MAX_CHARTS_PER_REPORT,
     MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
@@ -461,7 +462,11 @@ async def _run_steps(
                         step.chart,
                         response,
                         hogql=executable_hogql,
-                        title=safe_description,
+                        # The planner's short label when it wrote one, else its rationale sentence.
+                        # Both are LLM output rendered into email and Slack, so both get stripped.
+                        title=strip_llm_framing_markers(step.chart.title, max_len=MAX_CHART_TITLE_LENGTH)
+                        if step.chart.title
+                        else safe_description,
                         step_index=step_index,
                     )
                     if step.chart is not None

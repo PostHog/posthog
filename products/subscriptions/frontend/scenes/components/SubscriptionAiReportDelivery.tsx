@@ -417,14 +417,16 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                 <div className="flex flex-col gap-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Charts</div>
                     {charts.map((chart) => (
-                        <img
-                            key={chart.export_asset_id}
-                            className="max-w-full rounded border"
-                            // First-party PNGs the backend rendered, addressed by asset id — not urls the
-                            // model wrote, which is what disableImages below guards against.
-                            src={getExportsContentRetrieveUrl(String(currentTeamId), chart.export_asset_id)}
-                            alt={chart.title}
-                        />
+                        <div key={chart.export_asset_id} className="flex flex-col gap-1">
+                            {chart.title ? <div className="font-semibold">{chart.title}</div> : null}
+                            <img
+                                className="max-w-full rounded border"
+                                // First-party PNGs the backend rendered, addressed by asset id — not urls
+                                // the model wrote, which is what disableImages below guards against.
+                                src={getExportsContentRetrieveUrl(String(currentTeamId), chart.export_asset_id)}
+                                alt={chart.title}
+                            />
+                        </div>
                     ))}
                 </div>
             ) : null}
