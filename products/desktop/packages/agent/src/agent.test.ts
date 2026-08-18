@@ -67,4 +67,26 @@ describe("Agent", () => {
       }),
     );
   });
+
+  it("scopes local Claude sessions to the selected project", async () => {
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("task-1", "run-1", {
+      adapter: "claude",
+      repositoryPath: "/tmp/repo",
+    });
+
+    expect(createAcpConnectionMock).toHaveBeenCalledTimes(1);
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeGatewayEnv?.posthogProjectId).toBe("7");
+  });
 });
