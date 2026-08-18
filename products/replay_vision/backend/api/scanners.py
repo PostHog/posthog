@@ -1775,7 +1775,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         detail=True,
         methods=["get"],
         url_path="self_driving_stats",
-        required_scopes=["replay_scanner:read"],
+        required_scopes=["replay_scanner:read", "task:read"],
     )
     def self_driving_stats(self, request: Request, **kwargs: Any) -> Response:
         """What self-driving did with this scanner's signals: reports contributed to and PRs opened."""
