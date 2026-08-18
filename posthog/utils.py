@@ -60,6 +60,8 @@ from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.security.url_validation import has_ambiguous_authority
 
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
+
 tracer = trace.get_tracer(__name__)
 
 # Cardinality is bounded: render_template is only called with the literal template
@@ -563,7 +565,9 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
+            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
+        ),
         "anonymous": not request.user or not request.user.is_authenticated,
     }
 
