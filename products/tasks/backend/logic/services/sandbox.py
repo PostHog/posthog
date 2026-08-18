@@ -433,6 +433,7 @@ class SandboxBase(ABC):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -449,7 +450,9 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        blob_filter = "" if shallow else " --filter=blob:none"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
