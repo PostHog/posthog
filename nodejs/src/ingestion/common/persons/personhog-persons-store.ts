@@ -1194,8 +1194,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             request.teamId,
             merged.map((source, rank) => ({
                 rank,
-                personKey:
-                    source.sourcePersonId !== undefined ? `${request.teamId}:${source.sourcePersonId}` : undefined,
+                personKey: source.sourcePersonId != null ? `${request.teamId}:${source.sourcePersonId}` : undefined,
                 distinctKey: `${request.teamId}:${source.sourceDistinctId}`,
                 // What this pod believed the id named before the merge's own
                 // resolve overwrote the memo edge: a stale belief's lane

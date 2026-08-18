@@ -815,7 +815,11 @@ describe('PersonhogPersonsStore', () => {
             // The person is merged away; the reship's first unit bounces on
             // size; the remainder must re-enter the reship, not wait for a
             // later batch's flush.
-            repository.updatePersonProperties.mockImplementation(((request: { personId: string }) => {
+            repository.updatePersonProperties.mockImplementation(((request: {
+                personId: string
+                setProperties?: Record<string, unknown>
+                setOnceProperties?: Record<string, unknown>
+            }) => {
                 if (request.personId === '7') {
                     return Promise.reject(new NoRowsUpdatedError('merged away'))
                 }

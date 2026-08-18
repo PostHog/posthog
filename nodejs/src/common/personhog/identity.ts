@@ -114,13 +114,13 @@ export interface MergeSagaResult {
         sourceDistinctId: string
         outcome: MergeSagaSourceOutcome
         /**
-         * The person this verdict destroyed, present only on a merged
-         * source. A merged-away person is permanent, so a caller may
-         * reconcile cached state against it without re-reading; every other
-         * verdict either destroys nothing or names one still live, so the
-         * field is absent there rather than misleading.
+         * The person this verdict destroyed, set only on a merged source.
+         * A merged-away person is permanent, so a caller may reconcile
+         * cached state against it without re-reading; every other verdict
+         * either destroys nothing or names one still live, so it answers
+         * null there rather than misleading.
          */
-        sourcePersonId?: string
+        sourcePersonId: string | null
     }[]
     /**
      * The carried distinct ids this call applied. Empty on a replay and on
@@ -311,7 +311,7 @@ export class PersonhogIdentityOperations {
             results: response.results.map((result) => ({
                 sourceDistinctId: result.sourceDistinctId,
                 outcome: MERGE_OUTCOME_NAMES[result.outcome] ?? 'error',
-                sourcePersonId: result.sourcePersonId === undefined ? undefined : String(result.sourcePersonId),
+                sourcePersonId: result.sourcePersonId === undefined ? null : String(result.sourcePersonId),
             })),
             carriedApplied: response.carriedApplied,
         }

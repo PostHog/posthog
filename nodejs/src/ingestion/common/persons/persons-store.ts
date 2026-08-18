@@ -53,10 +53,12 @@ export interface MergePersonsSourceResult {
      * source. A merged-away person is permanent — it cannot be revived or
      * reassigned — so a caller may reconcile cached state against it
      * without re-reading, which reaches persons cached under distinct ids
-     * the request never named. Any other verdict leaves it absent, because
-     * the person it would name is still live.
+     * the request never named. Any other verdict leaves it absent: omitted
+     * by the Postgres backend, which names persons by uuid instead, and
+     * null from the personhog repository, whose boundary answers every
+     * field.
      */
-    sourcePersonId?: string
+    sourcePersonId?: string | null
 }
 
 export interface MergePersonsRequest {
