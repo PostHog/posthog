@@ -35,8 +35,7 @@ class TestFiltersValidation(SimpleTestCase):
                 ["cross_field.variant_rollout_sum_not_100"],
             ),
             ("variant_sum_exactly_100", {"multivariate": _multivariate(("a", 50), ("b", 50))}, []),
-            # Sums to 100.00000000000001 in binary floating point; the flag UI accepts the same
-            # split, so rejecting it here would 400 a distribution the user cannot correct.
+            # Sums to 100.00000000000001; the flag UI accepts the same split.
             (
                 "variant_sum_100_with_float_drift",
                 {"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35.95))},

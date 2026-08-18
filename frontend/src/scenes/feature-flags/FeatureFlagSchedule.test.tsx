@@ -85,8 +85,7 @@ describe('FeatureFlagSchedule', () => {
         cleanup()
     })
 
-    // The apply-time check rejects a bad sum, so a schedulable invalid total only surfaces as a
-    // failed change after the scheduled time has passed.
+    // A bad sum is only rejected when the change fires, long after it was scheduled.
     it.each([
         { name: 'sums to 100', percentages: [50, 50], expectedDisabled: false },
         { name: 'falls short', percentages: [50, 20], expectedDisabled: true },
@@ -106,7 +105,7 @@ describe('FeatureFlagSchedule', () => {
             featureFlagLogic(logicProps).actions.setScheduleDateMarker(dayjs('2030-01-01T00:00:00Z'))
         })
 
-        // LemonButton marks a disabledReason with aria-disabled rather than the disabled attribute.
+        // LemonButton uses aria-disabled, not the disabled attribute.
         const scheduleButton = screen.getByText('Schedule').closest('button')
         expect(scheduleButton).toHaveAttribute('aria-disabled', String(expectedDisabled))
     })

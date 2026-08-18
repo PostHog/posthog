@@ -473,8 +473,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         key: validateFeatureFlagVariantKey(variantKey),
     }))
 
-    // Variant rollouts must sum to 100, or the change is rejected when it fires. Only relevant for
-    // UpdateVariants; the other operations leave variants untouched.
+    // A bad sum is rejected when the change fires. Other operations leave variants untouched.
     const variantRolloutSumError =
         scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants
             ? validateVariantRolloutSum(displayVariants)

@@ -462,20 +462,17 @@ export function validateFeatureFlagVariantKey(key: string): string | undefined {
             : undefined
 }
 
-/** Sum variant rollout percentages the way the API does, so both agree on what reaches 100. */
+/** Sums the way the API does, so both agree on what reaches 100. */
 function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number {
     return variants.reduce((sum, { rollout_percentage }) => sum + (rollout_percentage || 0), 0)
 }
 
-// Binary floating point makes an exact comparison reject sums that are mathematically 100:
-// a split like 0.01/64.04/35.95 adds up to 100.00000000000001. The tolerance absorbs that
-// drift while staying far below the 0.01 this form can express. Mirrored by
-// products/feature_flags/backend/variant_rollout.py, which the API validates against.
+// Absorbs float drift (0.01/64.04/35.95 adds up to 100.00000000000001) while staying below the
+// 0.01 this form can express. Mirrored by products/feature_flags/backend/variant_rollout.py.
 const ROLLOUT_SUM_TOLERANCE = 1e-9
 
-/** Check whether variant rollouts add up. If not, a reason string is returned - otherwise undefined.
- * Boolean flags carry no variants and are exempt. Removing a variant leaves the remainder short
- * because nothing redistributes it, so the shortfall has to be corrected before saving. */
+/** Reason string when variant rollouts do not add up, otherwise undefined.
+ * Boolean flags carry no variants and are exempt. */
 export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]): string | undefined {
     if (!variants?.length) {
         return undefined
@@ -484,9 +481,8 @@ export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]):
     if (Math.abs(rolloutSum - 100) <= ROLLOUT_SUM_TOLERANCE) {
         return undefined
     }
-    // Adding floats leaves artifacts a person should never be shown: 0.01 + 64.04 + 35 is
-    // 99.05000000000001. Rounding here is finer than the tolerance above, so a total that is
-    // rejected can never read as exactly 100.
+    // Hides float artifacts (99.05000000000001), but stays finer than the tolerance above so a
+    // rejected total never reads as exactly 100.
     const displayedSum = parseFloat(rolloutSum.toFixed(10))
     return `Percentage rollouts for variants must sum to 100 (currently ${displayedSum}).`
 }
@@ -2111,8 +2107,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
-                // The sum is a property of the whole variant set, so every percentage carries the
-                // error: each one is a valid place to fix it, and each becomes a scroll target.
+                // The sum belongs to the whole set, so every percentage carries the error and
+                // becomes a scroll target.
                 const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),

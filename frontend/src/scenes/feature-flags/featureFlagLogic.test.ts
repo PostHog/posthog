@@ -2737,8 +2737,7 @@ describe('validateFeatureFlagVariantKey', () => {
 })
 
 describe('validateVariantRolloutSum', () => {
-    // Adding floats leaves artifacts users should never be shown (0.01 + 64.04 + 35 is
-    // 99.05000000000001), and a rejected total must never read as exactly 100.
+    // Float artifacts must not reach the user, and a rejected total must never read as 100.
     it.each([
         { percentages: [0.01, 64.04, 35], expected: '99.05' },
         { percentages: [30.1, 30.1, 30.1], expected: '90.3' },
@@ -2781,14 +2780,12 @@ describe('variant rollout sum validation', () => {
         logic.unmount()
     })
 
-    // The API rejects a multivariate flag whose percentages miss 100, and removing a variant
-    // leaves the rest short without redistributing, so the form has to block the save itself.
+    // Removing a variant leaves the rest short, and the API rejects that write.
     it.each([
         { desc: 'sums to 100', percentages: [50, 50], hasErrors: false },
         { desc: 'falls short after a variant is removed', percentages: [50], hasErrors: true },
         { desc: 'exceeds 100', percentages: [60, 60], hasErrors: true },
-        // 0.01 + 64.04 + 35.95 is 100.00000000000001 in binary floating point, and the API
-        // tolerates the same drift, so blocking it here would reject a valid distribution.
+        // Adds up to 100.00000000000001; the API tolerates the same drift.
         { desc: 'sums to 100 with floating point drift', percentages: [0.01, 64.04, 35.95], hasErrors: false },
         { desc: 'falls short by the smallest step the form allows', percentages: [50, 49.99], hasErrors: true },
     ])('$desc: hasErrors=$hasErrors', ({ percentages, hasErrors }) => {
