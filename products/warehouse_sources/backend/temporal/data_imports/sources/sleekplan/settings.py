@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -48,7 +50,7 @@ POST_VOTES_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@frozen
 class SleekplanEndpointConfig:
     name: str
     path: str
