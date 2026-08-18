@@ -311,12 +311,15 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
         .order_by("created_at", "id")
         .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
     )
-    for row in verdict_rows:
-        report_id = str(row["report_id"])
+    for verdict_row in verdict_rows:
+        report_id = str(verdict_row["report_id"])
         run, started_at = live[report_id]
-        if row["created_at"] < started_at or row["thread_id"] not in run.thread_ids:
+        if verdict_row["created_at"] < started_at or verdict_row["thread_id"] not in run.thread_ids:
             continue
-        verdicts[report_id][row["thread_id"]] = (row["outcome"], row["reply_posted"] == "true")
+        verdicts[report_id][verdict_row["thread_id"]] = (
+            verdict_row["outcome"],
+            verdict_row["reply_posted"] == "true",
+        )
 
     cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}
