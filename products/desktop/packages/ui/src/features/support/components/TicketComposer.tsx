@@ -74,6 +74,7 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
             : "Write a reply to the customer…"
         }
         hideDefaultToolbar
+        enableFormatting
         enableBashMode={false}
         clearOnSubmit
         isLoading={reply.isPending}

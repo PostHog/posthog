@@ -69,6 +69,7 @@ export interface UseTiptapEditorOptions {
     fileMentions?: boolean;
     commands?: boolean;
     bashMode?: boolean;
+    formatting?: boolean;
   };
   clearOnSubmit?: boolean;
   getPromptHistory?: () => string[];
@@ -275,6 +276,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     fileMentions = true,
     commands = true,
     bashMode: enableBashMode = true,
+    formatting = false,
   } = capabilities;
 
   const callbackRefs = useRef({
@@ -355,6 +357,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         placeholder,
         fileMentions,
         commands,
+        formatting,
       }),
       editable: !disabled,
       autofocus: autoFocus ? "end" : false,

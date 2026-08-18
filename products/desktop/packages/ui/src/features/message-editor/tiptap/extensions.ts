@@ -11,6 +11,8 @@ export interface EditorExtensionsOptions {
   fileMentions?: boolean;
   issueMentions?: boolean;
   commands?: boolean;
+  /** Rich text marks and blocks. Off by default: an agent prompt is plain text. */
+  formatting?: boolean;
 }
 
 export function getEditorExtensions(options: EditorExtensionsOptions) {
@@ -20,22 +22,27 @@ export function getEditorExtensions(options: EditorExtensionsOptions) {
     fileMentions = true,
     issueMentions = true,
     commands = true,
+    formatting = false,
   } = options;
 
   const extensions = [
-    StarterKit.configure({
-      heading: false,
-      blockquote: false,
-      codeBlock: false,
-      bulletList: false,
-      orderedList: false,
-      listItem: false,
-      horizontalRule: false,
-      bold: false,
-      italic: false,
-      strike: false,
-      code: false,
-    }),
+    StarterKit.configure(
+      formatting
+        ? { heading: false, horizontalRule: false }
+        : {
+            heading: false,
+            blockquote: false,
+            codeBlock: false,
+            bulletList: false,
+            orderedList: false,
+            listItem: false,
+            horizontalRule: false,
+            bold: false,
+            italic: false,
+            strike: false,
+            code: false,
+          },
+    ),
     Placeholder.configure({ placeholder }),
     MentionChipNode,
   ];

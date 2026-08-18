@@ -32,6 +32,7 @@ import { useTiptapEditor } from "../tiptap/useTiptapEditor";
 import type { EditorHandle } from "../types";
 import { AttachmentMenu } from "./AttachmentMenu";
 import { AttachmentsBar, type AttachmentUploadStatus } from "./AttachmentsBar";
+import { FormattingToolbar } from "./FormattingToolbar";
 import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
@@ -64,6 +65,8 @@ export interface PromptInputProps {
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
+  /** Rich text marks plus the formatting bar. Off by default. */
+  enableFormatting?: boolean;
   // toolbar slots
   modelSelector?: React.ReactElement | null | false;
   reasoningSelector?: React.ReactElement | null | false;
@@ -145,6 +148,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       autoresearch,
       enableBashMode = false,
       enableCommands = true,
+      enableFormatting = false,
       modelSelector,
       reasoningSelector,
       messagingModeToggle,
@@ -232,6 +236,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       capabilities: {
         bashMode: enableBashMode,
         commands: enableCommands,
+        formatting: enableFormatting,
       },
       getPromptHistory,
       onPromptRecall,
@@ -444,8 +449,12 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // carries the muted colour the addons would have supplied.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
-      messagingModeToggle) && (
+      messagingModeToggle ||
+      enableFormatting) && (
       <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+        {enableFormatting && (
+          <FormattingToolbar editor={editor} disabled={disabled} />
+        )}
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
