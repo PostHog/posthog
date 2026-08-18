@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudabili
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -44,17 +45,19 @@ class TestGetResource:
     def test_costs_uses_cursor_paginator_and_documented_dimensions(self):
         resource = get_resource("Costs", view_id=None)
 
-        endpoint = resource["endpoint"]
+        endpoint = cast(Endpoint, resource["endpoint"])
         assert endpoint["path"] == "/reporting/cost/run"
         assert endpoint["data_selector"] == "results"
         assert isinstance(endpoint["paginator"], JSONResponseCursorPaginator)
-        assert endpoint["params"]["dimensions"] == ",".join(COST_REPORT_DIMENSIONS)
-        assert endpoint["params"]["metrics"] == ",".join(COST_REPORT_METRICS)
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["dimensions"] == ",".join(COST_REPORT_DIMENSIONS)
+        assert params["metrics"] == ",".join(COST_REPORT_METRICS)
         assert resource["write_disposition"] == "replace"
 
     def test_costs_date_window_is_start_before_end(self):
-        endpoint = get_resource("Costs", view_id=None)["endpoint"]
-        assert endpoint["params"]["start_date"] < endpoint["params"]["end_date"]
+        endpoint = cast(Endpoint, get_resource("Costs", view_id=None)["endpoint"])
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["start_date"] < params["end_date"]
 
     @pytest.mark.parametrize(
         "endpoint_name, path",
@@ -66,19 +69,21 @@ class TestGetResource:
     )
     def test_single_page_endpoints(self, endpoint_name, path):
         resource = get_resource(endpoint_name, view_id=None)
-        endpoint = resource["endpoint"]
+        endpoint = cast(Endpoint, resource["endpoint"])
 
         assert endpoint["path"] == path
         assert endpoint["paginator"] == "single_page"
         assert endpoint["data_selector_required"] is True
 
     def test_anomalies_omits_view_id_when_not_configured(self):
-        endpoint = get_resource("Anomalies", view_id=None)["endpoint"]
-        assert endpoint["params"]["viewId"] is None
+        endpoint = cast(Endpoint, get_resource("Anomalies", view_id=None)["endpoint"])
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["viewId"] is None
 
     def test_anomalies_passes_configured_view_id(self):
-        endpoint = get_resource("Anomalies", view_id="42")["endpoint"]
-        assert endpoint["params"]["viewId"] == "42"
+        endpoint = cast(Endpoint, get_resource("Anomalies", view_id="42")["endpoint"])
+        params = cast(dict[str, Any], endpoint["params"])
+        assert params["viewId"] == "42"
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Cloudability endpoint"):
