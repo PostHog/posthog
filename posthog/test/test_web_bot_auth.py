@@ -163,7 +163,6 @@ def test_the_route_is_absent_where_no_key_is_configured():
 @pytest.mark.parametrize(
     "configured_keys,expected_error_message",
     [
-        pytest.param([], "is present but contains no keys", id="empty"),
         pytest.param(["not a PEM"], "entry 1 could not be loaded (ValueError)", id="malformed-pem"),
         pytest.param([NON_ED25519_PEM], "entry 1 is not an Ed25519 private key", id="non-ed25519-key"),
         pytest.param(
@@ -174,17 +173,14 @@ def test_the_route_is_absent_where_no_key_is_configured():
     ],
 )
 def test_invalid_key_configuration_is_rejected(configured_keys: list[str], expected_error_message: str) -> None:
-    configuration = load_web_bot_auth_private_key_configuration(
-        tuple(configured_keys),
-        require_at_least_one=True,
-    )
+    configuration = load_web_bot_auth_private_key_configuration(tuple(configured_keys))
 
     assert configuration.private_keys == ()
     assert configuration.validation_error is not None
     assert expected_error_message in str(configuration.validation_error)
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT=True, CLOUD_DEPLOYMENT="US")
+@override_settings(CLOUD_DEPLOYMENT="US")
 def test_flattened_private_key_configuration_is_supported() -> None:
     with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[PEM.replace("\n", "\\n")]):
         response = Client().get("/.well-known/http-message-signatures-directory")
@@ -192,11 +188,9 @@ def test_flattened_private_key_configuration_is_supported() -> None:
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("configured_keys", [[], ["not a PEM"]], ids=["empty", "malformed-pem"])
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT=True, CLOUD_DEPLOYMENT="US")
-def test_the_route_is_unavailable_when_key_configuration_is_invalid(configured_keys: list[str]) -> None:
-    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=configured_keys):
-        assert Client().get("/.well-known/http-message-signatures-directory").status_code == 503
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=["not a PEM"], CLOUD_DEPLOYMENT="US")
+def test_the_route_is_unavailable_when_key_configuration_is_invalid() -> None:
+    assert Client().get("/.well-known/http-message-signatures-directory").status_code == 503
 
 
 def test_startup_validation_reports_invalid_configuration() -> None:

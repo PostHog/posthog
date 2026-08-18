@@ -115,7 +115,7 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
-                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
+                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS:
                         from posthog.web_bot_auth_keys import (  # noqa: PLC0415
                             validate_configured_web_bot_auth_private_keys_in_background,
                         )

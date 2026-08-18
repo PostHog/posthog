@@ -12,6 +12,6 @@ During key rotation, include the old and new keys until consumers have accepted 
 Leave the variable unset outside PostHog Cloud US.
 The endpoint returns `404` when the variable is unset or the deployment is not in the US region.
 
-When the variable is present, each production ASGI worker schedules validation on a daemon thread during lifespan startup.
+When keys are configured, each production ASGI worker schedules validation on a daemon thread during lifespan startup.
 An empty or invalid value does not stop startup.
 PostHog Error Tracking receives a sanitized configuration error, and the endpoint returns `503` without exposing key material.
