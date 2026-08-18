@@ -22,7 +22,12 @@ from products.alerts.backend.evaluation.contract import (
     ExtractionResult,
     SeriesPoint,
 )
-from products.alerts.backend.evaluation.forecast import _latest_deviation, evaluate_with_forecast
+from products.alerts.backend.evaluation.forecast import (
+    _evaluate_target_by_date_values,
+    _latest_deviation,
+    _resolve_sensitivity,
+    evaluate_with_forecast,
+)
 from products.alerts.backend.forecasting.engine import ForecastResult
 
 
@@ -180,3 +185,41 @@ def test_target_config_parses_with_defaults() -> None:
     # saved alert never carries a sensitivity it did not choose.
     assert parsed.sensitivity is None
     assert ForecastSensitivity.BEST_CASE.value == "best_case"
+
+
+class TestTargetByDate:
+    @parameterized.expand(
+        [
+            # (direction, sensitivity, yhat, lower, upper, target, should_fire)
+            ("at_least misses on forecast", "at_least", "forecast", 90.0, 70.0, 110.0, 100.0, True),
+            ("at_least holds on forecast", "at_least", "forecast", 110.0, 90.0, 130.0, 100.0, False),
+            # best_case is quieter: the optimistic edge still clears the target.
+            ("at_least holds on best case", "at_least", "best_case", 90.0, 70.0, 110.0, 100.0, False),
+            ("at_least misses on best case", "at_least", "best_case", 80.0, 60.0, 95.0, 100.0, True),
+            ("at_most misses on forecast", "at_most", "forecast", 110.0, 90.0, 130.0, 100.0, True),
+            ("at_most holds on best case", "at_most", "best_case", 110.0, 90.0, 130.0, 100.0, False),
+            ("at_most misses on best case", "at_most", "best_case", 130.0, 105.0, 150.0, 100.0, True),
+        ]
+    )
+    def test_target_by_date_fires(self, _name, direction, sensitivity, yhat, lower, upper, target, should_fire) -> None:
+        result = _evaluate_target_by_date_values(
+            yhat=yhat,
+            lower=lower,
+            upper=upper,
+            target=target,
+            direction=direction,
+            sensitivity=sensitivity,
+            target_date="2026-12-31",
+            label="A",
+        )
+        assert bool(result.breaches) is should_fire
+
+    @parameterized.expand(
+        [
+            ("unset defaults to best case", {}, "best_case"),
+            ("explicit forecast is kept", {"sensitivity": "forecast"}, "forecast"),
+            ("explicit best case is kept", {"sensitivity": "best_case"}, "best_case"),
+        ]
+    )
+    def test_resolve_sensitivity(self, _name, config, expected) -> None:
+        assert _resolve_sensitivity(config) == expected
