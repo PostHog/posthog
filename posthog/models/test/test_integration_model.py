@@ -1125,6 +1125,30 @@ class TestOauthIntegrationModel(BaseTest):
             ),
             ("rate_limited", 429, {"status": "error", "errorType": "RATE_LIMIT"}, "hubspot", "rate_limited"),
             ("rate_limited_any_kind", 429, {}, None, "rate_limited"),
+            (
+                "meta_dead_token",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating access token: The session has been invalidated because the user changed their password.",
+                        "type": "OAuthException",
+                        "code": 190,
+                        "error_subcode": 460,
+                    }
+                },
+                "meta-ads",
+                "invalid_grant",
+            ),
+            (
+                "instagram_dead_token",
+                400,
+                {"error": {"type": "OAuthException", "code": 190}},
+                "instagram",
+                "invalid_grant",
+            ),
+            ("meta_shape_on_other_kind", 400, {"error": {"code": 190}}, "hubspot", "other"),
+            ("meta_non_grant_error_code", 400, {"error": {"type": "OAuthException", "code": 10}}, "meta-ads", "other"),
+            ("meta_190_5xx_is_outage", 502, {"error": {"code": 190}}, "meta-ads", "http_5xx"),
         ]
     )
     def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
