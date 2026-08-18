@@ -291,17 +291,17 @@ class GooglePlayConsoleClient:
             response = self._send(method, url, params, body)
 
         if not response.ok:
-            body = response.text[:500]
+            error_body = response.text[:500]
             self._logger.warning(
                 "Google Play Console API error",
                 status_code=response.status_code,
                 url=url,
-                body=body,
+                body=error_body,
             )
             # Carry Google's error body (e.g. the INVALID_ARGUMENT reason) on the exception, not just
             # the URL that raise_for_status() would report, so error tracking shows why it failed.
             raise requests.HTTPError(
-                f"{response.status_code} error for {url}: {body}",
+                f"{response.status_code} error for {url}: {error_body}",
                 response=response,
             )
 
