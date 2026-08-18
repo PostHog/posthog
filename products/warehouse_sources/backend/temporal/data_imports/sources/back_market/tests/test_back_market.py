@@ -7,6 +7,7 @@ from unittest import mock
 
 from parameterized import parameterized
 from requests import PreparedRequest, Response
+from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market import (
     BackMarketPaginator,
@@ -31,7 +32,7 @@ class TestBackMarketTokenAuth:
     def test_sets_literal_basic_header(self) -> None:
         auth = BackMarketTokenAuth(token="secret-token")
         request = PreparedRequest()
-        request.headers = {}
+        request.headers = CaseInsensitiveDict()
 
         auth(request)
 
