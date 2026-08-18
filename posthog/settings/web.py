@@ -602,6 +602,8 @@ SPECTACULAR_SETTINGS = {
         "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
         "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
+        "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
         # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
         "MetricsRecalculationStatusEnum": (
             "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
@@ -682,6 +684,7 @@ SPECTACULAR_SETTINGS = {
         # and churn subscriptions' generated types.
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "PropertyGroupOperator": ["AND", "OR"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
