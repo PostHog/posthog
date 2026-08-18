@@ -71,6 +71,17 @@ def test_table_from_py_list_schema_missing_uuid_column():
     assert table.column("uid").to_pylist() == [str(uuid_)]
 
 
+def test_table_from_py_list_keeps_binary_primary_key_column():
+    # A SQL source (MySQL BINARY, Postgres bytea) declares its binary key as pa.binary(). Dropping
+    # it used to leave the synced table without the key that incremental sync and dedupe rely on,
+    # so the raw bytes must survive intact.
+    schema = pa.schema(cast(Any, [pa.field("id", pa.binary())]))
+    table = table_from_py_list([{"id": b"\x00\x01\x02"}, {"id": b"\xff\xfe"}], schema)
+
+    assert pa.types.is_binary(table.schema.field("id").type)
+    assert table.column("id").to_pylist() == [b"\x00\x01\x02", b"\xff\xfe"]
+
+
 def test_table_from_py_list_inconsistent_list():
     table = table_from_py_list([{"column": "hello"}, {"column": ["hi"]}])
 
@@ -307,30 +318,22 @@ def test_table_from_py_list_with_negative_decimal_inf():
 
 
 def test_table_from_py_list_with_binary_column():
+    # An inferred binary column survives alongside other columns; it must not be dropped.
     table = table_from_py_list([{"column": 1.0, "some_bytes": b"hello"}])
 
-    assert table.equals(pa.table({"column": [1.0]}))
-    assert table.schema.equals(
-        pa.schema(
-            [
-                ("column", pa.float64()),
-            ]
-        )
-    )
+    assert pa.types.is_binary(table.schema.field("some_bytes").type)
+    assert table.column("some_bytes").to_pylist() == [b"hello"]
+    assert table.column("column").to_pylist() == [1.0]
 
 
 def test_table_from_py_list_with_null_filled_binary_column():
+    # An all-null binary column declared in the schema survives with its type intact.
     schema = pa.schema(cast(Any, [pa.field("column", pa.string()), pa.field("some_bytes", pa.binary())]))
     table = table_from_py_list([{"column": "hello", "some_bytes": None}], schema)
 
-    assert table.equals(pa.table({"column": ["hello"]}))
-    assert table.schema.equals(
-        pa.schema(
-            [
-                ("column", pa.string()),
-            ]
-        )
-    )
+    assert pa.types.is_binary(table.schema.field("some_bytes").type)
+    assert table.column("some_bytes").to_pylist() == [None]
+    assert table.column("column").to_pylist() == ["hello"]
 
 
 @pytest.mark.parametrize(

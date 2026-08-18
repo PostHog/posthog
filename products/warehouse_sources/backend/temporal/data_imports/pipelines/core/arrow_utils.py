@@ -953,8 +953,6 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: set[str] = set()
-
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
@@ -1048,10 +1046,6 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
                 adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
-
-            # Remove any binary columns
-            if pa.types.is_binary(field.type):
-                drop_column_names.add(field_name)
 
             # Ensure duration columns have the correct arrow type
             col = columnar_table_data[field_name]
@@ -1280,16 +1274,6 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
-
-        # Remove any binary columns
-        if issubclass(py_type, bytes):
-            drop_column_names.add(field_name)
-
-    if len(drop_column_names) != 0:
-        for column in drop_column_names:
-            del columnar_table_data[column]
-            if arrow_schema:
-                arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
 
