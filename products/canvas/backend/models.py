@@ -205,8 +205,11 @@ class CanvasHomePreference(TeamScopedRootMixin, UUIDModel):
     Home is a pointer to an ordinary canvas (normally a grid canvas in the
     user's personal channel), not a flag on the canvas itself — a canvas-side
     marker was tried before (``is_home``) and retired because it entangled
-    canvas lifecycle with surface lifecycle. Deleting the canvas cascades the
-    pointer away, and the home surface re-provisions on next open.
+    canvas lifecycle with surface lifecycle. The FK cascade only clears the
+    pointer on a hard delete of the team or channel; the canvas delete endpoint
+    is a soft delete (``deleted=True``), so a pointer at a soft-deleted canvas
+    survives. The home reader must treat a pointer whose canvas is deleted as no
+    home set — filter ``canvas__deleted=False`` — and re-provision on next open.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
