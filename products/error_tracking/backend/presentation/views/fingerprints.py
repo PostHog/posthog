@@ -25,6 +25,16 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     scope_object_write_actions: list[str] = []
     serializer_class = ErrorTrackingFingerprintSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="issue_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Return fingerprints belonging to this issue UUID.",
+            )
+        ]
+    )
     def list(self, request, *args, **kwargs):
         issue_id: UUID | None = None
         issue_id_param = self.request.GET.get("issue_id")

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import viewsets
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -19,6 +20,34 @@ class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingSpikeEventSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="issue_ids",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated issue UUIDs to include.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                description="Include spike events detected at or after this timestamp.",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                description="Include spike events detected at or before this timestamp.",
+            ),
+            OpenApiParameter(
+                name="order_by",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Field used to order results. Prefix with a hyphen for descending order.",
+            ),
+        ]
+    )
     def list(self, request, *args, **kwargs):
         issue_ids_param = request.query_params.get("issue_ids")
         issue_ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None

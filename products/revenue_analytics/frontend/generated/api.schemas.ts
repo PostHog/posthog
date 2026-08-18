@@ -7,3 +7,10 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface RevenueAnalyticsJoinApi {
+    enabled: boolean
+}
+
+export interface RevenueAnalyticsJoinResponseApi {
+    detail: string
+}

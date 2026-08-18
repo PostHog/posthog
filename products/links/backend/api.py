@@ -3,6 +3,7 @@ from typing import Any
 from django.db.models import QuerySet
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -53,6 +54,7 @@ class LinkSerializer(serializers.ModelSerializer):
         return link
 
 
+@extend_schema(tags=["links"])
 class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update, and delete links.
@@ -63,8 +65,6 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
-    # Use the team from the user's current context when not in a team-specific route
-    param_derived_from_user_current_team = "team_id"
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")

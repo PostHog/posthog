@@ -1727,7 +1727,6 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dokploy` - Dokploy
  * * `Hootsuite` - Hootsuite
  * * `WisprFlow` - WisprFlow
- * * `SamCart` - SamCart
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3030,7 +3029,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Dokploy: 'Dokploy',
     Hootsuite: 'Hootsuite',
     WisprFlow: 'WisprFlow',
-    SamCart: 'SamCart',
 } as const
 
 /**
@@ -3158,7 +3156,7 @@ export interface PaginatedExternalDataSourceSerializersListApi {
 }
 
 /**
- * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
+ * Connection credentials and a 'schemas' array. Keys depend on source_type.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 
@@ -4475,10 +4473,9 @@ export interface ExternalDataSourceCreateApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
+    /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
@@ -4660,6 +4657,86 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
     /** Schema updates to apply in a single batch. */
     schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
+}
+
+/**
+ * * `posthog` - posthog
+ * * `self_managed` - self_managed
+ */
+export type CdcManagementModeEnumApi = (typeof CdcManagementModeEnumApi)[keyof typeof CdcManagementModeEnumApi]
+
+export const CdcManagementModeEnumApi = {
+    Posthog: 'posthog',
+    SelfManaged: 'self_managed',
+} as const
+
+export interface ExistingSourceCDCPrerequisitesRequestApi {
+    cdc_management_mode: CdcManagementModeEnumApi
+    /** @nullable */
+    cdc_slot_name?: string | null
+    /** @nullable */
+    cdc_publication_name?: string | null
+}
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export interface SimpleExternalDataSchemaApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    label?: string | null
+    should_sync?: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    sync_type?: SyncTypeEnumApi | BlankEnumApi | null
+}
+
+export interface ExternalDataJobSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly finished_at: string | null
+    readonly status: string
+    readonly schema: SimpleExternalDataSchemaApi
+    /** @nullable */
+    readonly rows_synced: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+     * @nullable
+     */
+    readonly cdc_write_mode: string | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+     * @nullable
+     */
+    readonly billable: boolean | null
+}
+
+export interface CDCPrerequisitesRequestApi {
+    source_type: string
+    cdc_management_mode: CdcManagementModeEnumApi
+    tables?: string[]
+    /** @nullable */
+    cdc_slot_name?: string | null
+    /** @nullable */
+    cdc_publication_name?: string | null
 }
 
 /**
@@ -5999,8 +6076,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7331,8 +7407,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -8638,8 +8713,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10030,8 +10104,7 @@ export interface SourcePreviewRequestApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11372,8 +11445,7 @@ export interface SourceSetupApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -12721,8 +12793,7 @@ export interface SourceCredentialCreateApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow
-     * * `SamCart` - SamCart */
+     * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -12854,6 +12925,30 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesCheckCdcPrerequisitesForSourceCreate200 = {
+    valid?: boolean
+    errors?: string[]
+}
+
+export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[]
     /**
      * A search term.
      */

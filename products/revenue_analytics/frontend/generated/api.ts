@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,16 +8,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
+import type { RevenueAnalyticsJoinApi, RevenueAnalyticsJoinResponseApi } from './api.schemas'
 
 export const getRevenueAnalyticsJoinsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/revenue_analytics/joins/`
 }
 
-export const revenueAnalyticsJoinsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getRevenueAnalyticsJoinsCreateUrl(projectId), {
+export const revenueAnalyticsJoinsCreate = async (
+    projectId: string,
+    revenueAnalyticsJoinApi: RevenueAnalyticsJoinApi,
+    options?: RequestInit
+): Promise<RevenueAnalyticsJoinResponseApi> => {
+    return apiMutator<RevenueAnalyticsJoinResponseApi>(getRevenueAnalyticsJoinsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(revenueAnalyticsJoinApi),
     })
 }
 

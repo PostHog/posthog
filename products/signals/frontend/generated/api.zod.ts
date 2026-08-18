@@ -10,6 +10,42 @@
 import * as zod from 'zod'
 
 /**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ */
+export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
+
+export const signalsConfigCreateBodyAutostartBaseBranchesMaxOne = 255
+
+export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
+    autostart_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.'
+        ),
+    default_autostart_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .optional()
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+    default_slack_notification_channel: zod
+        .string()
+        .max(signalsConfigCreateBodyDefaultSlackNotificationChannelMax)
+        .nullish()
+        .describe(
+            "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+    autostart_base_branches: zod
+        .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
+        .optional()
+        .describe(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization\/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch."
+        ),
+})
+
+/**
  * View and control signal processing pipeline state for a team.
  */
 export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
@@ -163,6 +199,60 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
             "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
         ),
 })
+
+/**
+ * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+ * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+ * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+ * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ */
+export const signalsReportsReviewersUpdateBodyContentItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
+
+export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
+                            .optional()
+                            .describe('GitHub login (case-insensitive). Stored lowercased.'),
+                        user_uuid: zod
+                            .uuid()
+                            .optional()
+                            .describe(
+                                'PostHog user UUID. Must be an org member on this team with a linked GitHub identity. If supplied together with `github_login`, the server-resolved login from the user wins.'
+                            ),
+                        github_name: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
+                            .optional()
+                            .describe(
+                                'Optional human-readable display name. Not backfilled from GitHub by the server.'
+                            ),
+                        reason: zod
+                            .string()
+                            .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
+                            .nullish()
+                            .describe(
+                                'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                            ),
+                    })
+                    .describe(
+                        'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`.\nThe server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,\nit must map to an org member on this team with a linked GitHub login.'
+                    )
+            )
+            .describe('Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.'),
+    })
+    .describe(
+        "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
+    )
 
 /**
  * Transition a report to a new state. The model validates allowed transitions.

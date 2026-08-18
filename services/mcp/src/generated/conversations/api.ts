@@ -173,6 +173,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
+        assignee: zod.unknown().optional().describe('User or role assignment, or null to unassign the ticket.'),
         sla_due_at: zod.iso
             .datetime({ offset: true })
             .nullish()

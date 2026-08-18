@@ -383,6 +383,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskSearchResultSerializer(results, many=True).data)
 
     @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "ph_debug",
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Local development only. Allow explicit cross-owner task reads for debugging.",
+            )
+        ],
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
         summary="Get task",
         description="Retrieve a single task by ID.",
@@ -1238,6 +1247,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
         return Response(TaskRunDetailSerializer(runs, many=True).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "ph_debug",
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Local development only. Allow explicit cross-owner task-run reads for debugging.",
+            )
+        ]
+    )
     @validated_request(
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Task run"),
@@ -2003,9 +2023,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return HttpResponseRedirect(url)
 
     @extend_schema(
-        extensions={"x-product": "logs"},
+        extensions={"x-product": "tasks"},
         responses={
-            200: OpenApiResponse(description="Log content in JSONL format"),
+            200: OpenApiResponse(response=OpenApiTypes.STR, description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run logs",
@@ -2914,8 +2934,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         started = perf_counter()
 
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
-            raw_source = query.get("source") if isinstance(query, dict) else None
-            source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
                 distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
                 event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
@@ -2923,11 +2941,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "task_id": task_id,
                     "run_id": run_id,
                     "source": "query" if query is not None else "insight",
-                    "insight_id": request.validated_data.get("insight_id"),
-                    "query_kind": source.get("kind"),
-                    "display": next(
-                        (f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None
-                    ),
                     "duration_ms": round((perf_counter() - started) * 1000, 2),
                     "failure_reason": failure_reason,
                     "export_asset_id": export_asset_id,

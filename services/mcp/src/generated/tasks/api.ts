@@ -1101,6 +1101,13 @@ export const TasksRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const TasksRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    ph_debug: zod
+        .boolean()
+        .optional()
+        .describe('Local development only. Allow explicit cross-owner task reads for debugging.'),
+})
+
 /**
  * Get a list of runs for a specific task.
  * @summary List task runs
@@ -1146,6 +1153,13 @@ export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     task_id: zod.string(),
+})
+
+export const TasksRunsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    ph_debug: zod
+        .boolean()
+        .optional()
+        .describe('Local development only. Allow explicit cross-owner task-run reads for debugging.'),
 })
 
 /**

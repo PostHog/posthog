@@ -1,11 +1,42 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "cdc_management_mode": {
+            "description": "* `posthog` - posthog\n* `self_managed` - self_managed",
+            "enum": ["posthog", "self_managed"],
+            "type": "string"
+        },
+        "cdc_publication_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "cdc_slot_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "source_type": {
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
             "type": "string"
+        },
+        "tables": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         }
     },
-    "required": ["source_type"],
+    "required": ["source_type", "cdc_management_mode"],
     "type": "object"
 }

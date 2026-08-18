@@ -430,12 +430,61 @@ export interface PatchedEndpointRequestApi {
 export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
+    /** Endpoint version to preview. Defaults to the current version. */
     version?: number
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
      */
     bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
+}
+
+export interface MaterializationPreviewRangePairApi {
+    /** Column used for time bucketing. */
+    column: string
+    /** Query variables associated with this range pair. */
+    variables: string[]
+    /** Bucket function applied to the column. */
+    bucket_fn: string
+}
+
+export interface MaterializationPreviewAggregateApi {
+    /** Aggregate expression in the transformed query. */
+    expression: string
+    /**
+     * Function used to aggregate materialized results again, when required.
+     * @nullable
+     */
+    reaggregate_fn: string | null
+}
+
+export interface MaterializationPreviewResponseApi {
+    /** Whether the endpoint query can be materialized. */
+    can_materialize: boolean
+    /**
+     * Reason the query cannot be materialized, or null when it can.
+     * @nullable
+     */
+    reason: string | null
+    /**
+     * Query rewritten for materialization, when available.
+     * @nullable
+     */
+    transformed_query: string | null
+    /**
+     * Query executed against the materialized table, when available.
+     * @nullable
+     */
+    execution_query: string | null
+    /**
+     * Human-readable execution query, when available.
+     * @nullable
+     */
+    display_execution_query: string | null
+    /** Detected range pairs and their bucket functions. */
+    range_pairs: MaterializationPreviewRangePairApi[]
+    /** Aggregate expressions and their re-aggregation functions. */
+    aggregates: MaterializationPreviewAggregateApi[]
 }
 
 /**
@@ -1006,6 +1055,13 @@ export type EndpointsListParams = {
     offset?: number
 }
 
+export type EndpointsRetrieveParams = {
+    /**
+     * Endpoint version. Defaults to the current version.
+     */
+    version?: number
+}
+
 export type EndpointsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
@@ -1036,6 +1092,13 @@ export type EndpointsLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Endpoint version. Defaults to the current version.
+     */
+    version?: number
 }
 
 export type EndpointsOpenapiSpecRetrieveParams = {

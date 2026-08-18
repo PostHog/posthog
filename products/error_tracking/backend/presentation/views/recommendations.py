@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -31,6 +31,16 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
     scope_object_write_actions = ["refresh", "dismiss", "restore"]
     serializer_class = ErrorTrackingRecommendationSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="poll",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Skip scheduling a refresh and return the current recommendation state.",
+            )
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # When the frontend is polling for status updates we skip the kick
         # so each poll is a cheap read of the current state.
@@ -43,7 +53,18 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             return self.get_paginated_response(self.get_serializer(page, many=True).data)
         return Response(self.get_serializer(recommendations, many=True).data)
 
-    @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
+    @extend_schema(
+        request=None,
+        responses=ErrorTrackingRecommendationSerializer,
+        parameters=[
+            OpenApiParameter(
+                name="force",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Recompute the recommendation even when its current result is fresh.",
+            )
+        ],
+    )
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, *args, pk=None, **kwargs) -> Response:
         force = request.query_params.get("force", "true").lower() != "false"

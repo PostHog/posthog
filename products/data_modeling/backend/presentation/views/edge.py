@@ -1,6 +1,7 @@
 from typing import Any
 from uuid import UUID
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import filters, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
 
@@ -52,6 +53,11 @@ class EdgePagination(PageNumberPagination):
     page_size = 5000
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[OpenApiParameter(name="dag", type=UUID, required=False, description="Filter edges by DAG ID.")]
+    )
+)
 class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()

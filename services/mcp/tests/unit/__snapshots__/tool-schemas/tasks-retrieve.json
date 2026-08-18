@@ -3,6 +3,10 @@
     "properties": {
         "id": {
             "type": "string"
+        },
+        "ph_debug": {
+            "description": "Local development only. Allow explicit cross-owner task reads for debugging.",
+            "type": "boolean"
         }
     },
     "required": ["id"],

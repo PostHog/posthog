@@ -6745,6 +6745,7 @@ export const ErrorTrackingRecommendationsListParams = /* @__PURE__ */ zod.object
 export const ErrorTrackingRecommendationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    poll: zod.boolean().optional().describe('Skip scheduling a refresh and return the current recommendation state.'),
 })
 
 export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = /* @__PURE__ */ zod.object({

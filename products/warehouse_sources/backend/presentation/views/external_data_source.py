@@ -825,7 +825,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
         return (instance.schema_snapshot or {}).get("cdc_write_mode")
 
-    def get_status(self, instance: ExternalDataJob):
+    def get_status(self, instance: ExternalDataJob) -> str:
         if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
 
@@ -834,10 +834,11 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
 
         return instance.status
 
-    def get_schema(self, instance: ExternalDataJob):
-        return SimpleExternalDataSchemaSerializer(
-            instance.schema, many=False, read_only=True, context=self.context
-        ).data
+    @extend_schema_field(SimpleExternalDataSchemaSerializer)
+    def get_schema(self, instance: ExternalDataJob) -> dict[str, Any]:
+        return dict(
+            SimpleExternalDataSchemaSerializer(instance.schema, many=False, read_only=True, context=self.context).data
+        )
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1403,10 +1404,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
-        help_text=(
-            "Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick "
-            "which tables sync; omit it and every discovered table syncs with default settings."
-        ),
+        help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
     )
     prefix = serializers.CharField(
         max_length=100,
@@ -1640,6 +1638,20 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
         choices=ExternalDataSourceType.choices,
         help_text="The source type to validate against.",
     )
+
+
+class CDCPrerequisitesRequestSerializer(serializers.Serializer):
+    source_type = serializers.CharField()
+    cdc_management_mode = serializers.ChoiceField(choices=["posthog", "self_managed"])
+    tables = serializers.ListField(child=serializers.CharField(), required=False)
+    cdc_slot_name = serializers.CharField(required=False, allow_null=True)
+    cdc_publication_name = serializers.CharField(required=False, allow_null=True)
+
+
+class ExistingSourceCDCPrerequisitesRequestSerializer(serializers.Serializer):
+    cdc_management_mode = serializers.ChoiceField(choices=["posthog", "self_managed"])
+    cdc_slot_name = serializers.CharField(required=False, allow_null=True)
+    cdc_publication_name = serializers.CharField(required=False, allow_null=True)
 
 
 class SourcePreviewRequestSerializer(serializers.Serializer):
@@ -2368,19 +2380,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
-        # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
-        # caller that wants to hand-pick tables still sends the array; one that just has
-        # credentials no longer has to run schema discovery itself to write back what we already
-        # know. Discovery ran above, so the defaults cost nothing extra here.
-        payload_schemas = payload.get("schemas")
-        if payload_schemas is not None and not isinstance(payload_schemas, list):
+        payload_schemas = payload.get("schemas", None)
+        if not payload_schemas or not isinstance(payload_schemas, list):
             new_source_model.delete()
             return Response(
-                data={"message": "The 'schemas' field must be a list of the tables to sync."},
                 status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Schemas not given"},
             )
-        if not payload_schemas:
-            payload_schemas = build_default_schemas(source_schemas)
 
         # Return 400 if we get any schema names that don't exist in our source
         if any(schema.get("name") not in schema_names for schema in payload_schemas):
@@ -3795,7 +3801,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceCredentialSerializer(data, many=True).data)
 
     @extend_schema(
-        request=None,
+        request=CDCPrerequisitesRequestSerializer,
         responses={
             200: OpenApiResponse(
                 response={
@@ -3909,6 +3915,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"CDC is not supported for source type: {instance.source_type}"},
             )
 
+    @extend_schema(
+        request=ExistingSourceCDCPrerequisitesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "valid": {"type": "boolean"},
+                        "errors": {"type": "array", "items": {"type": "string"}},
+                    },
+                }
+            )
+        },
+    )
     @action(methods=["POST"], detail=True)
     def check_cdc_prerequisites_for_source(self, request: Request, *arg: Any, **kwargs: Any):
         """Validate CDC prerequisites for an existing source using its stored credentials.
@@ -4515,7 +4535,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=True, pagination_class=None)
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -4542,6 +4561,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ],
         responses=ExternalDataJobSerializers(many=True),
     )
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)
