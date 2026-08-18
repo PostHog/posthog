@@ -36,8 +36,27 @@ WORKFLOW_COMPLETION_GRACE_SECONDS = 60
 WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
 
 
+class AgentNeverRanError(RuntimeError):
+    """The agent failed before it did any work, so the case has no outcome to score.
+
+    Raised so the engine records the case as an error and drops it from the aggregates. Scoring it
+    instead would put a zero on every outcome scorer while ``exit_code_zero`` stayed at one, which
+    reads as a model regression rather than the infrastructure failure it is.
+    """
+
+
 class WorkflowCleanupError(RuntimeError):
     pass
+
+
+def agent_never_ran(artifacts: AgentArtifacts) -> bool:
+    """Did the run fail before the agent did anything at all?
+
+    An agent that errored after making tool calls has a partial outcome worth scoring. One that
+    errored with no tool call behind it produced nothing, so its zeros describe the infrastructure
+    rather than the model.
+    """
+    return bool(artifacts.stderr) and not artifacts.tool_call_count
 
 
 async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: int) -> bool:
@@ -159,6 +178,7 @@ async def run_eval_case(
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
     """Extract scoring artifacts from JSONL agent logs."""
     tool_outputs: list[dict] = []
+    agent_errors: list[str] = []
     has_error = False
 
     for line in log_content.strip().split("\n"):
@@ -189,6 +209,12 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
         session_update = update.get("sessionUpdate")
         if session_update in {"tool_call", "tool_call_update"}:
             tool_outputs.append(update)
+        # The agent-server reports its own failures here, and every `errorType` it emits means the
+        # run failed rather than the model answering badly. Without this the case looks clean:
+        # the workflow still finishes, so `exit_code` stays 0 and only the outcome scorers move.
+        if session_update == "error":
+            has_error = True
+            agent_errors.append(str(update.get("message") or update.get("errorType") or "agent error"))
 
     # Extract git diff, file changes, test results from tool outputs
     git_diff = ""
@@ -240,12 +266,13 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
     return AgentArtifacts(
         exit_code=0 if agent_finished and not has_error else 1,
         stdout=agent_output[:10000],
-        stderr="",
+        stderr="\n".join(agent_errors)[:5000],
         git_diff=git_diff,
         files_changed=files_changed,
         test_exit_code=test_exit_code,
         test_output=test_output[:5000],
         lint_exit_code=lint_exit_code,
         lint_output=lint_output[:5000],
+        tool_call_count=len(tool_outputs),
         duration_seconds=duration_seconds,
     )

@@ -14,7 +14,7 @@ import requests
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
-from products.posthog_ai.eval_harness.config import SandboxedEvalCase
+from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
@@ -263,3 +263,33 @@ def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pyte
 
     sandbox_list.assert_called_once_with(app_id="app-id", tags={"task_id": "task-id"})
     sandbox.terminate.assert_called_once_with()
+
+
+class TestAgentRunFailureDetection:
+    # An agent-server failure reaches the log as a session error, and the workflow still finishes
+    # cleanly afterwards. Miss it and a run where no agent ever spoke reports exit_code_zero=1 with
+    # zeros on every outcome scorer, which reads as a model regression.
+    def test_a_session_error_makes_the_run_a_failure(self) -> None:
+        log = "\n".join(
+            [
+                '{"notification": {"method": "session/update", "params": {"update": '
+                '{"sessionUpdate": "error", "errorType": "agent_error", "message": "403 model_gate"}}}}',
+            ]
+        )
+        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.exit_code == 1
+        assert "403 model_gate" in artifacts.stderr
+
+    @parameterized.expand(
+        [
+            ("no work behind the error", "403 model_gate", 0, True),
+            ("errored after doing work", "stream terminated", 3, False),
+            ("clean run", "", 2, False),
+            ("clean run with no tool calls", "", 0, False),
+        ]
+    )
+    def test_only_a_run_that_did_nothing_counts_as_infrastructure(
+        self, _name: str, stderr: str, tool_call_count: int, expected: bool
+    ) -> None:
+        artifacts = AgentArtifacts(exit_code=1 if stderr else 0, stderr=stderr, tool_call_count=tool_call_count)
+        assert runner.agent_never_ran(artifacts) is expected
