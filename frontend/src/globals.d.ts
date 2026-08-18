@@ -37,6 +37,7 @@ declare global {
         JS_POSTHOG_IDENTITY_HASH?: string
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         posthog?: posthog
+        POSTHOG_STYLESHEET_READY?: Promise<void>
         ESBUILD_LOAD_SCRIPT: (name) => void
         ESBUILD_LOAD_CHUNKS: (name) => void
         ESBUILD_LOADED_CHUNKS: Set<string>

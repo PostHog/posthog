@@ -129,10 +129,16 @@ export function copyIndexHtml(
     const cssFileFallback = `${entry}.css?t=${buildId}`
     const needsCssFallback = cssFile !== cssFileFallback
     const cssLoader = `
+        var resolveStylesheet;
+        // The app entry awaits this before it renders real content, so React never swaps the
+        // styled preloader for markup the stylesheet has not reached yet. It resolves on load,
+        // on the fallback's load, or on a final error so boot never blocks forever.
+        window.POSTHOG_STYLESHEET_READY = new Promise(function (resolve) { resolveStylesheet = resolve; });
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
+        link.addEventListener("load", resolveStylesheet);
         ${
             needsCssFallback
                 ? `link.onerror = function() {
@@ -142,9 +148,11 @@ export function copyIndexHtml(
             fallbackLink.rel = "stylesheet";
             fallbackLink.crossOrigin = "anonymous";
             fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+            fallbackLink.addEventListener("load", resolveStylesheet);
+            fallbackLink.addEventListener("error", resolveStylesheet);
             document.head.appendChild(fallbackLink);
         };`
-                : ''
+                : `link.addEventListener("error", resolveStylesheet);`
         }
         document.head.appendChild(link)
     `
@@ -154,14 +162,10 @@ export function copyIndexHtml(
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
             `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
+                    // The stylesheet link is added just below. It exposes
+                    // window.POSTHOG_STYLESHEET_READY, which the app entry awaits
+                    // before its first real render, so the stylesheet is in place
+                    // when React starts adding elements to the DOM.
                     ${cssFile ? cssLoader : ''}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}

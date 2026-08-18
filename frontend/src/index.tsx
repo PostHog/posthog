@@ -16,12 +16,17 @@ import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 // load and before <App /> first renders. It lives in its own module so scenes/App
 // keeps component-only exports and stays a React Fast Refresh boundary.
 const App = lazy(() =>
-    Promise.all([retryBootImport(() => import('scenes/App')), retryBootImport(() => import('scenes/bootApp'))]).then(
-        ([appModule, bootModule]) => {
-            bootModule.bootApp()
-            return { default: appModule.App }
-        }
-    )
+    Promise.all([
+        retryBootImport(() => import('scenes/App')),
+        retryBootImport(() => import('scenes/bootApp')),
+        // Hold the first real render until the runtime-injected stylesheet is in place, so React
+        // never replaces the styled preloader with unstyled markup. Resolves immediately if absent
+        // (e.g. dev builds without the loader). The fetch runs in parallel with the chunk imports.
+        window.POSTHOG_STYLESHEET_READY ?? Promise.resolve(),
+    ]).then(([appModule, bootModule]) => {
+        bootModule.bootApp()
+        return { default: appModule.App }
+    })
 )
 
 declare global {
