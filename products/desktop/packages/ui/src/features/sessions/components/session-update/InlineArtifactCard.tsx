@@ -82,7 +82,10 @@ export function UploadedArtifactCard({
     turnCancelled,
     turnComplete,
   );
-  const uploaded = useUploadedArtifact(taskId, name);
+  // A file is matched by name, so a re-upload under an existing name would
+  // match the version it is about to replace. Resolving by the id the upload
+  // returns is the real fix, and waits on that id reaching the tool result.
+  const uploaded = useUploadedArtifact(taskId, isLoading ? null : name);
   const title = name ?? "File";
 
   const delivered = [
