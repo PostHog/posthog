@@ -1151,9 +1151,11 @@ class TestTwoFactorAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["has_totp"])
         self.assertFalse(data["has_passkeys"])
+        self.assertFalse(data["has_passkeys_for_login"])
 
-        # User with passkeys only
-        TOTPDevice.objects.filter(user=self.user).delete()
+        # Passkey present but not enabled for 2FA - the locked-out case. The user keeps their
+        # authenticator device but lost access to it, so 2FA is still required. The 2FA passkey
+        # button stays hidden (has_passkeys is False), but the login-page passkey route is offered.
         WebauthnCredential.objects.create(
             user=self.user,
             credential_id=b"test-credential-id",
@@ -1164,7 +1166,19 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
-        # Enable passkeys for 2FA
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
+
+        response = self.client.get("/api/login/2fa/passkey/methods/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["has_totp"])
+        self.assertFalse(data["has_passkeys"])
+        self.assertTrue(data["has_passkeys_for_login"])
+
+        # Passkeys enabled for 2FA, no authenticator device
+        TOTPDevice.objects.filter(user=self.user).delete()
         self.user.passkeys_enabled_for_2fa = True
         self.user.save()
 
@@ -1178,6 +1192,7 @@ class TestTwoFactorAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["has_totp"])
         self.assertTrue(data["has_passkeys"])
+        self.assertTrue(data["has_passkeys_for_login"])
 
         # User with both TOTP and passkeys
         TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
@@ -1192,6 +1207,7 @@ class TestTwoFactorAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["has_totp"])
         self.assertTrue(data["has_passkeys"])
+        self.assertTrue(data["has_passkeys_for_login"])
 
     def test_passkey_2fa_methods_endpoint_requires_session(self):
         """Test that methods endpoint requires a pending 2FA session"""

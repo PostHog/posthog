@@ -194,7 +194,9 @@ export function TwoFactorSettings(): JSX.Element {
                                                 </p>
                                                 <p>
                                                     {hasPasskeys
-                                                        ? 'You have passkeys set up. They are automatically used for 2FA when available.'
+                                                        ? passkeysEnabled
+                                                            ? 'Passkeys are on for 2FA. You can use one when you sign in.'
+                                                            : 'Turn on the switch to use your passkey for 2FA.'
                                                         : 'Add a passkey in the Passkeys settings to enable this method for 2FA.'}
                                                 </p>
                                             </div>

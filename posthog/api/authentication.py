@@ -913,6 +913,9 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             {
                 "has_totp": totp_device is not None,
                 "has_passkeys": passkeys_enabled_for_2fa,
+                # A verified passkey the user can sign in with from the login page, even when they
+                # have not enabled passkeys for 2FA. Lets the 2FA screen point them to that route.
+                "has_passkeys_for_login": user_has_passkeys,
             }
         )
 

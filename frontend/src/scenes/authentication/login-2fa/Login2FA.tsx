@@ -11,6 +11,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { login2FALogic } from './login2FALogic'
 
@@ -18,18 +19,33 @@ import { login2FALogic } from './login2FALogic'
 // elements, so inserting the conditional support link beside a bare text node crashes React
 // (insertBefore / removeChild NotFoundError, see react#11538).
 export function Login2FA(): JSX.Element {
-    const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
-        useValues(login2FALogic)
+    const {
+        isTwofactortokenSubmitting,
+        generalError,
+        passkey2FALoading,
+        passkeysAvailable,
+        totpAvailable,
+        hasPasskeyForLogin,
+    } = useValues(login2FALogic)
     const { beginPasskey2FA } = useActions(login2FALogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const leadText =
+        totpAvailable && passkeysAvailable
+            ? 'Enter a token from your authenticator app, use your passkey, or enter a backup code.'
+            : passkeysAvailable
+              ? 'Use your passkey to continue.'
+              : totpAvailable
+                ? 'Enter a token from your authenticator app, or enter a backup code.'
+                : 'Contact support to regain access to your account.'
 
     return (
         <BridgePage view="login">
             <div className="deprecated-space-y-2">
                 <h2>Two-Factor Authentication</h2>
                 <p>
-                    <span>Enter a token from your authenticator app, use your passkey, or enter a backup code.</span>
+                    <span>{leadText}</span>
                     {preflight?.cloud && (
                         <>
                             {' '}
@@ -47,6 +63,16 @@ export function Login2FA(): JSX.Element {
                         </>
                     )}
                 </p>
+
+                {hasPasskeyForLogin && !passkeysAvailable && (
+                    <LemonBanner type="info">
+                        You have a passkey on your account.{' '}
+                        <Link to={urls.login()} data-attr="2fa-use-passkey-login">
+                            Sign in with your passkey
+                        </Link>{' '}
+                        to skip two-factor authentication.
+                    </LemonBanner>
+                )}
 
                 {passkeysAvailable && (
                     <>

@@ -31,6 +31,7 @@ export enum LoginStep {
 export interface TwoFAMethodsResponse {
     has_totp: boolean
     has_passkeys: boolean
+    has_passkeys_for_login: boolean
 }
 
 export interface LoginTokenResponse {
@@ -45,6 +46,7 @@ export interface login2FALogicValues {
         code: string
         detail: string
     } | null
+    hasPasskeyForLogin: boolean
     isTwofactortokenSubmitting: boolean
     isTwofactortokenValid: boolean
     passkey2FA: null
@@ -125,6 +127,9 @@ export interface login2FALogicActions {
         code: string
         detail: string
     }
+    setHasPasskeyForLogin: (available: boolean) => {
+        available: boolean
+    }
     setLoginStep: (step: LoginStep) => {
         step: LoginStep
     }
@@ -180,6 +185,7 @@ export const login2FALogic = kea<login2FALogicType>([
         passkey2FACancelled: true,
         checkPasskeysAvailable: true,
         setTotpAvailable: (available: boolean) => ({ available }),
+        setHasPasskeyForLogin: (available: boolean) => ({ available }),
     }),
     reducers({
         generalError: [
@@ -193,6 +199,12 @@ export const login2FALogic = kea<login2FALogicType>([
             true as boolean,
             {
                 setTotpAvailable: (_, { available }) => available,
+            },
+        ],
+        hasPasskeyForLogin: [
+            false as boolean,
+            {
+                setHasPasskeyForLogin: (_, { available }) => available,
             },
         ],
         passkey2FAWasCancelled: [
@@ -254,10 +266,12 @@ export const login2FALogic = kea<login2FALogicType>([
                         const methods = await api.get<TwoFAMethodsResponse>('api/login/2fa/passkey/methods/')
                         // Store TOTP availability for UI
                         actions.setTotpAvailable(methods.has_totp)
+                        actions.setHasPasskeyForLogin(methods.has_passkeys_for_login)
                         return methods.has_passkeys
                     } catch {
                         // If it fails, assume no passkeys and TOTP might be available
                         actions.setTotpAvailable(true)
+                        actions.setHasPasskeyForLogin(false)
                         return false
                     }
                 },
