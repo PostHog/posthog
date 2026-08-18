@@ -172,6 +172,11 @@ def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
     return customization.copy() if isinstance(customization, dict) else {}
 
 
+def _effective_layout_compaction(customization: Any) -> str:
+    layout_compaction = _normalize_dashboard_customization(customization).get("layout_compaction")
+    return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
+
+
 logger = structlog.get_logger(__name__)
 
 DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
@@ -1188,7 +1193,10 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     layout_compaction = serializers.ChoiceField(
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
-        help_text="Grid compaction mode. Use vertical, horizontal, or stable.",
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
     )
 
 
@@ -1221,7 +1229,10 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
         write_only=True,
-        help_text="Grid compaction mode. Use vertical, horizontal, or stable.",
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
     )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
@@ -1520,7 +1531,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
         if grid_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"grid_compaction": "Layout compaction isn't available."})
+            raise serializers.ValidationError({"grid_compaction": "Tile movement settings aren't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1771,6 +1782,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
+        previous_layout_compaction = _effective_layout_compaction(instance.customization)
         can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
@@ -1787,7 +1799,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if grid_compaction is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
-            raise serializers.ValidationError({"grid_compaction": "Layout compaction isn't available."})
+            raise serializers.ValidationError({"grid_compaction": "Tile movement settings aren't available."})
         if grid_spacing is not None or grid_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
@@ -1863,6 +1875,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
+            if grid_compaction is not None and grid_compaction != previous_layout_compaction:
+                report_user_action(
+                    user,
+                    "dashboard grid compaction configured",
+                    {
+                        "dashboard_id": instance.id,
+                        "previous_layout_compaction": previous_layout_compaction,
+                        "layout_compaction": grid_compaction,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
             if being_deleted:
                 report_user_action(
                     user,

@@ -689,6 +689,40 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(copied["customization"], {"layout_compaction": layout_compaction})
         self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_grid_compaction_reports_every_mode_change(
+        self, _mock_enabled: MagicMock, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"grid_compaction": "horizontal"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"grid_compaction": "vertical"})
+
+        compaction_calls = [
+            call
+            for call in mock_report_user_action.call_args_list
+            if call.args[1] == "dashboard grid compaction configured"
+        ]
+        self.assertEqual(len(compaction_calls), 2)
+        self.assertEqual(
+            compaction_calls[0].args[2],
+            {
+                "dashboard_id": dashboard_id,
+                "previous_layout_compaction": "vertical",
+                "layout_compaction": "horizontal",
+            },
+        )
+        self.assertEqual(
+            compaction_calls[1].args[2],
+            {
+                "dashboard_id": dashboard_id,
+                "previous_layout_compaction": "horizontal",
+                "layout_compaction": "vertical",
+            },
+        )
+
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self, _mock_enabled: MagicMock):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", customization=[])
@@ -721,7 +755,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(response["attr"], "grid_compaction")
-        self.assertEqual(response["detail"], "Layout compaction isn't available.")
+        self.assertEqual(response["detail"], "Tile movement settings aren't available.")
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
     def test_dashboard_tile_spacing_requires_a_known_preset(self, _mock_enabled: MagicMock):

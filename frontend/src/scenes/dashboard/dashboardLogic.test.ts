@@ -387,6 +387,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                    grid_compaction: 'vertical',
                     grid_spacing: 'relaxed',
                 })
                 expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
@@ -418,10 +419,6 @@ describe('dashboardLogic', () => {
         it('previews layout compaction immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
-            const reportGridCompactionConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardGridCompactionConfigured'
-            )
             jest.useFakeTimers()
 
             try {
@@ -439,8 +436,8 @@ describe('dashboardLogic', () => {
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
                     grid_compaction: 'horizontal',
+                    grid_spacing: 'standard',
                 })
-                expect(reportGridCompactionConfigured).toHaveBeenCalledWith('horizontal')
             } finally {
                 jest.useRealTimers()
             }
@@ -1195,6 +1192,64 @@ describe('dashboardLogic', () => {
                 })
                     .toFinishAllListeners()
                     .toMatchValues({ hasUnsavedLayoutChanges: false })
+            })
+        })
+
+        describe('changeDashboardGridCompaction action', () => {
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
+            const moveFirstTile = (): void => {
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const currentLayouts = logic.values.layouts
+                logic.actions.updateLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+                })
+            }
+
+            it('changes the movement mode without a prompt when the layout is saved', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction('horizontal')
+                }).toDispatchActions([
+                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                ])
+
+                expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('prompts before changing the movement mode when the layout is unsaved', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.changeDashboardGridCompaction('horizontal')
+                }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardGridCompaction('horizontal'),
+                    logic.actionCreators.saveDashboardGridCompaction('horizontal'),
+                ])
+
+                expect(dialogOpenSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: 'Change tile movement?',
+                        description: 'Changing this setting discards your unsaved tile layout changes.',
+                    })
+                )
+
+                const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
+                dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+
+                await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
             })
         })
 

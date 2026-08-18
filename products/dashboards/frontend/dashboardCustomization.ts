@@ -1,4 +1,4 @@
-import { cloneLayoutItem } from 'react-grid-layout'
+import { cloneLayoutItem, horizontalCompactor, noCompactor } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { fastVerticalCompactor } from 'react-grid-layout/extras'
 
@@ -21,9 +21,9 @@ export const DASHBOARD_TILE_SPACING_LABELS: Record<DashboardTileSpacing, string>
 }
 
 export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, string> = {
-    vertical: 'Fill empty space above',
-    horizontal: 'Make room in the row',
-    stable: 'Keep positions where possible',
+    vertical: 'Stack tiles upward',
+    horizontal: 'Stack tiles to the left',
+    stable: 'Free-form placement',
 }
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>
@@ -35,7 +35,6 @@ function getOccupants(occupancy: GridOccupancy, item: LayoutItem, cols: number):
 
     for (let y = item.y; y < item.y + item.h; y++) {
         const row = occupancy.get(y)
-
         for (let x = startX; row && x < endX; x++) {
             const occupant = row[x]
             if (occupant) {
@@ -53,86 +52,71 @@ function occupy(occupancy: GridOccupancy, item: LayoutItem, cols: number): void 
 
     for (let y = item.y; y < item.y + item.h; y++) {
         const row = occupancy.get(y) ?? new Array<LayoutItem | undefined>(cols)
-
         for (let x = startX; x < endX; x++) {
             row[x] = item
         }
-
         occupancy.set(y, row)
     }
 }
 
-function createOccupancy(items: Layout, cols: number): GridOccupancy {
-    const occupancy: GridOccupancy = new Map()
+export const freePlacementCompactor: Compactor = noCompactor
 
+export const makeRoomInRowCompactor: Compactor = horizontalCompactor
+
+export function restoreUnmovedTilePositions(
+    layout: Layout,
+    baseline: Layout,
+    activeTileId: string,
+    baselineById: ReadonlyMap<string, LayoutItem> = new Map(baseline.map((item) => [item.i, item]))
+): Layout {
+    const activeTile = layout.find((item) => item.i === activeTileId)
+
+    return layout.map((item) => {
+        const baselineItem = baselineById.get(item.i)
+        if (item.i === activeTileId || !baselineItem) {
+            return item
+        }
+
+        const restoredItem = { ...item, x: baselineItem.x, y: baselineItem.y }
+        if (activeTile && tilesOverlap(restoredItem, activeTile)) {
+            return item
+        }
+        return restoredItem
+    })
+}
+
+export function resolveFreePlacementCollisions(layout: Layout, cols: number, activeTileId?: string | null): Layout {
+    const items = layout.map((item) => cloneLayoutItem(item))
+    const activeTile = activeTileId ? items.find((item) => item.i === activeTileId) : undefined
+    const occupancy: GridOccupancy = new Map()
     for (const item of items) {
         if (item.static) {
             occupy(occupancy, item, cols)
         }
     }
+    const movableItems = items.filter((item) => !item.static && item.i !== activeTileId)
 
-    return occupancy
-}
+    for (const item of activeTile && !activeTile.static ? [activeTile, ...movableItems] : movableItems) {
+        let collisions = getOccupants(occupancy, item, cols)
 
-export const preservePositionsCompactor: Compactor = {
-    type: null,
-    allowOverlap: false,
-    preventCollision: true,
-    compact: (layout: Layout, cols: number): Layout => {
-        const items = layout.map((item) => cloneLayoutItem(item))
-        const occupancy = createOccupancy(items, cols)
-        const movableItems = items.filter((item) => !item.static).sort((a, b) => a.y - b.y || a.x - b.x)
-
-        for (const item of movableItems) {
-            let collisions = getOccupants(occupancy, item, cols)
-
-            while (collisions.length > 0) {
-                item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
-                collisions = getOccupants(occupancy, item, cols)
-            }
-
-            occupy(occupancy, item, cols)
+        while (collisions.length > 0) {
+            item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
+            collisions = getOccupants(occupancy, item, cols)
         }
 
-        return items
-    },
+        occupy(occupancy, item, cols)
+    }
+
+    return items
 }
 
-export const makeRoomInRowCompactor: Compactor = {
-    type: 'horizontal',
-    allowOverlap: false,
-    compact: (layout: Layout, cols: number): Layout => {
-        const items = layout.map((item) => cloneLayoutItem(item))
-        const occupancy = createOccupancy(items, cols)
-        const movableItems = items.filter((item) => !item.static).sort((a, b) => a.y - b.y || a.x - b.x)
-
-        for (const item of movableItems) {
-            if (item.x + item.w > cols) {
-                const rowItems = getOccupants(occupancy, { ...item, x: 0, w: cols }, cols)
-                item.x = 0
-                item.y = Math.max(item.y + 1, ...rowItems.map((rowItem) => rowItem.y + rowItem.h))
-            }
-
-            let collisions = getOccupants(occupancy, item, cols)
-
-            while (collisions.length > 0) {
-                const nextX = Math.max(...collisions.map((collision) => collision.x + collision.w))
-
-                if (nextX + item.w <= cols) {
-                    item.x = nextX
-                } else {
-                    item.x = 0
-                    item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
-                }
-
-                collisions = getOccupants(occupancy, item, cols)
-            }
-
-            occupy(occupancy, item, cols)
-        }
-
-        return items
-    },
+function tilesOverlap(first: LayoutItem, second: LayoutItem): boolean {
+    return (
+        first.x < second.x + second.w &&
+        first.x + first.w > second.x &&
+        first.y < second.y + second.h &&
+        first.y + first.h > second.y
+    )
 }
 
 export function getDashboardTileSpacingGap(tileSpacing?: string): number {
@@ -144,7 +128,7 @@ export function getDashboardGridCompactor(layoutCompaction?: string): Compactor 
         case 'horizontal':
             return makeRoomInRowCompactor
         case 'stable':
-            return preservePositionsCompactor
+            return freePlacementCompactor
         default:
             return fastVerticalCompactor
     }

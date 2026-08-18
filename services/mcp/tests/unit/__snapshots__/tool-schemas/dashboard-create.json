@@ -24,7 +24,7 @@
             "type": "string"
         },
         "grid_compaction": {
-            "description": "Grid compaction mode. Use vertical, horizontal, or stable.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "description": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
             "enum": ["vertical", "horizontal", "stable"],
             "type": "string"
         },

@@ -19310,7 +19310,7 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       tile_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or stable.
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
        *
        * * `vertical` - vertical
        * * `horizontal` - horizontal
@@ -19396,7 +19396,7 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or stable.
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
        *
        * * `vertical` - vertical
        * * `horizontal` - horizontal
@@ -59765,7 +59765,7 @@ export namespace Schemas {
        * * `relaxed` - relaxed
        * * `wide` - wide */
       grid_spacing?: TileSpacingEnum;
-      /** Grid compaction mode. Use vertical, horizontal, or stable.
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
        *
        * * `vertical` - vertical
        * * `horizontal` - horizontal

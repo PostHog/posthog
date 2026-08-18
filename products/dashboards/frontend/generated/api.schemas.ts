@@ -358,7 +358,7 @@ export interface DashboardCustomizationApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     tile_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or stable.
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
      *
      * * `vertical` - vertical
      * * `horizontal` - horizontal
@@ -444,7 +444,7 @@ export interface DashboardApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or stable.
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
      *
      * * `vertical` - vertical
      * * `horizontal` - horizontal
@@ -1031,7 +1031,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `relaxed` - relaxed
      * * `wide` - wide */
     grid_spacing?: TileSpacingEnumApi
-    /** Grid compaction mode. Use vertical, horizontal, or stable.
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
      *
      * * `vertical` - vertical
      * * `horizontal` - horizontal

@@ -3,8 +3,9 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { RefObject, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { cloneLayoutItem, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
@@ -39,6 +40,8 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import {
     getDashboardGridCompactor,
     getDashboardTileSpacingGap,
+    resolveFreePlacementCollisions,
+    restoreUnmovedTilePositions,
 } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
@@ -137,7 +140,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
     const [resizingTileId, setResizingTileId] = useState<string | null>(null)
+    const [layoutInteractionInProgress, setLayoutInteractionInProgress] = useState(false)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
+    const [tileSpacingChanging, setTileSpacingChanging] = useState(false)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -145,6 +150,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
     const interactionInProgress = useRef(false)
+    const resizeBaselineLayout = useRef<Layout | null>(null)
+    const resizeBaselineById = useRef<Map<string, LayoutItem> | null>(null)
+    const resizingTileIdRef = useRef<string | null>(null)
+    const dragBaselineLayout = useRef<Layout | null>(null)
+    const dragBaselineById = useRef<Map<string, LayoutItem> | null>(null)
+    const draggingTileIdRef = useRef<string | null>(null)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
@@ -185,6 +196,18 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             cancelAnimationFrame(secondFrame)
         }
     }, [scrollToBottomSignal])
+    const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
+    const previousGridGap = useRef(gridGap)
+    useLayoutEffect(() => {
+        if (previousGridGap.current === gridGap) {
+            return
+        }
+        previousGridGap.current = gridGap
+        setTileSpacingChanging(true)
+        const timeout = window.setTimeout(() => setTileSpacingChanging(false), 250)
+        return () => window.clearTimeout(timeout)
+    }, [gridGap])
+
     const className = clsx({
         'dashboard-view-mode mb-8': !layoutEditMode,
         // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
@@ -193,6 +216,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         // since preflight defaults everything to border-box), opening up draggable space below the
         // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
         'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
+        'dashboard-layout-interaction': layoutInteractionInProgress,
+        'dashboard-free-placement-interaction':
+            layoutInteractionInProgress && dashboard?.customization?.layout_compaction === 'stable',
+        'dashboard-tile-spacing-changing': tileSpacingChanging,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -247,8 +274,27 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
-    const gridCompactor = getDashboardGridCompactor(dashboard?.customization?.layout_compaction)
+    const gridCompactor = useMemo(() => {
+        const compactor = getDashboardGridCompactor(dashboard?.customization?.layout_compaction)
+        return {
+            ...compactor,
+            compact: (layout: Layout, cols: number): Layout => {
+                const activeTileId = resizingTileIdRef.current ?? draggingTileIdRef.current
+                const baseline = resizeBaselineLayout.current ?? dragBaselineLayout.current
+                const baselineById = resizeBaselineById.current ?? dragBaselineById.current
+                const layoutToCompact =
+                    baseline && activeTileId
+                        ? restoreUnmovedTilePositions(layout, baseline, activeTileId, baselineById ?? undefined)
+                        : layout
+
+                if (dashboard?.customization?.layout_compaction === 'stable') {
+                    return resolveFreePlacementCollisions(layoutToCompact, cols, activeTileId)
+                }
+
+                return compactor.compact(layoutToCompact, cols)
+            },
+        }
+    }, [dashboard?.customization?.layout_compaction])
     const margin = useMemo(
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
@@ -394,8 +440,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [updateContainerWidth]
     )
 
-    const handleResizeStart = useCallback(() => {
+    const handleResizeStart = useCallback((layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+        if (!newItem) {
+            return
+        }
         interactionInProgress.current = true
+        setLayoutInteractionInProgress(true)
+        resizeBaselineLayout.current = layout.map((item) => cloneLayoutItem(item))
+        resizeBaselineById.current = new Map(resizeBaselineLayout.current.map((item) => [item.i, item]))
+        resizingTileIdRef.current = newItem.i
     }, [])
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
@@ -405,14 +458,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const handleResizeStop = useCallback(() => {
         setResizingTileId(null)
+        setLayoutInteractionInProgress(false)
         flushPendingLayouts()
+        resizeBaselineLayout.current = null
+        resizeBaselineById.current = null
+        resizingTileIdRef.current = null
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
-    const handleDragStart = useCallback(() => {
+    const handleDragStart = useCallback((layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+        if (!newItem) {
+            return
+        }
         interactionInProgress.current = true
+        setLayoutInteractionInProgress(true)
+        dragBaselineLayout.current = layout.map((item) => cloneLayoutItem(item))
+        dragBaselineById.current = new Map(dragBaselineLayout.current.map((item) => [item.i, item]))
+        draggingTileIdRef.current = newItem.i
         scrollContainerRef.current = document.getElementById('main-content')
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
     }, [])
@@ -474,7 +538,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dragEndTimeout.current = window.setTimeout(() => {
             isDragging.current = false
         }, 250)
+        setLayoutInteractionInProgress(false)
         flushPendingLayouts()
+        dragBaselineLayout.current = null
+        dragBaselineById.current = null
+        draggingTileIdRef.current = null
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }

@@ -134,7 +134,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()
             .describe(
-                'Grid compaction mode. Use vertical, horizontal, or stable.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
         use_template: zod
             .string()
@@ -311,7 +311,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()
             .describe(
-                'Grid compaction mode. Use vertical, horizontal, or stable.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
+                'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
         tiles: zod
             .array(

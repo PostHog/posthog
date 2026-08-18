@@ -673,6 +673,9 @@ export interface dashboardLogicActions {
     saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
+    changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
+        layoutCompaction: DashboardGridCompaction
+    }
     saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
@@ -1319,6 +1322,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardUpdate: (payload) => ({ payload }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
@@ -3737,7 +3741,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
-                    { grid_spacing: tileSpacing }
+                    {
+                        grid_spacing: tileSpacing,
+                        grid_compaction: values.dashboard?.customization?.layout_compaction ?? 'vertical',
+                    }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
                 if (tileSpacing !== 'standard') {
@@ -3778,17 +3785,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
-                    { grid_compaction: layoutCompaction }
+                    {
+                        grid_compaction: layoutCompaction,
+                        grid_spacing: values.dashboard?.customization?.tile_spacing ?? 'standard',
+                    }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
-                if (layoutCompaction !== 'vertical') {
-                    eventUsageLogic.actions.reportDashboardGridCompactionConfigured(layoutCompaction)
-                }
             } catch {
                 if (!cache.pendingDashboardGridCompaction) {
                     actions.setDashboardGridCompaction(persistedLayoutCompaction)
                     actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    lemonToast.error("Couldn't update layout compaction. Try again.")
+                    lemonToast.error("Couldn't update tile movement. Try again.")
                 }
             } finally {
                 cache.dashboardGridCompactionSaveInFlight = false
@@ -4285,6 +4292,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     onClick: () => {
                         eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
                     },
+                },
+            })
+        },
+        changeDashboardGridCompaction: ({ layoutCompaction }) => {
+            const changeCompaction = (discardUnsavedLayoutChanges = false): void => {
+                if (discardUnsavedLayoutChanges) {
+                    const savedSmLayout = Object.entries(values.dashboardLayouts).flatMap(([tileId, layouts]) =>
+                        layouts?.sm ? [{ ...layouts.sm, i: tileId }] : []
+                    )
+                    actions.updateLayouts({ sm: savedSmLayout })
+                }
+                actions.setDashboardGridCompaction(layoutCompaction)
+                actions.saveDashboardGridCompaction(layoutCompaction)
+            }
+
+            if (!values.hasUnsavedLayoutChanges) {
+                changeCompaction()
+                return
+            }
+
+            LemonDialog.open({
+                title: 'Change tile movement?',
+                description: 'Changing this setting discards your unsaved tile layout changes.',
+                zIndex: '1169',
+                primaryButton: {
+                    children: 'Change mode',
+                    onClick: () => changeCompaction(true),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
                 },
             })
         },

@@ -166,26 +166,26 @@ const dashboardActionsMapping: Record<
     customization: function onChangedCustomization(change) {
         const before = change?.before as DashboardType['customization']
         const after = change?.after as DashboardType['customization']
+        const description: Description[] = []
         if (after?.layout_compaction && after.layout_compaction !== before?.layout_compaction) {
-            return {
-                description: [
-                    <>
-                        changed tile movement to{' '}
-                        <strong>{DASHBOARD_GRID_COMPACTION_LABELS[after.layout_compaction]}</strong>
-                    </>,
-                ],
-            }
+            description.push(
+                <>
+                    changed tile movement to{' '}
+                    <strong>{DASHBOARD_GRID_COMPACTION_LABELS[after.layout_compaction]}</strong>
+                </>
+            )
         }
         if (after?.tile_spacing && after.tile_spacing !== before?.tile_spacing) {
-            return {
-                description: [
-                    <>
-                        changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[after.tile_spacing]}</strong>
-                    </>,
-                ],
+            if (description.length > 0) {
+                description.push(' and ')
             }
+            description.push(
+                <>
+                    changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[after.tile_spacing]}</strong>
+                </>
+            )
         }
-        return null
+        return description.length > 0 ? { description } : null
     },
 }
 
