@@ -55,3 +55,21 @@ export const States: Story = {
     </div>
   ),
 };
+
+/**
+ * A long name in a narrow column, the way an activity row reads in the side
+ * panel. The name truncates so the download half stays in reach.
+ */
+export const NarrowContainer: Story = {
+  render: () => (
+    <div className="flex w-56 flex-col items-start gap-3 border border-dashed p-2 text-[13px]">
+      <ArtifactChip
+        label="quarterly-revenue-breakdown-by-region-2026-08.csv"
+        name="quarterly-revenue-breakdown-by-region-2026-08.csv"
+        meta="2.4 MB"
+        onOpen={() => {}}
+        onDownload={() => {}}
+      />
+    </div>
+  ),
+};
