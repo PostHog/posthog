@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, ScheduledChangeOperationType } from '~/types'
@@ -81,6 +83,32 @@ describe('FeatureFlagSchedule', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    // The apply-time check rejects a bad sum, so a schedulable invalid total only surfaces as a
+    // failed change after the scheduled time has passed.
+    it.each([
+        { name: 'sums to 100', percentages: [50, 50], expectedDisabled: false },
+        { name: 'falls short', percentages: [50, 20], expectedDisabled: true },
+        { name: 'exceeds 100', percentages: [60, 60], expectedDisabled: true },
+    ])('variant rollout $name: Schedule disabled=$expectedDisabled', ({ percentages, expectedDisabled }) => {
+        const featureFlag = buildFeatureFlag({ active: true, rolloutPercentage: 100 })
+        featureFlag.filters.multivariate = {
+            variants: percentages.map((rollout_percentage, index) => ({
+                key: `variant-${index}`,
+                name: '',
+                rollout_percentage,
+            })),
+        }
+        renderSchedule(featureFlag, ScheduledChangeOperationType.UpdateVariants)
+
+        act(() => {
+            featureFlagLogic(logicProps).actions.setScheduleDateMarker(dayjs('2030-01-01T00:00:00Z'))
+        })
+
+        // LemonButton marks a disabledReason with aria-disabled rather than the disabled attribute.
+        const scheduleButton = screen.getByText('Schedule').closest('button')
+        expect(scheduleButton).toHaveAttribute('aria-disabled', String(expectedDisabled))
     })
 
     it.each([
