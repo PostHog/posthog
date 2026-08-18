@@ -6,6 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import Integration, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
@@ -208,6 +209,11 @@ class TestRunTaskWarmMatchingUnderDefaults(APIBaseTest):
 
 
 class TestTasksConfigAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
@@ -260,6 +266,16 @@ class TestTasksConfigAPI(APIBaseTest):
         assert body["ai_run_preferences"] == {}
         assert body["resolved_ai_run_defaults"]["source"] == "team"
 
+    # The project default decides what every unpinned run on the project launches with, so a member
+    # must not be able to move it for everyone — while still reading it, and owning their own.
+    def test_a_member_can_read_the_project_default_but_not_change_it(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").status_code == 200
+        assert self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE).status_code == 403
+        assert self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE).status_code == 200
+
     def test_me_config_is_scoped_to_the_requesting_user(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
         UserTasksConfig.objects.for_team(self.team.id).update_or_create(
@@ -271,9 +287,16 @@ class TestTasksConfigAPI(APIBaseTest):
 
 class TestConfigEndpointScopes(APIBaseTest):
     # Both endpoints rely on `scope_object = "task"` to derive their scopes rather than
-    # declaring them. PostHog Code reads them with a personal API key, so a change to
+    # declaring them. PostHog Desktop reads them with a personal API key, so a change to
     # the scope object or the action sets would silently lock it out — or hand a
     # read-only key write access.
+    def setUp(self) -> None:
+        super().setUp()
+        # Scopes are what's under test here, so keep the project-admin requirement on the team
+        # endpoint from being what fails the write.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def _bearer(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="t", user=self.user, secure_value=hash_key_value(value), scopes=scopes)

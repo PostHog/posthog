@@ -3,6 +3,8 @@ import { useMemo } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -27,6 +29,7 @@ function PreferenceEditor({
     onSave,
     onReset,
     canReset,
+    restrictionReason,
 }: {
     draft: AIRunPreferenceDraft
     dirty: boolean
@@ -36,12 +39,14 @@ function PreferenceEditor({
     onSave: () => void
     onReset?: () => void
     canReset?: boolean
+    /** Set when the viewer may not edit this level, which disables every control here. */
+    restrictionReason?: string | null
 }): JSX.Element {
     const { catalogue } = useValues(modelCatalogueLogic)
 
     // Grouped by harness off the same catalogue the composer renders, so a model you can pick for a
     // run is always settable as a default and vice versa — including the Codex models that only
-    // Slack and PostHog Code drive today.
+    // Slack and PostHog Desktop drive today.
     const modelOptions = useMemo(
         () =>
             listRuntimeAdapters(catalogue).map((adapter) => ({
@@ -74,6 +79,7 @@ function PreferenceEditor({
                     }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
+                    disabledReason={restrictionReason ?? undefined}
                     data-attr="task-agent-default-model"
                 />
             </LemonField.Pure>
@@ -86,7 +92,7 @@ function PreferenceEditor({
                         { value: null as string | null, label: 'Default effort' },
                         ...effortOptions.map(({ value, label }) => ({ value: value as string, label })),
                     ]}
-                    disabledReason={draft.model ? undefined : 'Pick a model first'}
+                    disabledReason={restrictionReason ?? (draft.model ? undefined : 'Pick a model first')}
                     data-attr="task-agent-default-effort"
                 />
             </LemonField.Pure>
@@ -94,7 +100,7 @@ function PreferenceEditor({
                 type="primary"
                 onClick={onSave}
                 loading={saving}
-                disabledReason={dirty ? undefined : 'No changes to save'}
+                disabledReason={restrictionReason ?? (dirty ? undefined : 'No changes to save')}
             >
                 Save
             </LemonButton>
@@ -114,16 +120,30 @@ function PreferenceEditor({
 export function TaskAgentProjectDefaultSettings(): JSX.Element {
     const { teamDraft, teamDraftDirty, teamPreferencesLoading } = useValues(taskAgentDefaultsLogic)
     const { setTeamDraft, submitTeamDraft } = useActions(taskAgentDefaultsLogic)
+    // This one default applies to everyone on the project, so it's admin-only — unlike the personal
+    // preference below, which each person owns.
+    const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
-        <PreferenceEditor
-            draft={teamDraft}
-            dirty={teamDraftDirty}
-            saving={teamPreferencesLoading}
-            inheritLabel="No project default"
-            onChange={setTeamDraft}
-            onSave={submitTeamDraft}
-        />
+        <div className="flex flex-col gap-2">
+            <PreferenceEditor
+                draft={teamDraft}
+                dirty={teamDraftDirty}
+                saving={teamPreferencesLoading}
+                inheritLabel="No project default"
+                onChange={setTeamDraft}
+                onSave={submitTeamDraft}
+                restrictionReason={restrictionReason}
+            />
+            {restrictionReason ? (
+                <p className="text-secondary mb-0">
+                    Only project admins can change this. You can still set your own default below.
+                </p>
+            ) : null}
+        </div>
     )
 }
 

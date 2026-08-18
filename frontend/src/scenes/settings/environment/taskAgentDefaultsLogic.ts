@@ -226,8 +226,9 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
     })),
 
     selectors({
-        // `myPreferences` only ever holds a save response, so what's stored on mount comes from
-        // `myConfig` — the same value the draft is hydrated from.
+        // The save response is read first so the reset button settles in the same tick as the
+        // save; `myConfig` (refreshed alongside it) is what's there on mount and after a
+        // project-level write.
         myPreferenceStored: [
             (s) => [s.myPreferences, s.myConfig],
             (saved: TasksUserConfigResponseApi | null, loaded: TasksUserConfigResponseApi | null) =>
@@ -265,13 +266,16 @@ export const taskAgentDefaultsLogic = kea<taskAgentDefaultsLogicType>([
             actions.setMyDraft(EMPTY_DRAFT)
             actions.saveMyPreferences(payloadFromDraft(EMPTY_DRAFT, values.catalogue))
         },
-        // Both writes change what an unpinned run resolves to, so refresh the shared read the
-        // composers also render from.
+        // Both writes change what an unpinned run resolves to, so the shared read the composers
+        // render from has to move too. The team write can't say what the user-level answer
+        // becomes, so it refetches; the personal write already has it in its own response.
         saveTeamPreferencesSuccess: () => {
             actions.loadMyConfig()
         },
-        saveMyPreferencesSuccess: () => {
-            actions.loadMyConfig()
+        saveMyPreferencesSuccess: ({ myPreferences }) => {
+            if (myPreferences) {
+                actions.loadMyConfigSuccess(myPreferences)
+            }
         },
     })),
 

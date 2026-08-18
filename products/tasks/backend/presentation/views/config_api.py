@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, TeamMemberStrictManagementPermission
 
 from products.tasks.backend.facade import ai_run_defaults
 from products.tasks.backend.presentation.serializers import (
@@ -46,7 +46,9 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "task"
     authentication_classes = _AUTH_CLASSES
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    # One value that decides what every unpinned run on the project launches with, so writing it is
+    # admin-only; reading stays open to members, who need it to see what they're inheriting.
+    permission_classes = [IsAuthenticated, APIScopePermission, TeamMemberStrictManagementPermission]
     serializer_class = TasksTeamConfigResponseSerializer
 
     @extend_schema(
