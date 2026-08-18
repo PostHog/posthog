@@ -27329,7 +27329,7 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
-      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
     }
 
@@ -70852,6 +70852,20 @@ export namespace Schemas {
     }
 
     /**
+     * Response of GET /vision/scanners/:id/self_driving_stats/.
+     */
+    export interface ScannerSelfDrivingStats {
+      /** Signals this scanner has pushed into the Signals inbox, all time. */
+      signals_emitted: number;
+      /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+      reports_contributed: number;
+      /** Implementation PRs opened by self-driving on those reports. */
+      prs_opened: number;
+      /** Of the opened PRs, how many have merged. */
+      prs_merged: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
@@ -79276,6 +79290,15 @@ export namespace Schemas {
     export interface TaskThreadMessageWrite {
       /** Message text. */
       content: string;
+    }
+
+    export interface TaskUsageResponse {
+      /** Estimated model cost attributed to this task in US dollars. */
+      token_cost_usd: number;
+      /** Estimated cloud compute cost attributed to this task in US dollars. */
+      compute_cost_usd: number;
+      /** Estimated total cost attributed to this task in US dollars. */
+      total_cost_usd: number;
     }
 
     /**
