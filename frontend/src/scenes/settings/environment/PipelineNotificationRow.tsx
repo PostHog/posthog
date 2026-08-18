@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
@@ -10,9 +9,10 @@ import type { PipelineItem } from '../shared/pipelineDiscovery'
 import { pipelineNotificationAdminLogic } from './pipelineNotificationAdminLogic'
 
 export function PipelineNotificationRow({ pipeline }: { pipeline: PipelineItem }): JSX.Element {
-    const { members, isSubscribed, savingChanges } = useValues(pipelineNotificationAdminLogic)
-    const { setSubscription, setSubscriptionForAllMembers } = useActions(pipelineNotificationAdminLogic)
-    const [expanded, setExpanded] = useState(false)
+    const { members, isSubscribed, savingChanges, expandedPipelines } = useValues(pipelineNotificationAdminLogic)
+    const { setSubscription, setSubscriptionForAllMembers, toggleExpandedPipeline } =
+        useActions(pipelineNotificationAdminLogic)
+    const expanded = !!expandedPipelines[pipeline.id]
 
     const listedMembers = members ?? []
     const subscribed = listedMembers.filter((member) => isSubscribed(member.user_id, pipeline.id))
@@ -23,7 +23,7 @@ export function PipelineNotificationRow({ pipeline }: { pipeline: PipelineItem }
             <div className="flex items-center justify-between gap-2">
                 <LemonButton
                     icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
-                    onClick={() => setExpanded(!expanded)}
+                    onClick={() => toggleExpandedPipeline(pipeline.id)}
                     size="small"
                     type="tertiary"
                     className="p-0"

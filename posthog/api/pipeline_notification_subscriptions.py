@@ -15,6 +15,9 @@ from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 from posthog.permissions import OrganizationAdminReadPermissions, PostHogFeatureFlagPermission
 
+from products.batch_exports.backend.models.batch_export import BatchExport
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import PluginConfig
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -115,7 +118,21 @@ def _eligible_members(team: Team, actor_level: int) -> _EligibleMembers:
     return sorted(members, key=lambda member: (member.user.email or "").lower())
 
 
-def _represent(member: _EligibleMember) -> dict:
+def _project_pipeline_ids(team: Team) -> set[str]:
+    """Pipeline IDs this project owns, in the shape the email senders look them up by.
+
+    `pipeline_notifications_disabled` is one global map per member, shared across every project the
+    member belongs to. Without this set, a pipeline ID from another project would read and write
+    through this project's endpoint.
+    """
+    return {
+        *(f"hog_function:{pk}" for pk in HogFunction.objects.filter(team_id=team.id).values_list("id", flat=True)),
+        *(f"batch_export:{pk}" for pk in BatchExport.objects.filter(team_id=team.id).values_list("id", flat=True)),
+        *(f"plugin_config:{pk}" for pk in PluginConfig.objects.filter(team_id=team.id).values_list("id", flat=True)),
+    }
+
+
+def _represent(member: _EligibleMember, project_pipeline_ids: set[str]) -> dict:
     settings = member.user.notification_settings
     unsubscribed = settings.get("pipeline_notifications_disabled") or {}
     return {
@@ -127,7 +144,11 @@ def _represent(member: _EligibleMember) -> dict:
         "organization_membership_level": member.membership_level,
         "editable": member.editable,
         "pipeline_emails_enabled": settings.get("plugin_disabled", True),
-        "unsubscribed_pipeline_ids": sorted(pipeline_id for pipeline_id, disabled in unsubscribed.items() if disabled),
+        "unsubscribed_pipeline_ids": sorted(
+            pipeline_id
+            for pipeline_id, disabled in unsubscribed.items()
+            if disabled and pipeline_id in project_pipeline_ids
+        ),
     }
 
 
@@ -188,7 +209,8 @@ class PipelineNotificationSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.V
         description="List the members who can receive data pipeline failure emails for this project, along with the pipelines each one has opted out of.",
     )
     def list(self, request: Request, **kwargs) -> Response:
-        return Response([_represent(member) for member in self._members()])
+        project_pipeline_ids = _project_pipeline_ids(self.team)
+        return Response([_represent(member, project_pipeline_ids) for member in self._members()])
 
     @extend_schema(
         request=PipelineNotificationBulkUpdateSerializer,
@@ -200,6 +222,7 @@ class PipelineNotificationSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.V
         serializer = PipelineNotificationBulkUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        project_pipeline_ids = _project_pipeline_ids(self.team)
         members_by_id = {member.user.id: member for member in self._members()}
         changes_by_user: dict[int, dict[str, bool]] = {}
         for change in serializer.validated_data["changes"]:
@@ -212,6 +235,11 @@ class PipelineNotificationSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.V
             if not member.editable:
                 raise PermissionDenied(
                     f"Your organization access level is insufficient to change settings for {member.user.email}"
+                )
+            if change["pipeline_id"] not in project_pipeline_ids:
+                raise serializers.ValidationError(
+                    f"Pipeline {change['pipeline_id']} does not belong to this project",
+                    code="invalid_input",
                 )
             changes_by_user.setdefault(member.user.id, {})[change["pipeline_id"]] = change["subscribed"]
 
@@ -227,7 +255,7 @@ class PipelineNotificationSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.V
         for user_id, pipeline_changes in changes_by_user.items():
             _notify(self.team, members_by_id[user_id].user, pipeline_changes)
 
-        return Response([_represent(member) for member in self._members()])
+        return Response([_represent(member, project_pipeline_ids) for member in self._members()])
 
     def _members(self) -> _EligibleMembers:
         user = cast(User, self.request.user)
