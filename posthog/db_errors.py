@@ -2,10 +2,10 @@ from django.db import InterfaceError, OperationalError
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
-# connections as closed or reset connections. Both clear on their own, so a Temporal retry
-# resolves them. Deliberately excludes psycopg's generic "connection failed:" prefix, which
-# covers every failed connect including persistent misconfiguration (bad credentials,
-# nonexistent database, unresolvable host) that must keep reaching error tracking.
+# connections as closed or reset connections. Both clear on their own, so a retry resolves them.
+# Deliberately excludes psycopg's generic "connection failed:" prefix, which covers every failed
+# connect including persistent misconfiguration (bad credentials, nonexistent database,
+# unresolvable host) that must keep reaching error tracking.
 _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "server closed the connection unexpectedly",

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -59,6 +59,7 @@ export interface organizationIntegrationsLogicValues {
     ) => IntegrationType[]
     organizationIntegrations: IntegrationType[] | null
     organizationIntegrationsLoading: boolean
+    organizationIntegrationsError: boolean
     vercelIntegrations: IntegrationType[] | undefined
 }
 
@@ -269,6 +270,20 @@ export const organizationIntegrationsLogic = kea<organizationIntegrationsLogicTy
             },
         ],
     })),
+
+    reducers({
+        // Tracks whether the last load failed so OrganizationIntegrations can show a retry state.
+        // The load action is on initKea's ERROR_FILTER_ALLOW_LIST, so this replaces the generic
+        // toast that would otherwise fire on every scene (global search mounts this logic).
+        organizationIntegrationsError: [
+            false,
+            {
+                loadOrganizationIntegrations: () => false,
+                loadOrganizationIntegrationsSuccess: () => false,
+                loadOrganizationIntegrationsFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         vercelIntegrations: [

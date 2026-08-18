@@ -1536,7 +1536,7 @@ class TestOAuthAPI(APIBaseTest):
                 "server closed the connection unexpectedly\n\tThis probably means the server "
                 "terminated abnormally before or while processing the request.",
             ),
-            ("connection_failed", "connection failed"),
+            ("connection_reset_by_peer", "connection reset by peer"),
         ]
     )
     def test_token_endpoint_returns_temporarily_unavailable_on_transient_db_error(self, _name, error_message):

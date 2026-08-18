@@ -78,6 +78,18 @@ class DatabaseSchemaUnavailable(APIException):
     default_code = "database_schema_unavailable"
 
 
+class DatabaseUnavailable(APIException):
+    # A transient Postgres failure (connection-pool saturation, failover, restart) that reached a
+    # request handler. 503 + Retry-After tells clients to back off and retry instead of treating it
+    # as a permanent failure, and keeps the driver's raw error text out of the response.
+    status_code = 503
+    default_code = "database_unavailable"
+    default_detail = "We couldn't reach the database just now. Please try again in a moment."
+    # Seconds a well-behaved client should wait before retrying, copied onto Retry-After by
+    # exception_handler below.
+    retry_after = 1
+
+
 class ClickHouseAtCapacity(APIException):
     status_code = 503
     default_detail = (
@@ -181,10 +193,26 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     # manage.py bootstrap (before Django apps are loaded).
     from exceptions_hog import exception_handler as _exceptions_hog_handler
 
+    # Imported lazily to keep django.db off this module's import path — it loads during manage.py
+    # bootstrap, before Django apps are ready.
+    from posthog.db_errors import is_transient_db_error
+
     # Imported lazily to avoid pulling settings into module import.
     from posthog.utils import absolute_uri
 
+    # A transient Postgres failure (pgbouncer pool-wait `query_wait_timeout`, failover, restart)
+    # reaching a request handler otherwise escapes as an unhandled 500 with the generic "A server
+    # error occurred." detail, and gets captured under whichever Django-internal error sits in its
+    # __context__ chain (an FK cache-miss KeyError on `current_organization` masks it in error
+    # tracking). Map it to a retryable 503 before drf-exceptions-hog reports it, so clients back
+    # off and the real cause is never reported as a KeyError.
+    if is_transient_db_error(exc):
+        logger.warning("db_transient_error", path=context["request"].path, error=str(exc))
+        exc = DatabaseUnavailable()
+
     response = _exceptions_hog_handler(exc, context)
+    if response is not None and isinstance(exc, DatabaseUnavailable):
+        response["Retry-After"] = str(exc.retry_after)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).

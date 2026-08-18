@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationConfig } from 'lib/integrations/organizationIntegrationConfig'
@@ -10,7 +10,9 @@ import { IntegrationType } from '~/types'
 import { organizationIntegrationsLogic } from './organizationIntegrationsLogic'
 
 export function OrganizationIntegrations(): JSX.Element | null {
-    const { organizationIntegrations, organizationIntegrationsLoading } = useValues(organizationIntegrationsLogic)
+    const { organizationIntegrations, organizationIntegrationsLoading, organizationIntegrationsError } =
+        useValues(organizationIntegrationsLogic)
+    const { loadOrganizationIntegrations } = useActions(organizationIntegrationsLogic)
 
     if (organizationIntegrationsLoading) {
         return (
@@ -18,6 +20,14 @@ export function OrganizationIntegrations(): JSX.Element | null {
                 <LemonSkeleton className="h-16" />
                 <LemonSkeleton className="h-16" />
             </div>
+        )
+    }
+
+    if (organizationIntegrationsError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadOrganizationIntegrations() }}>
+                Couldn't load your organization's integrations. Try again, and if it keeps happening contact support.
+            </LemonBanner>
         )
     }
 
