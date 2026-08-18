@@ -1,5 +1,5 @@
 import { groupRunArtifactVersions } from "@posthog/core/canvas/runArtifactSchemas";
-import { readPrUrls, type TaskRunArtifact } from "@posthog/shared";
+import { mergePrUrls, readPrUrls, type TaskRunArtifact } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useRunArtifacts } from "@posthog/ui/features/sessions/useRunArtifacts";
@@ -51,6 +51,32 @@ export function useSessionIsWorking(task: Task | null): boolean {
 }
 
 /**
+ * The deliverable count from already-resolved sources: undismissed output files
+ * in the manifest plus the run's pull requests.
+ */
+export function countArtifacts({
+  manifest,
+  taskOutput,
+  cloudOutput,
+}: {
+  manifest: TaskRunArtifact[];
+  taskOutput: Record<string, unknown> | null | undefined;
+  cloudOutput: Record<string, unknown> | null | undefined;
+}): number {
+  const files = groupRunArtifactVersions(
+    manifest.filter((artifact) => artifact.type === "output"),
+  ).filter((group) => !group.dismissed).length;
+  // A PR the run just opened lands in the session's live output before the task
+  // query refetches, so read both sources and dedupe rather than the task alone,
+  // or the count misses the PR at the turn boundary the tip waits on.
+  const prs = mergePrUrls(
+    readPrUrls(taskOutput),
+    readPrUrls(cloudOutput),
+  ).length;
+  return files + prs;
+}
+
+/**
  * How many deliverables a session has produced: the files it uploaded plus the
  * pull requests it opened. What the artifacts panel lists, minus the canvases
  * and the Slack thread, which only the task's thread messages carry - a query
@@ -61,6 +87,7 @@ export function useSessionArtifactCount(task: Task | null): number {
   const runId = task?.latest_run?.id;
   const cloudStatus = useSessionSelector(taskId, (s) => s?.cloudStatus);
   const sessionArtifacts = useSessionSelector(taskId, (s) => s?.cloudArtifacts);
+  const cloudOutput = useSessionSelector(taskId, (s) => s?.cloudOutput);
   const runStatus = cloudStatus ?? task?.latest_run?.status;
   const { data } = useRunArtifacts(taskId, runId, {
     staleTime: 15_000,
@@ -74,8 +101,9 @@ export function useSessionArtifactCount(task: Task | null): number {
   // the last thing the list said.
   const manifest =
     data ?? sessionArtifacts ?? task?.latest_run?.artifacts ?? NO_ARTIFACTS;
-  const files = groupRunArtifactVersions(
-    manifest.filter((artifact) => artifact.type === "output"),
-  ).filter((group) => !group.dismissed).length;
-  return files + readPrUrls(task?.latest_run?.output).length;
+  return countArtifacts({
+    manifest,
+    taskOutput: task?.latest_run?.output,
+    cloudOutput,
+  });
 }

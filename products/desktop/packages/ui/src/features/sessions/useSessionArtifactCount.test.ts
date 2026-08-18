@@ -1,4 +1,8 @@
-import { isAgentWorking } from "@posthog/ui/features/sessions/useSessionArtifactCount";
+import type { TaskRunArtifact } from "@posthog/shared";
+import {
+  countArtifacts,
+  isAgentWorking,
+} from "@posthog/ui/features/sessions/useSessionArtifactCount";
 import { describe, expect, it } from "vitest";
 
 describe("isAgentWorking", () => {
@@ -36,6 +40,56 @@ describe("isAgentWorking", () => {
     },
   ])("$name", ({ hasSession, isPromptPending, runStatus, expected }) => {
     expect(isAgentWorking({ hasSession, isPromptPending, runStatus })).toBe(
+      expected,
+    );
+  });
+});
+
+describe("countArtifacts", () => {
+  const file = (name: string): TaskRunArtifact => ({ name, type: "output" });
+  const pr = (n: number): string => `https://github.com/acme/app/pull/${n}`;
+
+  it.each([
+    {
+      // The regression: a PR the run just opened is in the session's live
+      // output before the task query refetches, so counting the task alone
+      // misses it at the turn boundary.
+      name: "counts a PR only present in the session's live output",
+      manifest: [] as TaskRunArtifact[],
+      taskOutput: null,
+      cloudOutput: { pr_urls: [pr(1)] },
+      expected: 1,
+    },
+    {
+      name: "counts a PR only present in the task output",
+      manifest: [] as TaskRunArtifact[],
+      taskOutput: { pr_urls: [pr(1)] },
+      cloudOutput: null,
+      expected: 1,
+    },
+    {
+      name: "counts a PR in both outputs once",
+      manifest: [] as TaskRunArtifact[],
+      taskOutput: { pr_urls: [pr(1)] },
+      cloudOutput: { pr_url: pr(1) },
+      expected: 1,
+    },
+    {
+      name: "counts distinct PRs across both outputs",
+      manifest: [] as TaskRunArtifact[],
+      taskOutput: { pr_urls: [pr(1)] },
+      cloudOutput: { pr_urls: [pr(2)] },
+      expected: 2,
+    },
+    {
+      name: "adds undismissed output files to the PR count",
+      manifest: [file("report.csv")],
+      taskOutput: { pr_urls: [pr(1)] },
+      cloudOutput: null,
+      expected: 2,
+    },
+  ])("$name", ({ manifest, taskOutput, cloudOutput, expected }) => {
+    expect(countArtifacts({ manifest, taskOutput, cloudOutput })).toBe(
       expected,
     );
   });
