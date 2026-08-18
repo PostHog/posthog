@@ -8,10 +8,11 @@ team's Slack credentials directly.
 
 import asyncio
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol, cast
 
 from django.conf import settings
-from django.db.models import F
+from django.db import transaction
+from django.db.models import F, Prefetch, QuerySet
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -25,10 +26,24 @@ from posthog.temporal.common.client import sync_connect
 
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
+    AccountEmailThreadMessage as AccountEmailThreadMessage,
+    AccountEmailThreadSummary as AccountEmailThreadSummary,
+    EmailThreadAccountLinkInput as EmailThreadAccountLinkInput,
+    EmailThreadAddress as EmailThreadAddress,
+    EmailThreadForAccountMatching as EmailThreadForAccountMatching,
+    EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportChannel as SupportChannel,
     TicketSummary as TicketSummary,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import (
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadAccountMatchSource,
+    EmailThreadMessage,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+    Ticket,
+)
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import get_support_slack_bot_token
 from products.conversations.backend.support_slack_channels import (
@@ -38,6 +53,10 @@ from products.conversations.backend.support_slack_channels import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class _EmailThreadWithFacadePrefetch(Protocol):
+    facade_participants: list[EmailThreadParticipant]
 
 
 class SupportMessageSendError(Exception):
@@ -235,3 +254,176 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
         )
         for ticket in tickets
     ]
+
+
+def resolve_group_keys_by_email(
+    team_id: int,
+    emails: list[str],
+    group_type_index: int,
+) -> dict[str, str | None]:
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return {}
+
+    from products.conversations.backend.person_lookup import (  # noqa: PLC0415 — keeps HogQL and personhog off the facade import path
+        get_group_keys_by_email,
+    )
+
+    return get_group_keys_by_email(team=team, emails=emails, group_type_index=group_type_index)
+
+
+def list_email_threads_for_account_matching(
+    team_id: int,
+    *,
+    thread_ids: list[str] | None = None,
+    after_id: str | None = None,
+    limit: int = 100,
+) -> list[EmailThreadForAccountMatching]:
+    participants = EmailThreadParticipant.objects.for_team(team_id).filter(kind=EmailThreadParticipantKind.CUSTOMER)
+    threads = EmailThread.objects.for_team(team_id).prefetch_related(
+        Prefetch("participants", queryset=participants, to_attr="customer_participants")
+    )
+    if thread_ids is not None:
+        threads = threads.filter(id__in=thread_ids)
+    if after_id is not None:
+        threads = threads.filter(id__gt=after_id)
+
+    return [
+        EmailThreadForAccountMatching(
+            id=str(thread.id),
+            participant_emails=[
+                participant.email for participant in cast(list[EmailThreadParticipant], thread.customer_participants)
+            ],
+        )
+        for thread in threads.order_by("id")[:limit]
+    ]
+
+
+@transaction.atomic
+def replace_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    links_by_account_id = {link.account_id: link for link in links}
+    EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).exclude(
+        account_id__in=links_by_account_id
+    ).delete()
+
+    valid_sources = set(EmailThreadAccountMatchSource.values)
+    for account_id, link in links_by_account_id.items():
+        if link.match_source not in valid_sources:
+            raise ValueError(f"Unknown email account match source: {link.match_source}")
+        EmailThreadAccountLink.objects.for_team(team_id).update_or_create(
+            team_id=team_id,
+            thread=thread,
+            account_id=account_id,
+            defaults={
+                "account_external_id": link.account_external_id,
+                "match_source": link.match_source,
+            },
+        )
+
+
+def _email_thread_participant_summary(
+    participant: EmailThreadParticipant,
+) -> EmailThreadParticipantSummary:
+    return EmailThreadParticipantSummary(
+        email=participant.email,
+        display_name=participant.display_name,
+        kind=participant.kind,
+    )
+
+
+def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSummary:
+    prefetched_thread = cast(_EmailThreadWithFacadePrefetch, thread)
+    return AccountEmailThreadSummary(
+        id=str(thread.id),
+        subject=thread.subject,
+        preview=thread.preview,
+        first_message_at=thread.first_message_at,
+        last_message_at=thread.last_message_at,
+        message_count=thread.message_count,
+        participants=[
+            _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
+        ],
+    )
+
+
+def list_account_email_threads(
+    team_id: int,
+    account_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadSummary], int]:
+    participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    threads = (
+        EmailThread.objects.for_team(team_id)
+        .filter(account_links__team_id=team_id, account_links__account_id=account_id)
+        .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
+        .order_by(F("last_message_at").desc(nulls_last=True), "-id")
+    )
+    count = threads.count()
+    return [_account_email_thread_summary(thread) for thread in threads[offset : offset + limit]], count
+
+
+def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
+    if not isinstance(value, list):
+        return []
+    addresses: list[EmailThreadAddress] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        email = item.get("email")
+        name = item.get("name", "")
+        if isinstance(email, str) and isinstance(name, str):
+            addresses.append(EmailThreadAddress(name=name, email=email))
+    return addresses
+
+
+def list_account_email_thread_messages(
+    team_id: int,
+    account_id: str,
+    thread_id: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
+    thread = (
+        EmailThread.objects.for_team(team_id)
+        .filter(
+            id=thread_id,
+            account_links__team_id=team_id,
+            account_links__account_id=account_id,
+        )
+        .first()
+    )
+    if thread is None:
+        return None
+
+    messages = (
+        EmailThreadMessage.objects.for_team(team_id)
+        .filter(thread=thread)
+        .select_related("comment")
+        .order_by("sent_at", "id")
+    )
+    count = messages.count()
+    return (
+        [
+            AccountEmailThreadMessage(
+                id=str(message.id),
+                sent_at=message.sent_at,
+                sender=EmailThreadAddress(name=message.sender_name, email=message.sender_email),
+                to_recipients=_email_thread_addresses(message.to_recipients),
+                cc_recipients=_email_thread_addresses(message.cc_recipients),
+                sender_authenticated=message.sender_authenticated,
+                direction=message.direction,
+                content=message.comment.content or "",
+            )
+            for message in messages[offset : offset + limit]
+        ],
+        count,
+    )

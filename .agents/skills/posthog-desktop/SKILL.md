@@ -62,15 +62,6 @@ Commands (from `products/desktop/`): `pnpm install`, `pnpm dev`, `pnpm build`, `
 Never run root-level `pnpm install` expecting it to cover desktop, and never let a desktop
 dependency change alter the root lockfile — the root install must stay byte-identical.
 
-## What still applies from the root
-
-- Conventional commits and PR titles; `scope` of `desktop` (e.g. `fix(desktop/$feature): ...`).
-- `.github/pull_request_template.md` structure, including the Agent context section.
-- Public-repo copy safety: no customer names, internal incidents, or Slack quotes.
-- Merging: desktop PRs merge like any other monorepo PR, through the Trunk merge queue (use
-  `/merging-prs`). Never `gh pr merge`; the branch ruleset blocks it.
-- `hogli ci:preflight` on push (pre-push hook) still runs repo-wide.
-
 ## Cross-boundary: the Django API
 
 `packages/api-client/` calls monorepo endpoints — tasks (`/api/projects/:id/tasks/...`),
@@ -94,7 +85,7 @@ auto-assignment and Slack routing; do not delete it.
 ## Desktop-local skills
 
 `products/desktop/.claude/skills/` ships its own: `test-electron-app` (drive the running app
-over CDP `:9222`), `quill-code`, `storybook-stories`, `canvas-templates`, `onboarding-videos`.
+over CDP `:9222`), `quill-code`, `storybook-stories`, `onboarding-videos`.
 Prefer these over monorepo equivalents while in this tree.
 
 ## Before reporting done

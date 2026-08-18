@@ -784,25 +784,37 @@ async function fetchRunsPage(
  */
 async function fetchProblemLevels(
     props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters,
     ids: string[]
 ): Promise<Record<string, 'warn' | 'error'>> {
     if (ids.length === 0) {
         return {}
     }
     const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
+    // Lower-bound only: async failures (e.g. SES bounces) log after the invocation
+    // finishes, so an upper bound could hide late problems. The lower bound keeps the
+    // query off old log_entries partitions (older data is tiered to object storage) —
+    // logs can't predate the invocations on the page, which are >= date_from.
     const severityQuery = hogql`
         SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
+          AND timestamp >= {filters.dateRange.from}
           AND ${idClause}
         GROUP BY instance_id
         HAVING sev > 0
     `
-    const severityResponse = await api.queryHogQL(severityQuery, {
-        scene: 'HogInvocations',
-        productKey: 'pipeline_destinations',
-    })
+    const severityResponse = await api.queryHogQL(
+        severityQuery,
+        {
+            scene: 'HogInvocations',
+            productKey: 'pipeline_destinations',
+        },
+        {
+            filtersOverride: { date_from: filters.date_from },
+        }
+    )
     const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
     for (const severityRow of severityResponse.results ?? []) {
         const [instanceId, sev] = severityRow as unknown as [string, number]
@@ -1156,7 +1168,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     }
                     let levelByInvocationId: Record<string, 'warn' | 'error'>
                     try {
-                        levelByInvocationId = await fetchProblemLevels(props, ids)
+                        levelByInvocationId = await fetchProblemLevels(props, values.filters, ids)
                     } catch {
                         // Leave levels as-is — the run statuses are still accurate.
                         return values.runs
