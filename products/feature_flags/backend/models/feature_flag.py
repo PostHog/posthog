@@ -22,6 +22,7 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
+from products.feature_flags.backend.variant_rollout import variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
@@ -471,7 +472,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
-                if total_rollout != 100:
+                if not variant_rollout_sum_is_100(total_rollout):
                     raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
 
             variant_keys = {v.get("key") for v in new_variants}

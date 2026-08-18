@@ -467,6 +467,12 @@ function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number 
     return variants.reduce((sum, { rollout_percentage }) => sum + (rollout_percentage || 0), 0)
 }
 
+// Binary floating point makes an exact comparison reject sums that are mathematically 100:
+// a split like 0.01/64.04/35.95 adds up to 100.00000000000001. The tolerance absorbs that
+// drift while staying far below the 0.01 this form can express. Mirrored by
+// products/feature_flags/backend/variant_rollout.py, which the API validates against.
+const ROLLOUT_SUM_TOLERANCE = 1e-9
+
 /** Check whether variant rollouts add up. If not, a reason string is returned - otherwise undefined.
  * Boolean flags carry no variants and are exempt. Removing a variant leaves the remainder short
  * because nothing redistributes it, so the shortfall has to be corrected before saving. */
@@ -475,7 +481,7 @@ export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]):
         return undefined
     }
     const rolloutSum = getVariantRolloutSum(variants)
-    return rolloutSum === 100
+    return Math.abs(rolloutSum - 100) <= ROLLOUT_SUM_TOLERANCE
         ? undefined
         : `Percentage rollouts for variants must sum to 100 (currently ${rolloutSum}).`
 }

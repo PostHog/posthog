@@ -2766,6 +2766,10 @@ describe('variant rollout sum validation', () => {
         { desc: 'sums to 100', percentages: [50, 50], hasErrors: false },
         { desc: 'falls short after a variant is removed', percentages: [50], hasErrors: true },
         { desc: 'exceeds 100', percentages: [60, 60], hasErrors: true },
+        // 0.01 + 64.04 + 35.95 is 100.00000000000001 in binary floating point, and the API
+        // tolerates the same drift, so blocking it here would reject a valid distribution.
+        { desc: 'sums to 100 with floating point drift', percentages: [0.01, 64.04, 35.95], hasErrors: false },
+        { desc: 'falls short by the smallest step the form allows', percentages: [50, 49.99], hasErrors: true },
     ])('$desc: hasErrors=$hasErrors', ({ percentages, hasErrors }) => {
         logic.actions.setFeatureFlag({
             ...MOCK_FEATURE_FLAG,
