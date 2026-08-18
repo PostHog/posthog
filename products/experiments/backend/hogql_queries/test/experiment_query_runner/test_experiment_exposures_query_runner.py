@@ -9,6 +9,7 @@ from django.forms.models import model_to_dict
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
 
@@ -41,6 +42,38 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 7),
         )
+
+    def _null_multivariate_query(self) -> ExperimentExposureQuery:
+        # Boolean flags serialize filters with "multivariate": null — present but None,
+        # which .get("multivariate", {}) does not guard against.
+        flag_dict = model_to_dict(self.feature_flag)
+        flag_dict["filters"] = {**flag_dict["filters"], "multivariate": None}
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=flag_dict,
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=None,
+        )
+
+    def test_handles_null_multivariate_in_flag_filters(self):
+        # The setUp experiment is stopped: a flag simplified to boolean after the
+        # experiment ended degrades to an empty variants list, not an error.
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
+
+        self.assertEqual(runner.variants, [])
+
+    def test_null_multivariate_raises_for_running_experiment(self):
+        self.experiment.end_date = None
+        self.experiment.save()
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
+
+        self.assertIn("has no variants", str(ctx.exception))
 
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):

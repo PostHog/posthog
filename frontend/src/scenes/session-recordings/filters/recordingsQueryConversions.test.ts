@@ -230,6 +230,13 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         expect(back.actions).toEqual([])
         expect(back.properties).toEqual([])
     })
+
+    it('preserves experiment_exposure, which no filter pill represents', () => {
+        // Dropped on the round-trip, a saved filter or scanner carrying it would silently
+        // widen from the experiment's exposed sessions to every recording.
+        const query = rq({ experiment_exposure: { experiment_id: 42, variant: 'test' } })
+        expect(roundTrip(query).experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
+    })
 })
 
 describe('convertUniversalFiltersToRecordingsQuery operand derivation', () => {

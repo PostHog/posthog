@@ -341,6 +341,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # customer's server running out of space.
             "OS errno 28 -": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
             "Errcode: 28": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 1041 (ER_OUT_OF_RESOURCES): mysqld itself couldn't allocate memory
+            # for the connection/query — the host's available memory (or its configured swap) is
+            # exhausted, whether by mysqld or another process on the same host. Static server-side
+            # resource state, so every retry hits the same wall — the Postgres source treats its
+            # equivalent (SQLSTATE 53200 "out of memory") the same way. Match the locale-independent
+            # error code (the trailing "ulimit"/swap guidance is MySQL's own, not translated).
+            "(1041,": "Your MySQL/MariaDB server ran out of memory (error 1041). This usually means mysqld or another process on the host is using all available memory, or the host needs more swap space. Free up memory on your database server, raise mysqld's memory limit (for example via 'ulimit'), or add swap space, then resync.",
             # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
             # a value carrying a non-latin-1 character — most often an invisible zero-width space
             # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is

@@ -51,6 +51,8 @@ export function ChatThreadFooter({
   const completedToolCallCount =
     footerState?.completedToolCallCount ??
     eventFooterState.completedToolCallCount;
+  const lastActivityAt =
+    footerState?.lastActivityAt ?? eventFooterState.lastActivityAt;
   const pendingPermissions = usePendingPermissionsForTask(taskId ?? "");
   const pendingPermissionVisible = resolvePendingPermissionVisibility(
     hasPendingPermission,
@@ -78,6 +80,7 @@ export function ChatThreadFooter({
         isCompacting={isCompacting}
         isClearing={isClearing}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );

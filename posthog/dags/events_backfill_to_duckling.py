@@ -231,10 +231,10 @@ def _resolve_table_names(team_id: int) -> tuple[str, str]:
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     A team without a row (legacy single-team ducklings) keeps the shared table names.
     """
-    events_table, persons_table = resolve_events_persons_tables(team_id)
-    _validate_identifier(events_table)
-    _validate_identifier(persons_table)
-    return events_table, persons_table
+    tables = resolve_events_persons_tables(team_id)
+    _validate_identifier(tables.events_table)
+    _validate_identifier(tables.persons_table)
+    return tables.events_table, tables.persons_table
 
 
 def _resolve_duckling_target(team_id: int) -> DucklingTarget:
@@ -398,6 +398,7 @@ def _connect_duckgres(
         target.team_id,
         organization_id=target.organization_id,
         service_credential=service_credential,
+        application_name="events-backfill",
     )
     conn = psycopg.connect(
         conninfo,

@@ -692,6 +692,44 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
+def send_email_sending_reputation_finding(
+    team_id: int, impact: str, found_at: str, findings: list[dict[str, str]] | None = None
+) -> None:
+    """
+    Warn a team's admins that our email provider raised reputation findings against their
+    project's sending. LOW impact is a fix-this warning; HIGH impact means sending can be
+    paused automatically. Not gated by notification settings — inaction escalates to a pause.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    high_impact = impact == "HIGH"
+    subject = (
+        f"[Action required] Email sending for project '{team}' is at risk of being paused"
+        if high_impact
+        else f"Reputation warning for email sending in project '{team}'"
+    )
+    message = EmailMessage(
+        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{found_at}",
+        subject=subject,
+        template_name="email_sending_reputation_finding",
+        template_context={
+            "team": team,
+            "high_impact": high_impact,
+            "findings": findings or [],
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -2199,13 +2237,13 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
     # counts: unfiltered counts can permanently enroll a user onto a project whose digest builds empty
     # (auto-select is a one-shot decision). Only computed when the org actually has a first-time user.
     setting_key = _DIGEST_PROJECT_SETTING_KEYS[NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value]
-    autoselect_counts: dict[int, dict] = {}
+    autoselect_counts: dict[int, error_tracking_api.ExceptionSummary] = {}
     if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
         autoselect_counts = {
             tid: summary
             for tid in team_ids_with_exceptions
             if (summary := error_tracking_api.get_exception_summary_for_team(all_org_teams[tid]))
-            and summary["exception_count"] > 0
+            and summary.exception_count > 0
         }
 
     # Pass 1 — resolve each recipient's enabled teams from notification settings + project access only (no
