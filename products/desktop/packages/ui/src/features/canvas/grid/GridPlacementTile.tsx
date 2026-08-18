@@ -1,22 +1,11 @@
-import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  Input,
-  Spinner,
-  Text,
-} from "@posthog/quill";
+import { Button, Input, Spinner, Text } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
-import { useComponentStore } from "./useGridLayout";
 
 // Poll cadence for the fill task's run status while a tile is generating —
 // matches the canvas generation poll elsewhere.
@@ -25,8 +14,6 @@ const FILL_TASK_POLL_MS = 5_000;
 export interface PlacementTileActions {
   /** Dispatch an agent task to fill this placement with the given ask. */
   describe: (placement: GridPlacement, prompt: string) => Promise<void>;
-  /** Fill this placement with an existing store component. */
-  place: (placement: GridPlacement, component: DashboardRecord) => void;
   /** Put a stalled placement back to pending so it can be re-described. */
   reset: (placement: GridPlacement) => void;
   /** Remove this placement from the layout. */
@@ -198,14 +185,6 @@ function DescribeTile({
 }) {
   const [prompt, setPrompt] = useState(placement.prompt ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [storeOpen, setStoreOpen] = useState(false);
-  const [storeSearch, setStoreSearch] = useState("");
-  // The store query only fires once the picker opens — a grid full of drawn
-  // boxes must not fan out one store fetch per tile on mount.
-  const { components } = useComponentStore(storeSearch, { enabled: storeOpen });
-  const placeable = components.filter(
-    (component) => component.componentMeta && component.publishedBuildId,
-  );
 
   if (!interactive) {
     return (
@@ -253,55 +232,13 @@ function DescribeTile({
           {failed ? "Retry" : "Create"}
         </Button>
       </form>
-      <div className="flex items-center gap-1">
-        <DropdownMenu open={storeOpen} onOpenChange={setStoreOpen}>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="outline" size="sm">
-                Choose from store…
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start">
-            <div className="p-1">
-              <Input
-                value={storeSearch}
-                onChange={(event) => setStoreSearch(event.target.value)}
-                placeholder="Search components"
-              />
-            </div>
-            {placeable.length === 0 ? (
-              <DropdownMenuItem disabled>
-                No published components yet. Describe the widget instead to
-                build the first one.
-              </DropdownMenuItem>
-            ) : (
-              placeable.map((component) => (
-                <DropdownMenuItem
-                  key={component.id}
-                  onClick={() => actions.place(placement, component)}
-                >
-                  <div className="flex min-w-0 flex-col">
-                    <span className="truncate">{component.name}</span>
-                    {component.description ? (
-                      <span className="truncate text-xs opacity-70">
-                        {component.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </DropdownMenuItem>
-              ))
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => actions.remove(placement)}
-        >
-          Remove
-        </Button>
-      </div>
+      <Button
+        variant="default"
+        size="sm"
+        onClick={() => actions.remove(placement)}
+      >
+        Remove
+      </Button>
     </div>
   );
 }

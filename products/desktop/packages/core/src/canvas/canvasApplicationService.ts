@@ -192,9 +192,10 @@ export class CanvasApplicationService {
             : input.name
               ? `Generate canvas "${input.name}"`
               : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
-        // Unattended generation: run in auto mode so it doesn't stall on
-        // edit-approval prompts.
-        executionMode: "auto" as const,
+        // Unattended generation: bypass permission prompts entirely — auto
+        // mode still stalls on MCP-call approvals nothing on the canvas can
+        // answer, and the run only touches this canvas via the canvas API.
+        executionMode: "bypassPermissions" as const,
         workspaceMode,
         adapter,
         model,

@@ -3,7 +3,6 @@ import {
   SidebarSimpleIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
-import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
   Button,
@@ -13,6 +12,7 @@ import {
   EmptyMedia,
   EmptyTitle,
   Spinner,
+  Text,
 } from "@posthog/quill";
 import {
   useCanvasVersions,
@@ -115,14 +115,15 @@ export function GridCanvasView({
     null,
   );
 
-  // The layout version the grid is on, in the freeform panel's vocabulary.
+  // The layout version the grid is on, in the freeform toolbar's vocabulary.
   const { versions } = useCanvasVersions(canvasId);
-  const versionLabel = useMemo(() => {
-    if (!currentVersionId) return null;
+  const versionText = useMemo(() => {
+    if (!currentVersionId || versions.length === 0) return null;
     const index = versions.findIndex(
       (version) => version.id === currentVersionId,
     );
-    return index === -1 ? null : `V${versions.length - index}`;
+    if (index === -1) return null;
+    return `v${versions.length - index}/${versions.length} · Live`;
   }, [versions, currentVersionId]);
 
   const onDragComplete = useCallback(
@@ -220,25 +221,6 @@ export function GridCanvasView({
     [dashboard, generate, patch, canvasId, currentVersionId],
   );
 
-  const place = useCallback(
-    (placement: GridPlacement, component: DashboardRecord) => {
-      // The drawn box is the user's size choice: size contracts are advisory
-      // and components render responsively, so the box is kept as drawn.
-      void patch(
-        [
-          {
-            op: "update_placement",
-            id: placement.id,
-            changes: { status: "live", component: component.id, config: {} },
-          },
-        ],
-        currentVersionId,
-        `Place ${component.name}`,
-      );
-    },
-    [patch, currentVersionId],
-  );
-
   const reset = useCallback(
     (placement: GridPlacement) => {
       // Back to the describe box with the prompt intact; the stale task id is
@@ -280,7 +262,6 @@ export function GridCanvasView({
 
   const actions: PlacementTileActions = {
     describe,
-    place,
     reset,
     remove,
     discuss,
@@ -301,20 +282,31 @@ export function GridCanvasView({
 
   return (
     <div className="flex h-full">
-      <div className="relative min-w-0 flex-1">
-        {interactive && collapsed ? (
-          <Button
-            variant="default"
-            size="icon"
-            aria-label="Show panel"
-            className="absolute top-3 right-3 z-20"
-            onClick={() => setCollapsed(false)}
-          >
-            <SidebarSimpleIcon size={16} />
-          </Button>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {interactive ? (
+          // The freeform canvas's toolbar shape: version info on the left,
+          // panel controls on the right, in the bar rather than floating.
+          <div className="flex h-10 shrink-0 items-center justify-between border-(--gray-5) border-b px-3">
+            <div className="flex items-center gap-1">
+              {versionText ? (
+                <Text size="sm" className="text-(--gray-9)">
+                  {versionText}
+                </Text>
+              ) : null}
+            </div>
+            {collapsed && !widgetTarget ? (
+              <Button
+                variant="default"
+                size="icon"
+                aria-label="Show chat"
+                onClick={() => setCollapsed(false)}
+              >
+                <SidebarSimpleIcon size={16} />
+              </Button>
+            ) : null}
+          </div>
         ) : null}
-        <div className="h-full overflow-y-auto p-4">
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: the surface is a drawing target; tiles inside stay keyboard-reachable. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div
             ref={setSurfaceRef}
             className="relative grid"
@@ -369,7 +361,7 @@ export function GridCanvasView({
                     </EmptyTitle>
                     <EmptyDescription>
                       {interactive
-                        ? "Click and drag on the dotted grid to draw a box, then describe what should go there or pick a component from the store."
+                        ? "Click and drag on the dotted grid to draw a box, then describe what should go there."
                         : "Select Edit to draw your first widget."}
                     </EmptyDescription>
                   </EmptyHeader>
@@ -443,7 +435,6 @@ export function GridCanvasView({
           <GridChatPanel
             target={widgetTarget}
             canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
-            versionLabel={versionLabel}
             canvasId={canvasId}
             canvasName={dashboard.name}
             channelId={dashboard.channelId}

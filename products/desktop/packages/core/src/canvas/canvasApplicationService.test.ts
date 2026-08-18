@@ -79,7 +79,7 @@ describe("CanvasApplicationService", () => {
     expect(taskInput.content).toContain("`building-canvases` skill");
     expect(taskInput.content).toContain('canvas id: "dash-1"');
     expect(taskInput).toMatchObject({
-      executionMode: "auto",
+      executionMode: "bypassPermissions",
       workspaceMode: "cloud",
       adapter: "claude",
       model: "model-1",

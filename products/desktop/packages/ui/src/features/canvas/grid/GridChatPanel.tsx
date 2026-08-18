@@ -14,14 +14,14 @@ export interface GridChatTarget {
 
 /**
  * The grid canvas's right-hand dock, mirroring the freeform canvas panel:
- * edit mode opens it on the canvas's own conversation (with the version the
- * grid is on), and a widget's chat affordances refocus it on that widget's
- * fill task — follow-ups, steering, and permission approvals all in place.
+ * edit mode opens it on the canvas's own conversation, and a widget's chat
+ * affordances refocus it on that widget's fill task — follow-ups, steering,
+ * and permission approvals all in place. The version the grid is on shows in
+ * the canvas toolbar, like freeform.
  */
 export function GridChatPanel({
   target,
   canvasTaskId,
-  versionLabel,
   canvasId,
   canvasName,
   channelId,
@@ -33,8 +33,6 @@ export function GridChatPanel({
   target: GridChatTarget | null;
   /** The recorded canvas-wide conversation, if one has been started. */
   canvasTaskId: string | null;
-  /** Label of the layout version currently shown (e.g. "V4"). */
-  versionLabel: string | null;
   canvasId: string;
   canvasName: string;
   channelId: string;
@@ -61,11 +59,6 @@ export function GridChatPanel({
         <Text size="sm" weight="medium" className="min-w-0 flex-1 truncate">
           {target ? target.title : "Canvas chat"}
         </Text>
-        {versionLabel ? (
-          <Text size="sm" className="shrink-0 opacity-70">
-            {versionLabel}
-          </Text>
-        ) : null}
         <Button
           variant="default"
           size="icon"

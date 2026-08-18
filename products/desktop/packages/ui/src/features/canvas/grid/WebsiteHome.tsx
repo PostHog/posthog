@@ -1,5 +1,6 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Heading, Spinner } from "@posthog/quill";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { GridCanvasView } from "./GridCanvasView";
@@ -7,11 +8,13 @@ import { GridCanvasView } from "./GridCanvasView";
 /**
  * The user's home tab: a personal grid canvas, provisioned on first open
  * (idempotent get-or-create) and composed like any other grid canvas — draw a
- * box, describe it, or place a store component.
+ * box and describe it.
  */
 export function WebsiteHome() {
   const trpc = useHostTRPC();
   const [editing, setEditing] = useState(false);
+  // Entering edit opens the canvas chat dock, like the freeform Edit button.
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { data: home } = useQuery(
     // Provisioning is an idempotent get-or-create, so query semantics are
     // safe and give caching + dedupe across remounts for free.
@@ -32,7 +35,10 @@ export function WebsiteHome() {
         <Button
           variant={editing ? "primary" : "outline"}
           size="sm"
-          onClick={() => setEditing((value) => !value)}
+          onClick={() => {
+            if (!editing) openChat();
+            setEditing(!editing);
+          }}
         >
           {editing ? "Done" : "Edit"}
         </Button>
