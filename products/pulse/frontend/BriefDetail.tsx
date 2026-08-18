@@ -12,6 +12,7 @@ import { InsightShortId } from '~/types'
 import { AccountabilityPanel } from './AccountabilityPanel'
 import type { BriefSectionApi, BriefSectionCitationApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
+import { HelpfulnessVote } from './HelpfulnessVote'
 import { pulseLogic } from './pulseLogic'
 
 function assertNever(value: never): never {
@@ -26,8 +27,9 @@ export function BriefDetail(): JSX.Element | null {
         briefDetailSections,
         briefDetailGoal,
         selectedBriefId,
+        briefFeedbackVotesInFlight,
     } = useValues(pulseLogic)
-    const { loadBriefDetail } = useActions(pulseLogic)
+    const { loadBriefDetail, voteOnBrief } = useActions(pulseLogic)
 
     if (briefDetailLoadFailed && selectedBriefId) {
         return (
@@ -64,14 +66,24 @@ export function BriefDetail(): JSX.Element | null {
         case ProductBriefStatusEnumApi.Ready:
             return (
                 <div className="flex flex-col gap-6">
-                    {briefDetailGoal !== null && (
-                        <div className="text-muted text-sm flex flex-col gap-1">
-                            <div>
-                                <span className="font-semibold">Goal:</span> {briefDetailGoal}
+                    <div className="flex items-start gap-4">
+                        {briefDetailGoal !== null && (
+                            <div className="text-muted text-sm flex flex-col gap-1">
+                                <div>
+                                    <span className="font-semibold">Goal:</span> {briefDetailGoal}
+                                </div>
+                                <GoalProgress />
                             </div>
-                            <GoalProgress />
+                        )}
+                        <div className="ml-auto">
+                            <HelpfulnessVote
+                                label="Was this helpful?"
+                                item={briefDetail}
+                                inFlight={briefDetail.id in briefFeedbackVotesInFlight}
+                                onVote={(helpful, reason) => voteOnBrief(briefDetail.id, helpful, reason)}
+                            />
                         </div>
-                    )}
+                    </div>
                     {briefDetailSections.map((section, index) => (
                         <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
                     ))}

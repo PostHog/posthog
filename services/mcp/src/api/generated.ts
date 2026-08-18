@@ -36945,6 +36945,19 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    export interface FeedbackVoteRequest {
+      /**
+         * True marks the item helpful, false marks it not helpful, and null clears your vote.
+         * @nullable
+         */
+      helpful: boolean | null;
+      /**
+         * Optional free-text reason for the vote. Ignored (and cleared) when the vote is cleared.
+         * @maxLength 1000
+         */
+      reason?: string;
+    }
+
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -48472,6 +48485,11 @@ export namespace Schemas {
       variant_sketch: string;
     }
 
+    /**
+     * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+     *
+     * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+     */
     export interface Opportunity {
       readonly id: string;
       /** What the opportunity asks for: build (product opportunity), fix (broken PostHog resource), or instrument (missing tracking).
@@ -48501,6 +48519,20 @@ export namespace Schemas {
       readonly proposed_experiment: ProposedExperiment | null;
       /** The brief this opportunity first surfaced in. */
       readonly first_seen_brief: string;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /**
+         * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_reason: string | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who created the opportunity. */
       readonly created_by: UserBasic | null;
@@ -50718,6 +50750,11 @@ export namespace Schemas {
       Scheduled: 'scheduled',
     } as const;
 
+    /**
+     * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+     *
+     * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+     */
     export interface ProductBriefList {
       readonly id: string;
       /**
@@ -50750,6 +50787,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly error: string | null;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /**
+         * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_reason: string | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who requested the brief. */
       readonly created_by: UserBasic | null;
@@ -63707,6 +63758,11 @@ export namespace Schemas {
       Failure: 'failure',
     } as const;
 
+    /**
+     * Derived, leak-free view of the votes: team-wide counts plus the caller's own vote and reason.
+     *
+     * Reads the annotations from annotate_feedback. Other voters' identities and reasons never serialize.
+     */
     export interface ProductBrief {
       readonly id: string;
       /**
@@ -63741,6 +63797,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly error: string | null;
+      /**
+         * The calling user's helpfulness vote: true, false, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_vote: boolean | null;
+      /**
+         * The calling user's own reason for their vote: their text, empty when they gave none, or null when they have not voted.
+         * @nullable
+         */
+      readonly my_reason: string | null;
+      /** Number of helpful votes across the team. */
+      readonly helpful_count: number;
+      /** Number of not-helpful votes across the team. */
+      readonly not_helpful_count: number;
       readonly created_at: string;
       /** User who requested the brief. */
       readonly created_by: UserBasic | null;

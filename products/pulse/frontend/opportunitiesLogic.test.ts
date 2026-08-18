@@ -28,6 +28,10 @@ const openOpportunity: OpportunityApi = {
     goal_relevant: false,
     proposed_experiment: null,
     first_seen_brief: 'brief-1',
+    my_vote: null,
+    my_reason: null,
+    helpful_count: 0,
+    not_helpful_count: 0,
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -275,5 +279,50 @@ describe('opportunitiesLogic', () => {
         expect(logic.values.opportunities[0].status).toEqual('open')
         expect(copyToClipboard).not.toHaveBeenCalled()
         expect(pushSpy).not.toHaveBeenCalled()
+    })
+
+    it('swaps in the server row and clears in-flight after a successful vote', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/feedback/': () => [
+                    200,
+                    { ...openOpportunity, my_vote: true, my_reason: 'clear', helpful_count: 1 },
+                ],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnOpportunity('opp-1', true, 'clear')
+        })
+            .toDispatchActions([
+                'opportunityFeedbackVoteStarted',
+                'opportunityFeedbackVoteSucceeded',
+                'opportunityFeedbackUpdated',
+            ])
+            .toMatchValues({ feedbackVotesInFlight: {} })
+        expect(logic.values.opportunities[0].my_vote).toBe(true)
+        expect(logic.values.opportunities[0].helpful_count).toBe(1)
+    })
+
+    it('ignores a second vote for the same row while one is in flight', async () => {
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/pulse/opportunities/:id/feedback/': () => {
+                    requests += 1
+                    return [200, { ...openOpportunity, my_vote: true, helpful_count: 1 }]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOpportunitiesSuccess([openOpportunity])
+
+        await expectLogic(logic, () => {
+            logic.actions.voteOnOpportunity('opp-1', true, '')
+            logic.actions.voteOnOpportunity('opp-1', false, '')
+        }).toFinishAllListeners()
+        expect(requests).toEqual(1)
     })
 })
