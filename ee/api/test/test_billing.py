@@ -957,6 +957,24 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    def test_patch_limits_surfaces_billing_service_rejection(self, mock_update_billing):
+        # A rejected limit write must reach the client as a 400 carrying the service's own reason, so
+        # the user learns why. Regressing to a bare re-raise would return a 500 with no detail.
+        mock_update_billing.side_effect = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {"error_message": "Cannot set a limit below your current usage", "code": "limit_below_usage"},
+        )
+
+        response = self.client.patch(
+            "/api/billing/", {"custom_limits_usd": {"product_analytics": 0}}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Cannot set a limit below your current usage")
+        self.assertEqual(response.json()["code"], "limit_below_usage")
+
 
 class TestStartupApplicationBillingAPI(APILicensedTest):
     def setUp(self):

@@ -842,8 +842,11 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadBilling()
                         return parseBillingResponse(response)
                     } catch (error: unknown) {
+                        const detail = (error as { detail?: unknown })?.detail
                         lemonToast.error(
-                            'There was an error updating your billing limits. Please try again or contact support.'
+                            typeof detail === 'string' && detail
+                                ? detail
+                                : 'There was an error updating your billing limits. Please try again or contact support.'
                         )
                         throw error
                     }

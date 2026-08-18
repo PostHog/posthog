@@ -29,6 +29,7 @@ from ee.billing.billing_manager import (
     BillingManager,
     _get_user_organization_role,
     build_billing_token,
+    handle_billing_service_error,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
@@ -1665,3 +1666,27 @@ class TestDisputeSignalsPr(BaseTest):
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
                 )
         assert str(status_code) in str(context.exception)
+
+
+class TestHandleBillingServiceError(SimpleTestCase):
+    def test_non_json_body_does_not_leak_json_decode_error(self):
+        # res.json() on a non-JSON reply raises a JSONDecodeError subclass; the handler must catch it
+        # and carry the raw text, not let it escape as the error the caller sees.
+        response = MagicMock(status_code=500, text="upstream timeout")
+        response.json.side_effect = requests.JSONDecodeError("Expecting value", "upstream timeout", 0)
+
+        with self.assertRaises(Exception) as context:
+            handle_billing_service_error(response)
+
+        assert not isinstance(context.exception, requests.JSONDecodeError)
+        assert context.exception.args[2] == "upstream timeout"
+
+    def test_json_body_is_carried_for_the_caller_to_surface(self):
+        # The parsed body reaches the caller so it can show the service's own reason instead of a 500.
+        response = MagicMock(status_code=400)
+        response.json.return_value = {"error_message": "Limit is below current spend"}
+
+        with self.assertRaises(Exception) as context:
+            handle_billing_service_error(response)
+
+        assert context.exception.args[2] == {"error_message": "Limit is below current spend"}

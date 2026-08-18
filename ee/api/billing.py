@@ -32,6 +32,31 @@ logger = structlog.get_logger(__name__)
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
 
+def billing_service_error_response(e: Exception) -> Optional[Response]:
+    """Turn a billing-service failure raised by handle_billing_service_error into a 400 that keeps
+    the service's own reason. This lets the client tell the user why a write was rejected instead of
+    a bare 500. Returns None when the error carries no service body, so the caller can re-raise it.
+
+    handle_billing_service_error raises Exception(status_text, "body:", body); body is the parsed
+    JSON dict when the service sent one, or the raw text otherwise.
+    """
+    if len(e.args) <= 2:
+        return None
+    body = e.args[2]
+    if isinstance(body, dict):
+        detail = body.get("error_message", body)
+        link = body.get("link")
+        code = body.get("code")
+    else:
+        detail = str(body)
+        link = None
+        code = None
+    return Response(
+        {"statusText": e.args[0], "detail": detail, "link": link, "code": code},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class IsOrganizationAdmin(permissions.BasePermission):
     """
     Permission to allow only organization admins (level >= ADMIN) to access billing endpoints.
@@ -193,7 +218,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     body["reset_limit_next_period"] = reset_limit_next_period
 
                 billing_manager = self.get_billing_manager()
-                billing_manager.update_billing(org, body)
+                try:
+                    billing_manager.update_billing(org, body)
+                except Exception as e:
+                    error_response = billing_service_error_response(e)
+                    if error_response is not None:
+                        return error_response
+                    raise
 
                 if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(
@@ -255,19 +286,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             billing_manager = self.get_billing_manager()
             billing_manager.deactivate_products(organization, products)
         except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "link": detail_object.get("link", None),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+            error_response = billing_service_error_response(e)
+            if error_response is not None:
+                return error_response
+            raise
 
         return self.list(request, *args, **kwargs)
 
