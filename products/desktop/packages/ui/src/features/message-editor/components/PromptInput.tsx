@@ -125,7 +125,8 @@ export interface PromptInputProps {
   // manual submit override (for flows like new-task that submit outside the editor hook)
   onSubmitClick?: () => unknown;
   submitTooltipOverride?: string;
-  editorHeight?: "default" | "large";
+  /** "fill" grows with the container instead of capping, for a resizable composer. */
+  editorHeight?: "default" | "large" | "fill";
   tourTarget?: string;
 }
 
@@ -549,7 +550,9 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               }}
               className={clsx(
                 "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pl-2 text-[14px]",
-                editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
+                editorHeight === "fill" && "h-full",
+                editorHeight === "large" && "max-h-[45vh]",
+                editorHeight === "default" && "max-h-[200px]",
                 // A disabled editor still looks editable: the caret is the only
                 // tell, and it is absent precisely because you cannot focus it.
                 disabled && "text-muted-foreground",

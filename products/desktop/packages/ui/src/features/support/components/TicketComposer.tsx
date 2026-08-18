@@ -65,7 +65,7 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
   };
 
   return (
-    <div className="shrink-0 border-border border-t px-4 py-2">
+    <div className="flex min-h-0 flex-1 flex-col px-4 py-2">
       <PromptInput
         sessionId={`ticket:${ticket.id}`}
         placeholder={
@@ -75,6 +75,7 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
         }
         hideDefaultToolbar
         enableFormatting
+        editorHeight="fill"
         enableBashMode={false}
         clearOnSubmit
         isLoading={reply.isPending}

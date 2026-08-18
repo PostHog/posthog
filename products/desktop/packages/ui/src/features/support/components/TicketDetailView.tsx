@@ -11,6 +11,7 @@ import {
   EmptyTitle,
   Text,
 } from "@posthog/quill";
+import { PanelResizeHandle } from "@posthog/ui/features/panels/components/PanelResizeHandle";
 import { TicketComposer } from "@posthog/ui/features/support/components/TicketComposer";
 import { TicketSidebar } from "@posthog/ui/features/support/components/TicketSidebar";
 import { TicketThread } from "@posthog/ui/features/support/components/TicketThread";
@@ -33,6 +34,7 @@ import {
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Panel, PanelGroup } from "react-resizable-panels";
 
 const TICKET_SIDEBAR_MIN_WIDTH = 400;
 
@@ -102,8 +104,27 @@ export function TicketDetailView({
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
         <TicketHeader ticket={ticket} />
-        <TicketThread messages={messages} />
-        <TicketComposer key={ticket.id} ticket={ticket} />
+        <PanelGroup
+          direction="vertical"
+          autoSaveId="support-ticket-thread"
+          className="min-h-0 flex-1"
+        >
+          <Panel
+            defaultSize={65}
+            minSize={25}
+            className="flex min-h-0 flex-col"
+          >
+            <TicketThread messages={messages} />
+          </Panel>
+          <PanelResizeHandle className="h-px bg-(--gray-5) transition-colors hover:bg-(--gray-7) data-[resize-handle-state=drag]:bg-(--accent-9)" />
+          <Panel
+            defaultSize={35}
+            minSize={15}
+            className="flex min-h-0 flex-col"
+          >
+            <TicketComposer key={ticket.id} ticket={ticket} />
+          </Panel>
+        </PanelGroup>
       </div>
       <ResizableSidebar
         open
