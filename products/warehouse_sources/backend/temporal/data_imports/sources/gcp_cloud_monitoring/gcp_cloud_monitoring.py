@@ -35,6 +35,15 @@ class GcpCloudMonitoringResumeConfig:
     next_start_time: str
 
 
+@frozen
+class TimeWindow:
+    """A half-open query interval. Both bounds are datetimes, so naming them stops a window
+    being queried end-first."""
+
+    start: datetime
+    end: datetime
+
+
 class GcpCloudMonitoringError(Exception):
     pass
 
@@ -114,11 +123,11 @@ def _rfc3339(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _time_windows(start: datetime, end: datetime, window_hours: int) -> Iterator[tuple[datetime, datetime]]:
+def _time_windows(start: datetime, end: datetime, window_hours: int) -> Iterator[TimeWindow]:
     cursor = start
     while cursor < end:
         window_end = min(cursor + timedelta(hours=window_hours), end)
-        yield cursor, window_end
+        yield TimeWindow(start=cursor, end=window_end)
         cursor = window_end
 
 
@@ -247,11 +256,11 @@ def gcp_cloud_monitoring_source(
             if resumed is not None:
                 start_time = resumed
 
-    for window_start, window_end in _time_windows(start_time, end_time, WINDOW_HOURS):
+    for window in _time_windows(start_time, end_time, WINDOW_HOURS):
         params = build_time_series_params(
             metric_filter,
-            window_start,
-            window_end,
+            window.start,
+            window.end,
             alignment_period_seconds,
             per_series_aligner,
             cross_series_reducer,
@@ -271,7 +280,7 @@ def gcp_cloud_monitoring_source(
 
         # Saved after the yield: a crash re-reads this window and the merge dedupes on the
         # primary key, where saving first would skip it.
-        resumable_source_manager.save_state(GcpCloudMonitoringResumeConfig(next_start_time=_rfc3339(window_end)))
+        resumable_source_manager.save_state(GcpCloudMonitoringResumeConfig(next_start_time=_rfc3339(window.end)))
 
 
 def validate_credentials(session: Session, project_id: str) -> tuple[bool, str | None]:

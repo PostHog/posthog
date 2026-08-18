@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
     GcpCloudMonitoringClient,
     GcpCloudMonitoringError,
     GcpCloudMonitoringResumeConfig,
+    TimeWindow,
     _time_windows,
     build_time_series_params,
     flatten_time_series,
@@ -48,11 +49,11 @@ class TestTimeWindows:
     def test_splits_range_into_bounded_windows(self):
         windows = list(_time_windows(NOW - timedelta(hours=48), NOW, 24))
         assert len(windows) == 2
-        assert windows[0][1] == windows[1][0]
+        assert windows[0].end == windows[1].start
 
     def test_final_window_is_clipped_to_the_end(self):
         start = NOW - timedelta(hours=5)
-        assert list(_time_windows(start, NOW, 24)) == [(start, NOW)]
+        assert list(_time_windows(start, NOW, 24)) == [TimeWindow(start=start, end=NOW)]
 
     def test_empty_when_start_is_not_before_end(self):
         assert list(_time_windows(NOW, NOW, 24)) == []
