@@ -13,8 +13,7 @@ jobs:
         name: shellcheck
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Install shellcheck
-              run: sudo apt update && sudo apt install -y shellcheck
+            # shellcheck is preinstalled on the ubuntu-latest runner image
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 
