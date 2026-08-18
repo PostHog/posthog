@@ -816,6 +816,7 @@ rules:
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
+                              |ContextLayerConfig
                               |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
@@ -887,6 +888,7 @@ rules:
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
+                        |ContextLayerConfig
                         |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
