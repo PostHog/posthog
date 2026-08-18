@@ -2,7 +2,6 @@ import {
   ArrowSquareOut,
   ArrowsClockwise,
   CheckCircle,
-  Clock,
   GearSix,
   GithubLogo,
   Plus,
@@ -27,6 +26,7 @@ import { Button as QuillButton } from "@posthog/quill";
 import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { GithubApprovalNotice } from "@posthog/ui/features/integrations/GithubApprovalNotice";
 import { useGithubDisconnect } from "@posthog/ui/features/integrations/useGithubDisconnect";
 import {
   describeGithubConnectError,
@@ -323,26 +323,9 @@ export function GitHubConnectPanel() {
                   .
                 </Text>
               ) : isAwaitingApproval ? (
-                <div className="flex flex-col gap-1 pt-3">
-                  <div className="flex items-center gap-2 font-medium text-(--gray-12) text-sm">
-                    <Clock size={16} className="text-(--amber-11)" />
-                    Waiting for a GitHub org owner to approve
-                  </div>
-                  <span className="text-(--gray-11) text-sm">
-                    Cloud runs will not be available until your integration is
-                    approved. In the meantime, you can run tasks on your local
-                    machine.
-                  </span>
-                </div>
+                <GithubApprovalNotice state="awaiting" className="pt-3" />
               ) : isApprovedNotLinked ? (
-                <div className="flex items-center gap-2 pt-3 font-medium text-(--gray-12) text-sm">
-                  <CheckCircle
-                    size={16}
-                    weight="fill"
-                    className="text-(--green-9)"
-                  />
-                  Your GitHub org owner approved the request
-                </div>
+                <GithubApprovalNotice state="approved" className="pt-3" />
               ) : (
                 <Text
                   className={
