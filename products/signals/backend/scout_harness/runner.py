@@ -22,6 +22,7 @@ from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.business_knowledge.backend.logic import is_available_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
@@ -515,6 +516,21 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
         return False
 
 
+def _business_knowledge_available_for_team(team: Team) -> bool:
+    """Whether this team's scouts get the business-knowledge section.
+
+    The product's flag plus at least one READY source, resolved fresh per run so a flag flip or a
+    first finished ingest lands on the next run. Falls back to off on a read error for the same
+    reason `_data_catalog_enabled_for_team` does: this resolves inside `_spawn_and_run`, so a raise
+    would book a failed run and advance the streak over a section the run does not need.
+    """
+    try:
+        return is_available_for_team(team)
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
 def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | None:
     """Approved metric names for prompt injection, or None when the read fails.
 
@@ -619,6 +635,9 @@ async def _spawn_and_run(
         if data_catalog_enabled
         else None
     )
+    business_knowledge_available = await database_sync_to_async(
+        _business_knowledge_available_for_team, thread_sensitive=False
+    )(team)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -627,6 +646,7 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
         governed_metric_names=governed_metric_names,
+        business_knowledge_available=business_knowledge_available,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.

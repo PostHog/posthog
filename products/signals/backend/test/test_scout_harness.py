@@ -460,6 +460,53 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         assert "scout-record-output" not in without_schema
 
 
+class TestBusinessKnowledgePromptSection(SimpleTestCase):
+    # Each channel assembles its own tail list, so the gate can be lost or inverted on one
+    # channel alone.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_section_renders_only_when_the_team_has_a_knowledge_base(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # Both failure modes are silent in production: dropping the section leaves a team that
+        # curated a knowledge base with scouts that never search it, and rendering it for everyone
+        # steers the whole fleet at BK tools that are only in the toolset when that product's flag
+        # is on — an unknown-tool burn on every run, for a section most teams can't act on.
+        def _prompt(*, available: bool) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-errors",
+                    version=1,
+                    body="watch",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                business_knowledge_available=available,
+            )
+
+        available = _prompt(available=True)
+        assert "# Business knowledge" in available
+        assert "business-knowledge-documents-search" in available
+
+        unavailable = _prompt(available=False)
+        assert "# Business knowledge" not in unavailable
+        # The tool names, specifically — *Ground rules* still names business-knowledge documents as
+        # one of the untrusted sources a run may read, and must keep doing so.
+        assert "business-knowledge-documents-search" not in unavailable
+        assert "business-knowledge-document-window-retrieve" not in unavailable
+
+
 class TestPromptBuilder(BaseTest):
     def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
