@@ -710,20 +710,12 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
-    /// Refuse a heartbeat the lease cannot survive.
-    ///
-    /// The router holds an etcd lease and votes in the freeze quorum,
-    /// on the same keepalive the leader runs — which uses this interval
-    /// as the timeout for each renewal round. A zero one times out
-    /// instantly and a slow one sleeps through the margin, and either
-    /// exhausts the lease against healthy etcd. The router then
-    /// deregisters and starts over for as long as it runs, and every
-    /// handoff that needs its freeze ack waits on a participant that
-    /// keeps leaving.
-    ///
-    /// The coordinator election lease runs the same keepalive with its
-    /// own pair of knobs, so it gets the same refusal: a coordinator
-    /// that keeps fencing itself stalls every handoff behind it.
+    /// Refuse a heartbeat the lease cannot survive: a zero interval
+    /// times out every renewal instantly and a slow one sleeps through
+    /// the margin, so either exhausts the lease against healthy etcd
+    /// and the participant keeps leaving mid-handoff. The coordinator
+    /// election lease runs the same keepalive with its own knobs, so it
+    /// gets the same refusal.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
         // Everything here is the routing table's, and the routing table
         // only exists in leader mode — a replica router registers no
@@ -803,15 +795,10 @@ impl Config {
                 ));
             }
         }
-        // The coordinator's graceful exit has to fit the budget the
-        // lifecycle manager gives it, and the revoke is only its last
-        // step. Ahead of it the keepalive join runs unraced against
-        // cancellation for at most one renewal round, which is bounded
-        // by the keepalive interval — the pair check above has already
-        // guaranteed the interval sits under the renewal margin, so the
-        // margin never binds here. Every other await between observing
-        // cancellation and the revoke is raced against it. Checked here
-        // because this is where both halves of the relation are known.
+        // The teardown's only unraced await is the keepalive join —
+        // bounded by one renewal round, which the pair check above
+        // keeps under the margin — followed by the bounded revoke.
+        // Checked here because both halves of the relation are known.
         let keepalive_bound = self.coordinator_keepalive_interval();
         let teardown = keepalive_bound + COORDINATOR_REVOKE_TIMEOUT;
         if teardown >= COORDINATOR_GRACEFUL_SHUTDOWN {

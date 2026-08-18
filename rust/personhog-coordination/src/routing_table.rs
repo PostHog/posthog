@@ -427,12 +427,10 @@ impl RoutingTable {
         const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
         // Register this router so the coordinator can count it for ack
-        // quorum. Both calls race cancellation, and each abandons
-        // differently: a dropped grant leaves at most an unreferenced
-        // lease that expires on its TTL, while a dropped registration
-        // can still land server-side — a quorum member that will never
-        // ack, stalling every freeze created in the next TTL window —
-        // so past the grant the known lease is revoked on the way out.
+        // quorum. Both calls race cancellation; past the grant, any
+        // abandonment revokes the known lease, since a registration
+        // that landed anyway would stall every freeze in its TTL
+        // window.
         let granted_at = Instant::now();
         let lease_id = tokio::select! {
             _ = cancel.cancelled() => return Ok(()),

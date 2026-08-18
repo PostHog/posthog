@@ -59,15 +59,11 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
 }
 
 /// The membership a model handoff was created with, in the form the
-/// production quorum predicates take.
-///
-/// The model always captures a snapshot (its Rebalance mirrors the
-/// production coordinator, which always writes one). The production
-/// `None` fallback — an unrecorded membership — is a serialization
-/// concern pinned by unit tests, not a reachable state here. With
-/// `RouterJoin` in the action space the snapshot diverges from the live
-/// registry, and the production quorum predicate is exercised on
-/// exactly that divergence.
+/// production quorum predicates take. The model always captures a
+/// snapshot; the production `None` fallback is a serialization concern
+/// pinned by unit tests, not a reachable state here. `RouterJoin` makes
+/// the snapshot diverge from the live registry, which is what exercises
+/// the predicate.
 fn production_quorum(h: &Handoff) -> Vec<String> {
     h.quorum.iter().map(|r| router_name(*r)).collect()
 }

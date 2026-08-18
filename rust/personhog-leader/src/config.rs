@@ -607,18 +607,13 @@ impl Config {
                 self.lease_ttl,
             ));
         }
-        // The pod's graceful exit — the drain, the shutdown-path fence,
-        // one keepalive round's join, then the bounded revoke — has to
-        // fit the coordination component's budget, or the lifecycle
-        // manager abandons the component mid-teardown and phase 1 kills
-        // the server and producer while this pod is still the registered
-        // owner. The drain, fence, and revoke bounds are constants; the
-        // keepalive join is the one term an operator can move.
-        // Every term but the keepalive join is a constant; the join is
-        // the one an operator can move. The drain term reads the same
+        // The pod's graceful exit — drain setup, drain, shutdown-path
+        // fence, one keepalive round's join, bounded revoke — has to
+        // fit the coordination budget, or the lifecycle manager
+        // abandons it mid-teardown while this pod is still the
+        // registered owner. The drain term reads the same
         // `base_pod_config` the running pod is built from, so a future
-        // drain knob cannot decouple the validated sum from the deployed
-        // one.
+        // knob cannot decouple the validated sum from the deployed one.
         let drain = self.base_pod_config().drain_timeout;
         let teardown =
             DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;

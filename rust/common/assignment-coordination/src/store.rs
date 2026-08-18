@@ -175,16 +175,11 @@ impl EtcdStore {
         }
     }
 
-    /// Like `get`, but also returns the etcd store revision the read was
-    /// taken at. This is the single-key counterpart of
-    /// `list_with_revision`, and pairs with `watch_key_from` at the next
-    /// revision the same way: a key that vanishes between the read and
-    /// the watch attaching is still reported, because the watch replays
-    /// from the revision the caller actually observed.
-    ///
-    /// Note the revision comes from the response header, so it is
-    /// meaningful even when the key is absent — which is exactly the case
-    /// a waiter needs to anchor on.
+    /// Like `get`, but also returns the store revision the read was
+    /// taken at, to anchor a `watch_key_from` so a key that vanishes
+    /// before the watch attaches is still reported. The revision comes
+    /// from the response header, so it is meaningful even when the key
+    /// is absent — exactly the case a waiter anchors on.
     pub async fn get_with_revision<T: DeserializeOwned>(
         &self,
         key: &str,

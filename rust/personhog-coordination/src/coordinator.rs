@@ -33,25 +33,16 @@ pub struct CoordinatorConfig {
     pub name: String,
     pub leader_lease_ttl: i64,
     pub keepalive_interval: Duration,
-    /// How long a standby candidate waits on its leader-key watch before
-    /// re-reading the key. The watch is what normally wakes a candidate;
-    /// this is the bound on how long a stalled one can hide an opening.
-    ///
-    /// Also the base of the retry ladder a candidate climbs when it
-    /// cannot observe the election at all. Failing to read is not a
-    /// failed term — this candidate never held anything — so it does
-    /// not spend the pace below; its retries start at this interval and
-    /// grow to a small multiple of it (see `observation_retry_pace`).
+    /// How long a standby waits on its leader-key watch before
+    /// re-reading the key — the bound on how long a stalled watch can
+    /// hide an opening, and the base of the blind retry ladder
+    /// (`observation_retry_pace`).
     pub standby_poll_interval: Duration,
 
     pub run_retry_backoff: Duration,
-    /// How long without a bad ending before the pace starts over.
-    ///
-    /// Paces only — nothing escalates, so this decides how fast the
-    /// coordinator recovers, not whether it survives. Without it the
-    /// count never falls, so a bad spell in the morning leaves every
-    /// candidate at the cap, and an isolated failure that evening costs
-    /// the cap instead of the base while the cluster sits leaderless.
+    /// How long without a bad ending before the pace starts over —
+    /// without decay, a bad spell in the morning charges an isolated
+    /// evening failure the cap instead of the base.
     pub backoff_decay_window: Duration,
     /// How long to wait after the first pod event before rebalancing, to batch
     /// rapid pod registrations into a single rebalance.
@@ -100,29 +91,17 @@ impl Default for CoordinatorConfig {
     fn default() -> Self {
         Self {
             name: "coordinator-0".to_string(),
-            // A crashed leader blocks every handoff until its election
-            // lease expires and a survivor takes over. Standbys watch the
-            // leader key, so the succession follows the key's deletion
-            // rather than a retry tick, and the TTL is what bounds the
-            // outage. 5s keeps that near the pod-crash detection window,
-            // while the 1s keepalive gives the leader several attempts
-            // within the TTL before it abdicates. Graceful exits don't
-            // wait on any of this — the lease is revoked on the way out.
+            // Succession follows the key's deletion, so the TTL bounds
+            // a crashed leader's outage: 5s sits near the pod-crash
+            // detection window, and the 1s keepalive gives several
+            // renewal attempts inside it. Graceful exits revoke instead.
             leader_lease_ttl: 5,
             keepalive_interval: Duration::from_secs(1),
-            // How long a standby trusts its watch before re-reading the
-            // leader key. This bounds the leaderless window if a watch
-            // ever stalls without erroring, and it is the only etcd
-            // traffic an idle standby generates, so it buys a wide safety
-            // margin cheaply: one key read and one watch stream per
-            // candidate per interval, against a campaign per candidate
-            // per retry.
+            // An idle standby's whole etcd cost: one read and one watch
+            // stream per interval, bounding a silently stalled watch.
             standby_poll_interval: Duration::from_secs(5),
-            // The base of the wait after a term ends badly. It doubles
-            // per consecutive bad ending, capped at the lease TTL, so a
-            // wedged coordinator settles into retrying at that cap rather
-            // than hot-looping — and a paced candidate is never slower to
-            // take an open election than to wait out a crashed leader.
+            // Doubles per consecutive bad ending, capped at the lease
+            // TTL (see `pace_after_ending`'s invariant).
             run_retry_backoff: Duration::from_millis(500),
             backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_secs(1),
@@ -161,21 +140,11 @@ pub struct Coordinator {
 /// How long the election lease revoke may take before shutdown stops
 /// waiting for it.
 ///
-/// INVARIANT: the teardown this sits at the end of — one keepalive
-/// round's join, then this revoke — must fit inside the graceful
-/// shutdown budget the host binary gives the coordinator component,
-/// with room to spare. The router's `validate_lease_timescales` refuses
-/// startup on a configuration that breaks the relation; a bound equal
-/// to the budget would be redundant with it, since the lifecycle
-/// manager abandons the component at its deadline either way.
-///
-/// Deliberately not the pod's number, though the pod bounds both of its
-/// revokes the same way. Matching the constant across two processes
-/// with different budgets is what put this one at its ceiling. What a
-/// successful revoke buys is bounded and small — the successor not
-/// waiting out one lease TTL — and the only reason a revoke is ever
-/// slow is an unwell etcd, which is also when the successor's own
-/// campaign is slow, so the saving shrinks exactly when it is paid for.
+/// INVARIANT: one keepalive round's join plus this revoke must fit the
+/// coordinator's graceful budget with room; the router's
+/// `validate_lease_timescales` refuses a configuration that breaks it.
+/// Deliberately not the pod's number — its budget differs, and matching
+/// the two constants is what once put this one at its ceiling.
 pub const REVOKE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How much of a paced wait the per-candidate offset may remove. Wide
@@ -183,15 +152,10 @@ pub const REVOKE_TIMEOUT: Duration = Duration::from_secs(2);
 /// the pace still restrains a wedged one.
 const JITTER_FRACTION: f64 = 0.25;
 
-/// A stable fraction in [0, 1) derived from a candidate's name.
-///
-/// The disturbances that end terms are shared — an etcd slowdown ends
-/// every candidate's term at once — so without this the whole fleet walks
-/// the same ladder and fires its campaigns in the same instant, against
-/// an etcd that has just recovered. Decorrelating candidates is the
-/// entire goal, and per-candidate is enough to achieve it, so this is
-/// derived rather than random: a fixed offset spreads the fleet just as
-/// well and leaves the wait reproducible in a test.
+/// A stable fraction in [0, 1) derived from a candidate's name. The
+/// disturbances that end terms are shared, so the fleet must not walk
+/// its ladders in lockstep — derived rather than random so the wait is
+/// reproducible in a test.
 fn jitter_offset(name: &str) -> f64 {
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);
@@ -222,21 +186,12 @@ const OBSERVATION_BACKOFF_FACTOR: u32 = 6;
 
 /// The wait before re-reading the election after failing to observe it
 /// — a failed read, a failed watch creation, or a watch lost before it
-/// proved itself; all three climb this one ladder.
-///
-/// Grows per consecutive blind attempt from the standby poll interval —
-/// the rate a healthy standby already polls at, so the first retries
-/// cost etcd nothing it was not already serving — and caps at a small
-/// multiple of it, because at fleet scale even the healthy rate is real
-/// load to hold against a recovering etcd. Jittered downward so the
-/// fleet, blinded together by the same outage, does not re-read in
-/// lockstep. A genuine observation — a watch surviving its window or
-/// delivering the opening, or an open-election read — resets it.
-///
-/// Deliberately not `pace_after_ending`: a blind candidate held nothing
-/// and spent only reads, so it neither pays the ending pace nor lands
-/// in the run-failure series, and its cap answers to read load rather
-/// than to the lease TTL.
+/// proved itself; all three climb this one ladder. Grows from the
+/// standby poll interval (a rate etcd was already serving) to
+/// `OBSERVATION_BACKOFF_FACTOR` times it, jittered downward so a fleet
+/// blinded together does not re-read in lockstep. Deliberately not
+/// `pace_after_ending`: a blind candidate held nothing and spent only
+/// reads, so its cap answers to read load rather than the lease TTL.
 fn observation_retry_pace(config: &CoordinatorConfig, consecutive: u32) -> Duration {
     let cap = config
         .standby_poll_interval
@@ -248,13 +203,10 @@ fn observation_retry_pace(config: &CoordinatorConfig, consecutive: u32) -> Durat
     jittered(paced, &config.name)
 }
 
-/// A blind spell's position on the observation-retry ladder.
-///
-/// Held as its own type rather than a loose counter in `run` so the
-/// contract that matters — a completed observation starts the ladder
+/// A blind spell's position on the observation-retry ladder. Its own
+/// type so the contract — a completed observation starts the ladder
 /// over — is a method a unit test can hold, not a line a refactor can
-/// drop with every suite staying green while every once-blind candidate
-/// pays the capped pace forever.
+/// silently drop.
 pub struct BlindSpell(u32);
 
 impl Default for BlindSpell {
@@ -268,14 +220,11 @@ impl BlindSpell {
         Self(0)
     }
 
-    /// The blindness is over: a watch delivered the opening, the
-    /// election was read open, or a watch survived its whole window.
-    /// Survival is the weakest of the three — a stalled watch survives
-    /// too, and the fallback re-read is what bounds that — but it costs
-    /// a full interval at the healthy cadence with no loss, which is
-    /// the churn this ladder paces having stopped. A watch merely
-    /// *created* does not count; see the reset sites in
-    /// `await_election_opening` for why.
+    /// A completed observation ends the spell: a delivered opening, an
+    /// open-election read, or a watch surviving its whole window —
+    /// survival proves only that the churn stopped (a stalled watch
+    /// survives too; the fallback re-read bounds that). Creation never
+    /// counts; see the reset sites in `await_election_opening`.
     pub fn observed(&mut self) {
         self.0 = 0;
     }
@@ -294,26 +243,17 @@ impl BlindSpell {
 }
 
 /// The wait before campaigning again after a term ended badly, growing
-/// while endings keep arriving.
+/// while endings keep arriving. A free function so the invariant below
+/// is checkable without a store.
 ///
-/// A free function over the config so both the ladder and the invariant
-/// below can be checked without standing up a store.
-///
-/// Every bad ending shares one pace: an abdication, a failed term, and
-/// a campaign that failed before winning all spent etcd writes — a
-/// grant, a transaction, a revoke — and the writes are what the pace
-/// restrains. Keeping one counter means none can be slowed by another's
-/// history in a way the code does not say out loud. What does not reach
-/// here is a candidate that could not observe the election at all: it
-/// climbs `observation_retry_pace`'s ladder instead, having spent only
+/// Every bad ending shares this one pace — the etcd writes a campaign
+/// spends are what it restrains. A candidate that could not observe the
+/// election climbs `observation_retry_pace` instead, having spent only
 /// reads.
 ///
-/// INVARIANT: the wait never exceeds `leader_lease_ttl`. A term that
-/// ended has already released the election, so this wait delays a
-/// succession that is open right now. Pacing past the lease TTL would
-/// make a candidate slower to take a free election than it would have
-/// been to wait out a crashed leader's lease, which inverts what the TTL
-/// is for.
+/// INVARIANT: the wait never exceeds `leader_lease_ttl` — pacing past
+/// it would make a candidate slower to take a free election than to
+/// wait out a crashed leader's lease.
 fn pace_after_ending(
     config: &CoordinatorConfig,
     consecutive: &mut u32,
@@ -428,35 +368,20 @@ impl Coordinator {
             if cancel.is_cancelled() {
                 return;
             }
-            // Campaign only into an opening. A campaign costs a lease
-            // grant, a transaction and a revoke whether or not it wins,
-            // and every standby pays it: polling the election is the
-            // fleet's largest source of etcd writes, and it scales with
-            // the fleet rather than with how often leadership changes.
-            //
+            // Campaign only into an opening: a campaign costs etcd
+            // writes whether or not it wins, and every standby pays it.
             let attempt = match self.await_election_opening(&cancel, &mut blind).await {
                 Ok(()) if cancel.is_cancelled() => return,
-                // Awaited to completion, never raced against
-                // cancellation: dropping try_lead mid-cleanup would
-                // strand the election lease until TTL expiry, stalling
-                // every handoff while the next coordinator's campaign
-                // waits it out. try_lead observes `cancel` internally and
-                // returns promptly on shutdown.
-                // The blind reset already happened inside
-                // `await_election_opening` — at watch survival, or at
-                // the open-election return.
+                // Awaited to completion, never raced: dropping try_lead
+                // mid-cleanup would strand the election lease until TTL
+                // expiry. It observes `cancel` internally.
                 Ok(()) => self.try_lead(cancel.clone()).await,
-                // Failing to observe the election is not a failed term.
-                // This candidate never held authority, and a candidate
-                // that cannot read etcd could not have won a campaign
-                // either, so it must not spend the ending pace or land
-                // in the run-failure series. It retries on its own
-                // ladder instead — see `observation_retry_pace`.
-                // Shutdown first: a connection torn down as the process
-                // exits errors here rather than losing the race against
-                // `cancel`, and counting that would put a sample on every
-                // rollout into a series that is supposed to mean etcd is
-                // in trouble.
+                // Not a failed term — this candidate held nothing — so
+                // no ending pace and no run-failure sample; it climbs
+                // `observation_retry_pace`'s ladder instead. Shutdown
+                // first: exit teardown errors here before losing the
+                // race against `cancel`, and counting that would put a
+                // sample on every rollout.
                 Err(_) if cancel.is_cancelled() => return,
                 Err(e) => {
                     counter!("personhog_coordination_election_observation_failures_total")
@@ -482,17 +407,12 @@ impl Coordinator {
                 Ok(false) => {}
                 Err(e) if e.is_leadership_lost() => {
                     tracing::info!(name = %self.config.name, "abdicated; a successor takes over");
-                    // Counted so a lease that cannot renew — which
-                    // reaches this arm every term, each one paying a full
-                    // bootstrap to lead for a renewal margin and stop —
-                    // is visible as the flap it is.
+                    // Counted so a lease that cannot renew is visible as
+                    // the flap it is.
                     counter!("personhog_coordination_abdications_total").increment(1);
-                    // Paced like any other bad ending. `try_lead` revoked
-                    // on the way out, so the key this candidate would
-                    // wait on is already gone; without a growing pace a
-                    // lease that cannot renew flaps at a fixed rate
-                    // forever, and no term lasts long enough to move a
-                    // handoff through its phases.
+                    // Paced like any other bad ending: try_lead revoked
+                    // on the way out, so an unpaced retry flaps forever
+                    // with no term long enough to move a handoff.
                     let wait = self.pace_after_ending(&mut consecutive_endings, &mut last_ending);
                     if self.wait_or_shutdown(&cancel, wait).await {
                         return;
@@ -528,14 +448,10 @@ impl Coordinator {
         }
     }
 
-    /// Give up the election lease, bounded.
-    ///
-    /// Cleanup on a path whose usual reason for existing is an unwell
-    /// etcd, and the store sets no request timeout of its own — so
-    /// unbounded this waits out the whole outage, holding the shutdown
-    /// past the termination grace period the charts allow. The lease
-    /// expires on its TTL regardless; all a successful revoke buys is
-    /// the next candidate not waiting for it.
+    /// Give up the election lease, bounded: unbounded, this cleanup
+    /// waits out the very etcd outage that usually runs it, holding
+    /// shutdown past the charts' grace. The lease expires on its TTL
+    /// regardless.
     async fn revoke_election_lease(&self, lease_id: i64) -> Result<()> {
         tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id))
             .await
@@ -551,46 +467,34 @@ impl Coordinator {
 
     /// Block until this candidate has something to campaign for: no
     /// leader is recorded, or the one that is recorded goes away.
-    /// Returns immediately on cancellation, leaving the caller to notice
-    /// it and stop.
+    /// Returns immediately on cancellation.
     ///
-    /// Standing by costs one read per fallback interval and a watch that
-    /// is idle until leadership actually changes, in place of a campaign
-    /// per retry interval. The fallback re-read is what keeps a watch
-    /// that stalls without erroring from parking a candidate forever,
-    /// and a lost watch keeps that same read cadence while the blind
-    /// ladder paces its re-creation, so the leaderless window stays
-    /// bounded by the fallback interval in the worst case either way.
+    /// Standing by costs one read and one idle watch per fallback
+    /// interval, in place of a campaign per retry interval. The
+    /// fallback re-read bounds the leaderless window whether a watch
+    /// stalls or is lost — a lost watch keeps the read cadence while
+    /// the ladder paces its re-creation.
     pub async fn await_election_opening(
         &self,
         cancel: &CancellationToken,
         blind: &mut BlindSpell,
     ) -> Result<()> {
         loop {
-            // The revision this answer was read at anchors the watch, so
-            // a leader that vanishes between the read and the watch
-            // attaching is still delivered rather than missed.
-            //
-            // Both etcd calls are raced against cancellation: the store
-            // sets no request timeout of its own, so against a dark etcd
-            // each would otherwise run to the transport's own bound —
-            // several times the graceful-shutdown budget this component
-            // gets, and a standby is inside one of these almost all the
-            // time.
+            // The revision this read returns anchors the watch, so a
+            // leader that vanishes before the watch attaches is still
+            // delivered. Both etcd calls race cancellation: unbounded,
+            // each would outlive the shutdown budget against a dark
+            // etcd.
             let read = tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 read = self.store.get_leader_with_revision() => read,
             };
             let (leader, revision) = read?;
             let Some(leader) = leader else {
-                // An open election ends the spell too: the candidate
-                // read the state it exists to observe and is about to
-                // act on it. Without this, a candidate that cycles
-                // between open elections and failed campaigns — a
-                // write-path-only outage — would carry a stale count
-                // into its next read blip and pay the capped pace
-                // despite weeks of successful reads. The campaign
-                // failures themselves pace on the ending ladder.
+                // An open election is a completed observation — without
+                // the reset, a write-path-only outage would carry a
+                // stale count into the next read blip. Campaign
+                // failures pace on the ending ladder.
                 blind.observed();
                 return Ok(());
             };
@@ -605,17 +509,13 @@ impl Coordinator {
                 stream = self.store.watch_leader_from(revision + 1) => stream,
             };
             let mut stream = stream?;
-            // Deliberately no reset here. A created watch proves
-            // nothing: etcd under watcher pressure accepts the create
-            // and cancels the watcher with its first response, so a
-            // reset at creation would zero the ladder every cycle of
-            // exactly the mode it exists to pace. The spell ends only
-            // when the watch proves itself — surviving to its fallback,
-            // or delivering the opening — in the match below.
-            // A deadline for the whole wait, not a gap between messages.
-            // Constructed per iteration of the inner loop, this would
-            // restart on every response and stop bounding anything the
-            // moment something writes the leader key at any rate.
+            // Deliberately no reset here: watcher pressure accepts the
+            // create and cancels with the first response, so a reset at
+            // creation would zero the ladder every cycle of exactly the
+            // mode it paces.
+            //
+            // A deadline for the whole wait: per-message construction
+            // would restart it on every response and bound nothing.
             let fallback_at = tokio::time::Instant::now() + self.config.standby_poll_interval;
             let woke = loop {
                 let message = tokio::select! {
@@ -643,12 +543,9 @@ impl Coordinator {
                         break Woke::StreamLost;
                     }
                 };
-                // etcd cancels an individual watcher with an ordinary
-                // response — on compaction, or under watcher pressure —
-                // and leaves the stream open. Nothing further is ever
-                // delivered to that watcher, so a candidate that kept
-                // awaiting it would look idle rather than blind and would
-                // learn of an opening only when the fallback fired.
+                // etcd cancels a watcher with an ordinary response and
+                // delivers nothing after it; awaiting further would
+                // look idle rather than blind.
                 if response.canceled() {
                     tracing::debug!(
                         name = %self.config.name,
@@ -667,53 +564,28 @@ impl Coordinator {
                 }
             };
             match woke {
-                // A delivered opening is a real observation; a watch
-                // that lives out its whole window is weaker — a stalled
-                // watch survives too, and the fallback re-read below is
-                // what bounds that — but a full interval at the healthy
-                // cadence with no loss means the churn the ladder paces
-                // has stopped. Either ends the spell.
+                // Both are completed observations; survival's weaker
+                // claim is argued at `BlindSpell::observed`.
                 Woke::Opened => {
                     blind.observed();
                     return Ok(());
                 }
-                // The fallback is meant to re-read at once; that is what
-                // it is for.
                 Woke::Fallback => {
                     blind.observed();
                 }
-                // Counted, because the fallback makes this state
-                // invisible otherwise: an etcd flapping watchers costs
-                // one interval of detection per flap and no error, so
-                // without a series it is indistinguishable from a
-                // healthy fleet.
-                //
-                // A loss is also a blind failure, on the same ladder the
-                // read and watch-create errors climb — watcher pressure
-                // usually presents as a create that succeeds and cancels
-                // immediately, not as a create that errs. What the
-                // ladder paces is only the watch re-creation, because
-                // that is what is failing and what feeds the pressure;
-                // the reads keep the fallback cadence throughout, since
-                // reads still work in this mode and a watch etcd
-                // cancels must not detect an opening any slower than
-                // one that merely stalls. The first loss after a
-                // healthy stretch still re-reads at the original
-                // deadline — one blip is ambiguous, and a stream lost
-                // late in the window must not defer the re-read the
-                // fallback would have run anyway — while consecutive
-                // losses park on the growing pace, reading each
-                // interval, so a sustained flap backs the watcher churn
-                // off to the cap without slowing succession. Survival
-                // resets the ladder above, so an isolated blip weeks
-                // later is prompt again.
+                // Counted: without a series, a flapping etcd is
+                // indistinguishable from a healthy fleet. A loss climbs
+                // the same ladder as read and create errors, but the
+                // pace delays only watch re-creation — reads keep the
+                // fallback cadence (`read_through_pace`), so a
+                // cancelled watch never detects an opening slower than
+                // a stalled one. A first loss re-reads at the original
+                // deadline; survival above resets.
                 Woke::StreamLost => {
-                    // Shutdown first, as at the run-level arm: a
-                    // connection torn down as the process exits errors
-                    // the stream before losing the race against
-                    // `cancel`, and counting that would put a sample on
-                    // every rollout into a series that is supposed to
-                    // mean etcd is cancelling or dropping watches.
+                    // Shutdown first, as at the run-level arm: exit
+                    // teardown errors the stream before the cancel race
+                    // resolves, and counting it would sample every
+                    // rollout.
                     if cancel.is_cancelled() {
                         return Ok(());
                     }
@@ -741,14 +613,12 @@ impl Coordinator {
         }
     }
 
-    /// Wait out a blind pace without going blind to the election. The
-    /// pace delays watch re-creation only, so this parks for `pace`
-    /// while still reading the leader key at the fallback cadence, and
-    /// takes an opening the moment a read finds one. Returns whether
-    /// the caller should stop waiting: an observed opening (which ends
-    /// the spell, as any completed observation does) or cancellation;
-    /// `false` means the pace ran out without an observed opening, and
-    /// the watch should be re-created.
+    /// Park for `pace` while still reading the leader key at the
+    /// fallback cadence — the pace delays only watch re-creation — and
+    /// take an opening the moment a read finds one. Returns whether the
+    /// caller should stop waiting (opening observed or cancelled);
+    /// `false` means the pace ran out and the watch should be
+    /// re-created.
     async fn read_through_pace(
         &self,
         cancel: &CancellationToken,
@@ -772,11 +642,10 @@ impl Coordinator {
                 _ = cancel.cancelled() => return Ok(true),
                 read = self.store.get_leader() => read,
             };
-            // A read that finds no leader is a completed observation —
-            // an opening to campaign for. One that finds the incumbent
-            // is deliberately not: in a watcher-pressure episode these
-            // reads succeed every interval, and a reset on them would
-            // hold the ladder at zero for the whole episode.
+            // An empty read is a completed observation. Finding the
+            // incumbent is not: those reads succeed every interval of a
+            // flap, and a reset would hold the ladder at zero for the
+            // whole episode.
             if read?.is_none() {
                 blind.observed();
                 return Ok(true);
@@ -795,12 +664,10 @@ impl Coordinator {
         // whether the fleet is electing or merely polling.
         counter!("personhog_coordination_election_campaigns_total").increment(1);
         let granted_at = Instant::now();
-        // Both campaign calls race cancellation: the store sets no
-        // request timeout, so unraced they would hold shutdown for the
-        // transport's own bound against a hanging etcd — several times
-        // the graceful budget this component gets. A grant abandoned
-        // mid-flight can leave a lease server-side; nothing hangs off
-        // it, and it expires on its TTL.
+        // Both campaign calls race cancellation, or a hanging etcd
+        // holds shutdown past the graceful budget. A grant abandoned
+        // mid-flight leaves a lease nothing hangs off; it expires on
+        // its TTL.
         let lease_id = tokio::select! {
             _ = cancel.cancelled() => return Ok(false),
             granted = self.store.grant_lease(self.config.leader_lease_ttl) => granted?,
@@ -885,18 +752,13 @@ impl Coordinator {
         };
 
         let result = tokio::select! {
-            // Raced here as well as inside the loop, because the loop
-            // only observes cancellation once it reaches its select —
-            // its bootstrap (revision anchor, watch creation, initial
-            // reconcile) is a run of store calls with no timeout of
-            // their own, and the keepalive cannot preempt them on
-            // shutdown: its token is a child of `cancel`, so a graceful
-            // exit stops it without ever firing `lease_lost`. Dropping
-            // the loop future mid-bootstrap aborts its JoinSet tasks and
-            // closes its streams; every downstream effect is idempotent
-            // (CAS-guarded phase transitions, tolerant cleanup), and the
-            // teardown below still runs, which is the whole point — the
-            // revoke is what spares the successor the lease TTL.
+            // Raced here as well: the loop's bootstrap is a run of
+            // unbounded store calls before its first select, and the
+            // keepalive cannot preempt them on a graceful exit (its
+            // token is a child of `cancel`, so `lease_lost` never
+            // fires). Dropping the loop mid-bootstrap is safe — every
+            // downstream effect is idempotent — and the teardown below
+            // still runs, which is what spares the successor the TTL.
             _ = cancel.cancelled() => Ok(()),
             _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
             result = self.run_coordination_loop(cancel.clone()) => result,
@@ -916,15 +778,10 @@ impl Coordinator {
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
-        // Anchor every watch to a single revision taken BEFORE bootstrap.
-        // The coordinator must observe ack writes (PodDrainedAck,
-        // PodWarmedAck, RouterFreezeAck) to advance handoffs; anchoring
-        // guarantees that any event from this revision on is delivered
-        // even if it lands before a watch finishes attaching, so nothing
-        // written during (or racing) bootstrap can be missed. Bootstrap
-        // reads happen after this point and may double-observe events the
-        // watches also deliver — all downstream work is idempotent
-        // (CAS-guarded phase transitions, tolerant cleanup).
+        // Anchor every watch to one revision taken BEFORE bootstrap, so
+        // an ack written while a watch is still attaching is delivered
+        // rather than missed. Bootstrap reads may double-observe what
+        // the watches also deliver; all downstream work is idempotent.
         let anchor = self.store.current_revision().await? + 1;
         let pods_stream = self.store.watch_pods_from(anchor).await?;
         let handoffs_stream = self.store.watch_handoffs_from(anchor).await?;
@@ -1187,15 +1044,10 @@ impl Coordinator {
         }
     }
 
-    /// React to router departures. The freeze quorum's required set is
-    /// the handoff's creation snapshot intersected with the live
-    /// registry, so a router leaving — deregistering at shutdown, or its
-    /// lease expiring after a crash — can newly satisfy the quorum of
-    /// every in-flight freeze. Nothing else fires an event for that:
-    /// without this watch, such handoffs wait for the reconcile tick.
-    /// Registrations (Put events) are ignored — a router that joins
-    /// after a handoff's creation is never added to its quorum, so a Put
-    /// can't change any evaluation.
+    /// React to router departures, which can newly satisfy every
+    /// in-flight freeze's quorum and fire no other event. Puts are
+    /// ignored: a router joining after a handoff's creation never
+    /// enters its quorum.
     async fn run_router_departure_watch(
         mut stream: WatchStream,
         store: &PersonhogStore,
@@ -1242,11 +1094,10 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
-                    // Listed before the handoffs, which is what makes
-                    // the sweep below safe: every handoff that existed
-                    // when these ids were read appears in the newer
-                    // handoff list, and a membership written after this
-                    // read is not a candidate at all.
+                    // INVARIANT: listed before the handoffs — a
+                    // membership written after this read is not a
+                    // candidate, so the sweep cannot collect a record a
+                    // newer handoff refers to.
                     let quorum_candidates = store.list_freeze_quorum_ids().await;
                     let handoffs = store.list_handoffs().await?;
                     for handoff in &handoffs {
@@ -1295,19 +1146,12 @@ impl Coordinator {
     }
 
     /// Delete the freeze-quorum records no live handoff refers to.
-    ///
-    /// Housekeeping, so every failure is logged and dropped: a record
-    /// left behind costs a few kilobytes until the next tick, and one
-    /// deleted while still referenced only makes its handoff fall back
-    /// to requiring every live router. Neither can advance a handoff
-    /// early, which is why this runs without a transaction.
-    ///
-    /// Note what observes a record deleted in error. A coordinator that
-    /// still holds it cached keeps using the correct membership and says
-    /// nothing — the cache neutralizes the mistake rather than reporting
-    /// it. `unresolved_freeze_quorums_total` covers a process that has
-    /// to read (a fresh leader, or one whose entry was evicted), and the
-    /// collection counter here covers the rate at which records go.
+    /// Housekeeping without a transaction: a record left behind costs
+    /// kilobytes until the next tick, and one deleted in error only
+    /// makes its handoff fall back to requiring every live router —
+    /// neither can advance a handoff early. A wrong delete surfaces in
+    /// `unresolved_freeze_quorums_total` only from a process that has
+    /// to read; a cached coordinator neutralizes it silently.
     async fn collect_stale_freeze_quorums(
         store: &PersonhogStore,
         candidates: Result<Vec<String>>,
@@ -1316,11 +1160,8 @@ impl Coordinator {
         let candidates = match candidates {
             Ok(ids) => ids,
             Err(e) => {
-                // Counted for the same reason the delete failure below
-                // is, and more urgently: this one suppresses every delete
-                // rather than one, so a sweep that never runs is
-                // otherwise indistinguishable from a sweep with nothing
-                // to collect — both leave the collection counter flat.
+                // Counted: a sweep that never runs is otherwise
+                // indistinguishable from one with nothing to collect.
                 counter!(
                     "personhog_coordination_freeze_quorum_sweep_failures_total",
                     "stage" => "list"

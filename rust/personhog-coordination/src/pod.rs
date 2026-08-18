@@ -223,32 +223,23 @@ pub struct PodConfig {
 }
 
 /// How long either exit path waits for its lease revoke before moving
-/// on. The revoke is cleanup on a store with no request timeouts of its
-/// own, and an unwell etcd is the usual reason for being on an exit
-/// path — unbounded, the graceful path would spend the termination
-/// grace period waiting while the registration it exists to remove
-/// expires by TTL anyway. The leader binary's shutdown budget is
-/// validated against this bound at startup.
+/// on: unbounded, it waits out the very etcd outage that usually runs
+/// it, while the registration expires by TTL anyway. Public because the
+/// leader binary validates its shutdown budget against it at startup.
 pub const REVOKE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The fence's drain bound on the shutdown path, where the graceful
-/// drain may already have spent its full timeout ahead of it. The
-/// fence's value there is stopping admissions (milliseconds) and giving
-/// stragglers a short grace — anything the drain could not quiesce will
-/// not quiesce now. Public because the leader binary validates its
-/// shutdown budget against the sum of these bounds at startup.
+/// The fence's drain bound on the shutdown path: its value there is
+/// stopping admissions and a short straggler grace — anything the
+/// graceful drain ahead of it could not quiesce will not quiesce now.
+/// Public because the leader binary sums it into its budget check.
 pub const SHUTDOWN_FENCE_BOUND: Duration = Duration::from_secs(3);
 
-/// How long the graceful drain's bookkeeping — the Draining status
-/// write, the involvement snapshot, the watch creation — may take before
-/// the drain gives up on it and degrades to the fence-and-revoke
-/// teardown. These run before the drain's own timeout starts, on a
-/// store with no request timeouts, guarded only by the heartbeat race —
-/// which fires only when the lease path fails. An etcd whose KV path
-/// stalls while its lease path stays healthy would otherwise hold the
-/// shutdown here indefinitely, with the pod still the registered,
-/// renewing owner of every partition it can no longer serve. Public
-/// because the leader binary sums it into its shutdown-budget check.
+/// How long the drain's bookkeeping (Draining write, involvement
+/// snapshot, watch creation) may take before degrading to the
+/// fence-and-revoke teardown. These run before the drain's own timeout
+/// starts, and an etcd whose KV path stalls while its lease path stays
+/// healthy would otherwise hold shutdown here indefinitely. Public
+/// because the leader binary sums it into its budget check.
 pub const DRAIN_SETUP_BOUND: Duration = Duration::from_secs(5);
 
 impl Default for PodConfig {
@@ -290,23 +281,15 @@ pub struct PodHandle {
     store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
-    /// Partitions warmed by this process — local, dies with the process —
-    /// each with the provenance of its warm. `converge` consults it to
-    /// decide whether a Serving/Acquiring partition still needs a warm,
-    /// and `drain()` waits for it to empty.
+    /// Partitions warmed by this process — local, dies with the process
+    /// — each with the provenance of its warm.
     ///
-    /// A std mutex on purpose, for both maps: locking must not be an
-    /// await. With an async lock there is a suspension point between
-    /// `warm_partition` returning — cache and producer installed in the
-    /// data plane — and the insert recording it, and a lane future
-    /// dropped exactly there leaves an installed warm these maps never
-    /// learned of: the self-fence cannot release what it cannot see.
-    /// A synchronous lock makes that window structurally impossible.
-    /// The invariant that no guard is held across an await is enforced
-    /// by `run` being spawned: a `std::sync::MutexGuard` is not `Send`,
-    /// so holding one across an await fails to compile. Clippy's
-    /// `await_holding_lock` flags the same mistake earlier and closer
-    /// to the site.
+    /// A std mutex on purpose, for both maps: an async lock leaves a
+    /// suspension point between the warm installing in the data plane
+    /// and the insert recording it, and a lane dropped there leaves a
+    /// warm the self-fence cannot see. Guards held across an await are
+    /// a compile error (`run` is spawned, the guard is not `Send`) and
+    /// a clippy lint besides.
     warmed_partitions: StdMutex<HashMap<u32, WarmProvenance>>,
     /// Partitions this process has write-fenced via a drain — local,
     /// consulted so convergence to Serving only issues a resume when a
@@ -732,22 +715,16 @@ impl PodHandle {
     }
 
     /// Grant a fresh lease and register under it — the start of a
-    /// coordination session.
-    /// Returns `None` when cancellation arrived first.
+    /// coordination session. Returns `None` when cancellation arrived
+    /// first.
     ///
-    /// The race lives inside rather than around the call, because the
-    /// two steps abandon differently. A grant dropped mid-flight leaves
-    /// at most an unreferenced lease that expires on its TTL. A
-    /// registration dropped mid-flight can still land server-side —
-    /// a Ready registration under a lease nothing will ever heartbeat,
-    /// a phantom pod the coordinator plans handoffs toward until the
-    /// TTL clears it, parking every write those plans freeze. Past the
-    /// grant the lease id is known, so an abandoned or failed
-    /// registration revokes it on the way out — the registration is a
-    /// lease-bound put, so a landed revoke deletes it, and one that
-    /// lands first makes etcd reject the late put. Only a revoke that
-    /// itself times out leaves the phantom, TTL-bounded; see the
-    /// README's residual.
+    /// The race lives inside because the two steps abandon differently:
+    /// an abandoned grant leaves only a lease that expires on its TTL,
+    /// but an abandoned registration can still land — a phantom pod the
+    /// coordinator plans toward — so past the grant, any abandonment
+    /// revokes the lease, which deletes a landed registration or makes
+    /// etcd reject a late one. Only a revoke that itself times out
+    /// leaves the phantom, TTL-bounded; see the README's residual.
     async fn begin_session(&self, cancel: &CancellationToken) -> Result<Option<(i64, Instant)>> {
         // The server's TTL countdown starts at the grant; anchoring the
         // keepalive's margin clock any later would overstate runway by
@@ -1168,33 +1145,19 @@ impl PodHandle {
     }
 }
 
-/// Whether a handoff event concerns the pod that observed it.
+/// Whether a handoff event concerns the pod that observed it — the
+/// scoping that keeps a fleet-wide rebalance from costing every pod a
+/// convergence (two point reads) on every partition's event.
 ///
-/// Every pod watches every handoff, so a fleet-wide rebalance delivers
-/// one event per partition to every pod, and converging on all of them
-/// costs two point reads each to re-derive state that cannot have changed
-/// for a pod the handoff never mentions.
-///
-/// `handoff` is `None` for a deletion, which carries no owners — there,
-/// only the pod's own involvement can decide, and that is the case that
-/// matters most: a cancelled handoff has to reach the old owner holding
-/// its fence and the new owner still warming for it.
-///
-/// `converging` covers the window where a pod is doing the most work and
-/// holding the least state to show for it. A new owner records its warm
-/// only once `warm_partition` returns, so for the whole replay it holds
-/// neither a cache nor a fence — and a long warm is exactly what a
-/// deadline cancels. Skipping there would leave the pod finishing a warm
-/// for a handoff that no longer exists and holding the cache until a
-/// reconcile tick noticed; dispatching coalesces onto the running
+/// `handoff` is `None` for a deletion, which carries no owners; only
+/// the pod's own involvement can decide, and must — a cancelled handoff
+/// has to reach the old owner holding its fence and the new owner still
+/// warming. `converging` covers the warm window, where the pod holds
+/// neither cache nor fence yet: dispatching coalesces onto the running
 /// convergence, which re-derives once the warm completes.
 ///
-/// Split out from the watch loop so both directions can be pinned
-/// cheaply. Widening it to always return true is the regression that
-/// costs nothing observable — the pod would still converge everything it
-/// must, just as it did before the scoping existed — so the skip has to
-/// be asserted somewhere, not inferred from tests that only prove
-/// convergence still happens.
+/// Split out so both directions can be pinned: widening this to always
+/// return true costs nothing any convergence test observes.
 fn event_concerns_pod(
     pod_name: &str,
     handoff: Option<&HandoffState>,
@@ -1882,11 +1845,9 @@ async fn watch_own_registration(
             message = stream.message() => message,
         };
         let Ok(Some(response)) = message else { return };
-        // A cancelled watcher delivers nothing further, so keeping the
-        // loop would not be patience — it would be watching a dead
-        // stream while looking alive. Ending matches what a stream
-        // error already does here: this watch is defense-in-depth, and
-        // the session teardown it accelerates still happens without it.
+        // A cancelled watcher delivers nothing further. This watch is
+        // defense-in-depth: the session teardown it accelerates still
+        // happens without it, so ending is safe.
         if response.canceled() {
             tracing::warn!(pod = %pod_name, "registration watch cancelled by etcd; watch ends");
             return;
@@ -1909,14 +1870,9 @@ async fn watch_own_registration(
                     pod = %pod_name,
                     "registration deleted; surrendering serving authority immediately"
                 );
-                // Deliberately redundant: the session teardown below
-                // surrenders too, so deleting this line leaves every
-                // test green. What it buys is the interval — the pod
-                // stops answering on the watch event rather than
-                // whenever teardown finishes, and until it does it is
-                // serving strong reads on a claim the cluster has
-                // already withdrawn. The residual gap is etcd's watch
-                // delivery latency, which no call can close.
+                // Deliberately redundant with the session teardown's
+                // surrender: this one stops strong reads at watch
+                // delivery rather than when teardown finishes.
                 authority.surrender();
                 // Surrendering alone would leave a pod that holds a live
                 // lease, refuses every read, and never registers again —
@@ -1947,17 +1903,10 @@ mod tests {
         }
     }
 
-    /// An event a pod is party to must reach a convergence, by any of the
-    /// three routes — and one it is not party to must not.
-    ///
-    /// The last case is the one worth having. Every integration test here
-    /// pins the converge direction, and every one of them passed before
-    /// the scoping existed, when a pod converged on everything: they
-    /// prove work still happens, which a predicate widened to "always
-    /// converge" would satisfy too. The skip is the whole point of the
-    /// change and nothing else asserts it, so a regression that quietly
-    /// restored the fleet-wide fan-out would cost two point reads per
-    /// partition per pod per rebalance and break no test.
+    /// An event a pod is party to must reach a convergence, by any of
+    /// the three routes — and one it is not party to must not. The skip
+    /// direction is the one worth having: every integration test passed
+    /// before the scoping existed, so nothing else asserts it.
     #[test]
     fn an_event_reaches_only_the_pods_it_concerns() {
         let cases = [

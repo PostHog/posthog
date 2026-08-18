@@ -24,23 +24,14 @@ pub fn new_handoff_id() -> String {
     format!("{}-{}", millis, Uuid::new_v4())
 }
 
-/// Record one supervisor-level failure (a bootstrap, an attempt, or a
-/// lost lease) against the consecutive budget. Returns `false` when the
-/// budget is exhausted. A failure that follows real progress — applied
-/// work only: the pod on a completed convergence, the router on a
-/// completed reconcile pass (which applies a fresh snapshot to the
-/// routing table, so it is application, not a mere read) or an applied
-/// handoff event; never a read that changed nothing, which stays
-/// available in wedges where convergence itself is what fails — resets
-/// the count first: the budget bounds crash
-/// loops, not the lifetime of a component that keeps doing useful work
-/// between failures. Progress is measured rather than inferred from
-/// elapsed time, because any fixed "healthy after N seconds" threshold
-/// silently exempts every failure detector slower than N — the
-/// reconcile failure budget and the participant stall watchdog both
-/// take a minute to fire, so a time threshold in that range would let
-/// exactly the wedged-but-slowly-failing states the budget exists for
-/// rebuild in place forever.
+/// Record one supervisor-level failure against the consecutive budget;
+/// returns `false` when it is exhausted. Progress resets the count
+/// first, and INVARIANT: progress means *applied* work (a completed
+/// convergence, an applied snapshot or event) — never a read that
+/// changed nothing, which stays available in exactly the wedges the
+/// budget exists for. Measured rather than time-based, because a
+/// "healthy after N seconds" threshold exempts every failure detector
+/// slower than N.
 pub(crate) fn note_run_failure(
     consecutive: &mut u32,
     progress: &AtomicBool,
@@ -70,16 +61,11 @@ pub(crate) fn note_run_failure(
     *consecutive < budget
 }
 
-/// Log and count a coordination-run failure for a component that has no
-/// budget to spend.
-///
-/// The coordinator is the one such component. Its work fails over to a
-/// peer for free on every term ending, a restart cannot fix an unwell
-/// etcd, and the process it would take down serves person writes and
-/// strong reads — so it retries indefinitely and surfaces each failure
-/// instead of counting toward giving up. This shares
-/// `run_restarts_total` with the components that do give up, because the
-/// question an operator asks of that series is the same either way.
+/// Log and count a coordination-run failure for a component with no
+/// budget to spend. The coordinator is the one such component: it fails
+/// over to a peer for free, a restart cannot mend an unwell etcd, and
+/// its process also serves person writes and strong reads — so it
+/// retries indefinitely and surfaces every failure.
 pub(crate) fn record_run_failure(
     component: &'static str,
     name: &str,
@@ -292,16 +278,11 @@ pub async fn run_lease_keepalive(
     }
 }
 
-/// The watch responses a live watcher can still deliver on.
-///
-/// etcd cancels an individual watcher — on compaction, or under watcher
-/// pressure — with an ordinary response: `canceled` set, no events, and
-/// the stream left open. Nothing is ever delivered to that watcher
-/// again, so a loop that keeps awaiting the stream is not patient, it is
-/// parked forever, downgrading its component to reconcile-tick latency
-/// with no error, no counter, and no restart. Surfacing the cancel as an
-/// error routes the loop into the same retry that heals a broken
-/// stream: the attempt fails and its rebuild anchors a fresh watch.
+/// The watch responses a live watcher can still deliver on. etcd
+/// cancels a watcher with an ordinary response and delivers nothing to
+/// it afterwards, so a loop that keeps awaiting is parked forever at
+/// reconcile-tick latency with no error; surfacing the cancel as an
+/// error routes it into the same retry that heals a broken stream.
 pub(crate) fn live_watch_response(
     resp: Option<etcd_client::WatchResponse>,
     what: &str,
@@ -317,26 +298,17 @@ pub(crate) fn live_watch_response(
     Ok(resp)
 }
 
-/// Count one resolution that found no record — not one record lost. The
-/// handoff falls back to requiring every live router, so a nonzero rate
-/// explains a handoff slower to advance than its membership would
-/// suggest.
-///
-/// Read it as a rate, never as a population: every frozen partition
-/// referring to a lost record resolves once per reconcile pass, so a
-/// single missing record shows up as thousands per minute. That is the
-/// intent — the signal should persist while the condition does — but the
-/// magnitude says how much work is degraded, not how much is missing.
+/// Count one resolution that found no record — not one record lost: a
+/// single missing record resolves once per frozen partition per pass,
+/// so read it as a rate (how much work is degraded to the fallback),
+/// never as a population.
 pub fn record_unresolved_freeze_quorum() {
     metrics::counter!("personhog_coordination_unresolved_freeze_quorums_total").increment(1);
 }
 
-/// Count a handoff watch event by what this pod did with it. The
-/// skipped share says how much of the fan-out this pod is not party to,
-/// and a skipped rate of zero during a rebalance means the scoping is
-/// not taking effect — so an event the pod could not read must not land
-/// there, or a fleet whose records this binary cannot parse reads as
-/// scoping working perfectly.
+/// Count a handoff watch event by what this pod did with it. An event
+/// the pod could not read must not land in `skipped`, or a fleet whose
+/// records this binary cannot parse reads as scoping working perfectly.
 pub fn record_handoff_event_disposition(disposition: &'static str) {
     metrics::counter!(
         "personhog_coordination_handoff_events_total",

@@ -363,12 +363,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::spawn(async move {
                 let _guard = coordinator_handle.process_scope();
                 // No failure path back into the lifecycle manager on
-                // purpose. Coordination that cannot proceed does not
-                // want this process gone: the election lease is revoked
-                // on every term ending and a peer takes over in
-                // milliseconds, a restart cannot mend an unwell etcd,
-                // and this process is also serving person writes and
-                // strong reads. It retries and reports instead.
+                // purpose: a peer takes over for free, a restart cannot
+                // mend an unwell etcd, and this process also serves
+                // person writes and strong reads. It retries and
+                // reports.
                 coordinator.run(coordinator_handle.shutdown_token()).await;
                 k8s_cancel.cancel();
             });
@@ -576,12 +574,8 @@ fn preregister_metrics() {
 
 #[cfg(test)]
 mod tests {
-    /// The etcd payload histogram is emitted by the shared store layer,
-    /// so this binary's ladder and the shared recorder's have to agree.
-    /// They are separate literals — this binary builds its own recorder
-    /// and does not depend on the metrics crate outside tests — and a
-    /// comment saying they must match is not something a future edit has
-    /// to obey.
+    /// The two ladders are separate literals that must agree; this
+    /// test is what enforces it.
     #[test]
     fn etcd_payload_ladder_matches_the_shared_one() {
         assert_eq!(

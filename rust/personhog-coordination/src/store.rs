@@ -84,21 +84,16 @@ impl StoreKey<'_> {
 #[derive(Clone)]
 pub struct PersonhogStore {
     inner: EtcdStore,
-    /// Freeze-quorum memberships already read, by record id.
+    /// Freeze-quorum memberships already read, by record id. Records
+    /// are written once and only ever deleted, so an id identifies one
+    /// immutable value and caching cannot go stale; a plan's handoffs
+    /// share one id, so this turns a few hundred reads per reconcile
+    /// pass into one.
     ///
-    /// A record is written once, in the transaction that creates the
-    /// handoffs referring to it, and is only ever deleted — never
-    /// rewritten — so an id identifies one immutable value and caching
-    /// it cannot go stale. Every handoff a plan created shares one id,
-    /// so without this a reconcile pass over a few hundred frozen
-    /// partitions reads the same key a few hundred times.
-    ///
-    /// The value keeps the meaning `resolve_freeze_quorum` returns:
-    /// `Some` is a recorded membership, `None` is a record known to be
-    /// absent, which requires every live router. Flattening the two
-    /// would invert the rule — an absent record would come back as
-    /// "require nobody" and advance a handoff no router had stopped
-    /// routing for.
+    /// INVARIANT: the cached value keeps `Some` (recorded membership)
+    /// distinct from `None` (record absent — requires every live
+    /// router). Flattening them would advance a handoff no router had
+    /// stopped routing for.
     freeze_quorums: Arc<StdMutex<HashMap<String, Option<Vec<String>>>>>,
 }
 
@@ -804,18 +799,11 @@ impl PersonhogStore {
     ) -> Result<Option<Vec<String>>> {
         match &handoff.freeze_quorum_ref {
             Some(id) => {
-                // A hit answers from memory. Confirming against etcd
-                // would cost the read this cache exists to remove — one
-                // per frozen partition per reconcile pass — to observe a
-                // case the cache already neutralizes: a process holding
-                // a swept record keeps using the correct membership.
-                // What a wrongly swept record does surface as is the
-                // sweep's own collection counter, and, for any process
-                // that has to read it, the unresolved counter below.
-                //
-                // A hit that resolved to nothing still counts, so the
-                // signal persists while the condition does rather than
-                // firing once and going quiet behind the cache.
+                // A hit answers from memory: confirming against etcd
+                // would cost the read this cache removes, to observe a
+                // case it already neutralizes. A hit that resolved to
+                // nothing still counts, so the signal persists while
+                // the condition does.
                 let cached = self
                     .freeze_quorums
                     .lock()
@@ -829,27 +817,18 @@ impl PersonhogStore {
                     return Ok(members);
                 }
                 let members = self.get_freeze_quorum(id).await?;
-                // A miss is cached too. Records are written once and only
-                // ever deleted, so an id that resolves to nothing
-                // resolves to nothing forever — and without this a lost
-                // record costs a read and a warning per frozen partition
-                // per pass, which is the amplification this cache exists
-                // to remove, returning on the unwell etcd that most
-                // plausibly lost it.
+                // A miss is cached too: an id that resolves to nothing
+                // resolves to nothing forever, and a lost record would
+                // otherwise cost a read per frozen partition per pass.
                 {
                     let mut cache = self
                         .freeze_quorums
                         .lock()
                         .expect("freeze quorum cache lock poisoned");
-                    // Sized for a rolling deploy, not for the steady
-                    // state: every pod event mints a plan, and one slow
-                    // router parks earlier plans' handoffs in Freezing
-                    // until their deadline, so the live set is plans in
-                    // flight rather than one. Evicting the oldest keeps
-                    // the working set — ids lead with milliseconds, so
-                    // the smallest is the oldest — where clearing
-                    // wholesale would throw away the entry every caller
-                    // is about to ask for.
+                    // Sized for a rolling deploy (plans in flight, not
+                    // one). Evicting the oldest — ids lead with
+                    // milliseconds, so smallest is oldest — keeps the
+                    // working set.
                     if cache.len() >= 32 {
                         if let Some(oldest) = cache.keys().min().cloned() {
                             cache.remove(&oldest);

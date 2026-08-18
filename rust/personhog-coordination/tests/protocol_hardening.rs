@@ -4345,21 +4345,13 @@ async fn a_pending_new_owner_is_hinted_but_not_warmed() {
 }
 
 /// A standby waits on the leader key rather than campaigning at its
-/// retry interval.
+/// retry interval — a campaign costs etcd writes per candidate per
+/// retry, so standing by must cost nothing until the key goes away.
 ///
-/// Every campaign costs etcd a lease grant, a transaction and a revoke,
-/// paid by each candidate on each retry, so the fleet's election traffic
-/// scaled with the number of candidates rather than with how often
-/// leadership changed. Standing by must cost nothing until the key
-/// actually goes away.
-///
-/// The fallback re-read is set far beyond the test's own timeouts, and
-/// a successor reclaims the key the instant it is released, so a re-read
-/// cannot end the wait either — only the delete event can. That the watch delivers a delete
-/// landing in the gap between the read and the watch attaching is a
-/// separate property, pinned deterministically by
-/// `a_leader_that_goes_between_the_read_and_the_watch_is_still_delivered`
-/// — this test cannot force that interleaving.
+/// The fallback re-read is set beyond the test's timeouts and a
+/// successor reclaims the key instantly, so only the delete event can
+/// end the wait. The read-to-attach gap is pinned separately by
+/// `a_leader_that_goes_between_the_read_and_the_watch_is_still_delivered`.
 #[tokio::test]
 async fn a_standby_waits_on_the_leader_key_rather_than_campaigning() {
     let prefix = format!("/test-standby-watch-{}/", uuid::Uuid::new_v4());
@@ -4472,19 +4464,14 @@ async fn a_standby_waits_on_the_leader_key_rather_than_campaigning() {
 
 /// A handoff replaced in place — cancelled and re-issued in one
 /// transaction — must still reach a pod the successor no longer names.
+/// The old owner sees a single put naming two other pods; only what it
+/// still holds locally says the fence should come off, and a pod that
+/// skipped the event would reject writes until the reconcile tick.
 ///
-/// A replacement overwrites the handoff key rather than deleting it, so
-/// the old owner sees a single put whose payload names two other pods.
-/// Nothing in that payload says the fence this pod is holding should
-/// come off, and only what it still holds locally does. A pod that
-/// skipped the event would keep rejecting writes for a partition the
-/// durable state still assigns to it, until the reconcile tick noticed.
-///
-/// This pins the local-state disjunct as a whole, not either term: the
-/// pod here holds a warm and a fence, so removing one leaves the other.
+/// Pins the local-state disjunct as a whole (warm and fence held
+/// together); the individual terms are held by
 /// `restarted_old_owner_serves_again_after_handoff_cancelled` and
-/// `pod_releases_partition_when_cancelled_handoff_leaves_it_unassigned`
-/// are what hold the fence and the warm individually.
+/// `pod_releases_partition_when_cancelled_handoff_leaves_it_unassigned`.
 #[tokio::test]
 async fn a_replaced_handoff_reaches_the_old_owner_it_no_longer_names() {
     let store = test_store("handoff-replaced-old-owner").await;
@@ -4796,21 +4783,14 @@ async fn a_handoff_cancelled_mid_warm_reaches_the_pod_still_warming() {
 }
 
 /// A leader that disappears between a standby's read and its watch is
-/// still delivered to that watch.
+/// still delivered to that watch. Anchoring the watch at the revision
+/// the read returned replays that deletion; anchoring at "now" drops
+/// it, which looks identical in any test that lets the watch attach
+/// first.
 ///
-/// This is the ordering a standby cannot avoid: it reads the leader key,
-/// then attaches a watch, and the leader can go in between. Anchoring
-/// the watch at the revision the read returned replays that deletion;
-/// anchoring at "now" drops it, which looks identical in any test that
-/// lets the watch attach first — and leaves a candidate parked until its
-/// fallback re-read, on top of the lease TTL it already waited out.
-///
-/// Driven through the two store calls the standby loop makes, in that
-/// order, rather than through the loop: the deletion has to land between
-/// them, and no amount of racing the loop produces that ordering on
-/// demand. What this pins is the store contract the loop depends on —
-/// that a watch anchored on a read's revision replays what the read
-/// missed. The loop's own use of it is two adjacent lines.
+/// Driven through the two store calls in order rather than the loop —
+/// no amount of racing the loop lands the deletion between them on
+/// demand. What this pins is the store contract the loop depends on.
 #[tokio::test]
 async fn a_leader_that_goes_between_the_read_and_the_watch_is_still_delivered() {
     let store = test_store("standby-watch-anchor").await;

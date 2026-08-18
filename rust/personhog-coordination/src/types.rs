@@ -163,20 +163,12 @@ pub struct HandoffState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_quorum: Option<Vec<String>>,
     /// The id of the record holding this handoff's quorum membership,
-    /// under `{prefix}freeze_quorums/{id}`.
-    ///
-    /// Every handoff a plan creates shares one membership — the registry
-    /// as the coordinator saw it — so inlining the names wrote the whole
-    /// router fleet once per partition. At a few hundred routers and a
-    /// few hundred partitions that reached megabytes: it exceeded etcd's
-    /// maximum request size and stopped the plan transaction outright,
-    /// and it was paid again by every list of handoffs.
-    ///
-    /// Resolution failure is not fatal. An id that no longer resolves
-    /// falls back to the same rule as a record with no membership at
-    /// all — require every live router — which is the stricter answer,
-    /// so a lost or garbage-collected record can only delay a handoff,
-    /// never advance one early.
+    /// under `{prefix}freeze_quorums/{id}`. A plan's handoffs share one
+    /// membership; inlined, it wrote the router fleet once per
+    /// partition and exceeded etcd's request limit at fleet scale. An
+    /// id that no longer resolves falls back to requiring every live
+    /// router — the stricter answer, so a lost record can only delay a
+    /// handoff, never advance one early.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_quorum_ref: Option<String>,
     /// Millisecond creation time. `started_at` (seconds) predates it and
