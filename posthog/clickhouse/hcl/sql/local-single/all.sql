@@ -244,6 +244,69 @@ CREATE TABLE posthog.kafka_ai_events_json (
   person_created_at DateTime64(3),
   person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ai_events_json\'';
+CREATE TABLE posthog.kafka_app_metrics (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  plugin_config_id Int64,
+  category LowCardinality(String),
+  job_id String,
+  successes Int64,
+  successes_on_retry Int64,
+  failures Int64,
+  error_uuid UUID,
+  error_type String,
+  error_details String CODEC(ZSTD(3))
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics\'';
+CREATE TABLE posthog.kafka_app_metrics2 (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind String,
+  metric_name String,
+  count Int64
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics2\'';
+CREATE TABLE posthog.kafka_app_metrics2_ws (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind String,
+  metric_name String,
+  count Int64
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_app_metrics2_ws\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics2\'';
+CREATE TABLE posthog.kafka_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4),
+  last_updated DateTime64(6)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_cohort_membership_changed\'', kafka_topic_list = 'kafka_topic_list = \'cohort_membership_changed\'';
+CREATE TABLE posthog.kafka_distinct_id_usage (
+  team_id Int64,
+  distinct_id String,
+  timestamp DateTime64(6, 'UTC')
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_distinct_id_usage\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'distinct_id_usage_events_json\'';
+CREATE TABLE posthog.kafka_duplicate_events (
+  team_id Int64,
+  distinct_id String,
+  event String,
+  source_uuid UUID,
+  duplicate_uuid UUID,
+  similarity_score Float64,
+  dedup_type LowCardinality(String),
+  is_confirmed UInt8,
+  reason Nullable(String),
+  version String,
+  different_property_count UInt32,
+  properties_similarity Float64,
+  source_message String,
+  duplicate_message String,
+  distinct_fields String,
+  inserted_at DateTime64(3, 'UTC')
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_duplicate_events\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_events_duplicates\'';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -258,6 +321,31 @@ CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   is_deleted Int8,
   version Int64
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse-error-tracking-fingerprint-issue-state\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_error_tracking_fingerprint_issue_state\'';
+CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_overrides (
+  team_id Int64,
+  fingerprint String,
+  issue_id UUID,
+  is_deleted Int8,
+  version Int64
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse-error-tracking-issue-fingerprint-overrides\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_error_tracking_issue_fingerprint\'';
+CREATE TABLE posthog.kafka_events_dead_letter_queue (
+  id UUID,
+  event_uuid UUID,
+  event String,
+  properties String,
+  distinct_id String,
+  team_id Int64,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  ip String,
+  site_url String,
+  now DateTime64(6, 'UTC'),
+  raw_payload String,
+  error_timestamp DateTime64(6, 'UTC'),
+  error_location String,
+  error String,
+  tags Array(String)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_skip_broken_messages = 1000, kafka_topic_list = 'kafka_topic_list = \'events_dead_letter_queue\'';
 CREATE TABLE posthog.kafka_events_json (
   uuid UUID,
   event String,
@@ -293,6 +381,79 @@ CREATE TABLE posthog.kafka_events_json (
   dmat_string_8 Nullable(String),
   dmat_string_9 Nullable(String)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
+CREATE TABLE posthog.kafka_events_json_native_json (
+  uuid UUID,
+  event String,
+  properties String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_created_at DateTime64(3),
+  person_properties String CODEC(ZSTD(3)),
+  group0_properties String CODEC(ZSTD(3)),
+  group1_properties String CODEC(ZSTD(3)),
+  group2_properties String CODEC(ZSTD(3)),
+  group3_properties String CODEC(ZSTD(3)),
+  group4_properties String CODEC(ZSTD(3)),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  historical_migration Bool,
+  dmat_string_0 Nullable(String),
+  dmat_string_1 Nullable(String),
+  dmat_string_2 Nullable(String),
+  dmat_string_3 Nullable(String),
+  dmat_string_4 Nullable(String),
+  dmat_string_5 Nullable(String),
+  dmat_string_6 Nullable(String),
+  dmat_string_7 Nullable(String),
+  dmat_string_8 Nullable(String),
+  dmat_string_9 Nullable(String)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_events_json_native_json\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
+CREATE TABLE posthog.kafka_flag_evaluations (
+  uuid UUID,
+  event LowCardinality(String),
+  properties String,
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_properties String,
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  inserted_at DateTime64(6, 'UTC')
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_flag_evaluations\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_flag_evaluations\'';
+CREATE TABLE posthog.kafka_groups (
+  group_type_index UInt8,
+  group_key String,
+  created_at DateTime64(3),
+  team_id Int64,
+  group_properties String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_groups\'';
+CREATE TABLE posthog.kafka_heatmaps (
+  session_id String,
+  team_id Int64,
+  distinct_id String,
+  timestamp DateTime64(6, 'UTC'),
+  x Int16,
+  y Int16,
+  scale_factor Int16,
+  viewport_width Int16,
+  viewport_height Int16,
+  pointer_target_fixed Bool,
+  current_url String,
+  type LowCardinality(String)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_heatmap_events\'';
 CREATE TABLE posthog.kafka_hog_invocation_results (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -316,6 +477,13 @@ CREATE TABLE posthog.kafka_hog_invocation_results (
   version UInt64,
   is_deleted UInt8
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_cyclotron', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_hog_invocation_results\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_hog_invocation_results\'';
+CREATE TABLE posthog.kafka_ingestion_warnings (
+  team_id Int64,
+  source LowCardinality(String),
+  type String,
+  details String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC')
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_warnings\'';
 CREATE TABLE posthog.kafka_ingestion_warnings_v2 (
   team_id Int64,
   source LowCardinality(String),
@@ -323,6 +491,24 @@ CREATE TABLE posthog.kafka_ingestion_warnings_v2 (
   details String,
   timestamp DateTime64(6, 'UTC')
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_ingestion_warnings_v2\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_warnings\'';
+CREATE TABLE posthog.kafka_log_entries_v3 (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_log_entries\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'log_entries\'';
+CREATE TABLE posthog.kafka_log_entries_ws (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_log_entries_ws\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'log_entries\'';
 CREATE TABLE posthog.kafka_logs_avro (
   uuid String,
   trace_id String,
@@ -406,6 +592,16 @@ CREATE TABLE posthog.kafka_performance_events (
   unload_event_end Float64,
   unload_event_start Float64
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_performance_events\'';
+CREATE TABLE posthog.kafka_person (
+  id UUID,
+  created_at DateTime64(3),
+  team_id Int64,
+  properties String,
+  is_identified Int8,
+  is_deleted Int8,
+  version UInt64,
+  last_seen_at Nullable(DateTime64(3))
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person\'';
 CREATE TABLE posthog.kafka_person_distinct_id (
   distinct_id String,
   person_id UUID,
@@ -413,6 +609,20 @@ CREATE TABLE posthog.kafka_person_distinct_id (
   _sign Nullable(Int8),
   is_deleted Nullable(Int8)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_unique_id\'';
+CREATE TABLE posthog.kafka_person_distinct_id2 (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  is_deleted Int8,
+  version Int64
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_distinct_id\'';
+CREATE TABLE posthog.kafka_person_distinct_id_overrides (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  is_deleted Int8,
+  version Int64
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse-person-distinct-id-overrides\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_person_distinct_id\'';
 CREATE TABLE posthog.kafka_person_overrides (
   team_id Int32,
   old_person_id UUID,
@@ -421,6 +631,55 @@ CREATE TABLE posthog.kafka_person_overrides (
   oldest_event DateTime64(6, 'UTC'),
   version Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override';
+CREATE TABLE posthog.kafka_plugin_log_entries (
+  id UUID,
+  team_id Int64,
+  plugin_id Int64,
+  plugin_config_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  source String,
+  type String,
+  message String,
+  instance_id UUID
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'plugin_log_entries\'';
+CREATE TABLE posthog.kafka_posthog_document_embeddings (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  model_name LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String,
+  metadata String,
+  embedding Array(Float64)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_document_embeddings\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_document_embeddings\'';
+CREATE TABLE posthog.kafka_precalculated_events (
+  team_id Int64,
+  date Nullable(Date),
+  distinct_id String,
+  person_id UUID,
+  condition String,
+  uuid UUID,
+  source String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_prefiltered_events\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_prefiltered_events\'';
+CREATE TABLE posthog.kafka_precalculated_person_properties (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  condition String,
+  matches Bool,
+  source String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_precalculated_person_properties\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_precalculated_person_properties\'';
+CREATE TABLE posthog.kafka_precalculated_person_properties_ws (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  condition String,
+  matches Bool,
+  source String
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_calculated_events', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_precalculated_person_properties_ws\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_precalculated_person_properties\'';
 CREATE TABLE posthog.kafka_property_values (
   team_id Int64,
   property_type LowCardinality(String),
@@ -428,6 +687,127 @@ CREATE TABLE posthog.kafka_property_values (
   property_value String,
   property_count UInt64
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_property_values\'', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_property_values\'';
+CREATE TABLE posthog.kafka_session_replay_events (
+  session_id String,
+  team_id Int64,
+  distinct_id String,
+  first_timestamp DateTime64(6, 'UTC'),
+  last_timestamp DateTime64(6, 'UTC'),
+  block_url Nullable(String),
+  first_url Nullable(String),
+  urls Array(String),
+  click_count Int64,
+  keypress_count Int64,
+  mouse_activity_count Int64,
+  active_milliseconds Int64,
+  console_log_count Int64,
+  console_warn_count Int64,
+  console_error_count Int64,
+  size Int64,
+  event_count Int64,
+  message_count Int64,
+  snapshot_source LowCardinality(Nullable(String)),
+  snapshot_library Nullable(String),
+  retention_period_days Nullable(Int64),
+  is_deleted UInt8,
+  ai_tags_fixed Array(String),
+  ai_tags_freeform Array(String),
+  ai_highlighted UInt8,
+  surfacing_score Nullable(Float32)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_session_replay_events\'';
+CREATE TABLE posthog.kafka_session_replay_features (
+  session_id String,
+  team_id Int64,
+  distinct_id String,
+  batch_id String,
+  first_timestamp DateTime64(6, 'UTC'),
+  last_timestamp DateTime64(6, 'UTC'),
+  event_count Int64,
+  mouse_position_count Int64,
+  mouse_sum_x Float64,
+  mouse_sum_x_squared Float64,
+  mouse_sum_y Float64,
+  mouse_sum_y_squared Float64,
+  mouse_distance_traveled Float64,
+  mouse_direction_change_count Int64,
+  mouse_velocity_sum Float64,
+  mouse_velocity_sum_of_squares Float64,
+  mouse_velocity_count Int64,
+  scroll_event_count Int64,
+  total_scroll_magnitude Float64,
+  scroll_direction_reversal_count Int64,
+  rapid_scroll_reversal_count Int64,
+  scroll_to_top_count Int64,
+  click_count Int64,
+  keypress_count Int64,
+  mouse_activity_count Int64,
+  rage_click_count Int64,
+  dead_click_count Int64,
+  backspace_count Int64,
+  inter_action_gap_count Int64,
+  inter_action_gap_sum_ms Float64,
+  inter_action_gap_sum_of_squares_ms Float64,
+  max_idle_gap_ms Float64,
+  long_idle_gap_count Int64,
+  quick_back_count Int64,
+  page_visit_count Int64,
+  visited_urls Array(String),
+  login_path_visit_count Int64,
+  signup_path_visit_count Int64,
+  checkout_path_visit_count Int64,
+  cart_path_visit_count Int64,
+  billing_path_visit_count Int64,
+  settings_path_visit_count Int64,
+  account_path_visit_count Int64,
+  error_path_visit_count Int64,
+  not_found_path_visit_count Int64,
+  admin_path_visit_count Int64,
+  dashboard_path_visit_count Int64,
+  onboarding_path_visit_count Int64,
+  cancel_path_visit_count Int64,
+  refund_path_visit_count Int64,
+  console_error_count Int64,
+  console_error_after_click_count Int64,
+  console_warn_count Int64,
+  network_request_count Int64,
+  network_failed_request_count Int64,
+  network_4xx_count Int64,
+  network_5xx_count Int64,
+  network_request_duration_sum Float64,
+  network_request_duration_sum_of_squares Float64,
+  network_request_duration_count Int64,
+  mutation_count Int64,
+  viewport_resize_count Int64,
+  touch_event_count Int64,
+  max_scroll_y Float64,
+  click_target_ids Array(Int64),
+  form_field_ids Array(Int64),
+  text_selection_count Int64,
+  selection_copy_count Int64,
+  is_deleted UInt8
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_session_replay_features\'';
+CREATE TABLE posthog.kafka_tophog (
+  timestamp DateTime64(6, 'UTC'),
+  metric LowCardinality(String),
+  type LowCardinality(String),
+  key Map(LowCardinality(String), String),
+  value Float64,
+  count UInt64,
+  pipeline LowCardinality(String),
+  lane LowCardinality(String),
+  labels Map(LowCardinality(String), String)
+) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_tophog\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_tophog\'';
+CREATE TABLE posthog.kafka_tophog_ws (
+  timestamp DateTime64(6, 'UTC'),
+  metric LowCardinality(String),
+  type LowCardinality(String),
+  key Map(LowCardinality(String), String),
+  value Float64,
+  count UInt64,
+  pipeline LowCardinality(String),
+  lane LowCardinality(String),
+  labels Map(LowCardinality(String), String)
+) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_tophog_ws\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_tophog\'';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
   trace_id String,
@@ -451,6 +831,15 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   dropped_links_count Int32,
   status_code Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_traces', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-traces-avro\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_traces\'';
+CREATE TABLE posthog.kafka_usage_report_events_preagg (
+  uuid UUID,
+  event String,
+  properties String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_usage_report_events_preagg\'', kafka_num_consumers = 1, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_events_json\'';
 CREATE TABLE posthog.llma_metrics_daily (
   date Date,
   team_id UInt64,
@@ -2754,6 +3143,69 @@ CREATE TABLE posthog.web_vitals_paths_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_vitals_paths_preaggregated', sipHash64(job_id));
+CREATE TABLE posthog.writable_app_metrics (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  plugin_config_id Int64,
+  category LowCardinality(String),
+  job_id String,
+  successes SimpleAggregateFunction(sum, Int64),
+  successes_on_retry SimpleAggregateFunction(sum, Int64),
+  failures SimpleAggregateFunction(sum, Int64),
+  error_uuid UUID,
+  error_type String,
+  error_details String CODEC(ZSTD(3)),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics', rand());
+CREATE TABLE posthog.writable_app_metrics2 (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind LowCardinality(String),
+  metric_name LowCardinality(String),
+  count SimpleAggregateFunction(sum, Int64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+CREATE TABLE posthog.writable_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6) DEFAULT now64()
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohort_membership');
+CREATE TABLE posthog.writable_distinct_id_usage (
+  team_id Int64,
+  distinct_id String,
+  minute DateTime,
+  event_count UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_distinct_id_usage', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_duplicate_events (
+  team_id Int64,
+  distinct_id String,
+  event String,
+  source_uuid UUID,
+  duplicate_uuid UUID,
+  similarity_score Float64,
+  dedup_type LowCardinality(String),
+  is_confirmed UInt8,
+  reason Nullable(String),
+  version String,
+  different_property_count UInt32,
+  properties_similarity Float64,
+  source_message String,
+  duplicate_message String,
+  distinct_fields Array(Tuple(field_name String, original_value String, new_value String)),
+  inserted_at DateTime64(3, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'duplicate_events');
 CREATE TABLE posthog.writable_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -2771,6 +3223,16 @@ CREATE TABLE posthog.writable_error_tracking_fingerprint_issue_state (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_fingerprint_issue_state');
+CREATE TABLE posthog.writable_error_tracking_issue_fingerprint_overrides (
+  team_id Int64,
+  fingerprint String,
+  issue_id UUID,
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'error_tracking_issue_fingerprint_overrides');
 CREATE TABLE posthog.writable_events (
   uuid UUID,
   event String,
@@ -2809,6 +3271,26 @@ CREATE TABLE posthog.writable_events (
   _offset UInt64,
   consumer_breadcrumbs Array(String)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_events_dead_letter_queue (
+  id UUID,
+  event_uuid UUID,
+  event String,
+  properties String,
+  distinct_id String,
+  team_id Int64,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  ip String,
+  site_url String,
+  now DateTime64(6, 'UTC'),
+  raw_payload String,
+  error_timestamp DateTime64(6, 'UTC'),
+  error_location String,
+  error String,
+  tags Array(String),
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'events_dead_letter_queue');
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
@@ -2867,6 +3349,62 @@ CREATE TABLE posthog.writable_events_recent (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_flag_evaluations (
+  uuid UUID,
+  event LowCardinality(String),
+  properties String,
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_properties String,
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_flag_evaluations', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_groups (
+  group_type_index UInt8,
+  group_key String,
+  created_at DateTime64(3),
+  team_id Int64,
+  group_properties String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'groups');
+CREATE TABLE posthog.writable_heatmaps (
+  session_id String,
+  team_id Int64,
+  distinct_id String,
+  timestamp DateTime64(6, 'UTC'),
+  x Int16,
+  y Int16,
+  scale_factor Int16,
+  viewport_width Int16,
+  viewport_height Int16,
+  pointer_target_fixed Bool,
+  current_url String,
+  type LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))));
+CREATE TABLE posthog.writable_ingestion_warnings (
+  team_id Int64,
+  source LowCardinality(String),
+  type String,
+  details String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_ingestion_warnings', rand());
 CREATE TABLE posthog.writable_log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -2878,6 +3416,83 @@ CREATE TABLE posthog.writable_log_entries (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_log_entries', rand());
+CREATE TABLE posthog.writable_person (
+  id UUID,
+  created_at DateTime64(3),
+  team_id Int64,
+  properties String,
+  is_identified Int8,
+  is_deleted Int8,
+  version UInt64,
+  last_seen_at Nullable(DateTime64(3)),
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person');
+CREATE TABLE posthog.writable_person_distinct_id2 (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id2');
+CREATE TABLE posthog.writable_person_distinct_id_overrides (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'person_distinct_id_overrides');
+CREATE TABLE posthog.writable_plugin_log_entries (
+  id UUID,
+  team_id Int64,
+  plugin_id Int64,
+  plugin_config_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  source String,
+  type String,
+  message String,
+  instance_id UUID,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'plugin_log_entries');
+CREATE TABLE posthog.writable_posthog_document_embeddings (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  model_name LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'partitioned_sharded_posthog_document_embeddings', cityHash64(document_id));
+CREATE TABLE posthog.writable_posthog_document_embeddings_buffer (
+  team_id Int64,
+  product LowCardinality(String),
+  document_type LowCardinality(String),
+  model_name LowCardinality(String),
+  rendering LowCardinality(String),
+  document_id String,
+  timestamp DateTime64(3, 'UTC'),
+  inserted_at DateTime64(3, 'UTC'),
+  content String DEFAULT '',
+  metadata String DEFAULT '{}',
+  embedding Array(Float64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_buffer', cityHash64(document_id));
 CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_large_3072 (
   team_id Int64,
   product LowCardinality(String),
@@ -2908,6 +3523,28 @@ CREATE TABLE posthog.writable_posthog_document_embeddings_text_embedding_3_small
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.writable_precalculated_events (
+  team_id Int64,
+  date Date,
+  distinct_id String,
+  person_id UUID,
+  condition String,
+  uuid UUID,
+  source String,
+  _timestamp DateTime64(6),
+  _partition UInt64,
+  _offset UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_precalculated_events', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_precalculated_person_properties (
+  team_id Int64,
+  distinct_id String,
+  person_id UUID,
+  condition String,
+  matches Bool,
+  source String,
+  _timestamp DateTime64(6),
+  _offset UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_precalculated_person_properties', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_raw_sessions (
   team_id Int64,
   session_id_v7 UInt128,
@@ -3055,6 +3692,76 @@ CREATE TABLE posthog.writable_session_replay_events (
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_session_replay_features (
+  session_id String,
+  team_id Int64,
+  distinct_id String,
+  min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+  max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+  event_count SimpleAggregateFunction(sum, Int64),
+  mouse_position_count SimpleAggregateFunction(sum, Int64),
+  mouse_sum_x SimpleAggregateFunction(sum, Float64),
+  mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
+  mouse_sum_y SimpleAggregateFunction(sum, Float64),
+  mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
+  mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
+  mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
+  mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
+  mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
+  mouse_velocity_count SimpleAggregateFunction(sum, Int64),
+  scroll_event_count SimpleAggregateFunction(sum, Int64),
+  total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
+  scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
+  rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
+  scroll_to_top_count SimpleAggregateFunction(sum, Int64),
+  click_count SimpleAggregateFunction(sum, Int64),
+  keypress_count SimpleAggregateFunction(sum, Int64),
+  mouse_activity_count SimpleAggregateFunction(sum, Int64),
+  rage_click_count SimpleAggregateFunction(sum, Int64),
+  dead_click_count SimpleAggregateFunction(sum, Int64),
+  backspace_count SimpleAggregateFunction(sum, Int64),
+  inter_action_gap_count SimpleAggregateFunction(sum, Int64),
+  inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
+  inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
+  max_idle_gap_ms SimpleAggregateFunction(max, Float64),
+  long_idle_gap_count SimpleAggregateFunction(sum, Int64),
+  quick_back_count SimpleAggregateFunction(sum, Int64),
+  page_visit_count SimpleAggregateFunction(sum, Int64),
+  unique_url_count AggregateFunction(uniqCombined(12), String),
+  login_path_visit_count SimpleAggregateFunction(sum, Int64),
+  signup_path_visit_count SimpleAggregateFunction(sum, Int64),
+  checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
+  cart_path_visit_count SimpleAggregateFunction(sum, Int64),
+  billing_path_visit_count SimpleAggregateFunction(sum, Int64),
+  settings_path_visit_count SimpleAggregateFunction(sum, Int64),
+  account_path_visit_count SimpleAggregateFunction(sum, Int64),
+  error_path_visit_count SimpleAggregateFunction(sum, Int64),
+  not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
+  admin_path_visit_count SimpleAggregateFunction(sum, Int64),
+  dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
+  onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
+  cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
+  refund_path_visit_count SimpleAggregateFunction(sum, Int64),
+  console_error_count SimpleAggregateFunction(sum, Int64),
+  console_error_after_click_count SimpleAggregateFunction(sum, Int64),
+  console_warn_count SimpleAggregateFunction(sum, Int64),
+  network_request_count SimpleAggregateFunction(sum, Int64),
+  network_failed_request_count SimpleAggregateFunction(sum, Int64),
+  network_4xx_count SimpleAggregateFunction(sum, Int64),
+  network_5xx_count SimpleAggregateFunction(sum, Int64),
+  network_request_duration_sum SimpleAggregateFunction(sum, Float64),
+  network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
+  network_request_duration_count SimpleAggregateFunction(sum, Int64),
+  mutation_count SimpleAggregateFunction(sum, Int64),
+  viewport_resize_count SimpleAggregateFunction(sum, Int64),
+  touch_event_count SimpleAggregateFunction(sum, Int64),
+  max_scroll_y SimpleAggregateFunction(max, Float64),
+  unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
+  unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
+  text_selection_count SimpleAggregateFunction(sum, Int64),
+  selection_copy_count SimpleAggregateFunction(sum, Int64),
+  is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+) ENGINE = Distributed('aux', 'posthog', 'sharded_session_replay_features', sipHash64(session_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
   team_id Int64,
@@ -3090,6 +3797,120 @@ CREATE TABLE posthog.writable_sessions (
   pageview_count SimpleAggregateFunction(sum, Int64),
   autocapture_count SimpleAggregateFunction(sum, Int64)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_sessions', sipHash64(session_id));
+CREATE TABLE posthog.writable_sharded_query_log_archive (
+  hostname LowCardinality(String),
+  user LowCardinality(String),
+  query_id String,
+  initial_query_id String,
+  is_initial_query UInt8,
+  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
+  event_date Date,
+  event_time DateTime,
+  event_time_microseconds DateTime64(6),
+  query_start_time DateTime,
+  query_start_time_microseconds DateTime64(6),
+  query_duration_ms UInt64,
+  read_rows UInt64,
+  read_bytes UInt64,
+  written_rows UInt64,
+  written_bytes UInt64,
+  result_rows UInt64,
+  result_bytes UInt64,
+  memory_usage UInt64,
+  peak_threads_usage UInt64,
+  current_database LowCardinality(String),
+  query String,
+  formatted_query String,
+  normalized_query_hash UInt64,
+  query_kind LowCardinality(String),
+  exception_code Int32,
+  exception_name String ALIAS errorCodeToName(exception_code),
+  exception String,
+  stack_trace String,
+  ProfileEvents_RealTimeMicroseconds Int64,
+  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
+  ProfileEvents_S3Clients Int64,
+  ProfileEvents_S3DeleteObjects Int64,
+  ProfileEvents_S3CopyObject Int64,
+  ProfileEvents_S3ListObjects Int64,
+  ProfileEvents_S3HeadObject Int64,
+  ProfileEvents_S3GetObjectAttributes Int64,
+  ProfileEvents_S3CreateMultipartUpload Int64,
+  ProfileEvents_S3UploadPartCopy Int64,
+  ProfileEvents_S3UploadPart Int64,
+  ProfileEvents_S3AbortMultipartUpload Int64,
+  ProfileEvents_S3CompleteMultipartUpload Int64,
+  ProfileEvents_S3PutObject Int64,
+  ProfileEvents_S3GetObject Int64,
+  ProfileEvents_ReadBufferFromS3Bytes Int64,
+  ProfileEvents_WriteBufferFromS3Bytes Int64,
+  ProfileEvents Map(String, UInt64),
+  lc_workflow LowCardinality(String),
+  lc_kind LowCardinality(String),
+  lc_id String,
+  lc_route_id String,
+  lc_access_method LowCardinality(String),
+  lc_api_key_label String,
+  lc_api_key_mask String,
+  lc_query_type LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_chargeable Bool,
+  lc_name String,
+  lc_request_name String,
+  lc_client_query_id String,
+  lc_org_id String,
+  team_id Int64,
+  lc_user_id Int64,
+  lc_is_impersonated Bool,
+  lc_session_id String,
+  lc_dashboard_id Int64,
+  lc_insight_id Int64,
+  lc_cohort_id Int64,
+  lc_batch_export_id String,
+  lc_experiment_id Int64,
+  lc_experiment_feature_flag_key String,
+  lc_alert_config_id String,
+  lc_feature LowCardinality(String),
+  lc_table_id String,
+  lc_warehouse_query Bool,
+  lc_person_on_events_mode LowCardinality(String),
+  lc_service_name String,
+  lc_workload LowCardinality(String),
+  lc_query__kind LowCardinality(String),
+  lc_query__query String,
+  lc_query String,
+  lc_temporal__workflow_namespace String,
+  lc_temporal__workflow_type String,
+  lc_temporal__workflow_id String,
+  lc_temporal__workflow_run_id String,
+  lc_temporal__activity_type String,
+  lc_temporal__activity_id String,
+  lc_temporal__attempt Int64,
+  lc_dagster__job_name String,
+  lc_dagster__run_id String,
+  lc_dagster__owner String,
+  lc_modifiers String
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_query_log_archive', cityHash64(query_id));
+CREATE TABLE posthog.writable_tophog (
+  timestamp DateTime64(6, 'UTC'),
+  metric LowCardinality(String),
+  type LowCardinality(String) DEFAULT 'sum',
+  key Map(LowCardinality(String), String),
+  value Float64,
+  count UInt64 DEFAULT 0,
+  pipeline LowCardinality(String),
+  lane LowCardinality(String),
+  labels Map(LowCardinality(String), String)
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_tophog', cityHash64(toString(key)));
+CREATE TABLE posthog.writable_usage_report_events_preagg (
+  date Date,
+  team_id Int64,
+  person_mode LowCardinality(String),
+  lib LowCardinality(String),
+  event String,
+  distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
+  event_count AggregateFunction(sum, UInt64)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_usage_report_events_preagg', sipHash64(date));
 CREATE TABLE posthog.writeable_performance_events (
   uuid UUID,
   session_id String,
@@ -3142,6 +3963,81 @@ CREATE TABLE posthog.writeable_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
+CREATE MATERIALIZED VIEW posthog.app_metrics2_mv TO posthog.writable_app_metrics2 (team_id Int64, timestamp DateTime64(6, 'UTC'), app_source LowCardinality(String), app_source_id String, instance_id String, metric_kind String, metric_name String, count Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  timestamp,
+  app_source,
+  app_source_id,
+  instance_id,
+  metric_kind,
+  metric_name,
+  count,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_app_metrics2;
+CREATE MATERIALIZED VIEW posthog.app_metrics2_ws_mv TO posthog.writable_app_metrics2 (team_id Int64, timestamp DateTime64(6, 'UTC'), app_source LowCardinality(String), app_source_id String, instance_id String, metric_kind String, metric_name String, count Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  timestamp,
+  app_source,
+  app_source_id,
+  instance_id,
+  metric_kind,
+  metric_name,
+  count,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_app_metrics2_ws;
+CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics (team_id Int64, timestamp DateTime64(6, 'UTC'), plugin_config_id Int64, category LowCardinality(String), job_id String, successes Int64, successes_on_retry Int64, failures Int64, error_uuid UUID, error_type String, error_details String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  timestamp,
+  plugin_config_id,
+  category,
+  job_id,
+  successes,
+  successes_on_retry,
+  failures,
+  error_uuid,
+  error_type,
+  error_details,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_app_metrics;
+CREATE MATERIALIZED VIEW posthog.cohort_membership_mv TO posthog.writable_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status String, last_updated DateTime64(6)) AS SELECT
+  team_id,
+  cohort_id,
+  person_id,
+  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
+  last_updated
+FROM posthog.kafka_cohort_membership;
+CREATE MATERIALIZED VIEW posthog.distinct_id_usage_mv TO posthog.writable_distinct_id_usage (team_id Int64, distinct_id String, minute DateTime('UTC'), event_count UInt8) AS SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count
+FROM posthog.kafka_distinct_id_usage;
+CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplicate_events (team_id Int64, distinct_id String, event String, source_uuid UUID, duplicate_uuid UUID, similarity_score Float64, dedup_type LowCardinality(String), is_confirmed UInt8, reason Nullable(String), version String, different_property_count UInt32, properties_similarity Float64, source_message String, duplicate_message String, distinct_fields Array(Tuple(field_name String, original_value String, new_value String)), inserted_at DateTime64(3, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  distinct_id,
+  event,
+  source_uuid,
+  duplicate_uuid,
+  similarity_score,
+  dedup_type,
+  is_confirmed,
+  reason,
+  version,
+  different_property_count,
+  properties_similarity,
+  source_message,
+  duplicate_message,
+  JSONExtract(
+    distinct_fields,
+    'Array(Tuple(field_name String, original_value String, new_value String))'
+  ) AS distinct_fields,
+  inserted_at,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_duplicate_events;
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -3159,6 +4055,37 @@ CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO po
   _offset,
   _partition
 FROM posthog.kafka_error_tracking_fingerprint_issue_state;
+CREATE MATERIALIZED VIEW posthog.error_tracking_issue_fingerprint_overrides_mv TO posthog.writable_error_tracking_issue_fingerprint_overrides (team_id Int64, fingerprint String, issue_id UUID, is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  fingerprint,
+  issue_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_fingerprint_overrides
+WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.events_dead_letter_queue_mv TO posthog.writable_events_dead_letter_queue (id UUID, event_uuid UUID, event String, properties String, distinct_id String, team_id Int64, elements_chain String, created_at DateTime64(6, 'UTC'), ip String, site_url String, now DateTime64(6, 'UTC'), raw_payload String, error_timestamp DateTime64(6, 'UTC'), error_location String, error String, tags Array(String), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  id,
+  event_uuid,
+  event,
+  properties,
+  distinct_id,
+  team_id,
+  elements_chain,
+  created_at,
+  ip,
+  site_url,
+  now,
+  raw_payload,
+  error_timestamp,
+  error_location,
+  error,
+  tags,
+  _timestamp,
+  _offset
+FROM posthog.kafka_events_dead_letter_queue;
 CREATE MATERIALIZED VIEW posthog.events_json_mv TO posthog.writable_events (uuid UUID, event String, properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, dmat_string_0 Nullable(String), dmat_string_1 Nullable(String), dmat_string_2 Nullable(String), dmat_string_3 Nullable(String), dmat_string_4 Nullable(String), dmat_string_5 Nullable(String), dmat_string_6 Nullable(String), dmat_string_7 Nullable(String), dmat_string_8 Nullable(String), dmat_string_9 Nullable(String), _timestamp Nullable(DateTime), _offset UInt64, consumer_breadcrumbs Array(String)) AS SELECT
   uuid,
   event,
@@ -3203,6 +4130,46 @@ CREATE MATERIALIZED VIEW posthog.events_json_mv TO posthog.writable_events (uuid
     )
   ) AS consumer_breadcrumbs
 FROM posthog.kafka_events_json;
+CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties JSON, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties JSON, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, _timestamp Nullable(DateTime), _offset UInt64, consumer_breadcrumbs Array(String)) AS SELECT
+  uuid,
+  event,
+  ifNull(
+    accurateCastOrNull(properties, 'JSON'),
+    CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')
+  ) AS properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  elements_chain,
+  created_at,
+  person_id,
+  person_created_at,
+  ifNull(
+    accurateCastOrNull(person_properties, 'JSON'),
+    CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')
+  ) AS person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  group0_created_at,
+  group1_created_at,
+  group2_created_at,
+  group3_created_at,
+  group4_created_at,
+  person_mode,
+  historical_migration,
+  _timestamp,
+  _offset,
+  arrayMap(
+    i -> (_headers.value[i]),
+    arrayFilter(
+      i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+      arrayEnumerate(_headers.name)
+    )
+  ) AS consumer_breadcrumbs
+FROM posthog.kafka_events_json_native_json;
 CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_events_recent (uuid UUID, event String, properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_created_at DateTime64(3), person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), _timestamp DateTime, _offset UInt64) AS SELECT
   uuid,
   event,
@@ -3229,6 +4196,52 @@ CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_event
   _timestamp,
   _offset
 FROM posthog.sharded_events;
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  uuid,
+  event,
+  properties,
+  timestamp,
+  team_id,
+  distinct_id,
+  created_at,
+  person_id,
+  person_properties,
+  group0_properties,
+  group1_properties,
+  group2_properties,
+  group3_properties,
+  group4_properties,
+  if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_flag_evaluations;
+CREATE MATERIALIZED VIEW posthog.groups_mv TO posthog.writable_groups (group_type_index UInt8, group_key String, created_at DateTime64(3), team_id Int64, group_properties String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  group_type_index,
+  group_key,
+  created_at,
+  team_id,
+  group_properties,
+  _timestamp,
+  _offset
+FROM posthog.kafka_groups;
+CREATE MATERIALIZED VIEW posthog.heatmaps_mv TO posthog.writable_heatmaps (session_id String, team_id Int64, distinct_id String, timestamp DateTime64(6, 'UTC'), x Int16, y Int16, scale_factor Int16, viewport_width Int16, viewport_height Int16, pointer_target_fixed Bool, current_url String, type LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  session_id,
+  team_id,
+  distinct_id,
+  timestamp,
+  x,
+  y,
+  scale_factor,
+  viewport_width,
+  viewport_height,
+  pointer_target_fixed,
+  current_url,
+  type,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_heatmaps;
 CREATE MATERIALIZED VIEW posthog.hog_invocation_results_mv TO posthog.hog_invocation_results_data (team_id Int64, function_kind LowCardinality(String), function_id String, invocation_id String, parent_run_id String, status LowCardinality(String), attempts UInt8, is_retry UInt8, scheduled_at DateTime64(6, 'UTC'), first_scheduled_at DateTime64(6, 'UTC'), started_at Nullable(DateTime64(6, 'UTC')), finished_at Nullable(DateTime64(6, 'UTC')), duration_ms Nullable(UInt32), error_kind LowCardinality(String), error_message String, event_uuid String, distinct_id String, person_id String, invocation_globals String, version UInt64, is_deleted UInt8, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   function_kind,
@@ -3259,6 +4272,16 @@ CREATE MATERIALIZED VIEW posthog.hog_invocation_results_mv TO posthog.hog_invoca
   _offset,
   _partition
 FROM posthog.kafka_hog_invocation_results;
+CREATE MATERIALIZED VIEW posthog.ingestion_warnings_mv TO posthog.writable_ingestion_warnings (team_id Int64, source LowCardinality(String), type String, details String, timestamp DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  source,
+  type,
+  details,
+  timestamp,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_ingestion_warnings;
 CREATE MATERIALIZED VIEW posthog.ingestion_warnings_v2_mv TO posthog.ingestion_warnings_v2 (team_id Int64, source LowCardinality(String), type String, details String, timestamp DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   source,
@@ -3348,6 +4371,30 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_span
   toInt64OrDefault(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')], toInt64(0)) AS _bytes_uncompressed,
   toInt64OrDefault(_headers.value[indexOf(_headers.name, 'bytes_compressed')], toInt64(0)) AS _bytes_compressed
 FROM posthog.kafka_trace_spans_avro;
+CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM posthog.kafka_log_entries_v3
+WHERE toDate(timestamp) <= today();
+CREATE MATERIALIZED VIEW posthog.log_entries_ws_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM posthog.kafka_log_entries_ws
+WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.logs32_to_log_attributes TO posthog.log_attributes (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -3590,6 +4637,16 @@ CREATE MATERIALIZED VIEW posthog.performance_events_mv TO posthog.writeable_perf
   _offset,
   _partition
 FROM posthog.kafka_performance_events;
+CREATE MATERIALIZED VIEW posthog.person_distinct_id2_mv TO posthog.writable_person_distinct_id2 (team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_person_distinct_id2;
 CREATE MATERIALIZED VIEW posthog.person_distinct_id_mv TO posthog.person_distinct_id (distinct_id String, person_id UUID, team_id Int64, _sign Int16, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   distinct_id,
   person_id,
@@ -3598,8 +4655,60 @@ CREATE MATERIALIZED VIEW posthog.person_distinct_id_mv TO posthog.person_distinc
   _timestamp,
   _offset
 FROM posthog.kafka_person_distinct_id;
+CREATE MATERIALIZED VIEW posthog.person_distinct_id_overrides_mv TO posthog.writable_person_distinct_id_overrides (team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_person_distinct_id_overrides
+WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.person_mv TO posthog.writable_person (id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, is_deleted Int8, version UInt64, last_seen_at Nullable(DateTime64(3)), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  id,
+  created_at,
+  team_id,
+  properties,
+  is_identified,
+  is_deleted,
+  version,
+  last_seen_at,
+  _timestamp,
+  _offset
+FROM posthog.kafka_person;
 CREATE MATERIALIZED VIEW posthog.person_overrides_mv TO posthog.person_overrides (team_id Int32, old_person_id UUID, override_person_id UUID, merged_at DateTime64(6, 'UTC'), oldest_event DateTime64(6, 'UTC'), version Int32) AS SELECT team_id, old_person_id, override_person_id, merged_at, oldest_event, version
 FROM posthog.kafka_person_overrides;
+CREATE MATERIALIZED VIEW posthog.plugin_log_entries_mv TO posthog.writable_plugin_log_entries (id UUID, team_id Int64, plugin_id Int64, plugin_config_id Int64, timestamp DateTime64(6, 'UTC'), source String, type String, message String, instance_id UUID, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  id,
+  team_id,
+  plugin_id,
+  plugin_config_id,
+  timestamp,
+  source,
+  type,
+  message,
+  instance_id,
+  _timestamp,
+  _offset
+FROM posthog.kafka_plugin_log_entries;
+CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_kafka_to_buffer_mv TO posthog.writable_posthog_document_embeddings_buffer (team_id Int64, product LowCardinality(String), document_type LowCardinality(String), model_name LowCardinality(String), rendering LowCardinality(String), document_id String, timestamp DateTime64(3, 'UTC'), inserted_at Nullable(DateTime), content String, metadata String, embedding Array(Float64), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  product,
+  document_type,
+  model_name,
+  rendering,
+  document_id,
+  timestamp,
+  _timestamp AS inserted_at,
+  coalesce(content, '') AS content,
+  coalesce(metadata, '{}') AS metadata,
+  embedding,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_posthog_document_embeddings;
 CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_large_3072_mv TO posthog.writable_posthog_document_embeddings_text_embedding_3_large_3072 (team_id Int64, product LowCardinality(String), document_type LowCardinality(String), rendering LowCardinality(String), document_id String, timestamp DateTime64(3, 'UTC'), inserted_at DateTime64(3, 'UTC'), content String, metadata String, embedding Array(Float64), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   product,
@@ -3632,6 +4741,38 @@ CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_text_embedding_3_sm
   _partition
 FROM posthog.sharded_posthog_document_embeddings_buffer
 WHERE model_name = 'text-embedding-3-small-1536';
+CREATE MATERIALIZED VIEW posthog.precalculated_events_mv TO posthog.writable_precalculated_events (team_id Int64, date Nullable(Date), distinct_id String, person_id UUID, condition String, uuid UUID, source String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  ifNull(date, toDate(_timestamp)) AS date,
+  distinct_id,
+  person_id,
+  condition,
+  uuid,
+  source,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_precalculated_events;
+CREATE MATERIALIZED VIEW posthog.precalculated_person_properties_mv TO posthog.writable_precalculated_person_properties (team_id Int64, distinct_id String, person_id UUID, condition String, matches Bool, source String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  condition,
+  matches,
+  source,
+  _timestamp,
+  _offset
+FROM posthog.kafka_precalculated_person_properties;
+CREATE MATERIALIZED VIEW posthog.precalculated_person_properties_ws_mv TO posthog.writable_precalculated_person_properties (team_id Int64, distinct_id String, person_id UUID, condition String, matches Bool, source String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
+  team_id,
+  distinct_id,
+  person_id,
+  condition,
+  matches,
+  source,
+  _timestamp,
+  _offset
+FROM posthog.kafka_precalculated_person_properties_ws;
 CREATE MATERIALIZED VIEW posthog.property_values_mv TO posthog.property_values (team_id Int64, property_type LowCardinality(String), property_key String, property_value String, property_count UInt64, last_seen DateTime) AS SELECT
   team_id,
   property_type,
@@ -3713,6 +4854,111 @@ WHERE
   bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7
 GROUP BY
   team_id, toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), cityHash64(session_id_v7), session_id_v7;
+CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
+  session_id,
+  team_id,
+  any(distinct_id) AS distinct_id,
+  min(first_timestamp) AS min_first_timestamp,
+  max(last_timestamp) AS max_last_timestamp,
+  groupArray(if(block_url != '', first_timestamp, NULL)) AS block_first_timestamps,
+  groupArray(if(block_url != '', last_timestamp, NULL)) AS block_last_timestamps,
+  groupArray(block_url) AS block_urls,
+  argMinState(first_url, first_timestamp) AS first_url,
+  groupUniqArrayArray(urls) AS all_urls,
+  sum(click_count) AS click_count,
+  sum(keypress_count) AS keypress_count,
+  sum(mouse_activity_count) AS mouse_activity_count,
+  sum(active_milliseconds) AS active_milliseconds,
+  sum(console_log_count) AS console_log_count,
+  sum(console_warn_count) AS console_warn_count,
+  sum(console_error_count) AS console_error_count,
+  sum(size) AS size,
+  sum(message_count) AS message_count,
+  sum(event_count) AS event_count,
+  argMinState(snapshot_source, first_timestamp) AS snapshot_source,
+  argMinState(snapshot_library, first_timestamp) AS snapshot_library,
+  max(_timestamp) AS _timestamp,
+  max(retention_period_days) AS retention_period_days,
+  max(is_deleted) AS is_deleted,
+  groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
+  groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
+  max(ai_highlighted) AS ai_highlighted,
+  max(surfacing_score) AS surfacing_score
+FROM posthog.kafka_session_replay_events
+GROUP BY
+  session_id, team_id;
+CREATE MATERIALIZED VIEW posthog.session_replay_features_mv TO posthog.writable_session_replay_features (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), event_count Int64, mouse_position_count Int64, mouse_sum_x Float64, mouse_sum_x_squared Float64, mouse_sum_y Float64, mouse_sum_y_squared Float64, mouse_distance_traveled Float64, mouse_direction_change_count Int64, mouse_velocity_sum Float64, mouse_velocity_sum_of_squares Float64, mouse_velocity_count Int64, scroll_event_count Int64, total_scroll_magnitude Float64, scroll_direction_reversal_count Int64, rapid_scroll_reversal_count Int64, scroll_to_top_count Int64, click_count Int64, keypress_count Int64, mouse_activity_count Int64, rage_click_count Int64, dead_click_count Int64, backspace_count Int64, inter_action_gap_count Int64, inter_action_gap_sum_ms Float64, inter_action_gap_sum_of_squares_ms Float64, max_idle_gap_ms Float64, long_idle_gap_count Int64, quick_back_count Int64, page_visit_count Int64, unique_url_count AggregateFunction(uniqCombinedArray(12), Array(String)), login_path_visit_count Int64, signup_path_visit_count Int64, checkout_path_visit_count Int64, cart_path_visit_count Int64, billing_path_visit_count Int64, settings_path_visit_count Int64, account_path_visit_count Int64, error_path_visit_count Int64, not_found_path_visit_count Int64, admin_path_visit_count Int64, dashboard_path_visit_count Int64, onboarding_path_visit_count Int64, cancel_path_visit_count Int64, refund_path_visit_count Int64, console_error_count Int64, console_error_after_click_count Int64, console_warn_count Int64, network_request_count Int64, network_failed_request_count Int64, network_4xx_count Int64, network_5xx_count Int64, network_request_duration_sum Float64, network_request_duration_sum_of_squares Float64, network_request_duration_count Int64, mutation_count Int64, viewport_resize_count Int64, touch_event_count Int64, max_scroll_y Float64, unique_click_target_count AggregateFunction(uniqCombinedArray(12), Array(Int64)), unique_form_field_count AggregateFunction(uniqCombinedArray(12), Array(Int64)), text_selection_count Int64, selection_copy_count Int64, is_deleted UInt8) AS SELECT
+  session_id,
+  team_id,
+  any(distinct_id) AS distinct_id,
+  min(first_timestamp) AS min_first_timestamp,
+  max(last_timestamp) AS max_last_timestamp,
+  sum(event_count) AS event_count,
+  sum(mouse_position_count) AS mouse_position_count,
+  sum(mouse_sum_x) AS mouse_sum_x,
+  sum(mouse_sum_x_squared) AS mouse_sum_x_squared,
+  sum(mouse_sum_y) AS mouse_sum_y,
+  sum(mouse_sum_y_squared) AS mouse_sum_y_squared,
+  sum(mouse_distance_traveled) AS mouse_distance_traveled,
+  sum(mouse_direction_change_count) AS mouse_direction_change_count,
+  sum(mouse_velocity_sum) AS mouse_velocity_sum,
+  sum(mouse_velocity_sum_of_squares) AS mouse_velocity_sum_of_squares,
+  sum(mouse_velocity_count) AS mouse_velocity_count,
+  sum(scroll_event_count) AS scroll_event_count,
+  sum(total_scroll_magnitude) AS total_scroll_magnitude,
+  sum(scroll_direction_reversal_count) AS scroll_direction_reversal_count,
+  sum(rapid_scroll_reversal_count) AS rapid_scroll_reversal_count,
+  sum(scroll_to_top_count) AS scroll_to_top_count,
+  sum(click_count) AS click_count,
+  sum(keypress_count) AS keypress_count,
+  sum(mouse_activity_count) AS mouse_activity_count,
+  sum(rage_click_count) AS rage_click_count,
+  sum(dead_click_count) AS dead_click_count,
+  sum(backspace_count) AS backspace_count,
+  sum(inter_action_gap_count) AS inter_action_gap_count,
+  sum(inter_action_gap_sum_ms) AS inter_action_gap_sum_ms,
+  sum(inter_action_gap_sum_of_squares_ms) AS inter_action_gap_sum_of_squares_ms,
+  max(max_idle_gap_ms) AS max_idle_gap_ms,
+  sum(long_idle_gap_count) AS long_idle_gap_count,
+  sum(quick_back_count) AS quick_back_count,
+  sum(page_visit_count) AS page_visit_count,
+  uniqCombinedArrayState(12)(visited_urls) AS unique_url_count,
+  sum(login_path_visit_count) AS login_path_visit_count,
+  sum(signup_path_visit_count) AS signup_path_visit_count,
+  sum(checkout_path_visit_count) AS checkout_path_visit_count,
+  sum(cart_path_visit_count) AS cart_path_visit_count,
+  sum(billing_path_visit_count) AS billing_path_visit_count,
+  sum(settings_path_visit_count) AS settings_path_visit_count,
+  sum(account_path_visit_count) AS account_path_visit_count,
+  sum(error_path_visit_count) AS error_path_visit_count,
+  sum(not_found_path_visit_count) AS not_found_path_visit_count,
+  sum(admin_path_visit_count) AS admin_path_visit_count,
+  sum(dashboard_path_visit_count) AS dashboard_path_visit_count,
+  sum(onboarding_path_visit_count) AS onboarding_path_visit_count,
+  sum(cancel_path_visit_count) AS cancel_path_visit_count,
+  sum(refund_path_visit_count) AS refund_path_visit_count,
+  sum(console_error_count) AS console_error_count,
+  sum(console_error_after_click_count) AS console_error_after_click_count,
+  sum(console_warn_count) AS console_warn_count,
+  sum(network_request_count) AS network_request_count,
+  sum(network_failed_request_count) AS network_failed_request_count,
+  sum(network_4xx_count) AS network_4xx_count,
+  sum(network_5xx_count) AS network_5xx_count,
+  sum(network_request_duration_sum) AS network_request_duration_sum,
+  sum(network_request_duration_sum_of_squares) AS network_request_duration_sum_of_squares,
+  sum(network_request_duration_count) AS network_request_duration_count,
+  sum(mutation_count) AS mutation_count,
+  sum(viewport_resize_count) AS viewport_resize_count,
+  sum(touch_event_count) AS touch_event_count,
+  max(max_scroll_y) AS max_scroll_y,
+  uniqCombinedArrayState(12)(click_target_ids) AS unique_click_target_count,
+  uniqCombinedArrayState(12)(form_field_ids) AS unique_form_field_count,
+  sum(text_selection_count) AS text_selection_count,
+  sum(selection_copy_count) AS selection_copy_count,
+  max(is_deleted) AS is_deleted
+FROM posthog.kafka_session_replay_features
+GROUP BY
+  session_id, team_id;
 CREATE MATERIALIZED VIEW posthog.sessions_mv TO posthog.writable_sessions (session_id String, team_id Int64, distinct_id String, min_timestamp DateTime64(6, 'UTC'), max_timestamp DateTime64(6, 'UTC'), urls Array(String), entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')), exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')), initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), event_count_map Map(String, UInt64), pageview_count UInt64, autocapture_count UInt64) AS SELECT
   `$session_id` AS session_id,
   team_id,
@@ -3759,6 +5005,28 @@ AND
   (team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490))
 GROUP BY
   `$session_id`, team_id;
+CREATE MATERIALIZED VIEW posthog.tophog_mv TO posthog.writable_tophog (timestamp DateTime64(6, 'UTC'), metric LowCardinality(String), type LowCardinality(String), key Map(LowCardinality(String), String), value Float64, count UInt64, pipeline LowCardinality(String), lane LowCardinality(String), labels Map(LowCardinality(String), String)) AS SELECT
+  timestamp,
+  metric,
+  type,
+  key,
+  value,
+  count,
+  pipeline,
+  lane,
+  labels
+FROM posthog.kafka_tophog;
+CREATE MATERIALIZED VIEW posthog.tophog_ws_mv TO posthog.writable_tophog (timestamp DateTime64(6, 'UTC'), metric LowCardinality(String), type LowCardinality(String), key Map(LowCardinality(String), String), value Float64, count UInt64, pipeline LowCardinality(String), lane LowCardinality(String), labels Map(LowCardinality(String), String)) AS SELECT
+  timestamp,
+  metric,
+  type,
+  key,
+  value,
+  count,
+  pipeline,
+  lane,
+  labels
+FROM posthog.kafka_tophog_ws;
 CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   original_expiry_time_bucket,
@@ -3924,6 +5192,17 @@ CREATE MATERIALIZED VIEW posthog.trace_spans_to_kafka_metrics_mv TO posthog.trac
 FROM posthog.trace_spans
 GROUP BY
   _partition, _topic;
+CREATE MATERIALIZED VIEW posthog.usage_report_events_preagg_mv TO posthog.writable_usage_report_events_preagg (date Date, team_id Int64, person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), lib String, event String, distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)), event_count AggregateFunction(sum, UInt64)) AS SELECT
+  toDate(timestamp) AS date,
+  team_id,
+  person_mode,
+  JSONExtractString(properties, '$lib') AS lib,
+  event,
+  uniqExactState((cityHash64(distinct_id), cityHash64(toString(uuid)), cityHash64(event))) AS distinct_events_unique,
+  sumState(toUInt64(1)) AS event_count
+FROM posthog.kafka_usage_report_events_preagg
+GROUP BY
+  date, team_id, person_mode, lib, event;
 CREATE VIEW posthog.custom_metrics_backups AS WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
   [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
@@ -4892,6 +6171,100 @@ CREATE TABLE posthog.query_log_archive_buffer (
   log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Buffer('posthog', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000);
+CREATE TABLE posthog.query_log_archive_old (
+  hostname LowCardinality(String),
+  user LowCardinality(String),
+  query_id String,
+  initial_query_id String,
+  is_initial_query UInt8,
+  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
+  event_date Date,
+  event_time DateTime,
+  event_time_microseconds DateTime64(6),
+  query_start_time DateTime,
+  query_start_time_microseconds DateTime64(6),
+  query_duration_ms UInt64,
+  read_rows UInt64,
+  read_bytes UInt64,
+  written_rows UInt64,
+  written_bytes UInt64,
+  result_rows UInt64,
+  result_bytes UInt64,
+  memory_usage UInt64,
+  peak_threads_usage UInt64,
+  current_database LowCardinality(String),
+  query String,
+  formatted_query String,
+  normalized_query_hash UInt64,
+  query_kind LowCardinality(String),
+  exception_code Int32,
+  exception_name String ALIAS errorCodeToName(exception_code),
+  exception String,
+  stack_trace String,
+  ProfileEvents_RealTimeMicroseconds Int64,
+  ProfileEvents_OSCPUVirtualTimeMicroseconds Int64,
+  ProfileEvents_S3Clients Int64,
+  ProfileEvents_S3DeleteObjects Int64,
+  ProfileEvents_S3CopyObject Int64,
+  ProfileEvents_S3ListObjects Int64,
+  ProfileEvents_S3HeadObject Int64,
+  ProfileEvents_S3GetObjectAttributes Int64,
+  ProfileEvents_S3CreateMultipartUpload Int64,
+  ProfileEvents_S3UploadPartCopy Int64,
+  ProfileEvents_S3UploadPart Int64,
+  ProfileEvents_S3AbortMultipartUpload Int64,
+  ProfileEvents_S3CompleteMultipartUpload Int64,
+  ProfileEvents_S3PutObject Int64,
+  ProfileEvents_S3GetObject Int64,
+  ProfileEvents_ReadBufferFromS3Bytes Int64,
+  ProfileEvents_WriteBufferFromS3Bytes Int64,
+  ProfileEvents Map(String, UInt64),
+  lc_workflow LowCardinality(String),
+  lc_kind LowCardinality(String),
+  lc_id String,
+  lc_route_id String,
+  lc_access_method LowCardinality(String),
+  lc_api_key_label String,
+  lc_api_key_mask String,
+  lc_query_type LowCardinality(String),
+  lc_product LowCardinality(String),
+  lc_chargeable Bool,
+  lc_name String,
+  lc_request_name String,
+  lc_client_query_id String,
+  lc_org_id String,
+  team_id Int64,
+  lc_user_id Int64,
+  lc_is_impersonated Bool,
+  lc_session_id String,
+  lc_dashboard_id Int64,
+  lc_insight_id Int64,
+  lc_cohort_id Int64,
+  lc_batch_export_id String,
+  lc_experiment_id Int64,
+  lc_experiment_feature_flag_key String,
+  lc_alert_config_id String,
+  lc_feature LowCardinality(String),
+  lc_table_id String,
+  lc_warehouse_query Bool,
+  lc_person_on_events_mode LowCardinality(String),
+  lc_service_name String,
+  lc_workload LowCardinality(String),
+  lc_query__kind LowCardinality(String),
+  lc_query__query String,
+  lc_query String,
+  lc_temporal__workflow_namespace String,
+  lc_temporal__workflow_type String,
+  lc_temporal__workflow_id String,
+  lc_temporal__workflow_run_id String,
+  lc_temporal__activity_type String,
+  lc_temporal__activity_id String,
+  lc_temporal__attempt Int64,
+  lc_dagster__job_name String,
+  lc_dagster__run_id String,
+  lc_dagster__owner String,
+  lc_modifiers String
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_query_log_archive', cityHash64(query_id));
 CREATE TABLE posthog.raw_sessions (
   team_id Int64,
   session_id_v7 UInt128,

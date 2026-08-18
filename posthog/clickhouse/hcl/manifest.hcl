@@ -108,8 +108,13 @@ role "data" {
 # role's objects, because migration_tools routes every migration to NodeRole.ALL when DEBUG
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
+#
+# roles/all/local-single closes the gap the union cannot: the MSK ingest path (kafka_*
+# tables, their MVs, the writable_* proxies) targets NodeRole.INGESTION_* / AUX, which the
+# multinode stack runs no node for, and migration 0248 only drops it on cloud. Extracted
+# from the live node, like roles/logs/local.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/shared", "roles/data/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/shared", "roles/data/local", "roles/all/local-single"] }
 }
 
 # role "endpoints" {

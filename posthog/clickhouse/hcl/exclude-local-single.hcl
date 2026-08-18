@@ -1,20 +1,13 @@
 # Objects the convergence gate skips on the single-node dev ClickHouse (env local-single).
 # Same two consumers as exclude.hcl — `hclexp introspect -exclude` in dump-live.sh and
-# `hclexp diff -exclude` in check-live.sh — but only its *transient* class applies here.
+# `hclexp diff -exclude` in check-live.sh — but its cross-cluster proxy class is wrong
+# here: on a one-node stack every cluster resolves to this node, so events_main and
+# events_recent are real Distributed objects, and `events_batch_export_recent` reads from
+# events_recent, so dropping it makes the schema fail validation.
 #
-# exclude.hcl drops two further classes that are wrong for this node:
-#
-#   1. Cross-cluster proxies owned by another role (events_main, events_recent). On a
-#      one-node stack every cluster resolves to this node, so events_recent is a real
-#      Distributed object here — and `events_batch_export_recent` reads from it, so
-#      dropping it makes the schema fail validation.
-#   2. Out-of-band-managed objects (custom_metrics*, events_team_daily_stats). The
-#      custom_metrics_* suite IS created here: migration 0117 targets NodeRole.DATA,
-#      and DEBUG routes every migration to NodeRole.ALL.
-#
-# Its `*_staging` / `*_backfill` globs are also too broad for this node — they match
-# real objects (web_pre_aggregated_*_staging tables, *_batch_export_backfill views) —
-# so this file spells the transient patterns out rather than reusing them wholesale.
+# exclude.hcl's `*_staging` / `*_backfill` globs are also too broad for this node — they
+# match real objects (web_pre_aggregated_*_staging tables, *_batch_export_backfill views)
+# — so this file spells the transient patterns out rather than reusing them wholesale.
 
 exclude {
   # Secret Kafka broker/credential config; never modeled in the goldens.
@@ -34,5 +27,13 @@ exclude {
     # --- backups ---
     "*_backup",
     "*_backup_*",
+
+    # --- out-of-band managed, same call as the multinode gate ---
+    # Created out-of-band on cloud; what this node ends up with is an accident of DEBUG
+    # routing every migration to one node, not declared intent.
+    "custom_metrics*",
+    # Orphan: no migration or code creates it; roles/coshared/custom_metrics models it
+    # for the ops nodes, which do carry it.
+    "events_team_daily_stats",
   ]
 }
