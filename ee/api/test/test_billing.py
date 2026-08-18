@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -26,7 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.api.billing import BillingUsageRequestSerializer, BillingViewset
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
+from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
@@ -1144,6 +1144,12 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         for key, value in data.items():
             self.assertEqual(serializer.validated_data[key], value)
+
+    def test_usage_type_options_match_usage_type_literal(self):
+        self.assertEqual(
+            {option["value"] for option in USAGE_TYPE_OPTIONS},
+            set(get_args(UsageType)),
+        )
 
     @parameterized.expand(
         [

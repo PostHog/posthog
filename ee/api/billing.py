@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional, get_args
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from django.http import HttpResponse
@@ -26,7 +26,7 @@ from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_e
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
-from ee.billing.billing_types import UsageType
+from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -153,7 +153,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "JSON-encoded array of usage type identifiers to filter on. Valid values: "
-            + ", ".join(get_args(UsageType))
+            + ", ".join(USAGE_TYPE_VALUES)
             + '. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.'
         ),
     )
