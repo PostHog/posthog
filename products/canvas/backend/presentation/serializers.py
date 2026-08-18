@@ -1,15 +1,28 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
 from products.canvas.backend.contract import canvas_sdk_version, contract_limits
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
 _MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 * 4
+
+_CANVAS_URL_HELP_TEXT = (
+    "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — "
+    "share this when pointing a user at it; never construct a canvas URL."
+)
+
+
+def canvas_url(canvas: Canvas) -> str:
+    # The same shape the thread-message announcements use; the route deep-links
+    # into the desktop app and renders in the web app.
+    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
 class CanvasSerializer(serializers.ModelSerializer):
@@ -29,6 +42,7 @@ class CanvasSerializer(serializers.ModelSerializer):
     )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     class Meta:
         model = Canvas
@@ -46,11 +60,15 @@ class CanvasSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "url",
         ]
         read_only_fields = fields
 
     def get_pinned(self, canvas: Canvas) -> bool:
         return canvas.pinned_at is not None
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -114,6 +132,29 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     insights = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
     inlineQueries = serializers.BooleanField()
     captureEvents = serializers.ListField(child=serializers.CharField(max_length=200), max_length=100)
+    # Optional so projects published before the state store exist unchanged.
+    state = serializers.ListField(
+        child=serializers.ChoiceField(choices=CanvasState.SCOPES),
+        required=False,
+        default=list,
+        max_length=2,
+        help_text=(
+            "State scopes the canvas may use via ph.state: 'user' (private to each viewer) "
+            "and/or 'shared' (one value per canvas, team-visible)."
+        ),
+    )
+    # Optional so projects published before the action registry exist unchanged.
+    actions = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=32,
+        help_text=(
+            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', "
+            "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+        ),
+    )
+    agentRequests = serializers.BooleanField(required=False, default=False)
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -148,10 +189,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=dict,
-        help_text=(
-            "Exact-version dependencies, restricted to the platform-supported set (react, react-dom, "
-            "@posthog/quill, recharts, lucide-react, dayjs) at their pinned versions."
-        ),
+        help_text=("Exact-version dependencies, restricted to the platform-supported set at its pinned versions."),
     )
     canvasSdkVersion = serializers.CharField(
         required=False,
@@ -161,13 +199,21 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     capabilities = CanvasCapabilitiesSerializer(
         required=False,
         default=lambda: {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": [],
+                "actions": [],
+                "agentRequests": False,
+            },
             "network": {"origins": []},
         },
         help_text=(
             "Bounded capabilities frozen into the built artifact. Declare every insight short id the "
             "canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the "
-            "host enforces these at runtime and validation rejects undeclared `ph` calls."
+            "host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must "
+            "be exact HTTPS origins. Data fetched by canvas code can be sent to those origins."
         ),
     )
 
@@ -209,6 +255,10 @@ class CanvasSummarySerializer(serializers.Serializer):
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasVersionSerializer(serializers.Serializer):
@@ -532,9 +582,94 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     inline_queries_enabled = serializers.BooleanField(
         help_text="True when the draft enables inline queries and the current head does not."
     )
+    agent_requests_enabled = serializers.BooleanField(
+        help_text="True when the draft enables requests to the canvas's authoring agent and the current head does not."
+    )
     network_origins_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="Network origins the draft newly declares it may reach.",
+    )
+    state_scopes_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="State scopes (user, shared) the draft newly declares for ph.state.",
+    )
+    actions_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
+    )
+
+
+class CanvasActionDefinitionSerializer(serializers.Serializer):
+    """One registered action verb, as the host renders it before invoking."""
+
+    verb = serializers.CharField(help_text="The verb's registry name, e.g. 'annotations.create'.")
+    summary = serializers.CharField(help_text="One line naming what invoking the verb does.")
+    destructive = serializers.BooleanField(
+        help_text="True when the verb deletes or disables something; the host must confirm with the viewer first."
+    )
+    usage = serializers.CharField(
+        help_text="Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants."
+    )
+
+
+class CanvasActionsResponseSerializer(serializers.Serializer):
+    """The action registry: every verb a canvas may declare and invoke."""
+
+    actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+
+
+class CanvasActionInvokeSerializer(serializers.Serializer):
+    """Payload for invoking one action verb."""
+
+    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    payload = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Verb-specific arguments, validated against the verb's payload schema.",
+    )
+
+
+class CanvasActionResultSerializer(serializers.Serializer):
+    """Result of one action invocation."""
+
+    verb = serializers.CharField(help_text="The verb that executed.")
+    result = serializers.DictField(
+        help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
+    )
+
+
+class CanvasStateEntrySerializer(serializers.Serializer):
+    """One key of a canvas's runtime key-value state (the ph.state store)."""
+
+    scope = serializers.ChoiceField(
+        choices=CanvasState.SCOPES,
+        help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
+    )
+    key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
+    value = serializers.JSONField(help_text="The stored JSON value.")
+    updated_at = serializers.DateTimeField(help_text="When the entry was last written.")
+
+
+class CanvasStateResponseSerializer(serializers.Serializer):
+    """The canvas state readable by the caller."""
+
+    entries = CanvasStateEntrySerializer(
+        many=True,
+        help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
+    )
+
+
+class CanvasStateSetSerializer(serializers.Serializer):
+    """Payload for writing (or deleting) one key of a canvas's runtime state."""
+
+    scope = serializers.ChoiceField(
+        choices=CanvasState.SCOPES,
+        help_text="Scope to write into; the canvas must declare it in capabilities.posthog.state.",
+    )
+    key = serializers.CharField(max_length=200, help_text="Key to write, unique within its scope.")
+    value = serializers.JSONField(
+        allow_null=True,
+        help_text="JSON value to store (at most 64 KB serialized), or null to delete the key.",
     )
 
 
@@ -563,3 +698,79 @@ class CanvasPromoteSerializer(serializers.Serializer):
             "been published). A moved head is rejected with 409 version_conflict."
         ),
     )
+
+
+class CanvasReportErrorSerializer(serializers.Serializer):
+    """Payload for reporting a runtime error observed while rendering a canvas build."""
+
+    build_id = serializers.UUIDField(help_text="Id of the build that was rendering when the error occurred.")
+    error_type = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Error class name only, for example TypeError. Values that are not a plain class-name identifier "
+            "are recorded as 'unknown'. Full error messages and stack traces must stay client-side."
+        ),
+    )
+
+
+class CanvasErrorReportResultSerializer(serializers.Serializer):
+    """Outcome of filing a canvas error report."""
+
+    report_outcome = serializers.ChoiceField(
+        choices=["filed", "duplicate", "no_authoring_task", "skipped"],
+        help_text=(
+            "filed: a new report row was written. duplicate: this build and error type were already reported. "
+            "no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable."
+        ),
+    )
+
+
+class CanvasRequestFixSerializer(serializers.Serializer):
+    """Payload for asking the canvas's authoring agent to fix a failing build or runtime error."""
+
+    build_id = serializers.UUIDField(help_text="Id of the failing or erroring build the fix should address.")
+    error_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text=(
+            "Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its "
+            "diagnostics are read server-side."
+        ),
+    )
+
+
+class CanvasFixRequestResultSerializer(serializers.Serializer):
+    """Outcome of dispatching a canvas fix to the authoring agent."""
+
+    dispatch_outcome = serializers.ChoiceField(
+        choices=["signaled", "new_run", "already_queued"],
+        help_text=(
+            "signaled: the task's live run received the request. new_run: a fresh agent run was started. "
+            "already_queued: a fix run was already starting, so no new run was created."
+        ),
+    )
+    task_id = serializers.UUIDField(help_text="The authoring task the fix was routed to.")
+
+
+class CanvasAgentRequestSerializer(serializers.Serializer):
+    """A viewer-approved request for the canvas's authoring agent."""
+
+    prompt = serializers.CharField(
+        max_length=10_000,
+        trim_whitespace=False,
+        help_text="Exact change request the viewer reviewed and approved in the trusted host dialog.",
+    )
+
+
+class CanvasAgentRequestResultSerializer(serializers.Serializer):
+    """Outcome of routing a canvas change request."""
+
+    request_outcome = serializers.ChoiceField(
+        choices=["signaled", "new_run", "already_queued", "reported"],
+        help_text=(
+            "signaled: the live run received the request. new_run: a fresh run started. "
+            "already_queued: an identical run was already starting. reported: a non-creator's request was filed "
+            "in the task thread for the creator."
+        ),
+    )
+    task_id = serializers.UUIDField(help_text="Authoring task that received the request or report.")

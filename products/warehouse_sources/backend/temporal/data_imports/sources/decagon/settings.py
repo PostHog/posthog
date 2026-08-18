@@ -55,6 +55,11 @@ class DecagonEndpointConfig:
     # sync should be advertised for it.
     incremental_param: Optional[str] = None
     incremental_param_format: IncrementalParamFormat = "epoch_seconds"
+    # Whether the endpoint 400s on a request that omits incremental_param entirely (as
+    # opposed to treating it as an optional filter). A full refresh, or the first run of
+    # an incremental sync, has no window to send; when this is set, the walker falls back
+    # to the epoch so every such request still carries a bound.
+    incremental_param_required: bool = False
     # Param selecting which timestamp the bounds apply to (/conversation/export only).
     timestamp_filter_param: Optional[str] = None
     # Static query params always sent.
@@ -221,6 +226,9 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         partition_key="created_at",
         incremental_param="start",
         incremental_param_format="iso8601",
+        # Unlike the exports, this endpoint 400s ("At least one of start or end dates is
+        # required") on a bare request, so a full walk cannot omit the bound.
+        incremental_param_required=True,
         # Ordering is undocumented for this endpoint; desc is the safe declaration (see
         # the field comment).
         sort_mode="desc",

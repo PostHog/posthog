@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutFleetViewed } from '../../../inboxAnalytics'
+import type { ScoutChatType } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import {
     nextRunAt,
@@ -32,12 +33,7 @@ import {
     scoutCadenceLabel,
     scoutSubtitle,
 } from '../../../utils/scoutGroups'
-import {
-    prettifyScoutSkillName,
-    SCOUT_FLEET_OVERVIEW_PROMPT,
-    SCOUT_RECENT_SIGNALS_PROMPT,
-    ScoutRollup,
-} from '../../../utils/scoutRunsWindow'
+import { prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
@@ -140,22 +136,21 @@ export function ScoutsRosterActions(): JSX.Element {
  */
 function AskAboutScoutsMenu(): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
-    const prompts = [
-        { label: 'How is my scout troop performing?', prompt: SCOUT_FLEET_OVERVIEW_PROMPT },
-        { label: 'What signals were emitted recently?', prompt: SCOUT_RECENT_SIGNALS_PROMPT },
+    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const prompts: { label: string; chatType: ScoutChatType }[] = [
+        { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
+        { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
     ]
 
     return (
         <LemonMenu
-            items={prompts.map(({ label, prompt }) => ({
+            items={prompts.map(({ label, chatType }) => ({
                 label,
-                onClick: () => startScoutChatTask(prompt, label, label),
-                disabledReason:
-                    runningChatPrompt !== null ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined),
+                onClick: () => startScoutChatTask(chatType, label),
+                disabledReason: runningChatType !== null ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined),
             }))}
         >
-            <LemonButton type="secondary" size="small" icon={<IconSparkles />} loading={runningChatPrompt !== null}>
+            <LemonButton type="secondary" size="small" icon={<IconSparkles />} loading={runningChatType !== null}>
                 Ask
             </LemonButton>
         </LemonMenu>

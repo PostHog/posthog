@@ -62,6 +62,12 @@ export type ErrorTrackingStackFrameContext = {
 }
 export type ErrorTrackingStackFrameContextLine = { number: number; line: string }
 
+export interface ErrorTrackingStackFrameJunkDrawer {
+    raw_frame?: {
+        instruction_addr?: string | null
+    }
+}
+
 export interface ErrorTrackingStackFrame {
     raw_id: string
     mangled_name: string
@@ -75,6 +81,7 @@ export interface ErrorTrackingStackFrame {
     resolve_failure: string | null
     module: string | null
     code_variables?: Record<string, unknown>
+    junk_drawer?: ErrorTrackingStackFrameJunkDrawer
 }
 
 export interface ErrorTrackingFingerprint {

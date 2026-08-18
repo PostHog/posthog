@@ -196,6 +196,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         # this page without core importing it. See posthog.admin.inline_registry.
         return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
 
+    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
+        extra_context = {
+            **(extra_context or {}),
+            "deactivation_reason_presets": list(Organization.DeactivationReason.values),
+        }
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
     def members_count(self, organization: Organization):
         return organization.members.count()
 

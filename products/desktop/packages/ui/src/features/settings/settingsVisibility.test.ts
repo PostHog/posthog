@@ -9,6 +9,7 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: true,
         spendAnalysisEnabled: true,
         localWorkspaces: true,
+        quickAskAvailable: true,
       },
       expected: [],
     },
@@ -18,6 +19,7 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: false,
         spendAnalysisEnabled: false,
         localWorkspaces: true,
+        quickAskAvailable: true,
       },
       expected: ["plan-usage"],
     },
@@ -27,15 +29,9 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: true,
         spendAnalysisEnabled: true,
         localWorkspaces: false,
+        quickAskAvailable: true,
       },
-      expected: [
-        "workspaces",
-        "worktrees",
-        "terminal",
-        "harness",
-        "discord",
-        "updates",
-      ],
+      expected: ["workspaces", "worktrees", "terminal", "harness", "discord"],
     },
     {
       // The channels layout uses a fixed nav, so the Sidebar page's
@@ -46,8 +42,21 @@ describe("getHiddenSettingsCategories", () => {
         spendAnalysisEnabled: true,
         localWorkspaces: true,
         channelsLayout: true,
+        quickAskAvailable: true,
       },
       expected: ["sidebar"],
+    },
+    {
+      // The page's only content when the panel is unavailable is a dead-end
+      // "not available in this build" message, so hide it (web hosts and
+      // packaged desktop without the prototype gate).
+      name: "hides quick-ask when the panel is unavailable",
+      input: {
+        billingEnabled: true,
+        spendAnalysisEnabled: true,
+        localWorkspaces: true,
+      },
+      expected: ["quick-ask"],
     },
   ])("$name", ({ input, expected }) => {
     expect([...getHiddenSettingsCategories(input)]).toEqual(expected);

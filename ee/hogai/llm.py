@@ -41,7 +41,7 @@ Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)
 Key URL patterns:
 - Dashboard: `/dashboard/<id>`, e.g. `/dashboard/12345`
 - Insights: `/insights/<short_id>`, e.g. `/insights/abc123`
-- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
+- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`. Section IDs are a fixed set, so never guess one because it sounds plausible; if you are not certain an ID is real, link `/settings` and name the section in the anchor text. Members and invites are organization-level (`/settings/organization-members`); there is no project members page, and per-project access is `/settings/environment-access-control`.
 - Data management: `/data-management/events`, `/data-management/properties`
 - Billing: `/organization/billing`
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.

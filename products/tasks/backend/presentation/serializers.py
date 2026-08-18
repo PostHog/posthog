@@ -42,6 +42,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -416,9 +417,12 @@ class TaskSerializer(DataclassSerializer):
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
     slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
+    # Not `read_only`, even though this is a response-only serializer: `@validated_request` re-reads
+    # its own output through `to_internal_value`, which drops read-only fields, and `runtime` is
+    # required on `TaskDetailDTO` — so a read-only declaration makes that round-trip raise. Writes
+    # never reach here; they go through `TaskCreateSerializer` / `TaskWriteSerializer`.
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
-        read_only=True,
         help_text="Agent protocol and harness used for this task's runs.",
     )
 
@@ -682,6 +686,9 @@ class TaskWriteSerializer(serializers.Serializer):
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
             tasks_facade.TaskOriginProduct.ONBOARDING,
+            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
+            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
+            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -766,6 +773,13 @@ class TaskWriteSerializer(serializers.Serializer):
         ):
             raise serializers.ValidationError(
                 {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
+        # Repo is server-resolved for these code-access-exempt tasks; a client-set repo bypasses the gate.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and (
+            attrs.get("repository") or attrs.get("repositories")
+        ):
+            raise serializers.ValidationError(
+                {"repository": "Signal report tasks resolve their repository server-side."}
             )
         return attrs
 
@@ -2061,6 +2075,37 @@ class TaskPinResponseSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
 
 
+class ModelChoiceSerializer(DataclassSerializer):
+    """One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+
+    Both enums are declared with the same choices the run-detail response uses, so clients get the
+    generated adapter/effort types here rather than bare strings.
+    """
+
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        help_text="Runtime that drives this model, such as 'claude' or 'codex'.",
+    )
+    display_name = serializers.CharField(
+        source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
+    )
+    supported_efforts = serializers.ListField(
+        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+    )
+
+    class Meta:
+        dataclass = ModelChoice
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+
+
+class ModelCatalogueResponseSerializer(serializers.Serializer):
+    models = ModelChoiceSerializer(
+        many=True,
+        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+    )
+
+
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
     window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)
@@ -2948,7 +2993,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "queue_clear",
     ]
 
-    # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
+    # Cap on the serialized mcp_response params (docs/CLOUD-MCP-RELAY.md): the relayed JSON-RPC
     # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
     # verbatim and never persisted or captured — they carry data from the user's private systems.
     MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
@@ -3255,6 +3300,8 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=255),
         required=False,
         default=list,
+        max_length=tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS,
+        error_messages={"max_length": f"You can allow up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains."},
         help_text="Allowed domains for custom network access.",
     )
     include_default_domains = serializers.BooleanField(
@@ -3302,6 +3349,14 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                         f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
+
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        try:
+            return tasks_facade.normalize_sandbox_allowed_domains(value)
+        except ValueError as error:
+            raise serializers.ValidationError(
+                f"{error}. Enter domain names such as example.com or *.example.com without a scheme, path, or port."
+            ) from error
 
 
 class SandboxCustomImageSerializer(DataclassSerializer):
