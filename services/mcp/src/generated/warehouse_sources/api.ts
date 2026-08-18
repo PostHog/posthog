@@ -2316,6 +2316,16 @@ export const ExternalDataSourcesCheckCdcPrerequisitesCreateParams = /* @__PURE__
         ),
 })
 
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod.string(),
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - posthog\n\* `self_managed` - self_managed'),
+    tables: zod.array(zod.string()).optional(),
+    cdc_slot_name: zod.string().nullish(),
+    cdc_publication_name: zod.string().nullish(),
+})
+
 /**
  * Return a secure browser link for connecting a data warehouse source.
  *

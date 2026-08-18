@@ -126,7 +126,9 @@ import type {
     TasksCommentsRetrieveParams,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
+    TasksRetrieveParams,
     TasksRunsListParams,
+    TasksRunsRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksSearchRetrieveParams,
@@ -1274,8 +1276,20 @@ export const tasksCreate = async (
     })
 }
 
-export const getTasksRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${id}/`
+export const getTasksRetrieveUrl = (projectId: string, id: string, params?: TasksRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/`
 }
 
 /**
@@ -1285,9 +1299,10 @@ export const getTasksRetrieveUrl = (projectId: string, id: string) => {
 export const tasksRetrieve = async (
     projectId: string,
     id: string,
+    params?: TasksRetrieveParams,
     options?: RequestInit
 ): Promise<TaskDetailDTOApi> => {
-    return apiMutator<TaskDetailDTOApi>(getTasksRetrieveUrl(projectId, id), {
+    return apiMutator<TaskDetailDTOApi>(getTasksRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1619,8 +1634,25 @@ export const tasksRunsCreate = async (
     })
 }
 
-export const getTasksRunsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
+export const getTasksRunsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
 }
 
 /**
@@ -1631,9 +1663,10 @@ export const tasksRunsRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
+    params?: TasksRunsRetrieveParams,
     options?: RequestInit
 ): Promise<TaskRunDetailDTOApi> => {
-    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1939,6 +1972,26 @@ export const tasksRunsConnectionTokenRetrieve = async (
     options?: RequestInit
 ): Promise<ConnectionTokenResponseApi> => {
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
+}
+
+/**
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
+ * @summary Get task run logs
+ */
+export const tasksRunsLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })

@@ -7,7 +7,6 @@ import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -34,6 +33,8 @@ import {
     PropertyOperator,
     Region,
 } from '~/types'
+
+import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/generatedApiAdapter'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'
@@ -261,7 +262,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             loadEarlyAccessFeature: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        const response = await api.earlyAccessFeatures.get(props.id)
+                        const response = await generatedEarlyAccessFeatures.get(props.id)
                         return response
                     } catch (error: any) {
                         actions.setEarlyAccessFeatureMissing()
@@ -275,11 +276,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
-                    result = await api.earlyAccessFeatures.create(
+                    result = await generatedEarlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
                 } else {
-                    result = await api.earlyAccessFeatures.update(
+                    result = await generatedEarlyAccessFeatures.update(
                         props.id,
                         updatedEarlyAccessFeature as EarlyAccessFeatureType
                     )
@@ -581,7 +582,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
-                await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
+                await generatedEarlyAccessFeatures.delete(earlyAccessFeatureId)
                 lemonToast.info(
                     'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
                 )

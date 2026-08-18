@@ -403,7 +403,7 @@ const WorkflowsTestRunSchema = HogFlowsInvocationsCreateParams.omit({ project_id
     HogFlowsInvocationsCreateBody.shape
 )
 
-const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> => ({
+const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, Schemas.HogFlowInvocationResult> => ({
     name: 'workflows-test-run',
     schema: WorkflowsTestRunSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsTestRunSchema>) => {
@@ -421,7 +421,7 @@ const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> =>
         if (params.use_draft !== undefined) {
             body['use_draft'] = params.use_draft
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.HogFlowInvocationResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocations/`,
             body,

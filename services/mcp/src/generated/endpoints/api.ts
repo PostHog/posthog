@@ -98,6 +98,10 @@ export const EndpointsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const EndpointsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod.number().optional().describe('Endpoint version. Defaults to the current version.'),
+})
+
 /**
  * Update an existing endpoint.
  */
@@ -224,7 +228,7 @@ export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.o
 })
 
 export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
-    version: zod.number().optional(),
+    version: zod.number().optional().describe('Endpoint version to preview. Defaults to the current version.'),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()
@@ -241,6 +245,10 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const EndpointsMaterializationStatusRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod.number().optional().describe('Endpoint version. Defaults to the current version.'),
 })
 
 /**

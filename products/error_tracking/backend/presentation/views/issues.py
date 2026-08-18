@@ -4,7 +4,7 @@ from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -60,6 +60,56 @@ class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
 class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
+
+
+class ErrorTrackingIssueCohortRequestSerializer(serializers.Serializer):
+    cohortId = serializers.IntegerField(help_text="ID of the cohort to assign to the issue.")
+
+
+class ErrorTrackingIssueActionResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the action completed successfully.")
+
+
+@extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
+class ErrorTrackingIssueAssigneeIdField(serializers.JSONField):
+    pass
+
+
+class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Assignee type. Use user for a numeric user ID or role for a role UUID.",
+    )
+    id = ErrorTrackingIssueAssigneeIdField(help_text="Numeric user ID or role UUID.")
+
+
+class ErrorTrackingIssueAssignRequestSerializer(serializers.Serializer):
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        allow_null=True,
+        help_text="Assignee to set, or null to unassign the issue.",
+    )
+
+
+class ErrorTrackingIssueBulkRequestSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=["set_status", "assign"],
+        help_text="Bulk mutation to perform.",
+    )
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="Issue UUIDs to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=WRITABLE_ISSUE_STATUSES,
+        required=False,
+        help_text="Status to set when action is set_status.",
+    )
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Assignee to set when action is assign, or null to unassign.",
+    )
 
 
 class ErrorTrackingIssueReadSerializer(serializers.Serializer):
@@ -173,6 +223,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="fingerprint",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Resolve the issue currently owning this fingerprint before returning the issue.",
+            )
+        ]
+    )
     def retrieve(self, request: request.Request, *args: object, **kwargs: object) -> Response | JsonResponse:
         issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
@@ -246,6 +306,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
+    @extend_schema(
+        request=ErrorTrackingIssueAssignRequestSerializer,
+        responses={200: ErrorTrackingIssueActionResponseSerializer},
+    )
     @action(methods=["PATCH"], detail=True)
     def assign(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         assignee = request.data.get("assignee", None)
@@ -263,6 +327,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise ValidationError(str(err))
         return Response({"success": True})
 
+    @extend_schema(
+        request=ErrorTrackingIssueCohortRequestSerializer,
+        responses={200: ErrorTrackingIssueActionResponseSerializer},
+    )
     @action(methods=["PUT"], detail=True)
     def cohort(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
         cohort_id = request.data.get("cohortId", None)
@@ -290,6 +358,10 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         issue_values = facade_api.get_issue_values(self.team.id, key, value)
         return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
+    @extend_schema(
+        request=ErrorTrackingIssueBulkRequestSerializer,
+        responses={200: ErrorTrackingIssueActionResponseSerializer},
+    )
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs: object) -> Response:
         try:

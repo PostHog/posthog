@@ -7,3 +7,8 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+import * as zod from 'zod'
+
+export const RevenueAnalyticsJoinsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean(),
+})

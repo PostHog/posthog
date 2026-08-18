@@ -122,6 +122,14 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Enable or disable a managed viewset by kind.
+ * PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
+ */
+export const ManagedViewsetsUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean(),
+})
+
+/**
  * Create, Read, Update and Delete Query Tab State.
  */
 export const QueryTabStateCreateBody = /* @__PURE__ */ zod.object({

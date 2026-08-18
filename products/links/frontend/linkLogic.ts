@@ -6,7 +6,6 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +13,7 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 import type { LinkType } from '~/types'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
+import { generatedLinksApi } from './generatedLinksApi'
 import { linksLogic } from './linksLogic'
 
 export type AvailableDomain = 'phog.gg' | 'postho.gg' | 'hog.gg' | 'custom'
@@ -185,7 +185,7 @@ export const linkLogic = kea<linkLogicType>([
             loadLink: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        const response = await api.links.get(props.id)
+                        const response = await generatedLinksApi.get(props.id)
                         return response
                     } catch (error) {
                         actions.setLinkMissing()
@@ -197,8 +197,8 @@ export const linkLogic = kea<linkLogicType>([
             },
             saveLink: async (updatedLink: Partial<LinkType>) => {
                 const result: LinkType = await (props.id === 'new'
-                    ? api.links.create(updatedLink)
-                    : api.links.update(props.id, updatedLink))
+                    ? generatedLinksApi.create(updatedLink)
+                    : generatedLinksApi.update(props.id, updatedLink))
                 if (props.id === 'new') {
                     router.actions.replace(urls.link(result.id))
                 }
@@ -259,7 +259,7 @@ export const linkLogic = kea<linkLogicType>([
         },
         deleteLink: async ({ linkId }) => {
             try {
-                await api.links.delete(linkId)
+                await generatedLinksApi.delete(linkId)
                 lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))
                 deleteFromTree('link', linkId)

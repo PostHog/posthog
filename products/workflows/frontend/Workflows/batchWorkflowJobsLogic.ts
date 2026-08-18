@@ -2,8 +2,10 @@ import { MakeLogicType, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { hogFlowsBatchJobsList } from 'products/workflows/frontend/generatedApiAdapter'
 
 import { HogFlowBatchJob } from './hogflows/types'
 
@@ -65,7 +67,7 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                         return null
                     }
 
-                    return api.hogFlows.getHogFlowBatchJobs(props.id)
+                    return hogFlowsBatchJobsList(String(ApiConfig.getCurrentProjectId()), props.id)
                 },
             },
         ],

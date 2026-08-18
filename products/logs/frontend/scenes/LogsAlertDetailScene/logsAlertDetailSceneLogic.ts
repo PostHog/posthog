@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
@@ -37,6 +37,7 @@ import {
     LogsAlertConfigurationApi,
     PatchedLogsAlertConfigurationApi,
 } from 'products/logs/frontend/generated/api.schemas'
+import { logsSparklineCreate } from 'products/logs/frontend/generatedApiAdapter'
 
 import type { LogsAlertFormType } from '../../components/LogsAlerting/logsAlertFormLogic'
 
@@ -272,7 +273,7 @@ export const logsAlertDetailSceneLogic = kea<logsAlertDetailSceneLogicType>([
                         return []
                     }
                     const filters = (values.alert.filters ?? {}) as Record<string, unknown>
-                    return api.logs.sparkline({
+                    return logsSparklineCreate(String(ApiConfig.getCurrentProjectId()), {
                         query: {
                             dateRange: { date_from: '-7d', date_to: null },
                             severityLevels: ((filters.severityLevels as string[] | undefined) ??

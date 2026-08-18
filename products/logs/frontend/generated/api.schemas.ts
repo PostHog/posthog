@@ -1292,6 +1292,94 @@ export interface ExplainRequestApi {
     force_refresh?: boolean
 }
 
+export interface ProbableCauseApi {
+    hypothesis: string
+    confidence: string
+    reasoning: string
+}
+
+export interface ImmediateActionApi {
+    action: string
+    priority: string
+    why: string
+}
+
+export interface KeyFieldApi {
+    field: string
+    value: string
+    significance: string
+    attribute_type: string
+}
+
+export interface ExplainResponseApi {
+    headline: string
+    severity_assessment: string
+    impact_summary: string
+    probable_causes: ProbableCauseApi[]
+    immediate_actions: ImmediateActionApi[]
+    technical_explanation: string
+    key_fields: KeyFieldApi[]
+}
+
+/**
+ * * `latest` - latest
+ * * `earliest` - earliest
+ */
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+
+export const OrderByEnumApi = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
+export interface _LogsQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Order results by timestamp.
+     *
+     * * `latest` - latest
+     * * `earliest` - earliest */
+    orderBy?: OrderByEnumApi
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Max results (1-1000). */
+    limit?: number
+    /** Pagination cursor from previous response. */
+    after?: string
+    /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+    excludeAttributes?: boolean
+    /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
+    customColumns?: string[]
+    /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+}
+
+export interface _LogsExportRequestApi {
+    /** The logs query to export. */
+    query: _LogsQueryBodyApi
+    /** Columns to include in the CSV export. */
+    columns?: string[]
+}
+
+export interface _LogsExportResponseApi {
+    /** Exported asset identifier. */
+    id: number
+    /** Export file format. */
+    export_format: string
+    /** Time the export was requested. */
+    created_at: string
+    /** Whether the exported file is ready to download. */
+    has_content: boolean
+    /** Generated export filename. */
+    filename: string
+}
+
 /**
  * * `severity_text` - severity_text
  * * `service_name` - service_name
@@ -1455,6 +1543,11 @@ export interface _LogsGroupByResponseApi {
     total_logs: number
     /** True when more groups matched than were returned (total_groups > groups length). */
     truncated: boolean
+}
+
+export interface _LogsHasLogsResponseApi {
+    /** Whether this project has captured any logs. */
+    hasLogs: boolean
 }
 
 export interface LogsMetricRuleApi {
@@ -1703,45 +1796,6 @@ export interface _LogsPatternsDiffResponseApi {
     current: _LogsPatternsDiffWindowApi
     /** Mining metadata for the baseline window. Check `total_count` before trusting a wall of "new" entries: an empty or tiny baseline (e.g. logging only started this week) makes everything look new. */
     baseline: _LogsPatternsDiffWindowApi
-}
-
-/**
- * * `latest` - latest
- * * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
-
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
-} as const
-
-export interface _LogsQueryBodyApi {
-    /** Date range for the query. Defaults to last hour. */
-    dateRange?: _DateRangeApi
-    /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
-    /** Filter by service names. */
-    serviceNames?: string[]
-    /** Order results by timestamp.
-     *
-     * * `latest` - latest
-     * * `earliest` - earliest */
-    orderBy?: OrderByEnumApi
-    /** Full-text search term to filter log bodies. */
-    searchTerm?: string
-    /** Property filters for the query. */
-    filterGroup?: _LogPropertyFilterApi[]
-    /** Max results (1-1000). */
-    limit?: number
-    /** Pagination cursor from previous response. */
-    after?: string
-    /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
-    excludeAttributes?: boolean
-    /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
-    customColumns?: string[]
-    /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
-    personId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -2362,10 +2416,6 @@ export const LogsAttributesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
-
-export type LogsExportCreate201 = { [key: string]: unknown }
-
-export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
 
 export type LogsMetricRulesListParams = {
     /**

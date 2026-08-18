@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -25,6 +25,12 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
+import {
+    alertsCreate,
+    alertsDestroy,
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -501,7 +507,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         return null
                     }
                     const formConfig = values.alertForm.config
-                    return await api.alerts.simulate({
+                    return (await alertsSimulateCreate(String(ApiConfig.getCurrentProjectId()), {
                         insight: props.insightId,
                         detector_config: detectorConfig,
                         series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
@@ -511,7 +517,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         // SQL insights have no series_index; the config carries the evaluated column
                         // and read direction so the preview matches what the alert will score.
                         config: formConfig,
-                    })
+                    })) as unknown as AlertSimulationResult
                 },
                 clearSimulation: () => null,
             },
@@ -641,8 +647,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert
-                        ? await api.alerts.create(payload)
-                        : await api.alerts.update(existingAlertId, payload)
+                        ? ((await alertsCreate(
+                              String(ApiConfig.getCurrentProjectId()),
+                              payload as Parameters<typeof alertsCreate>[1]
+                          )) as unknown as AlertType)
+                        : ((await alertsPartialUpdate(
+                              String(ApiConfig.getCurrentProjectId()),
+                              existingAlertId,
+                              payload as Parameters<typeof alertsPartialUpdate>[2]
+                          )) as unknown as AlertType)
                 } catch (error: unknown) {
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
@@ -850,7 +863,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
-                await api.alerts.delete(values.alertForm.id)
+                await alertsDestroy(String(ApiConfig.getCurrentProjectId()), values.alertForm.id)
                 lemonToast.success('Alert deleted.')
                 const parent = getParentLogic()
                 if (parent) {
@@ -863,9 +876,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
+                const updatedAlert = (await alertsPartialUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    values.alertForm.id,
+                    { snoozed_until: resolveSnoozeUntil(snoozeUntil) }
+                )) as unknown as AlertType
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
@@ -878,9 +893,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: null,
-                })
+                const updatedAlert = (await alertsPartialUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    values.alertForm.id,
+                    { snoozed_until: null }
+                )) as unknown as AlertType
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {

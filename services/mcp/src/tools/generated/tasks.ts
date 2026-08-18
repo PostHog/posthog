@@ -23,9 +23,11 @@ import {
     TasksCreateBody,
     TasksListQueryParams,
     TasksRetrieveParams,
+    TasksRetrieveQueryParams,
     TasksRunsListParams,
     TasksRunsListQueryParams,
     TasksRunsRetrieveParams,
+    TasksRunsRetrieveQueryParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
@@ -574,7 +576,7 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
     },
 })
 
-const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true })
+const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true }).extend(TasksRetrieveQueryParams.shape)
 
 const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
     name: 'tasks-retrieve',
@@ -584,6 +586,9 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
         const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                ph_debug: params.ph_debug,
+            },
         })
         const filtered = omitResponseFields(result, [
             'latest_run.log_url',
@@ -634,7 +639,9 @@ const tasksRunsList = (): ToolBase<
     },
 })
 
-const TasksRunsRetrieveSchema = TasksRunsRetrieveParams.omit({ project_id: true })
+const TasksRunsRetrieveSchema = TasksRunsRetrieveParams.omit({ project_id: true }).extend(
+    TasksRunsRetrieveQueryParams.shape
+)
 
 const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.TaskRunDetailDTO> => ({
     name: 'tasks-runs-retrieve',
@@ -644,6 +651,9 @@ const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.T
         const result = await context.api.request<Schemas.TaskRunDetailDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                ph_debug: params.ph_debug,
+            },
         })
         const filtered = omitResponseFields(result, [
             'log_url',

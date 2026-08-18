@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, connect, events, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../../frontend/src/types'
+import { generatedTasksApi } from '../generatedTasksApi'
 import { loadErrorMessage } from '../lib/load-error'
 import { OriginProduct, Task } from '../types/taskTypes'
 
@@ -58,7 +58,7 @@ export const taskHistoryLogic = kea<taskHistoryLogicType>([
             [] as Task[],
             {
                 loadHistory: async (_: void, breakpoint) => {
-                    const response = await api.tasks.list({
+                    const response = await generatedTasksApi.list({
                         origin_product: OriginProduct.POSTHOG_AI,
                         created_by: values.user?.id,
                         limit: 20,

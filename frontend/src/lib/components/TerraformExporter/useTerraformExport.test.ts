@@ -4,11 +4,14 @@ import posthog from 'posthog-js'
 
 import api from '~/lib/api'
 
+import { alertsList } from 'products/alerts/frontend/generated/api'
+
 import * as dashboardHclExporter from './dashboardHclExporter'
 import * as insightHclExporter from './insightHclExporter'
 import { TerraformExportResource, useTerraformExport } from './useTerraformExport'
 
 jest.mock('~/lib/api')
+jest.mock('products/alerts/frontend/generated/api', () => ({ alertsList: jest.fn() }))
 jest.mock('posthog-js')
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
@@ -21,7 +24,7 @@ describe('useTerraformExport', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         ;(useValues as jest.Mock).mockReturnValue({ currentTeamId: 1 })
-        jest.spyOn(mockedApi.alerts, 'list').mockResolvedValue({ results: [] } as any)
+        ;(alertsList as jest.Mock).mockResolvedValue({ results: [] })
         jest.spyOn(mockedApi.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
     })
 

@@ -87,6 +87,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/generatedApiAdapter'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -3032,7 +3033,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         name: `Early access: ${values.featureFlag.key}`,
                         feature_flag_id: values.featureFlag.id,
                     }
-                    return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
+                    return await generatedEarlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
                 },
             },
         ],

@@ -679,10 +679,10 @@ export interface PaginatedErrorTrackingIssueReadListApi {
  * * `resolved` - resolved
  * * `suppressed` - suppressed
  */
-export type ErrorTrackingIssueWriteStatusEnumApi =
-    (typeof ErrorTrackingIssueWriteStatusEnumApi)[keyof typeof ErrorTrackingIssueWriteStatusEnumApi]
+export type ErrorTrackingIssueWritableStatusEnumApi =
+    (typeof ErrorTrackingIssueWritableStatusEnumApi)[keyof typeof ErrorTrackingIssueWritableStatusEnumApi]
 
-export const ErrorTrackingIssueWriteStatusEnumApi = {
+export const ErrorTrackingIssueWritableStatusEnumApi = {
     Active: 'active',
     Resolved: 'resolved',
     Suppressed: 'suppressed',
@@ -694,7 +694,7 @@ export interface ErrorTrackingIssueWriteApi {
      * * `active` - active
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
-    status?: ErrorTrackingIssueWriteStatusEnumApi
+    status?: ErrorTrackingIssueWritableStatusEnumApi
     /** Issue severity to set, or null to remove the assigned severity. */
     severity?: ErrorTrackingIssueSeverityApi | null
     /**
@@ -715,7 +715,7 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * * `active` - active
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
-    status?: ErrorTrackingIssueWriteStatusEnumApi
+    status?: ErrorTrackingIssueWritableStatusEnumApi
     /** Issue severity to set, or null to remove the assigned severity. */
     severity?: ErrorTrackingIssueSeverityApi | null
     /**
@@ -730,23 +730,29 @@ export interface PatchedErrorTrackingIssueWriteApi {
     description?: string | null
 }
 
-/**
- * Read-only serializer for issue contract types returned by the facade.
- */
-export interface PatchedErrorTrackingIssueReadApi {
-    id?: string
-    status?: string
-    /** Issue severity, or null when no severity is assigned. */
-    severity?: ErrorTrackingIssueSeverityApi | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    first_seen?: string | null
-    assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
-    cohort?: ErrorTrackingIssueCohortReadApi | null
+export interface ErrorTrackingIssueAssigneeWriteApi {
+    /** Assignee type. Use user for a numeric user ID or role for a role UUID.
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
+    /** Numeric user ID or role UUID. */
+    id: number | string | null
+}
+
+export interface PatchedErrorTrackingIssueAssignRequestApi {
+    /** Assignee to set, or null to unassign the issue. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
+}
+
+export interface ErrorTrackingIssueActionResponseApi {
+    /** Whether the action completed successfully. */
+    success: boolean
+}
+
+export interface ErrorTrackingIssueCohortRequestApi {
+    /** ID of the cohort to assign to the issue. */
+    cohortId: number
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -778,6 +784,36 @@ export interface ErrorTrackingIssueSplitResponseApi {
     success: boolean
     /** IDs of the new issues created by the split. */
     new_issue_ids: string[]
+}
+
+/**
+ * * `set_status` - set_status
+ * * `assign` - assign
+ */
+export type ErrorTrackingIssueBulkRequestActionEnumApi =
+    (typeof ErrorTrackingIssueBulkRequestActionEnumApi)[keyof typeof ErrorTrackingIssueBulkRequestActionEnumApi]
+
+export const ErrorTrackingIssueBulkRequestActionEnumApi = {
+    SetStatus: 'set_status',
+    Assign: 'assign',
+} as const
+
+export interface ErrorTrackingIssueBulkRequestApi {
+    /** Bulk mutation to perform.
+     *
+     * * `set_status` - set_status
+     * * `assign` - assign */
+    action: ErrorTrackingIssueBulkRequestActionEnumApi
+    /** Issue UUIDs to update. */
+    ids: string[]
+    /** Status to set when action is set_status.
+     *
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueWritableStatusEnumApi
+    /** Assignee to set when action is assign, or null to unassign. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
 }
 
 export interface ErrorTrackingDateRangeApi {
@@ -1824,6 +1860,10 @@ export type ErrorTrackingExternalReferencesListParams = {
 
 export type ErrorTrackingFingerprintsListParams = {
     /**
+     * Return fingerprints belonging to this issue UUID.
+     */
+    issue_id?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1897,6 +1937,13 @@ export type ErrorTrackingIssuesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Resolve the issue currently owning this fingerprint before returning the issue.
+     */
+    fingerprint?: string
+}
+
 export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
@@ -1906,6 +1953,17 @@ export type ErrorTrackingRecommendationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Skip scheduling a refresh and return the current recommendation state.
+     */
+    poll?: boolean
+}
+
+export type ErrorTrackingRecommendationsRefreshCreateParams = {
+    /**
+     * Recompute the recommendation even when its current result is fresh.
+     */
+    force?: boolean
 }
 
 export type ErrorTrackingReleasesListParams = {
@@ -1921,6 +1979,18 @@ export type ErrorTrackingReleasesListParams = {
 
 export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Include spike events detected at or after this timestamp.
+     */
+    date_from?: string
+    /**
+     * Include spike events detected at or before this timestamp.
+     */
+    date_to?: string
+    /**
+     * Comma-separated issue UUIDs to include.
+     */
+    issue_ids?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1928,6 +1998,10 @@ export type ErrorTrackingSpikeEventsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Field used to order results. Prefix with a hyphen for descending order.
+     */
+    order_by?: string
 }
 
 export type ErrorTrackingStackFramesListParams = {

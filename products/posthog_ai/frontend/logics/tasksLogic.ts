@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { UserType } from '../../../../frontend/src/types'
+import { generatedTasksApi } from '../generatedTasksApi'
 import { loadErrorMessage } from '../lib/load-error'
 import { OriginProduct, Task, TaskAssigneeFilter, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
 
@@ -172,7 +173,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 // `breakpoint` cancels this invocation if a newer `loadTasks` action has been
                 // dispatched, so filter changes don't overwrite state with stale responses.
                 loadTasks: async (params: TaskListParams = {}, breakpoint) => {
-                    const response = await api.tasks.list(params)
+                    const response = await generatedTasksApi.list(params)
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
                     return response.results
@@ -200,7 +201,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     return [...values.tasks, ...response.results]
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
-                    const newTask = await api.tasks.create(data)
+                    const newTask = await generatedTasksApi.create(data)
                     void addProductIntent({
                         product_type: ProductKey.TASKS,
                         intent_context: ProductIntentContext.TASK_CREATED,
@@ -208,7 +209,7 @@ export const tasksLogic = kea<tasksLogicType>([
                     return [...values.tasks, newTask]
                 },
                 deleteTask: async ({ taskId }: { taskId: string }) => {
-                    await api.tasks.delete(taskId)
+                    await generatedTasksApi.delete(taskId)
                     return values.tasks.filter((t) => t.id !== taskId)
                 },
             },
@@ -220,7 +221,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 // from `tasks` so the picker is not constrained by list pagination or by the
                 // filter currently applied to the task list.
                 loadRepositories: async () => {
-                    const response = await api.tasks.repositories()
+                    const response = await generatedTasksApi.repositories()
                     return response.repositories
                 },
             },

@@ -5,7 +5,6 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
@@ -19,6 +18,7 @@ import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import { generatedColumnConfigurations } from 'products/product_analytics/frontend/generatedColumnConfigurationsApi'
 
 import type { UserType } from '../../../../types'
 
@@ -369,14 +369,14 @@ export const tableViewLogic = kea<tableViewLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async () => {
-                    const response = await api.columnConfigurations.list({
+                    const response = await generatedColumnConfigurations.list({
                         context_key: props.contextKey,
                     })
                     return response.results
                 },
 
                 saveCurrentAsView: async ({ name, visibility }) => {
-                    const response = await api.columnConfigurations.create({
+                    const response = await generatedColumnConfigurations.create({
                         data: getViewData(props, name, visibility),
                     })
                     return [...values.views, response]
@@ -388,7 +388,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                         updates = getViewData(props)
                     }
 
-                    const response = await api.columnConfigurations.update({
+                    const response = await generatedColumnConfigurations.update({
                         id,
                         data: updates,
                     })
@@ -397,7 +397,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 },
 
                 deleteView: async ({ id }) => {
-                    await api.columnConfigurations.delete({ id })
+                    await generatedColumnConfigurations.delete({ id })
                     return values.views.filter((v) => v.id !== id)
                 },
             },
@@ -479,7 +479,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async ({ name, visibility }) => {
-                const response = await api.columnConfigurations.create({
+                const response = await generatedColumnConfigurations.create({
                     data: getViewData(props, name, visibility),
                 })
 

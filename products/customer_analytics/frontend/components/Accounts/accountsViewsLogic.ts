@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
@@ -13,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+import { generatedColumnConfigurations } from 'products/product_analytics/frontend/generatedColumnConfigurationsApi'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import type { AccountCustomPropertyFilter } from '../../../../../frontend/src/types'
@@ -423,7 +423,9 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async (): Promise<ColumnConfigurationApi[]> => {
-                    const response = await api.columnConfigurations.list({ context_key: ACCOUNTS_COLUMN_CONFIG_KEY })
+                    const response = await generatedColumnConfigurations.list({
+                        context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                    })
                     return response.results
                 },
                 updateView: async ({
@@ -435,11 +437,11 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 }): Promise<ColumnConfigurationApi[]> => {
                     const data =
                         Object.keys(updates).length === 0 ? serializeAccountsView(values.liveViewState) : updates
-                    const response = await api.columnConfigurations.update({ id, data })
+                    const response = await generatedColumnConfigurations.update({ id, data })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
                 deleteView: async ({ id }: { id: string }): Promise<ColumnConfigurationApi[]> => {
-                    await api.columnConfigurations.delete({ id })
+                    await generatedColumnConfigurations.delete({ id })
                     return values.views.filter((view) => view.id !== id)
                 },
                 patchViewProperties: async ({
@@ -449,7 +451,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     id: string
                     properties: AccountsViewProperties
                 }): Promise<ColumnConfigurationApi[]> => {
-                    const response = await api.columnConfigurations.update({ id, data: { properties } })
+                    const response = await generatedColumnConfigurations.update({ id, data: { properties } })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
             },
@@ -554,7 +556,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             defaults: { name: '', visibility: 'private' as ViewVisibility },
             errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
             submit: async ({ name, visibility }: { name: string; visibility: ViewVisibility }) => {
-                const response = await api.columnConfigurations.create({
+                const response = await generatedColumnConfigurations.create({
                     data: {
                         ...serializeAccountsView(values.liveViewState),
                         context_key: ACCOUNTS_COLUMN_CONFIG_KEY,

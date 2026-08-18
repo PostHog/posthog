@@ -180,6 +180,7 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
+        assignee: zod.unknown().optional().describe('User or role assignment, or null to unassign the ticket.'),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
         escalation_reason: zod.string().nullish(),
@@ -215,6 +216,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Ticket priority: low, medium, high, or critical. Null if unset.\n\n\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical'
             ),
+        assignee: zod.unknown().optional().describe('User or role assignment, or null to unassign the ticket.'),
         anonymous_traits: zod.unknown().optional().describe('Customer-provided traits such as name and email'),
         ai_resolved: zod.boolean().optional(),
         escalation_reason: zod.string().nullish(),

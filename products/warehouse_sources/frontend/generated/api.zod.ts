@@ -621,9 +621,13 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
  * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
  * ``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
  */
-export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @__PURE__ */ zod.object({
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - posthog\n\* `self_managed` - self_managed'),
+    cdc_slot_name: zod.string().nullish(),
+    cdc_publication_name: zod.string().nullish(),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
@@ -710,6 +714,22 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+ *
+ * Used by the source wizard to surface ✅/❌ checks before source creation,
+ * and by the self-managed setup popup to verify user-created publications.
+ */
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod.string(),
+    cdc_management_mode: zod
+        .enum(['posthog', 'self_managed'])
+        .describe('\* `posthog` - posthog\n\* `self_managed` - self_managed'),
+    tables: zod.array(zod.string()).optional(),
+    cdc_slot_name: zod.string().nullish(),
+    cdc_publication_name: zod.string().nullish(),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.

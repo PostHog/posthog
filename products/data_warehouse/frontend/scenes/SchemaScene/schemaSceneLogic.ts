@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +21,10 @@ import {
 } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
+import {
+    generatedExternalDataSchemas,
+    generatedExternalDataSources,
+} from 'products/warehouse_sources/frontend/generatedApi'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
@@ -200,7 +203,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 loadSchema: async () => {
                     try {
-                        return await api.externalDataSchemas.get(props.schemaId)
+                        return await generatedExternalDataSchemas.get(props.schemaId)
                     } catch (error: any) {
                         if (error?.status === 404) {
                             return null
@@ -218,7 +221,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
                     try {
-                        return await api.externalDataSchemas.incremental_fields(schemaId)
+                        return await generatedExternalDataSchemas.incremental_fields(schemaId)
                     } catch (e: any) {
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e
@@ -336,7 +339,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, ...schema })
             }
             try {
-                await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
+                await generatedExternalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't update schema at this time")
             } finally {
@@ -349,7 +352,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
             }
             try {
-                await api.externalDataSchemas.reload(schema.id)
+                await generatedExternalDataSchemas.reload(schema.id)
                 posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
             } catch (e: any) {
                 lemonToast.error(e?.message || 'Cant reload schema at this time')
@@ -363,7 +366,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
             }
             try {
-                await api.externalDataSchemas.resync(schema.id)
+                await generatedExternalDataSchemas.resync(schema.id)
                 posthog.capture('schema resynced', { sourceType: values.source?.source_type })
                 lemonToast.success(`Resync started for ${schema.label ?? schema.name}`)
             } catch (e: any) {
@@ -375,7 +378,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         },
         cancelSchema: async ({ schema }) => {
             try {
-                await api.externalDataSchemas.cancel(schema.id)
+                await generatedExternalDataSchemas.cancel(schema.id)
                 posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
                 lemonToast.success('Sync cancelled')
             } catch (e: any) {
@@ -386,7 +389,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         },
         deleteTable: async ({ schema }) => {
             try {
-                await api.externalDataSchemas.delete_data(schema.id)
+                await generatedExternalDataSchemas.delete_data(schema.id)
                 posthog.capture('schema data deleted', { sourceType: values.source?.source_type })
                 lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
             } catch (e: any) {
@@ -401,7 +404,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                     added = 0,
                     deleted = 0,
                     total_tables_seen = 0,
-                } = await api.externalDataSources.refreshSchemas(cleanSourceId(props.sourceId))
+                } = await generatedExternalDataSources.refreshSchemas(cleanSourceId(props.sourceId))
                 actions.loadSchema()
                 posthog.capture('schemas refreshed', {
                     sourceType: values.source?.source_type,

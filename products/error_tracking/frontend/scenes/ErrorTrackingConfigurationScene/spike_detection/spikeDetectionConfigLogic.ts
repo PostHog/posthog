@@ -4,11 +4,17 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { ErrorTrackingSpikeDetectionConfig } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { HogFunctionType } from '~/types'
+
+import {
+    errorTrackingSpikeDetectionConfigList,
+    errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate,
+} from 'products/error_tracking/frontend/generated/api'
 
 export interface SpikeDetectionConfigForm {
     snooze_duration_minutes: number
@@ -151,7 +157,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             null as ErrorTrackingSpikeDetectionConfig | null,
             {
                 loadConfig: async () => {
-                    return await api.errorTracking.getSpikeDetectionConfig()
+                    return await errorTrackingSpikeDetectionConfigList(String(ApiConfig.getCurrentProjectId()))
                 },
             },
         ],
@@ -184,11 +190,14 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             }),
             submit: async (formValues) => {
                 try {
-                    const updated = await api.errorTracking.updateSpikeDetectionConfig({
-                        snooze_duration_minutes: formValues.snooze_duration_minutes,
-                        multiplier: formValues.multiplier,
-                        threshold: formValues.threshold,
-                    })
+                    const updated = await errorTrackingSpikeDetectionConfigUpdateConfigPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        {
+                            snooze_duration_minutes: formValues.snooze_duration_minutes,
+                            multiplier: formValues.multiplier,
+                            threshold: formValues.threshold,
+                        }
+                    )
                     actions.loadConfigSuccess(updated)
                     posthog.capture('error_tracking_spike_detection_settings_updated', {
                         snooze_duration_minutes: formValues.snooze_duration_minutes,

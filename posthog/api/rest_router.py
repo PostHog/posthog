@@ -579,3 +579,6 @@ for _routes_module in load_product_modules("routes"):
     _register_routes = getattr(_routes_module, "register_routes", None)
     if callable(_register_routes):
         _register_routes(routers)
+
+if hasattr(router, "_urls"):
+    del router._urls

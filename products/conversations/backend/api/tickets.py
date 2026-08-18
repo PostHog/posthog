@@ -387,6 +387,18 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         return None
 
 
+class TicketWriteSerializer(TicketSerializer):
+    assignee = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="User or role assignment, or null to unassign the ticket.",
+    )
+
+
+class TicketUnreadCountResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(min_value=0, help_text="Unread tickets visible to the current user.")
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -404,8 +416,8 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
-    update=extend_schema(parameters=[TICKET_ID_PARAM]),
-    partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    update=extend_schema(parameters=[TICKET_ID_PARAM], request=TicketWriteSerializer),
+    partial_update=extend_schema(parameters=[TICKET_ID_PARAM], request=TicketWriteSerializer),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -1045,6 +1057,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
+    @extend_schema(responses={200: TicketUnreadCountResponseSerializer})
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """

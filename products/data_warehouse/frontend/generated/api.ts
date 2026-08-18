@@ -18,6 +18,9 @@ import type {
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
     DataWarehouseExpressionApi,
+    DataWarehouseManagedViewSetApi,
+    DataWarehouseManagedViewSetResponseApi,
+    DataWarehouseManagedViewSetUpdateResponseApi,
     DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
     DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
@@ -64,6 +67,7 @@ import type {
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
+    QueryTabStateUserRetrieveParams,
     ResetPasswordResponseApi,
     SavedQueryColumnAnnotationsListParams,
     SavedQueryMaterializeApi,
@@ -798,8 +802,8 @@ export const managedViewsetsRetrieve = async (
     projectId: string,
     kind: 'revenue_analytics' | 'engineering_analytics',
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
+): Promise<DataWarehouseManagedViewSetResponseApi> => {
+    return apiMutator<DataWarehouseManagedViewSetResponseApi>(getManagedViewsetsRetrieveUrl(projectId, kind), {
         ...options,
         method: 'GET',
     })
@@ -816,11 +820,14 @@ export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_an
 export const managedViewsetsUpdate = async (
     projectId: string,
     kind: 'revenue_analytics' | 'engineering_analytics',
+    dataWarehouseManagedViewSetApi: DataWarehouseManagedViewSetApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
+): Promise<DataWarehouseManagedViewSetUpdateResponseApi> => {
+    return apiMutator<DataWarehouseManagedViewSetUpdateResponseApi>(getManagedViewsetsUpdateUrl(projectId, kind), {
         ...options,
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseManagedViewSetApi),
     })
 }
 
@@ -948,8 +955,20 @@ export const queryTabStateDestroy = async (projectId: string, id: string, option
     })
 }
 
-export const getQueryTabStateUserRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/query_tab_state/user/`
+export const getQueryTabStateUserRetrieveUrl = (projectId: string, params: QueryTabStateUserRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/query_tab_state/user/?${stringifiedParams}`
+        : `/api/projects/${projectId}/query_tab_state/user/`
 }
 
 /**
@@ -957,9 +976,10 @@ export const getQueryTabStateUserRetrieveUrl = (projectId: string) => {
  */
 export const queryTabStateUserRetrieve = async (
     projectId: string,
+    params: QueryTabStateUserRetrieveParams,
     options?: RequestInit
 ): Promise<QueryTabStateApi> => {
-    return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId), {
+    return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

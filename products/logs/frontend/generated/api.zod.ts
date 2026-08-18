@@ -714,6 +714,128 @@ export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
         .describe('Force regenerate explanation, bypassing cache'),
 })
 
+export const logsExportCreateBodyQueryOneSeverityLevelsDefault = []
+export const logsExportCreateBodyQueryOneServiceNamesDefault = []
+export const logsExportCreateBodyQueryOneFilterGroupDefault = []
+export const logsExportCreateBodyQueryOneLimitDefault = 100
+export const logsExportCreateBodyQueryOneExcludeAttributesDefault = false
+export const logsExportCreateBodyQueryOneCustomColumnsDefault = []
+
+export const LogsExportCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the query. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .default(logsExportCreateBodyQueryOneSeverityLevelsDefault)
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod
+                .array(zod.string())
+                .default(logsExportCreateBodyQueryOneServiceNamesDefault)
+                .describe('Filter by service names.'),
+            orderBy: zod
+                .enum(['latest', 'earliest'])
+                .describe('\* `latest` - latest\n\* `earliest` - earliest')
+                .optional()
+                .describe('Order results by timestamp.\n\n\* `latest` - latest\n\* `earliest` - earliest'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(logsExportCreateBodyQueryOneFilterGroupDefault)
+                .describe('Property filters for the query.'),
+            limit: zod.number().default(logsExportCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
+            after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            excludeAttributes: zod
+                .boolean()
+                .default(logsExportCreateBodyQueryOneExcludeAttributesDefault)
+                .describe(
+                    'Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.'
+                ),
+            customColumns: zod
+                .array(zod.string())
+                .default(logsExportCreateBodyQueryOneCustomColumnsDefault)
+                .describe(
+                    "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field."
+                ),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+        })
+        .describe('The logs query to export.'),
+    columns: zod.array(zod.string()).optional().describe('Columns to include in the CSV export.'),
+})
+
 export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({

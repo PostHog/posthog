@@ -411,8 +411,8 @@ export const messagingPreferencesExportOptOutsCsvRetrieve = async (
     projectId: string,
     params?: MessagingPreferencesExportOptOutsCsvRetrieveParams,
     options?: RequestInit
-): Promise<string> => {
-    return apiMutator<string>(getMessagingPreferencesExportOptOutsCsvRetrieveUrl(projectId, params), {
+): Promise<Blob> => {
+    return apiMutator<Blob>(getMessagingPreferencesExportOptOutsCsvRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

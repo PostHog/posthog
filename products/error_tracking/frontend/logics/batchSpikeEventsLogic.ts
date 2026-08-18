@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 
 import { DateRange } from '~/queries/schema/schema-general'
+
+import { errorTrackingSpikeEventsList } from 'products/error_tracking/frontend/generated/api'
 
 import { dateRangeToIsoBounds } from '../utils'
 
@@ -65,7 +67,11 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
                     }
                     await breakpoint(100)
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({ issueIds, dateFrom, dateTo })
+                    const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
+                        issue_ids: issueIds.join(','),
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    })
                     return response.results
                 },
             },

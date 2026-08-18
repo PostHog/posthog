@@ -1,11 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+
+import { generatedDataModelingNodes } from 'products/data_modeling/frontend/generatedApiAdapter'
+import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
+import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
 
 import type { DataModelingNodeType } from '../../types'
 
@@ -227,10 +231,10 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         node: {
             __default: null as DataModelingNode | null,
             loadNode: async () => {
-                return await api.dataModelingNodes.get(props.id)
+                return await generatedDataModelingNodes.get(props.id)
             },
             updateNodeDescription: async ({ description }) => {
-                const updated = await api.dataModelingNodes.update(props.id, { description })
+                const updated = await generatedDataModelingNodes.update(props.id, { description })
                 return updated
             },
         },
@@ -241,7 +245,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
-                return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                return await warehouseSavedQueriesRetrieve(String(ApiConfig.getCurrentProjectId()), node.saved_query_id)
             },
         },
         materializationJobs: {
@@ -251,7 +255,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!savedQuery) {
                     return null
                 }
-                return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
+                return await generatedSavedQueryApi.dataWarehouseDataModelingJobs.list(
                     savedQuery.id,
                     10,
                     values.jobsOffset
@@ -265,7 +269,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node) {
                     return null
                 }
-                const { nodes, edges } = await api.dataModelingNodes.lineage({ nodeId: node.id })
+                const { nodes, edges } = await generatedDataModelingNodes.lineage({ nodeId: node.id })
                 return { nodes, edges, currentNodeId: node.id }
             },
         },

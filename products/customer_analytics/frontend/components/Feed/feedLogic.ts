@@ -1,13 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { signalsScoutConfigList } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
 import {
     buildSignalReportListOrdering,
     InboxSortDirection,
@@ -163,7 +164,7 @@ export const feedLogic = kea<feedLogicType>([
             null as CountedPaginatedResponse<SignalReport> | null,
             {
                 loadReports: async (_, breakpoint) => {
-                    const response = await api.signalReports.list({
+                    const response = await generatedSignalReportsApi.list({
                         scout_prefix: CUSTOMER_ANALYTICS_SCOUT_PREFIX,
                         limit: REPORTS_LIMIT,
                         ordering: buildSignalReportListOrdering(values.sortField, values.sortDirection),
@@ -274,7 +275,7 @@ export const feedLogic = kea<feedLogicType>([
         },
         archiveReport: async ({ reportId, reason, note }) => {
             try {
-                await api.signalReports.setState(reportId, {
+                await generatedSignalReportsApi.setState(reportId, {
                     state: 'suppressed',
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),

@@ -354,6 +354,7 @@ const errorTrackingRecommendationsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                poll: params.poll,
             },
         })
         return result

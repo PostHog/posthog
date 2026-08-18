@@ -27,7 +27,12 @@ import {
     DataWarehouseSavedQueryIncrementalCheck,
 } from '~/types'
 
+import {
+    warehouseSavedQueriesCheckIncrementalCreate,
+    warehouseSavedQueriesRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
 import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
+import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
 
 import type { CountedPaginatedResponse } from '../../../lib/api'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
@@ -213,7 +218,10 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!props.viewId) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.get(props.viewId)
+                    return (await warehouseSavedQueriesRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.viewId
+                    )) as unknown as DataWarehouseSavedQuery
                 },
             },
         ],
@@ -225,7 +233,9 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
-                    return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
+                    return (await warehouseSavedQueriesCheckIncrementalCreate(String(ApiConfig.getCurrentProjectId()), {
+                        query: sql,
+                    })) as unknown as DataWarehouseSavedQueryIncrementalCheck
                 },
             },
         ],
@@ -233,7 +243,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             null as PaginatedResponse<DataModelingJob> | null,
             {
                 loadDataModelingJobs: async () => {
-                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
+                    return await generatedSavedQueryApi.dataWarehouseDataModelingJobs.list(
                         props.viewId,
                         values.dataModelingJobs?.results.length
                             ? Math.max(values.dataModelingJobs.results.length, DEFAULT_JOBS_PAGE_SIZE)

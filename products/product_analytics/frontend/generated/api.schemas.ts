@@ -8539,6 +8539,10 @@ export interface PathsV2SegmentToFunnelResponseApi {
 
 export type ColumnConfigurationsListParams = {
     /**
+     * Return configurations for this product-defined table context.
+     */
+    context_key?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number

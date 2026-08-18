@@ -23,6 +23,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { GroupTypeIndex } from '~/types'
 
+import { generatedColumnConfigurations } from 'products/product_analytics/frontend/generatedColumnConfigurationsApi'
+
 export interface ColumnConfiguratorLogicProps {
     key: string
     columns: string[]
@@ -164,7 +166,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     if (!props.contextKey) {
                         return null
                     }
-                    const response = await api.columnConfigurations.list({
+                    const response = await generatedColumnConfigurations.list({
                         teamId: teamLogic.values.currentTeamId || undefined,
                         context_key: props.contextKey,
                     })
@@ -228,13 +230,13 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             if (props.contextKey) {
                 try {
                     if (values.savedColumnConfiguration?.id) {
-                        await api.columnConfigurations.update({
+                        await generatedColumnConfigurations.update({
                             teamId: teamLogic.values.currentTeamId || undefined,
                             id: values.savedColumnConfiguration.id,
                             data: { columns: values.columns },
                         })
                     } else {
-                        const response = await api.columnConfigurations.create({
+                        const response = await generatedColumnConfigurations.create({
                             teamId: teamLogic.values.currentTeamId || undefined,
                             data: {
                                 context_key: props.contextKey,

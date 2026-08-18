@@ -3,11 +3,12 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { CoreMemory } from '~/types'
+
+import { generatedCoreMemoryApi } from 'products/posthog_ai/frontend/generatedSettingsApi'
 
 export type CoreMemoryForm = {
     text: string
@@ -142,7 +143,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
             __default: null as CoreMemory | null,
             loadCoreMemory: async (): Promise<CoreMemory | null> => {
                 try {
-                    const response = await api.coreMemory.list()
+                    const response = await generatedCoreMemoryApi.list()
                     return response.results[0] || null
                 } catch (error) {
                     // Non-OK responses (e.g. 403 when lacking access to the environment, or upstream
@@ -156,12 +157,12 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
-                    const response = await api.coreMemory.create(data)
+                    const response = await generatedCoreMemoryApi.create(data)
                     lemonToast.success('PostHog AI memory has been created.')
                     return response
                 }
 
-                const response = await api.coreMemory.update(values.coreMemory.id, data)
+                const response = await generatedCoreMemoryApi.update(values.coreMemory.id, data)
                 lemonToast.success('PostHog AI memory has been updated.')
                 return response
             },

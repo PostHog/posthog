@@ -23,6 +23,7 @@ import type {
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PaginatedSignalTeamConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
@@ -53,6 +54,7 @@ import type {
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
+    SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
@@ -71,9 +73,13 @@ import type {
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalsConfigListParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
+    SignalsReportsAvailableReviewersRetrieve200,
+    SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsScoutConfigListParams,
     SignalsScoutMembersListParams,
@@ -103,6 +109,62 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsConfigListUrl = (projectId: string, params?: SignalsConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ */
+export const signalsConfigList = async (
+    projectId: string,
+    params?: SignalsConfigListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalTeamConfigListApi> => {
+    return apiMutator<PaginatedSignalTeamConfigListApi>(getSignalsConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ */
+export const signalsConfigCreate = async (
+    projectId: string,
+    signalTeamConfigApi?: NonReadonly<SignalTeamConfigApi>,
+    options?: RequestInit
+): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalTeamConfigApi),
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -436,6 +498,30 @@ export const signalsReportsRefundCreate = async (
     })
 }
 
+export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/`
+}
+
+/**
+ * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+ * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+ * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+ * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ */
+export const signalsReportsReviewersUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportArtefactWriteApi: SignalReportArtefactWriteApi,
+    options?: RequestInit
+): Promise<SignalReportArtefactApi> => {
+    return apiMutator<SignalReportArtefactApi>(getSignalsReportsReviewersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportArtefactWriteApi),
+    })
+}
+
 export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/signals/`
 }
@@ -654,6 +740,39 @@ export const signalsReportArtefactsDiff = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getSignalsReportsAvailableReviewersRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/available_reviewers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/available_reviewers/`
+}
+
+export const signalsReportsAvailableReviewersRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams,
+    options?: RequestInit
+): Promise<SignalsReportsAvailableReviewersRetrieve200> => {
+    return apiMutator<SignalsReportsAvailableReviewersRetrieve200>(
+        getSignalsReportsAvailableReviewersRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {

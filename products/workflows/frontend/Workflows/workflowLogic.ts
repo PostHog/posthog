@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
 import api, { ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -25,6 +26,19 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import {
+    hogFlowTemplatesRetrieve,
+    hogFlowsBatchJobsCreate,
+    hogFlowsCreate,
+    hogFlowsDiscardDraftCreate,
+    hogFlowsPartialUpdate,
+    hogFlowsPublishCreate,
+    hogFlowsRetrieve,
+    hogFlowsSchedulesCreate,
+    hogFlowsSchedulesDestroy,
+    hogFlowsSchedulesList,
+    hogFlowsSchedulesPartialUpdate,
+} from 'products/workflows/frontend/generatedApiAdapter'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -2813,14 +2827,20 @@ export const workflowLogic = kea<workflowLogicType>([
                     if (!props.id || props.id === 'new') {
                         if (props.editTemplateId) {
                             // Editing a template - load it and add a temporary status field for the editor
-                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
+                            const templateWorkflow = await hogFlowTemplatesRetrieve(
+                                String(ApiConfig.getCurrentProjectId()),
+                                props.editTemplateId
+                            )
                             return {
                                 ...templateWorkflow,
                                 status: 'draft' as const, // Temporary status for editor compatibility, won't be saved
                             } as HogFlow
                         }
                         if (props.templateId) {
-                            const templateWorkflow = await api.hogFlowTemplates.getHogFlowTemplate(props.templateId)
+                            const templateWorkflow = await hogFlowTemplatesRetrieve(
+                                String(ApiConfig.getCurrentProjectId()),
+                                props.templateId
+                            )
 
                             const newWorkflow = {
                                 ...templateWorkflow,
@@ -2839,13 +2859,13 @@ export const workflowLogic = kea<workflowLogicType>([
                         return { ...NEW_WORKFLOW }
                     }
 
-                    return api.hogFlows.getHogFlow(props.id)
+                    return hogFlowsRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                 },
                 saveWorkflow: async (updates: HogFlow) => {
                     updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                     if (!props.id || props.id === 'new') {
-                        const result = await api.hogFlows.createHogFlow(updates)
+                        const result = await hogFlowsCreate(String(ApiConfig.getCurrentProjectId()), updates)
 
                         if (props.templateId) {
                             posthog.capture('hog_flow_created_from_template', {
@@ -2895,7 +2915,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         : values.originalWorkflow?.updated_at
 
                     try {
-                        return await api.hogFlows.updateHogFlow(props.id, {
+                        return await hogFlowsPartialUpdate(String(ApiConfig.getCurrentProjectId()), props.id, {
                             ...payload,
                             ...(stagingDraft ? { stage_draft: true } : {}),
                             // A staged save's metadata still writes live; fence that write with the
@@ -3525,7 +3545,9 @@ export const workflowLogic = kea<workflowLogicType>([
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
-                preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
+                preview = await hogFlowsPublishCreate(String(ApiConfig.getCurrentProjectId()), props.id, {
+                    confirm: false,
+                })
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
@@ -3546,7 +3568,10 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             try {
-                await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
+                await hogFlowsPublishCreate(String(ApiConfig.getCurrentProjectId()), props.id, {
+                    confirm: true,
+                    confirm_token: confirmToken,
+                })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
             } catch {
@@ -3580,7 +3605,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('discard')
             try {
-                await api.hogFlows.discardHogFlowDraft(props.id)
+                await hogFlowsDiscardDraftCreate(String(ApiConfig.getCurrentProjectId()), props.id)
                 lemonToast.success('Staged changes discarded')
                 actions.loadWorkflow()
             } catch {
@@ -3595,7 +3620,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // check and deliberately overwrites the other channel's version, instead of looping on 409.
             if (props.id && props.id !== 'new') {
                 try {
-                    const latest = await api.hogFlows.getHogFlow(props.id)
+                    const latest = await hogFlowsRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                     // On an active workflow the next save races the draft slot, so its stamp is the baseline.
                     actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
                 } catch {
@@ -3625,7 +3650,10 @@ export const workflowLogic = kea<workflowLogicType>([
             const triggerType = originalWorkflow.trigger?.type
             if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
                 try {
-                    const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
+                    const schedules = await hogFlowsSchedulesList(
+                        String(ApiConfig.getCurrentProjectId()),
+                        originalWorkflow.id
+                    )
                     actions.setSchedules(schedules)
                 } catch {
                     // Schedules are non-critical, don't block workflow loading
@@ -3658,11 +3686,24 @@ export const workflowLogic = kea<workflowLogicType>([
                 if (hasScheduleChanges) {
                     try {
                         if (pendingSchedule === null && existingScheduleId) {
-                            await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                            await hogFlowsSchedulesDestroy(
+                                String(ApiConfig.getCurrentProjectId()),
+                                workflowId,
+                                existingScheduleId
+                            )
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                            await hogFlowsSchedulesPartialUpdate(
+                                String(ApiConfig.getCurrentProjectId()),
+                                workflowId,
+                                existingScheduleId,
+                                pendingSchedule
+                            )
                         } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            await hogFlowsSchedulesCreate(
+                                String(ApiConfig.getCurrentProjectId()),
+                                workflowId,
+                                pendingSchedule
+                            )
                         }
 
                         if (pendingSchedule !== null) {
@@ -3673,7 +3714,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             })
                         }
 
-                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
+                        const schedules = await hogFlowsSchedulesList(
+                            String(ApiConfig.getCurrentProjectId()),
+                            workflowId
+                        )
                         actions.setSchedules(schedules)
                     } catch (e) {
                         console.error('Failed to save schedule', e)
@@ -3859,7 +3903,7 @@ export const workflowLogic = kea<workflowLogicType>([
             delete (newWorkflow as any).created_at
             delete (newWorkflow as any).updated_at
 
-            const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
+            const createdWorkflow = await hogFlowsCreate(String(ApiConfig.getCurrentProjectId()), newWorkflow)
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },
@@ -3906,7 +3950,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering batch workflow...')
 
             try {
-                await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
+                await hogFlowsBatchJobsCreate(String(ApiConfig.getCurrentProjectId()), values.workflow.id, {
                     variables,
                     filters,
                 })

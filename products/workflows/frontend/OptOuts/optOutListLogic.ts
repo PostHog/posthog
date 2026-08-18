@@ -4,10 +4,14 @@ import Papa from 'papaparse'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { downloadFile } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 
+import {
+    messagingPreferencesBulkAddOptOutsCreate,
+    messagingPreferencesExportOptOutsCsvRetrieve,
+} from 'products/messaging/frontend/generated/api'
 import {
     messagingPreferencesAddOptOutCreate,
     messagingPreferencesOptOutsRetrieve,
@@ -446,7 +450,10 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 __default: null as null,
                 exportCsv: async (): Promise<null> => {
                     try {
-                        const blob = await api.messaging.exportOptOutsCsv(props.category?.key)
+                        const blob = await messagingPreferencesExportOptOutsCsvRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            { category_key: props.category?.key }
+                        )
                         downloadFile(new File([blob], `opt-outs-${props.category?.key ?? 'all-marketing'}.csv`))
                     } catch {
                         lemonToast.error('Failed to export opt-outs')
@@ -485,9 +492,15 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     for (let start = 0; start < parsed.entries.length; start += BULK_OPT_OUT_CHUNK_SIZE) {
                         const chunk = parsed.entries.slice(start, start + BULK_OPT_OUT_CHUNK_SIZE)
                         try {
-                            const chunkResult = await api.messaging.bulkAddOptOuts(
-                                chunk.map(({ identifier, category_key }) => ({ identifier, category_key })),
-                                props.category?.key
+                            const chunkResult = await messagingPreferencesBulkAddOptOutsCreate(
+                                String(ApiConfig.getCurrentProjectId()),
+                                {
+                                    opt_outs: chunk.map(({ identifier, category_key }) => ({
+                                        identifier,
+                                        category_key,
+                                    })),
+                                    category_key: props.category?.key,
+                                }
                             )
                             result.opted_out += chunkResult.opted_out
                             result.skipped += chunkResult.skipped

@@ -2420,6 +2420,54 @@ class HogFlowInvocationSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class HogFlowInvocationResultValueField(serializers.JSONField):
+    pass
+
+
+class HogFlowInvocationResultSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=["success", "error", "skipped"],
+        help_text="Outcome of the test invocation.",
+    )
+    logs = serializers.ListField(
+        child=HogFlowInvocationResultValueField(),
+        required=False,
+        help_text="Execution log entries emitted by the test invocation.",
+    )
+    nextActionId = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Next workflow action to execute, or null when execution is complete.",
+    )
+    errors = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Errors produced during execution.",
+    )
+    variables = serializers.DictField(
+        child=HogFlowInvocationResultValueField(),
+        required=False,
+        help_text="Workflow variables after execution.",
+    )
+    execResult = HogFlowInvocationResultValueField(
+        required=False,
+        help_text="Raw result returned by the executed action.",
+    )
+
+
+class HogFlowBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="Archived workflow IDs to delete.",
+    )
+
+
+class HogFlowBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.IntegerField(help_text="Number of workflows deleted.")
+
+
 class HogFlowPublishRequestSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(
         default=False,
@@ -3593,7 +3641,7 @@ class HogFlowViewSet(
 
         return Response(self.get_serializer(locked).data)
 
-    @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
+    @extend_schema(request=HogFlowInvocationSerializer, responses={200: HogFlowInvocationResultSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
@@ -3892,6 +3940,10 @@ class HogFlowViewSet(
         rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
         return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
+    @extend_schema(
+        request=HogFlowBulkDeleteRequestSerializer,
+        responses={200: HogFlowBulkDeleteResponseSerializer},
+    )
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
         ids = request.data.get("ids", [])

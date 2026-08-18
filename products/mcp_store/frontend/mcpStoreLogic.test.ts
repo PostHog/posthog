@@ -1,12 +1,22 @@
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
+import {
+    mcpServerInstallationsList,
+    mcpServerInstallationsToolsPartialUpdate,
+    mcpServerInstallationsToolsRetrieve,
+    mcpServersList,
+} from './generated/api'
 import type { MCPServerInstallationApi, MCPServerInstallationToolApi } from './generated/api.schemas'
 import { mcpStoreLogic } from './mcpStoreLogic'
 
 jest.mock('lib/api')
+jest.mock('./generated/api')
+
+const mockedMcpServersList = jest.mocked(mcpServersList)
+const mockedMcpServerInstallationsList = jest.mocked(mcpServerInstallationsList)
+const mockedMcpServerInstallationsToolsPartialUpdate = jest.mocked(mcpServerInstallationsToolsPartialUpdate)
+const mockedMcpServerInstallationsToolsRetrieve = jest.mocked(mcpServerInstallationsToolsRetrieve)
 
 function installation(id: string, url?: string): MCPServerInstallationApi {
     return {
@@ -51,8 +61,8 @@ describe('mcpStoreLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         jest.resetAllMocks()
-        jest.spyOn(api.mcpServers, 'list').mockResolvedValue({ count: 0, results: [] })
-        jest.spyOn(api.mcpServerInstallations, 'list').mockResolvedValue({ count: 0, results: [] })
+        mockedMcpServersList.mockResolvedValue({ count: 0, results: [] })
+        mockedMcpServerInstallationsList.mockResolvedValue({ count: 0, results: [] })
 
         logic = mcpStoreLogic()
         logic.mount()
@@ -73,10 +83,13 @@ describe('mcpStoreLogic', () => {
         ]
         logic.actions.loadInstallationsSuccess(installations)
         logic.actions.loadInstallationToolsSuccess(Object.fromEntries(installations.map(({ id }) => [id, [tool(id)]])))
-        jest.spyOn(api.mcpServerInstallations, 'updateToolApproval').mockResolvedValue({})
-        const listTools = jest
-            .spyOn(api.mcpServerInstallations, 'listTools')
-            .mockImplementation(async (installationId) => ({ results: [tool(installationId)] }))
+        mockedMcpServerInstallationsToolsPartialUpdate.mockResolvedValue({} as MCPServerInstallationToolApi)
+        mockedMcpServerInstallationsToolsRetrieve.mockImplementation(async (_projectId, installationId) => ({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [tool(installationId)],
+        }))
 
         await expectLogic(logic, () => {
             logic.actions.setToolApprovalState({
@@ -86,6 +99,8 @@ describe('mcpStoreLogic', () => {
             })
         }).toFinishAllListeners()
 
-        expect(listTools.mock.calls.map(([installationId]) => installationId).sort()).toEqual(['same-server', 'source'])
+        expect(
+            mockedMcpServerInstallationsToolsRetrieve.mock.calls.map(([, installationId]) => installationId).sort()
+        ).toEqual(['same-server', 'source'])
     })
 })

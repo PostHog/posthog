@@ -320,6 +320,10 @@ export interface _TracingDurationHistogramRequestApi {
     query: _TracingDurationHistogramQueryBodyApi
 }
 
+export interface _TracingDurationHistogramResponseApi {
+    results: unknown[]
+}
+
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean
@@ -412,6 +416,17 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _TracingQueryResponseApi {
+    results: unknown[]
+    hasMore: boolean
+    /** @nullable */
+    nextCursor: string | null
+}
+
+export interface _TracingServiceNamesResponseApi {
+    results: string[]
+}
+
 export interface _TracingSparklineQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -428,6 +443,10 @@ export interface _TracingSparklineQueryBodyApi {
 export interface _TracingSparklineRequestApi {
     /** The sparkline query to execute. */
     query: _TracingSparklineQueryBodyApi
+}
+
+export interface _TracingSparklineResponseApi {
+    results: unknown[]
 }
 
 export interface _SymbolStatsSymbolApi {
@@ -565,6 +584,13 @@ export interface _TracingTraceRequestApi {
     offset?: number
 }
 
+export interface _TracingTraceResponseApi {
+    results: unknown[]
+    hasMore: boolean
+    /** @nullable */
+    nextOffset: number | null
+}
+
 export interface _TracingTreeQueryBodyApi {
     /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
     spanName: string
@@ -583,6 +609,12 @@ export interface _TracingTreeQueryBodyApi {
 export interface _TracingTreeRequestApi {
     /** The span call-tree aggregation query to execute. */
     query: _TracingTreeQueryBodyApi
+}
+
+export interface _TracingTreeResponseApi {
+    results: unknown[]
+    /** @nullable */
+    compare: unknown[] | null
 }
 
 /**

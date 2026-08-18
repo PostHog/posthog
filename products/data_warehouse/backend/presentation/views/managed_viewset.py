@@ -1,4 +1,5 @@
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,6 +17,23 @@ class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(required=True)
 
 
+class DataWarehouseManagedViewSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    created_by_id = serializers.IntegerField(allow_null=True)
+
+
+class DataWarehouseManagedViewSetResponseSerializer(serializers.Serializer):
+    views = DataWarehouseManagedViewSerializer(many=True)
+    count = serializers.IntegerField()
+
+
+class DataWarehouseManagedViewSetUpdateResponseSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    kind = serializers.ChoiceField(choices=DataWarehouseManagedViewSetKind.choices)
+
+
 class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # warehouse_view inherits from warehouse_objects; `update` (enable/disable) creates or
     # deletes saved queries project-wide, so it must require warehouse editor rights.
@@ -25,6 +43,7 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
     lookup_url_kwarg = "kind"
     queryset = DataWarehouseManagedViewSet.objects.all()
 
+    @extend_schema(responses=DataWarehouseManagedViewSetResponseSerializer)
     def retrieve(self, _request: Request, kind: str, *args, **kwargs) -> Response:
         """
         Get all views associated with a specific managed viewset.
@@ -54,6 +73,10 @@ class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         except DataWarehouseManagedViewSet.DoesNotExist:
             return Response({"views": [], "count": 0}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=DataWarehouseManagedViewSetSerializer,
+        responses=DataWarehouseManagedViewSetUpdateResponseSerializer,
+    )
     def update(self, request: Request, kind: str, *args, **kwargs) -> Response:
         """
         Enable or disable a managed viewset by kind.

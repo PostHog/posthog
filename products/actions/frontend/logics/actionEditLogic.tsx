@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
-import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -19,6 +18,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import type { ActionReferenceApi } from '../generated/api.schemas'
+import { generatedActionCreate, generatedActionReferences, generatedActionUpdate } from '../generatedApi'
 import { deleteActionWithWarning } from '../utils/deleteAction'
 import { actionLogic } from './actionLogic'
 
@@ -273,10 +273,13 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 }
                 try {
                     if (updatedAction.id) {
-                        action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
+                        action = await generatedActionUpdate(updatedAction.id, {
+                            ...updatedAction,
+                            steps: updatedSteps,
+                        })
                     } else {
                         const folder = updatedAction._create_in_folder ?? getLastNewFolder()
-                        action = await api.actions.create({
+                        action = await generatedActionCreate({
                             ...updatedAction,
                             steps: updatedSteps,
                             ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
@@ -366,9 +369,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
-                    return response
+                    return await generatedActionReferences(props.id)
                 },
             },
         ],

@@ -36,7 +36,7 @@ import type {
     EvaluationReportApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
-    EvaluationRunsCreate200,
+    EvaluationRunResponseApi,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
@@ -660,8 +660,8 @@ export const evaluationRunsCreate = async (
     projectId: string,
     evaluationRunRequestApi: EvaluationRunRequestApi,
     options?: RequestInit
-): Promise<EvaluationRunsCreate200> => {
-    return apiMutator<EvaluationRunsCreate200>(getEvaluationRunsCreateUrl(projectId), {
+): Promise<EvaluationRunResponseApi> => {
+    return apiMutator<EvaluationRunResponseApi>(getEvaluationRunsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

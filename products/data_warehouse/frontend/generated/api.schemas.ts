@@ -773,6 +773,40 @@ export interface PatchedInsightVariableApi {
     values_query_connection_id?: string | null
 }
 
+export interface DataWarehouseManagedViewApi {
+    id: string
+    name: string
+    created_at: string
+    /** @nullable */
+    created_by_id: number | null
+}
+
+export interface DataWarehouseManagedViewSetResponseApi {
+    views: DataWarehouseManagedViewApi[]
+    count: number
+}
+
+export interface DataWarehouseManagedViewSetApi {
+    enabled: boolean
+}
+
+/**
+ * * `revenue_analytics` - Revenue Analytics
+ * * `engineering_analytics` - Engineering Analytics
+ */
+export type DataWarehouseManagedViewSetUpdateResponseKindEnumApi =
+    (typeof DataWarehouseManagedViewSetUpdateResponseKindEnumApi)[keyof typeof DataWarehouseManagedViewSetUpdateResponseKindEnumApi]
+
+export const DataWarehouseManagedViewSetUpdateResponseKindEnumApi = {
+    RevenueAnalytics: 'revenue_analytics',
+    EngineeringAnalytics: 'engineering_analytics',
+} as const
+
+export interface DataWarehouseManagedViewSetUpdateResponseApi {
+    enabled: boolean
+    kind: DataWarehouseManagedViewSetUpdateResponseKindEnumApi
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /**
@@ -4926,6 +4960,13 @@ export type QueryTabStateListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type QueryTabStateUserRetrieveParams = {
+    /**
+     * User UUID whose saved query-tab state should be returned.
+     */
+    user_id: string
 }
 
 export type SavedQueryColumnAnnotationsListParams = {

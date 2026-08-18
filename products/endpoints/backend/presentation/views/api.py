@@ -93,13 +93,69 @@ from products.endpoints.backend.presentation.throttles import (
 
 
 class MaterializationPreviewRequestSerializer(serializers.Serializer):
-    version = serializers.IntegerField(required=False)
+    version = serializers.IntegerField(
+        required=False, help_text="Endpoint version to preview. Defaults to the current version."
+    )
     bucket_overrides = serializers.DictField(
         child=serializers.CharField(),
         required=False,
         allow_null=True,
         help_text='Per-column bucket function overrides, e.g. {"timestamp": "hour"}',
     )
+
+
+class MaterializationPreviewRangePairSerializer(serializers.Serializer):
+    column = serializers.CharField(help_text="Column used for time bucketing.")
+    variables = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Query variables associated with this range pair.",
+    )
+    bucket_fn = serializers.CharField(help_text="Bucket function applied to the column.")
+
+
+class MaterializationPreviewAggregateSerializer(serializers.Serializer):
+    expression = serializers.CharField(help_text="Aggregate expression in the transformed query.")
+    reaggregate_fn = serializers.CharField(
+        allow_null=True,
+        help_text="Function used to aggregate materialized results again, when required.",
+    )
+
+
+class MaterializationPreviewResponseSerializer(serializers.Serializer):
+    can_materialize = serializers.BooleanField(help_text="Whether the endpoint query can be materialized.")
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text="Reason the query cannot be materialized, or null when it can.",
+    )
+    transformed_query = serializers.CharField(
+        allow_null=True,
+        help_text="Query rewritten for materialization, when available.",
+    )
+    execution_query = serializers.CharField(
+        allow_null=True,
+        help_text="Query executed against the materialized table, when available.",
+    )
+    display_execution_query = serializers.CharField(
+        allow_null=True,
+        help_text="Human-readable execution query, when available.",
+    )
+    range_pairs = MaterializationPreviewRangePairSerializer(
+        many=True,
+        help_text="Detected range pairs and their bucket functions.",
+    )
+    aggregates = MaterializationPreviewAggregateSerializer(
+        many=True,
+        help_text="Aggregate expressions and their re-aggregation functions.",
+    )
+
+
+ENDPOINT_VERSION_PARAMETER = OpenApiParameter(
+    name="version",
+    type=int,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Endpoint version. Defaults to the current version.",
+)
 
 
 @extend_schema_view(
@@ -394,6 +450,7 @@ class EndpointViewSet(
         return Response({"results": results})
 
     @extend_schema(
+        parameters=[ENDPOINT_VERSION_PARAMETER],
         responses={200: EndpointVersionResponseSerializer},
         description="Retrieve an endpoint, or a specific version via ?version=N.",
     )
@@ -620,6 +677,7 @@ class EndpointViewSet(
         return Response({"results": results})
 
     @extend_schema(
+        parameters=[ENDPOINT_VERSION_PARAMETER],
         responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
@@ -639,6 +697,7 @@ class EndpointViewSet(
 
     @validated_request(
         MaterializationPreviewRequestSerializer,
+        responses={200: MaterializationPreviewResponseSerializer},
         description="Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
     )
     @action(methods=["POST"], detail=True, url_path="materialization_preview")
