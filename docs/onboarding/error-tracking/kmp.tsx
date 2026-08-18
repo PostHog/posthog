@@ -4,7 +4,7 @@ import { getKMPSteps } from '../product-analytics/kmp'
 import { StepDefinition } from '../steps'
 
 export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
+    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
 
     const installSteps = getKMPSteps(ctx)
 
@@ -23,37 +23,86 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
-        badge: 'recommended',
+        badge: 'required',
         content: (
             <>
                 <CalloutBox type="fyi" title="Version requirement">
                     <Markdown>The error tracking configuration requires PostHog KMP version 0.4.0 or higher.</Markdown>
                 </CalloutBox>
                 <Markdown>
-                    Set `errorTracking.autoCapture` to `true` when you initialize PostHog. You can also provide package
-                    or bundle prefixes so PostHog marks matching stack frames as in-app code.
+                    Both the project setting from the previous step and `errorTracking.autoCapture` must be enabled.
+                    Replace the `PostHog.setup()` call from the configuration step with the appropriate example below.
+                    The optional `inAppIncludes` prefixes mark matching stack frames as in-app code on Android, iOS, and
+                    JVM. Kotlin/JS and Kotlin/Wasm ignore `inAppIncludes`.
                 </Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'kotlin',
-                            file: 'Kotlin',
-                            code: dedent`
-                                import com.posthog.kmp.ErrorTrackingConfig
-                                import com.posthog.kmp.PostHogConfig
+                <Tab.Group tabs={['Android', 'iOS, Web, and JVM']}>
+                    <Tab.Panels>
+                        <Tab.Panel>
+                            <Markdown>
+                                Keep this call inside the `Application.onCreate()` method from the Android configuration
+                                example:
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'kotlin',
+                                        file: 'MyApplication.kt',
+                                        code: dedent`
+                                            import com.posthog.kmp.ErrorTrackingConfig
+                                            import com.posthog.kmp.PostHog
+                                            import com.posthog.kmp.PostHogConfig
+                                            import com.posthog.kmp.PostHogContext
 
-                                val config = PostHogConfig(
-                                    apiKey = "<ph_project_token>",
-                                    host = "<ph_client_api_host>",
-                                    errorTracking = ErrorTrackingConfig(
-                                        autoCapture = true,
-                                        inAppIncludes = listOf("com.example"),
-                                    ),
-                                )
-                            `,
-                        },
-                    ]}
-                />
+                                            PostHog.setup(
+                                                config = PostHogConfig(
+                                                    apiKey = "<ph_project_token>",
+                                                    host = "<ph_client_api_host>",
+                                                    errorTracking = ErrorTrackingConfig(
+                                                        autoCapture = true,
+                                                        inAppIncludes = listOf("com.example"),
+                                                    ),
+                                                ),
+                                                context = PostHogContext(this),
+                                            )
+                                        `,
+                                    },
+                                ]}
+                            />
+                        </Tab.Panel>
+                        <Tab.Panel>
+                            <Markdown>
+                                On iOS, web, and JVM, keep using the no-argument `PostHogContext()` from the
+                                configuration example:
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'kotlin',
+                                        file: 'Kotlin',
+                                        code: dedent`
+                                            import com.posthog.kmp.ErrorTrackingConfig
+                                            import com.posthog.kmp.PostHog
+                                            import com.posthog.kmp.PostHogConfig
+                                            import com.posthog.kmp.PostHogContext
+
+                                            PostHog.setup(
+                                                config = PostHogConfig(
+                                                    apiKey = "<ph_project_token>",
+                                                    host = "<ph_client_api_host>",
+                                                    errorTracking = ErrorTrackingConfig(
+                                                        autoCapture = true,
+                                                        inAppIncludes = listOf("com.example"),
+                                                    ),
+                                                ),
+                                                context = PostHogContext(),
+                                            )
+                                        `,
+                                    },
+                                ]}
+                            />
+                        </Tab.Panel>
+                    </Tab.Panels>
+                </Tab.Group>
                 <Markdown>
                     On Android, iOS, and JVM, this captures unhandled exceptions. On Kotlin/JS and Kotlin/Wasm, it
                     captures unhandled errors and unhandled promise rejections. It does not capture browser console
