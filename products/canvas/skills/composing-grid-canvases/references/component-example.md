@@ -1,6 +1,7 @@
 # A known-good component
 
-This is a complete, buildable component project — the same shape as the welcome checklist PostHog seeds onto new home canvases (`products/canvas/backend/welcome.py`, verified against the real canvas builder).
+This is a complete, buildable component project — the welcome checklist PostHog seeds onto new home canvases (`products/canvas/backend/welcome.py`, verified against the real canvas builder).
+The envelope below shows the fields you author; its `index.html` and `dependencies` come from `canvas-source-retrieve` and are kept exactly as returned (see [validating-and-publishing-canvases](../../validating-and-publishing-canvases/SKILL.md)) — the placeholders below stand in for them.
 Start from it when building a checklist, settings, or any state-carrying widget, and keep its structure even when you replace the content: the project envelope, the placement contract, the capability declarations, and the defensive `ph.state` access are the parts that break when improvised.
 
 ## The project envelope
@@ -9,12 +10,14 @@ Start from it when building a checklist, settings, or any state-carrying widget,
 {
   "schemaVersion": 1,
   "entryHtml": "index.html",
-  "files": { "index.html": "<!-- synthetic entry -->", "src/canvas.tsx": "<the component below>" },
+  "files": { "index.html": "<synthetic shell from canvas-source-retrieve — loads /src/canvas.tsx as a module>", "src/canvas.tsx": "<the component below>" },
+  "dependencies": { "react": "<pinned>", "react-dom": "<pinned>", "@posthog/quill": "<pinned>", "lucide-react": "<pinned>" },
   "capabilities": { "posthog": { "state": ["user"] }, "network": { "origins": [] } },
   "component": { "size": { "defaultW": 3, "defaultH": 5, "minW": 2, "minH": 3 } }
 }
 ```
 
+- `index.html` must load `/src/canvas.tsx` as a module and every imported package must be in `dependencies` — the retrieved shell and dependency map already satisfy both. Improvising a comment-only entry fails the build with `no_entry_module`; dropping the `@posthog/quill` or `lucide-react` entries fails it with `import_not_declared`.
 - `capabilities.posthog.state` must name every scope the code passes to `ph.state.*` — validation rejects an undeclared scope.
 - `component.size` is in grid units and advisory; the component still has to render at any size the user drags.
 
