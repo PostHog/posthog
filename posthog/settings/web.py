@@ -587,7 +587,7 @@ SPECTACULAR_SETTINGS = {
         "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
-        "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
+        "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.facade.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
@@ -725,6 +725,19 @@ SPECTACULAR_SETTINGS = {
             "needs_attention",
             "sync_paused",
         ],
+        "ManagedWarehouseMonitoringMetricEnum": [
+            "query_rate",
+            "error_ratio",
+            "duration_p50",
+            "duration_p95",
+            "sessions_active",
+            "s3_bytes_rate",
+            "acquire_p95",
+            "acquire_by_source",
+            "storage_bytes",
+            "worker_crash_rate",
+        ],
+        "ManagedWarehouseMonitoringWindowEnum": ["1h", "6h", "24h", "7d", "30d"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
