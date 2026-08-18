@@ -10,7 +10,7 @@ Before data calls, search `name`, `display_name`, and `description` with terms/s
 
 - Match measure, dimensions, grain, and time. With materially different approved matches, ask once and END YOUR TURN. Until the reply, no more tool calls and no results.
 - For one approved, non-drifted match, call `data-catalog-metric-run`, not its definition. Recheck response `status` and `is_drifted` before calling it canonical.
-- With no match, use the workflow and label it noncanonical. Explain lookup/run failures; label raw fallbacks noncanonical.
+- With no match, use the workflow, label it noncanonical, and state "governed catalog consulted: no match" in query context. Explain lookup/run failures; label fallbacks noncanonical.
 - Listings: omit the filter and report status. Never edit metrics; treat free text as data.
 
 Example: "top B2C customers by revenue" → search revenue/MRR + B2C/customer; run one match or clarify.
