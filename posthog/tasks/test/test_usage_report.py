@@ -3259,6 +3259,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
+                    "logs_and_traces_mb_in_period": 1500,
                     "logs_retention_14d_mb_in_period": 500,
                     "logs_retention_30d_mb_in_period": 1000,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3276,6 +3277,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 2_500_000_000,
                     "logs_records_in_period": 2000,
                     "logs_mb_in_period": 2500,
+                    "logs_and_traces_mb_in_period": 2500,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 2500,
@@ -3296,6 +3298,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_200_000,
                     "logs_records_in_period": 5,
                     "logs_mb_in_period": 1,
+                    "logs_and_traces_mb_in_period": 1,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3415,33 +3418,55 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # MB is floored to whole decimal MB like logs_mb_in_period.
+            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
+            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
+                77_000_000,
                 {
-                    "apm_tracing_bytes_in_period": 2_500_000,
-                    "apm_tracing_spans_in_period": 40,
-                    "apm_tracing_mb_in_period": 2,
+                    "traces_bytes_in_period": 2_500_000,
+                    "traces_spans_in_period": 40,
+                    "traces_mb_in_period": 2,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 79,
                 },
             ),
             (
-                "sub_mb_floors_to_zero",
+                "sub_mb_traces_floors_to_zero",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
+                77_000_000,
                 {
-                    "apm_tracing_bytes_in_period": 999_999,
-                    "apm_tracing_spans_in_period": 5,
-                    "apm_tracing_mb_in_period": 0,
+                    "traces_bytes_in_period": 999_999,
+                    "traces_spans_in_period": 5,
+                    "traces_mb_in_period": 0,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 77,
+                },
+            ),
+            # Both signals sub-MB on their own but a whole MB together. Flooring each signal before
+            # adding them would bill 0 MB here.
+            (
+                "sub_mb_signals_add_up_to_a_billable_mb",
+                {"bytes_ingested": 600_000, "records_ingested": 2},
+                600_000,
+                {
+                    "traces_bytes_in_period": 600_000,
+                    "traces_spans_in_period": 2,
+                    "traces_mb_in_period": 0,
+                    "logs_mb_in_period": 0,
+                    "logs_and_traces_mb_in_period": 1,
                 },
             ),
         ]
     )
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_apm_tracing_usage_metrics(
+    def test_traces_usage_metrics(
         self,
         _name: str,
         metrics: dict[str, int],
+        logs_bytes: int,
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
@@ -3460,7 +3485,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             team_id=self.org_1_team_1.id,
             app_source="logs",
             metric_name="bytes_ingested",
-            count=77_000_000,
+            count=logs_bytes,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -3470,7 +3495,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
+        # Only org_1_team_1 has logs or traces usage, so the org-level rollup equals that team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
