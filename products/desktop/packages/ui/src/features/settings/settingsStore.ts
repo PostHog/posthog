@@ -6,6 +6,10 @@ import type {
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
+import {
+  TIP_SHOWINGS,
+  type TipKey,
+} from "@posthog/ui/features/settings/tipKeys";
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -83,8 +87,26 @@ export interface HintState {
   learned: boolean;
 }
 
-/** How many times an unanswered hint is offered before it stops on its own. */
+/** How many showings a hint gets under a key no longer in `TIP_SHOWINGS`. */
 export const DEFAULT_HINT_MAX = 3;
+
+/**
+ * Whether a lesson has stopped offering itself: someone answered it, or it ran
+ * out of showings. Reset is what brings either back.
+ */
+function isHintRetired(key: string, hint: HintState | undefined): boolean {
+  if (!hint) return false;
+  if (hint.learned) return true;
+  const showings = TIP_SHOWINGS[key as TipKey];
+  if (showings?.kind === "answered-only") return false;
+  return hint.count >= (showings?.max ?? DEFAULT_HINT_MAX);
+}
+
+/** How many of a person's saved lessons have stopped offering themselves. */
+export function countRetiredHints(hints: Record<string, HintState>): number {
+  return Object.entries(hints).filter(([key, hint]) => isHintRetired(key, hint))
+    .length;
+}
 
 /**
  * Snapshot of the user-level AGENTS.md/CLAUDE.md that personalization syncs
@@ -269,7 +291,7 @@ interface SettingsStore {
   // `hints`, so turning it back on restores whatever was left unanswered
   // rather than everything.
   tipsEnabled: boolean;
-  shouldShowHint: (key: string, max?: number) => boolean;
+  shouldShowHint: (key: string) => boolean;
   recordHintShown: (key: string) => void;
   markHintLearned: (key: string) => void;
   resetHints: () => void;
@@ -501,12 +523,8 @@ export const useSettingsStore = create<SettingsStore>()(
       // Onboarding hints
       hints: {},
       tipsEnabled: true,
-      shouldShowHint: (key, max = DEFAULT_HINT_MAX) => {
-        if (!get().tipsEnabled) return false;
-        const hint = get().hints[key];
-        if (!hint) return true;
-        return !hint.learned && hint.count < max;
-      },
+      shouldShowHint: (key) =>
+        get().tipsEnabled && !isHintRetired(key, get().hints[key]),
       recordHintShown: (key) =>
         set((state) => {
           const current = state.hints[key] ?? { count: 0, learned: false };
