@@ -105,6 +105,36 @@ tools:
     managed-viewsets-update:
         operation: managed_viewsets_update
         enabled: false
+    managed-warehouse-metric-history-get:
+        operation: data_warehouse_managed_warehouse_monitoring_timeseries_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get managed warehouse metric history
+        description: >
+            Get one operational metric over a trailing time window for the active project's managed warehouse. Available
+            metrics cover query rate and errors, query duration, active sessions, worker acquisition, storage size, and
+            worker crashes. The response includes units and labeled series. These values are not billing totals.
+        feature_flag: data-warehouse-scene
+    managed-warehouse-monitoring-get:
+        operation: data_warehouse_managed_warehouse_monitoring_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get managed warehouse monitoring
+        description: >
+            Get current workers, allocated resources, active sessions, running queries, queued connections, capacity
+            limits, and response coverage for the active project's managed warehouse. Use this to inspect current
+            capacity and workload. These values describe operational activity, not invoiced usage.
+        feature_flag: data-warehouse-scene
     query-tab-state-create:
         operation: query_tab_state_create
         enabled: false

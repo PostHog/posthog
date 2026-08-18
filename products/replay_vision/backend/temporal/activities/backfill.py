@@ -26,7 +26,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     ReplayScannerBackfill,
 )
 from products.replay_vision.backend.queries import excluded_sessions
-from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
+from products.replay_vision.backend.queries.scanner_candidate_query import WindowedCandidateQuery
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
@@ -157,11 +157,12 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
 
-    candidate_query = BackfillCandidateQuery(
+    candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
         window_start=backfill.window_start,
         window_end=backfill.window_end,
+        query_type="ReplayVisionBackfillCandidateQuery",
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),

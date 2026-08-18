@@ -18,6 +18,7 @@ import {
   LazyCloudReviewPage as CloudReviewPage,
   LazyReviewPage as ReviewPage,
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
+import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
@@ -156,6 +157,7 @@ function useFadingSide(
   held: boolean,
 ): RightPanelSide | null {
   const [drawn, setDrawn] = useState(active);
+
   useEffect(() => {
     if (active != null) {
       setDrawn(active);
@@ -165,6 +167,7 @@ function useFadingSide(
     const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
+
   return drawn;
 }
 
@@ -198,6 +201,8 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
 
   const open = active != null;
   const drawn = useFadingSide(active, isResizing);
+
+  useEffect(() => preloadReviewPages(), []);
 
   // Dragging the handle past the panel's floor closes it, and dragging back out
   // while still holding brings it in again. The drag holds the closing panel's
@@ -243,9 +248,6 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
                   {SIDES[drawn].label}
                 </span>
               </div>
-              {/* Nothing under the title until the session resolves, because
-                  the route says there is a session and an empty state would
-                  contradict it. */}
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 {task &&
                   (drawn === "changes" ? (
