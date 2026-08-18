@@ -1,14 +1,32 @@
 from pathlib import Path
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+
+from redis.exceptions import RedisError
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
 
 from products.context_layer.backend import store
 from products.context_layer.backend.models import ContextLayerConfig
+
+
+class TestRepoWriterLock(SimpleTestCase):
+    def test_release_redis_error_does_not_propagate(self) -> None:
+        client = MagicMock()
+        client.set.return_value = True
+        client.eval.side_effect = RedisError("redis unavailable")
+
+        with patch.object(store, "get_client", return_value=client):
+            # Releasing the lock fails, but the write has already landed by then,
+            # so the context manager must exit cleanly rather than raise.
+            with store.repo_writer_lock("org-1"):
+                pass
+
+        assert client.eval.called
 
 
 @override_settings(OBJECT_STORAGE_ENABLED=True)
