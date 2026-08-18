@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import connection
+from django.db import InterfaceError, OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -332,6 +332,25 @@ class TestComputeTableStatisticsActivity:
         ):
             inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
             with pytest.raises(TransientObjectStoreError):
+                await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize("error_cls", [OperationalError, InterfaceError])
+    async def test_activity_does_not_report_transient_app_db_error(self, error_cls: type[Exception]) -> None:
+        # compute_table_statistics_sync's Team/ExternalDataSchema/ExternalDataJob lookups run against
+        # PostHog's own app DB through a connection pooler. A pooler blip under load (e.g. PgBouncer's
+        # query_wait_timeout) surfaces as a Django OperationalError/InterfaceError that the activity
+        # interceptor (posthog_client.py) already knows to keep out of error tracking via
+        # is_transient_db_error — but only if nothing reports it first. This activity's own except
+        # block must defer to that same classifier instead of unconditionally calling
+        # capture_exception, or it reports the blip before the interceptor ever gets a say. It must
+        # still fail the activity so Temporal retries it.
+        with (
+            patch.object(comp, "compute_table_statistics_sync", side_effect=error_cls("query_wait_timeout")),
+            patch.object(comp, "capture_exception") as mock_capture,
+        ):
+            inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
+            with pytest.raises(error_cls, match="query_wait_timeout"):
                 await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
         mock_capture.assert_not_called()
 
