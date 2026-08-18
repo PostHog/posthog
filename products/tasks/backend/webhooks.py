@@ -16,15 +16,14 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
-from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
+from products.tasks.backend.facade.api import (
+    get_agent_opened_pr_urls_by_task,
+    post_pr_created_thread_update,
+    signal_workflow_completion,
+)
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.pr_urls import (
-    merge_pr_output,
-    read_agent_opened_pr_urls,
-    read_pr_urls,
-    read_pushed_commit_shas,
-)
+from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls, read_pushed_commit_shas
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -191,9 +190,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
     task_run_output = task_run.output if task_run is not None and isinstance(task_run.output, dict) else {}
     claimed_pr_urls = read_pr_urls(task_run_output) if task_run is not None else []
-    # PRs our agent is attested to have opened. Only these may drive a report's state, so a customer
-    # PR on a colliding branch cannot resolve or suppress the report (and trigger closing its real PR).
-    agent_opened_pr_urls = read_agent_opened_pr_urls(task_run_output) if task_run is not None else []
+    # PRs our agent is attested to have opened, unioned across every run of the task. Only these may
+    # drive a report's state, so a customer PR on a colliding branch cannot resolve or suppress the
+    # report (and trigger closing its real PR). The union — not this run's output alone — is what the
+    # gate must read: the transition below selects reports by task_id (reports_for_task_filter), so on
+    # a multi-run task (a terminal original and its live resume sharing one PR) the run this webhook
+    # matched need not be the run that attested the PR. Mirrors the task-wide inbox close guard.
+    agent_opened_pr_urls = (
+        get_agent_opened_pr_urls_by_task([task_run.task_id]).get(str(task_run.task_id), set())
+        if task_run is not None
+        else set()
+    )
 
     logger.info(
         "github_pr_webhook_processed",
@@ -245,7 +252,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
-    _capture_pr_event(payload, task_run, analytics_event, event_uuid)
+    _capture_pr_event(payload, task_run, analytics_event, event_uuid, agent_opened_pr_urls)
 
     if task_run and action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
@@ -609,7 +616,13 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
 
 
-def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+def _capture_pr_event(
+    payload: dict,
+    task_run: TaskRun | None,
+    analytics_event: str,
+    event_uuid: str,
+    agent_opened_pr_urls: set[str],
+) -> None:
     pr_properties = _pr_payload_properties(payload)
 
     if task_run is not None:
@@ -624,9 +637,7 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         # negative. By close time the write has landed, and that is where the measurement lives.
         if analytics_event != "pr_created":
             pr_url = pr_properties.get("pr_url")
-            event_properties["pr_opened_by_agent"] = isinstance(pr_url, str) and pr_url in read_agent_opened_pr_urls(
-                task_run.output
-            )
+            event_properties["pr_opened_by_agent"] = isinstance(pr_url, str) and pr_url in agent_opened_pr_urls
         task_run.capture_event(
             analytics_event,
             event_properties,

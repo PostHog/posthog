@@ -1053,6 +1053,69 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_resolves_report_when_sibling_run_holds_attestation(self, _mock_capture, mock_get_secret):
+        # The run the webhook matches by PR URL never attested the PR; a sibling run of the same task
+        # did. Ownership is task-wide (the transition selects reports by task_id), so the merge must
+        # still resolve the report. A run-local gate would leave it active.
+        mock_get_secret.return_value = self.webhook_secret
+        pr_url = "https://github.com/posthog/posthog/pull/77"
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Multi-run signal task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        # Matched by the pr_url leg (verified_pr_urls) but carrying no attestation of its own.
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"verified_pr_urls": [pr_url]},
+            output={"pr_url": pr_url},
+        )
+        # The sibling run that actually attested opening the PR; not the run the webhook matches.
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.FAILED,
+            output={"pr_url": pr_url, "agent_opened_pr_urls": [pr_url]},
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Multi-run report",
+            summary="",
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+        )
+
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": pr_url, "merged": True},
+            "repository": {"full_name": "posthog/posthog"},
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        response = self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=generate_github_signature(payload_bytes, self.webhook_secret),
+            HTTP_X_GITHUB_EVENT="pull_request",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        report.refresh_from_db()
+        self.assertEqual(report.status, SignalReport.Status.RESOLVED)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         from products.signals.backend.models import SignalReportArtefact
