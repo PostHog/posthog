@@ -8,7 +8,8 @@ from django.core.management import call_command
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [pytest.mark.django_db]
 
@@ -43,7 +44,7 @@ def _create_schema(source, name="test_table", should_sync=True, latest_error=Non
     )
 
 
-@patch("posthog.management.commands.reenable_schemas_by_error.update_should_sync")
+@patch("products.warehouse_sources.backend.management.commands.reenable_schemas_by_error.update_should_sync")
 class TestReenableSchemasByError:
     def test_reenables_matching_schemas(self, mock_update, team):
         source = _create_source(team)
