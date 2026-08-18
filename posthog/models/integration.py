@@ -3213,12 +3213,21 @@ class LinearIntegration:
         )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
-        self.create_attachment(linear_issue_id, attachment_url)
+        # Best-effort: the Linear issue already exists at this point, so failing the whole
+        # create over a missing back-link would produce duplicate issues on retry.
+        try:
+            self.create_attachment(linear_issue_id, attachment_url)
+        except ValidationError:
+            logger.warning("linear_issue_attachment_failed", issue_id=linear_issue_id)
 
         return {"id": linear_issue_id}
 
     def create_attachment(self, issue_id: str, url: str) -> None:
-        """Attach a PostHog issue link to a Linear issue (shows as a back-link in Linear)."""
+        """Attach a PostHog issue link to a Linear issue (shows as a back-link in Linear).
+
+        Raises on failure: Linear reports errors in the GraphQL body with HTTP 200,
+        and the mutation itself can report success=false.
+        """
         link_attachment_query = """
         mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
             attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
@@ -3226,10 +3235,12 @@ class LinearIntegration:
             }
         }
         """
-        self.query(
+        body = self.query(
             link_attachment_query,
             variables={"issueId": issue_id, "title": "PostHog issue", "url": url},
         )
+        if body.get("errors") or not dot_get(body, "data.attachmentCreate.success"):
+            raise ValidationError("Failed to attach the PostHog link to the Linear issue")
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow."""

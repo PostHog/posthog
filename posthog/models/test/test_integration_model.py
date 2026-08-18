@@ -206,6 +206,39 @@ class TestLinearIntegrationModel(BaseTest):
             with self.assertRaises(ValidationError):
                 linear.search_issues("boom")
 
+    @parameterized.expand(
+        [
+            ("top_level_errors", {"errors": [{"message": "forbidden"}]}),
+            ("mutation_failure", {"data": {"attachmentCreate": {"success": False}}}),
+        ]
+    )
+    def test_create_attachment_raises_on_failure(self, _name, response_body):
+        # Linear reports failures in a 200 body; treating them as success would let callers
+        # persist references whose promised back-link was never created.
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(linear, "query", return_value=response_body):
+            with self.assertRaises(ValidationError):
+                linear.create_attachment("LIN-123", "https://us.posthog.com/error_tracking/issue-id")
+
+    def test_create_issue_succeeds_when_attachment_fails(self):
+        # The Linear issue already exists when the attachment fires, so a failed back-link
+        # must not fail the create (retrying would duplicate the issue).
+        linear = LinearIntegration(self.create_integration())
+        with patch.object(
+            linear,
+            "query",
+            side_effect=[
+                {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
+                {"errors": [{"message": "rate limited"}]},
+            ],
+        ):
+            result = linear.create_issue(
+                "https://us.posthog.com/error_tracking/issue-id",
+                {"team_id": "team-id", "title": "Title", "description": "Description"},
+            )
+
+        assert result == {"id": "LIN-123"}
+
     def test_create_issue_passes_user_fields_as_graphql_variables(self):
         linear = LinearIntegration(self.create_integration())
         with patch.object(
