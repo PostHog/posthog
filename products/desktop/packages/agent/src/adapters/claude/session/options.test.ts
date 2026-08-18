@@ -406,19 +406,18 @@ describe("buildSessionOptions", () => {
         ].join("\n"),
       },
       {
-        name: "serves the session from Bedrock on the test variant",
+        name: "serves the session from Bedrock on the test variant, without the unreachable fallback header",
         projectId: undefined,
         existingHeaders: undefined,
         bedrockGatewayVariant: "test" as const,
         expected: [
           "x-posthog-property-$ai_session_id: test-session",
-          "x-posthog-use-bedrock-fallback: true",
           "x-posthog-provider: bedrock",
           "x-posthog-flag-bedrock-llm-gateway: test",
         ].join("\n"),
       },
       {
-        name: "sends no provider header on the control variant",
+        name: "keeps the Bedrock failover and sends no provider header on the control variant",
         projectId: undefined,
         existingHeaders: undefined,
         bedrockGatewayVariant: "control" as const,

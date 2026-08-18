@@ -191,15 +191,19 @@ function buildEnvironment(
       buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
     );
   }
-  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
-  headerLines.push("x-posthog-use-bedrock-fallback: true");
+  // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
+  // on `x-posthog-provider: bedrock` and returns before it ever reads the
+  // fallback header, so sending both would imply a failover that cannot happen.
+  if (bedrockGatewayVariant === "test") {
+    // Serve the session from Bedrock outright. This path has no reverse
+    // fallback, so a Bedrock outage surfaces as an error instead of retrying
+    // against Anthropic.
+    headerLines.push("x-posthog-provider: bedrock");
+  } else {
+    // Fail over to Bedrock when Anthropic returns 5xx/429 or blocks on billing.
+    headerLines.push("x-posthog-use-bedrock-fallback: true");
+  }
   if (bedrockGatewayVariant) {
-    // Serve the whole session from Bedrock rather than only failing over to it.
-    // The gateway defaults to `anthropic`, so `control` deliberately sends no
-    // provider header and stays on that default.
-    if (bedrockGatewayVariant === "test") {
-      headerLines.push("x-posthog-provider: bedrock");
-    }
     // Stamps `$feature/bedrock-llm-gateway` onto the $ai_generation event the
     // gateway captures, so test and control are comparable in analytics.
     headerLines.push(
