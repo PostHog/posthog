@@ -102,6 +102,11 @@ function foldAbortReason(error: unknown): MergeFoldAbortReason {
     return 'error'
 }
 
+/** One ack the caller can await for a set of produces already in flight. */
+async function joinAcks(...acks: Promise<void>[]): Promise<void> {
+    await Promise.all(acks)
+}
+
 /** Gate + partition-count + team allowlist for the cross-partition merge-event producer. */
 export interface MergeEventsConfig {
     enabled: boolean
@@ -199,12 +204,12 @@ export class PostgresPersonMerge {
         )
     }
 
-    private produceMessages(messages: PersonMessage[]): Promise<void> {
-        return Promise.all(
+    private async produceMessages(messages: PersonMessage[]): Promise<void> {
+        await Promise.all(
             messages.map((msg) =>
                 this.outputs.produce(msg.output, { value: msg.value, key: null, teamId: this.teamId })
             )
-        ).then(() => undefined)
+        )
     }
 
     /**
@@ -637,7 +642,7 @@ export class PostgresPersonMerge {
         // The bootstrap's produce, when there was one, joins the fold's own
         // ack so the caller observes every message this merge produced.
         const foldAck = this.produceMessages(kafkaMessages)
-        const kafkaAck = bootstrapAck ? Promise.all([bootstrapAck, foldAck]).then(() => undefined) : foldAck
+        const kafkaAck = bootstrapAck ? joinAcks(bootstrapAck, foldAck) : foldAck
         for (const source of mergeSources) {
             // Same fire-and-forget contract as executeTransaction.
             void this.producePersonMergeEvent(source, mergedPerson).catch(() => {})
