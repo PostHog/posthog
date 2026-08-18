@@ -175,7 +175,8 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
     internal PostHog checkout that uses that image, after its final branch is in place.
     """
     if (
-        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        not ctx.desktop_workspace_warm_enabled
+        or ctx.custom_image_name != DEV_STACK_IMAGE_NAME
         or repository.casefold() != "posthog/posthog"
         or sandbox.config.image_fallback
     ):

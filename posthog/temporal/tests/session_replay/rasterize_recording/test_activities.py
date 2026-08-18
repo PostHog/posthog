@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_signing_keys
@@ -173,15 +174,17 @@ class TestBuildRasterizationInput:
         asset = _make_asset(pk=99, export_context={"playback_speed": 4})
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with pytest.raises(ValueError, match="no session_recording_id"):
+            with pytest.raises(ApplicationError, match="no session_recording_id") as excinfo:
                 build_rasterization_input(99)
+        assert excinfo.value.non_retryable
 
     def test_none_export_context_raises(self):
         asset = _make_asset(pk=100, export_context=None)
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with pytest.raises(ValueError, match="no session_recording_id"):
+            with pytest.raises(ApplicationError, match="no session_recording_id") as excinfo:
                 build_rasterization_input(100)
+        assert excinfo.value.non_retryable
 
     @parameterized.expand(
         [
@@ -197,8 +200,25 @@ class TestBuildRasterizationInput:
         asset = _make_asset(pk=101, export_context={"session_recording_id": session_id})
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
-            with pytest.raises(ValueError, match="malformed session_recording_id"):
+            with pytest.raises(ApplicationError, match="malformed session_recording_id") as excinfo:
                 build_rasterization_input(101)
+        assert excinfo.value.non_retryable
+
+    @parameterized.expand(
+        [
+            ("null_speed", {"session_recording_id": "s1", "playback_speed": None}, "playback_speed", 4),
+            ("null_fps", {"session_recording_id": "s1", "recording_fps": None}, "recording_fps", 24),
+        ]
+    )
+    def test_explicit_null_falls_back_to_default(self, _name, export_context, field, expected):
+        # An explicit null in export_context used to reach pydantic as None and fail validation
+        # three retries in a row instead of falling back.
+        asset = _make_asset(pk=50, export_context=export_context)
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = build_rasterization_input(50)
+        assert result.activity_input is not None
+        assert getattr(result.activity_input, field) == expected
 
     def test_timestamp_and_duration_mapped_to_offsets(self):
         asset = _make_asset(
@@ -318,7 +338,9 @@ class TestBuildRasterizationInput:
 
     @parameterized.expand(
         [
-            ("slow_motion_preserved", 0.5, 0.5),
+            # Speeds below 1 are clamped up: Node rejects them because the pipeline has no
+            # slow-motion filter chain and the reported duration would be wrong.
+            ("below_one_clamped", 0.5, 1.0),
             ("default_in_range", 4, 4),
             ("at_cap", 360, 360),
             ("above_cap", 1000, 360),
