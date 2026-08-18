@@ -109,6 +109,19 @@ When scanning logs, search for `FAIL`, `Error`, `error:`, `assert`,
 `Traceback`, `exit code`, and `##[error]`. Stop at the first failing step that
 explains the run's conclusion. Keep excerpts under 40 lines.
 
+For test-job failures, the `trunk` MCP server's `investigate-ci-failure` tool
+is a shortcut past log scanning: give it the run URL
+(`https://github.com/PostHog/posthog/actions/runs/<run-id>`) and it returns
+structured failing-test details — names, error messages, stdout/stderr — from
+the results CI uploaded to Trunk Flaky Tests, with quarantined known-flaky
+tests already filtered out. It only covers what ran and uploaded: for jobs
+that died before tests (build, setup, lint), stay with `gh run view --log`.
+Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments
+instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org
+token to the server entry in `.mcp.json`. To dig into one test's flakiness
+history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
+`fix-flaky-test` tools.
+
 ## Classification
 
 | Signal in the log                                                        | Class               | First action                                                       |
