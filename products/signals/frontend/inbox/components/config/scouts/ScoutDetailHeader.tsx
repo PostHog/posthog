@@ -48,9 +48,10 @@ export function ScoutDetailHeader({
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
     const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date())
-    // Reports filed only — adding the weak-signal count on top produced a total of two different
-    // things, which is exactly what made the old "filed" number unreadable.
+    // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
+    // different things, which is exactly what made the old "filed" number unreadable.
     const authored = rollup?.authoredReportIds.size ?? 0
+    const edited = rollup?.editedReportIds.size ?? 0
 
     return (
         <div className="flex flex-col gap-3 border-b border-primary bg-surface-primary px-4 py-3">
@@ -89,6 +90,7 @@ export function ScoutDetailHeader({
                 />
                 <Metric value={rollup?.runCount ?? 0} label={`Runs · last ${SCOUT_RUNS_PER_SCOUT}`} />
                 <Metric value={authored} label="Reports filed" />
+                <Metric value={edited} label="Reports edited" />
                 <Metric value={learnedCount} label="Learned" />
                 <Metric value={noteCount} label="Told" />
             </div>

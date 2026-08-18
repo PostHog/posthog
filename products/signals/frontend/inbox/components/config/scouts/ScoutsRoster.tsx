@@ -196,9 +196,14 @@ function RosterStats(): JSX.Element {
                 <Stat value={String(rosterGroupCounts.needs_you)} label="need you" alert />
             )}
             <Stat value={String(enabledCount)} label="on patrol" />
-            <Tooltip title="New reports your scouts filed across their recent runs. Reports they only added to aren't counted here.">
+            <Tooltip title="New reports your scouts filed across their recent runs.">
                 <span>
                     <Stat value={String(emittedFindingsSummary.authoredReportCount)} label="reports filed" />
+                </span>
+            </Tooltip>
+            <Tooltip title="Existing reports your scouts added to across their recent runs.">
+                <span>
+                    <Stat value={String(emittedFindingsSummary.editedReportCount)} label="reports edited" />
                 </span>
             </Tooltip>
         </div>
