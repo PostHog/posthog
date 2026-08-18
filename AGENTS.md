@@ -66,7 +66,6 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 **Shape:** invoke `/writing-pr-descriptions` before writing the body. Lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, and let its size track the change. Then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
-**Diagrams:** When a PR changes a flow or topology, include branded before-and-after Mermaid `flowchart` blocks. This includes CI wiring, pipelines, state machines, and request paths. Use `/writing-pr-descriptions` for the PostHog palette and role mapping.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
