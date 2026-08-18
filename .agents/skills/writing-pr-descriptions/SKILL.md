@@ -64,7 +64,7 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
-| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two `flowchart` blocks, before first                      |
+| A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -230,12 +230,14 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 7. Count the words in the longest sentence. Over 25, split it.
 8. Rewrite every passive sentence in active voice, unless the actor is genuinely unknown. Break every noun string longer than three words with a preposition.
 9. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
-10. Is any fact in the wrong form? A visual change needs a screenshot. A flow change needs before and after diagrams. A comparison needs a table.
-11. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-12. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
-13. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
-14. Does the body claim manual testing that did not happen? Delete it.
-15. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
+10. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
+11. Does the PR change a flow or topology? Include branded before-and-after diagrams.
+12. Does prose compare several values across the same dimensions? Replace it with a table.
+13. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
+14. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+15. Is the `## 🤖 Agent context` section filled, listing the skills invoked?
+16. Does the body claim manual testing that did not happen? Delete it.
+17. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
 
 ## Background
 
