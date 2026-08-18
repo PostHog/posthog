@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.azure_cost_management import (
     AzureCostManagementResumeConfig,
 )
@@ -29,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SourceCredentialsValidationResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
     AzureCostManagementSourceConfig,
 )
