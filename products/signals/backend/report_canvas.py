@@ -11,7 +11,7 @@ import posthoganalytics
 from posthog.models import Team
 from posthog.models.scoping import with_team_scope
 
-from products.canvas.backend import facade as canvas_facade
+from products.canvas.backend import report_canvas as canvas_api
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -151,7 +151,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
                 origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
                 signal_report_id=report.id,
             )
-            canvas_id = canvas_facade.create_report_canvas(
+            canvas_id = canvas_api.create_report_canvas(
                 team_id=team_id,
                 channel_id=channel.id,
                 name=report.title or "Report",
@@ -176,7 +176,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             title=title,
             description=report.summary or "",
         )
-        canvas_facade.set_canvas_name(team_id=team_id, canvas_id=session.canvas_id, name=title)
+        canvas_api.set_canvas_name(team_id=team_id, canvas_id=session.canvas_id, name=title)
         if (
             session.generated_fingerprint == fingerprint
             and session.generation_status == SignalReportCanvas.GenerationStatus.READY
@@ -234,7 +234,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             pending_user_message=prompt,
             posthog_mcp_scopes="report_canvas",
             signal_report_id=str(report.id),
-            channel_id=canvas_facade.get_canvas_channel_id(team_id=team_id, canvas_id=session.canvas_id),
+            channel_id=canvas_api.get_canvas_channel_id(team_id=team_id, canvas_id=session.canvas_id),
             internal=True,
             sandbox_environment_id=sandbox_environment_id,
             interaction_origin="signal_report_canvas",
@@ -242,7 +242,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         )
         if generation.latest_run is None:
             raise RuntimeError("Report canvas generation did not create a run")
-        canvas_facade.set_generation_task(team_id=team_id, canvas_id=session.canvas_id, task_id=generation.task_id)
+        canvas_api.set_generation_task(team_id=team_id, canvas_id=session.canvas_id, task_id=generation.task_id)
         session.generation_task_id = generation.task_id
         session.save(update_fields=["generation_task_id", "updated_at"])
 
@@ -266,7 +266,7 @@ def finalize_report_canvas_generation(
     terminal = tasks_facade.task_run_is_terminal(generation.generation_run_id, generation.generation_task_id, team_id)
     if not terminal:
         return None
-    published, drafted = canvas_facade.canvas_generation_result(
+    published, drafted = canvas_api.canvas_generation_result(
         team_id=team_id,
         canvas_id=generation.canvas_id,
         task_id=generation.generation_task_id,
