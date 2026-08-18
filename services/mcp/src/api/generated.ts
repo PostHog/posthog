@@ -14877,6 +14877,8 @@ export namespace Schemas {
       readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
+      /** @nullable */
+      readonly discussion_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
       readonly pinned: boolean;
       /** @nullable */
@@ -17493,6 +17495,18 @@ export namespace Schemas {
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
     }
+
+    /**
+     * * `managed` - Managed
+     * * `collaborative` - Collaborative
+     */
+    export type CollaborationModeEnum = typeof CollaborationModeEnum[keyof typeof CollaborationModeEnum];
+
+
+    export const CollaborationModeEnum = {
+      Managed: 'managed',
+      Collaborative: 'collaborative',
+    } as const;
 
     /**
      * * `private` - Private (only visible to creator)
@@ -22884,6 +22898,8 @@ export namespace Schemas {
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24187,6 +24203,8 @@ export namespace Schemas {
       Hootsuite: 'Hootsuite',
       WisprFlow: 'WisprFlow',
       SamCart: 'SamCart',
+      IronSourceAds: 'IronSourceAds',
+      MicrosoftExcel: 'MicrosoftExcel',
     } as const;
 
     /**
@@ -25503,7 +25521,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27514,7 +27534,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31120,10 +31142,10 @@ export namespace Schemas {
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable
      */
-    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
+    export type EvaluationReportRunContentGenerationStatusEnum = typeof EvaluationReportRunContentGenerationStatusEnum[keyof typeof EvaluationReportRunContentGenerationStatusEnum];
 
 
-    export const GenerationStatusEnum = {
+    export const EvaluationReportRunContentGenerationStatusEnum = {
       Completed: 'completed',
       MetricsUnavailable: 'metrics_unavailable',
     } as const;
@@ -31145,7 +31167,7 @@ export namespace Schemas {
        *
        * * `completed` - completed
        * * `metrics_unavailable` - metrics_unavailable */
-      generation_status?: GenerationStatusEnum;
+      generation_status?: EvaluationReportRunContentGenerationStatusEnum;
       /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
@@ -35327,7 +35349,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36664,7 +36688,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -52781,6 +52807,33 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type SignalReportCanvasGenerationStatusEnum = typeof SignalReportCanvasGenerationStatusEnum[keyof typeof SignalReportCanvasGenerationStatusEnum];
+
+
+    export const SignalReportCanvasGenerationStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface SignalReportCanvas {
+      readonly canvas_id: string;
+      readonly discussion_task_id: string;
+      /** @nullable */
+      readonly generation_task_id: string | null;
+      readonly generation_status: SignalReportCanvasGenerationStatusEnum;
+      readonly collaboration_mode: CollaborationModeEnum;
+      readonly failure_reason: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -52855,6 +52908,8 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
+      /** The persistent canvas and shared discussion created for this report, when available. */
+      readonly canvas_session: SignalReportCanvas | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -74311,7 +74366,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -75656,7 +75713,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -76991,7 +77050,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -78339,6 +78400,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `desktop_canvas` - desktop_canvas
+     */
+    export type TargetScopeEnum = typeof TargetScopeEnum[keyof typeof TargetScopeEnum];
+
+
+    export const TargetScopeEnum = {
+      DesktopCanvas: 'desktop_canvas',
+    } as const;
+
+    /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
     export interface TaskActivityDTO {
@@ -78372,6 +78443,15 @@ export namespace Schemas {
       latest_comment_scope?: string | null;
       /** @nullable */
       latest_comment_item_id?: string | null;
+      /** The non-task surface this activity opens, when the task backs another shared artifact.
+       *
+       * * `desktop_canvas` - desktop_canvas */
+      target_scope?: TargetScopeEnum | null;
+      /**
+         * Identifier of the activity target. Present together with target_scope.
+         * @nullable
+         */
+      target_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
