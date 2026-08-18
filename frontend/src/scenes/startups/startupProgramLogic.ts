@@ -409,7 +409,9 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 try {
                     await api.create('api/billing/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
-                    posthog.capture('startup program application submitted', valuesToSubmit)
+                    // The verification link is bearer proof of YC founder status, so it stays out of analytics
+                    const { yc_verification_url: _discarded, ...capturedValues } = valuesToSubmit
+                    posthog.capture('startup program application submitted', capturedValues)
                 } catch (error: any) {
                     // Billing-service validation errors can arrive as an object under error.detail
                     const detail = typeof error.detail === 'string' ? error.detail : error.detail?.detail
