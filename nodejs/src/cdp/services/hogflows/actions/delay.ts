@@ -6,7 +6,7 @@ import { execHog } from '~/cdp/utils/hog-exec'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
-import { resolveTimezone } from './wait_until_time_window'
+import { resolveTimezone } from './timezone'
 
 export class DelayHandler implements ActionHandler {
     async execute({
