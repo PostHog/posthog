@@ -280,6 +280,16 @@ class TestAgentRunFailureDetection:
         assert artifacts.exit_code == 1
         assert "403 model_gate" in artifacts.stderr
 
+    # A provider 403 lands on the terminal `_posthog/error` channel, which sets the non-zero exit
+    # code but leaves `stderr` empty. Reading `stderr` to spot the infra failure would score this
+    # run at zero on every outcome scorer instead of dropping it from the aggregates.
+    def test_a_terminal_posthog_error_with_no_tool_call_is_infrastructure(self) -> None:
+        log = '{"notification": {"method": "_posthog/error", "params": {"message": "403 model_gate"}}}'
+        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.exit_code == 1
+        assert artifacts.tool_call_count == 0
+        assert runner.agent_never_ran(artifacts) is True
+
     @parameterized.expand(
         [
             ("no work behind the error", "403 model_gate", 0, True),

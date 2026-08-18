@@ -93,7 +93,7 @@ class AgentArtifacts(BaseModel):
     """Lint output extracted from agent tool calls."""
 
     tool_call_count: int = 0
-    """Tool calls the agent made. Zero alongside a non-empty ``stderr`` means the run failed before
+    """Tool calls the agent made. Zero alongside a non-zero ``exit_code`` means the run failed before
     it did any work, which the harness treats as an infrastructure error rather than a score."""
 
     duration_seconds: float = 0.0

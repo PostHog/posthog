@@ -55,8 +55,13 @@ def agent_never_ran(artifacts: AgentArtifacts) -> bool:
     An agent that errored after making tool calls has a partial outcome worth scoring. One that
     errored with no tool call behind it produced nothing, so its zeros describe the infrastructure
     rather than the model.
+
+    Keyed off ``exit_code`` rather than ``stderr`` because both terminal failure channels set a
+    non-zero exit code, but only a ``session/update`` error also fills ``stderr``. A terminal
+    ``_posthog/error`` (the channel a provider 403 lands on) leaves ``stderr`` empty, so a
+    ``stderr`` check would score it instead of excluding it.
     """
-    return bool(artifacts.stderr) and not artifacts.tool_call_count
+    return artifacts.exit_code != 0 and artifacts.tool_call_count == 0
 
 
 async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: int) -> bool:
