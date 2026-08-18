@@ -207,6 +207,9 @@ class Task(DeletedMetaFields, models.Model):
         # minted server-side by products/signals so the origin proves the run is entitled
         # through the generally-available Inbox rather than PostHog Desktop.
         SIGNALS_CHAT = "signals_chat", "Signals Chat"
+        # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
+        # the workflow's creator.
+        WORKFLOW = "workflow", "Workflow"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -283,6 +286,16 @@ class Task(DeletedMetaFields, models.Model):
         db_constraint=True,
     )
 
+    # Workflow (hog flow) whose action created this task, if any. Follows `loop` above; that
+    # per-origin-column pattern is worth replacing with a generic (origin_product, origin_id)
+    # pair before a fourth origin needs one. Plain UUID rather than an FK because hog flows
+    # live in products.workflows, which tasks must not depend on.
+    hog_flow_id = models.UUIDField(null=True, blank=True, db_index=False)
+
+    # Caller-supplied idempotency key, unique per team when set, so a retried create (e.g. a
+    # workflow engine redelivery) returns the existing task instead of making a second one.
+    origin_key = models.CharField(max_length=128, null=True, blank=True)
+
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
@@ -344,6 +357,14 @@ class Task(DeletedMetaFields, models.Model):
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
+            models.Index(fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "origin_key"],
+                condition=models.Q(origin_key__isnull=False),
+                name="posthog_task_origin_key_uniq",
+            ),
         ]
 
     def __str__(self):
@@ -613,6 +634,8 @@ class Task(DeletedMetaFields, models.Model):
         slack_thread_url: str | None = None,
         branch: str | None = None,
         signal_report_id: str | None = None,
+        hog_flow_id: uuid.UUID | None = None,
+        origin_key: str | None = None,
         ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
@@ -739,6 +762,8 @@ class Task(DeletedMetaFields, models.Model):
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
             state=initial_state,
+            hog_flow_id=hog_flow_id,
+            origin_key=origin_key,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -925,6 +950,9 @@ class Task(DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        hog_flow_id: uuid.UUID | None = None,
+        origin_key: str | None = None,
+        extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -963,6 +991,8 @@ class Task(DeletedMetaFields, models.Model):
             slack_thread_url=slack_thread_url,
             branch=branch,
             signal_report_id=signal_report_id,
+            hog_flow_id=hog_flow_id,
+            origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,
             internal=internal,
             output_schema=output_schema,
@@ -987,6 +1017,10 @@ class Task(DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        # Caller-supplied run state (e.g. a workflow action's config_snapshot) wins over the
+        # derived defaults, matching how loop fires assemble their run state by hand.
+        if extra_run_state:
+            run_extra_state.update(extra_run_state)
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
             # GitHub token into the (repo-less) sandbox instead of the full credential path.
