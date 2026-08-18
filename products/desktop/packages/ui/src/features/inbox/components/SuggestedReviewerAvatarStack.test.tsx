@@ -95,6 +95,7 @@ describe("SuggestedReviewerAvatarStack", () => {
       name: "remove me from reviewers",
     });
     expect(!!button).toBe(isClickable);
+    expect(screen.getByText("2 suggested reviewers")).toBeTruthy();
   });
 
   it("removes the current user and tracks the list action", async () => {

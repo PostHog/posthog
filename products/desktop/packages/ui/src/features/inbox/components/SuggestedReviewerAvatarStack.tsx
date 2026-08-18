@@ -63,9 +63,11 @@ export function SuggestedReviewerAvatarStack({
   );
   const visible = reviewers.slice(0, MAX_VISIBLE);
   const overflow = reviewers.length - visible.length;
+  const reviewerCountLabel = `${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`;
 
   const avatarStack = (
     <span className="-space-x-1.5 flex items-center">
+      <span className="sr-only">{reviewerCountLabel}</span>
       {visible.map((reviewer) => (
         <SuggestedReviewerAvatar
           key={reviewer.github_login}
