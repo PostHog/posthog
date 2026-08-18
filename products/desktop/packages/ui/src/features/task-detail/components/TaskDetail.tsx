@@ -144,6 +144,14 @@ export function TaskDetail({
 
   useBlurOnEscape();
   useWorkspaceEvents(taskId);
+
+  // Mounting TaskDetail means the task was actually rendered in front of the
+  // user — that, not any API fetch of the task, is what clears the unread
+  // activity flag ("the agent is waiting for your reply"). Now-based rather
+  // than row-versioned since everything up to mount has been seen; a waiting
+  // flag landing after mount re-flags unread. Marking client-side rather than
+  // in the retrieve endpoint: a task fetch (list refresh, poll, prefetch)
+  // isn't a view.
   useMarkTaskActivityReadOnOpen(taskId);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
