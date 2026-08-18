@@ -35,6 +35,13 @@ from products.tasks.backend.temporal.process_task.utils import (
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
+    def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
+        assert "zai-org/glm-5.3" in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", "zai-org/glm-5.3")) == (
+            "high",
+            "max",
+        )
+
     def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
