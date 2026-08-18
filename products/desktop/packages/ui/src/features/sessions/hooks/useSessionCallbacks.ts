@@ -26,11 +26,13 @@ import {
   type AgentSession,
   sessionStoreSetters,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import {
   SHELL_CLIENT,
   type ShellClient,
 } from "@posthog/ui/features/terminal/shellClient";
+import { hintToast } from "@posthog/ui/primitives/hintToast";
 import { toast } from "@posthog/ui/primitives/toast";
 import { getAppViewSnapshot } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
@@ -147,10 +149,11 @@ export function useSessionCallbacks({
           sentSession.adapter === "claude" &&
           sessionSupportsNativeSteer(sentSession)
         ) {
-          toast.info("Steering waits for a safe boundary", {
-            description:
-              "It will apply at the next safe boundary. The current command may keep running until then.",
-          });
+          hintToast(
+            TIP_KEYS.steerSafeBoundary,
+            "Steering waits for a safe boundary",
+            "It will apply at the next safe boundary. The current command may keep running until then.",
+          );
         }
 
         const view = getAppViewSnapshot();
