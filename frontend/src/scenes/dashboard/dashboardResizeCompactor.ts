@@ -32,6 +32,7 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
     const baselineRight = baselineActiveItem.x + baselineActiveItem.w
     const activeRight = activeItem.x + activeItem.w
     const expandingRight = activeRight > baselineRight
+    const expandingLeft = activeItem.x < baselineActiveItem.x
 
     if (expandingRight) {
         let rightNeighbor: LayoutItem | undefined
@@ -57,6 +58,35 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
                     }
 
                     return { ...item, x: activeRight, y: rightNeighbor.y, w: nextWidth }
+                })
+            }
+        }
+    }
+
+    if (expandingLeft) {
+        let leftNeighbor: LayoutItem | undefined
+        for (const item of baseline) {
+            if (
+                item.i !== activeItemId &&
+                !item.static &&
+                sharesRow(item) &&
+                item.x < baselineActiveItem.x &&
+                item.x + item.w > activeItem.x &&
+                (!leftNeighbor || item.x > leftNeighbor.x)
+            ) {
+                leftNeighbor = item
+            }
+        }
+
+        if (leftNeighbor) {
+            const nextWidth = activeItem.x - leftNeighbor.x
+            if (nextWidth >= (leftNeighbor.minW ?? 1)) {
+                return layout.map((item) => {
+                    if (item.i !== leftNeighbor.i) {
+                        return item
+                    }
+
+                    return { ...item, y: leftNeighbor.y, w: nextWidth }
                 })
             }
         }
