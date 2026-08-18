@@ -39,7 +39,7 @@ describe('EvaluationRunName', () => {
             </Provider>
         )
 
-        expect(screen.getByRole('link', { name: 'Correctness' })).toHaveAttribute(
+        expect(screen.getByText('Correctness')).toHaveAttribute(
             'href',
             expect.stringContaining('/ai-evals/evaluations/evaluator-1')
         )
