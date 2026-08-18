@@ -1211,5 +1211,5 @@ environment:
         hidden: true
     worktree:stack:
         bin_script: worktree-stack
-        description: 'Run app services from this worktree on its own port block against the shared dev infra, so parallel worktrees each serve their own app (see docs/internal/parallel-worktree-stacks.md)'
+        description: "Run this worktree's app services under phrocs on its own port block against the shared dev infra, with the same start/wait/stop verbs as the main stack (see docs/internal/parallel-worktree-stacks.md)"
         hidden: true

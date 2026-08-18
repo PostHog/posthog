@@ -14,18 +14,24 @@ The entrypoint proxy is the same Caddy service the main stack runs at `:8010`; `
 
 ## Usage
 
+The worktree's services run under phrocs — the same process manager as the main stack — so the verbs, the TUI, and the detached workflow are the ones you already know from `hogli start` / `hogli wait` / `hogli stop`.
+
 From inside a worktree, with the shared infra already running (`hogli start -d` in the main checkout, or at least the docker services):
 
 ```bash
-bin/worktree-stack up               # proxy + backend + frontend
-bin/worktree-stack up proxy backend # just these
-bin/worktree-stack status
-bin/worktree-stack url              # the app URL for this worktree
-bin/worktree-stack env              # export lines for this worktree's ports
-bin/worktree-stack down
+bin/worktree-stack start               # phrocs TUI: proxy + backend + frontend
+bin/worktree-stack start -d            # detached, for agents
+bin/worktree-stack start proxy backend # autostart just these
+bin/worktree-stack wait                # block until ready (agents pair this with start -d)
+bin/worktree-stack url                 # the app URL for this worktree
+bin/worktree-stack env                 # export lines for this worktree's ports
+bin/worktree-stack stop                # also: down
 ```
 
-`up` allocates the worktree's index on first use (registry in `<main checkout>/.posthog/worktree-stack-registry`), sources the standard env files the way `bin/start` does, and starts services detached with logs and pidfiles under `.worktree-stack/` in the worktree.
+`start` allocates the worktree's index on first use (registry in `<main checkout>/.posthog/worktree-stack-registry`), sources the standard env files the way `bin/start` does, generates a phrocs config under `.worktree-stack/` in the worktree, and hands off to phrocs.
+
+Every service the worktree can override appears in the phrocs sidebar; services not selected on `start` are defined with `autostart: false`, so starting or stopping an individual one is a keypress in the TUI, exactly like the main stack.
+phrocs resolves its control socket per directory, so from inside the worktree plain `hogli wait` and `hogli stop` target this worktree's stack.
 
 Point a browser — or an agent's computer use — at `bin/worktree-stack url`.
 Cookies are per-origin, so each worktree's port has its own login session; users live in the shared database, so the same dev credentials work everywhere.

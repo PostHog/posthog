@@ -3,11 +3,13 @@
 # infra (Postgres, ClickHouse, Redis, Kafka, capture, plugin-server, ...), so
 # several worktrees can each serve their own copy of the app at the same time.
 #
-# Each worktree gets a stable index and a port block derived from it, plus its
-# own Caddy proxy (the same one the main stack uses at :8010). The proxy routes
-# the services this worktree overrides (Django, and optionally others via
-# PROXY_* env vars) to worktree-local ports, and every other path to the shared
-# stack. The app URL for this worktree is printed by `worktree-stack url`.
+# The worktree's services run under phrocs — the same process manager as the
+# main stack — with the same verbs (`start`, `wait`, `stop`, `attach`), the
+# same TUI, and the same detached mode. Each worktree gets a stable index and
+# a port block derived from it, plus its own Caddy proxy (the same entrypoint
+# the main stack serves at :8010). The proxy routes the services this worktree
+# overrides to worktree-local ports and every other path to the shared stack.
+# The app URL for this worktree is printed by `worktree-stack url`.
 #
 # The shared infra and the database stay singletons: worktrees do not run
 # migrations automatically, and queue consumers started here (celery-worker,
@@ -19,14 +21,23 @@ set -e
 
 usage() {
     cat <<'EOF'
-Usage: bin/worktree-stack <command> [services...]
+Usage: bin/worktree-stack <command> [args]
+
+Same verbs as the main stack (hogli start / wait / stop), applied to this
+worktree's own service block.
 
 Commands:
-  up [svc...]   Start services for this worktree (default: proxy backend frontend)
-  down          Stop all services started for this worktree
-  status        Show service state and readiness
-  url           Print this worktree's app URL (browser / computer-use entrypoint)
-  env           Print `export` lines for this worktree's ports (for eval)
+  start [-d] [svc...]          Run this worktree's services under phrocs.
+                               Interactive TUI by default; -d / --detach for
+                               detached mode. Named services autostart
+                               (default: proxy backend frontend); the rest
+                               appear in phrocs stopped, one keypress away.
+  up                           Alias for start
+  wait [--timeout N] [--json]  Block until this worktree's stack is ready
+  stop | down                  Stop this worktree's stack
+  attach                       Status TUI against a detached stack
+  url                          Print this worktree's app URL
+  env                          Print `export` lines for this worktree's ports
 
 Services:
   proxy          Caddy entrypoint for this worktree (docker)
@@ -34,6 +45,9 @@ Services:
   frontend       Vite dev server on VITE_PORT
   celery-worker  Celery worker (competing consumer with the shared stack)
   nodejs         plugin-server (competing consumer with the shared stack)
+
+phrocs resolves its control socket per directory, so from inside the worktree
+plain `hogli wait` and `hogli stop` target this stack too.
 EOF
     exit 1
 }
@@ -47,8 +61,7 @@ GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
 MAIN_ROOT="$(dirname "$GIT_COMMON_DIR")"
 
 STATE_DIR="$WORKTREE_ROOT/.worktree-stack"
-LOG_DIR="$STATE_DIR/logs"
-PID_DIR="$STATE_DIR/pids"
+PHROCS_CONFIG="$STATE_DIR/mprocs.yaml"
 REGISTRY="$MAIN_ROOT/.posthog/worktree-stack-registry"
 
 # ---------------------------------------------------------------------------
@@ -160,54 +173,6 @@ load_dev_env() {
     export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
 }
 
-# ---------------------------------------------------------------------------
-# Process management. Services keep their own child trees (turbo, granian
-# workers), so teardown walks descendants deepest-first instead of trusting a
-# single pid.
-# ---------------------------------------------------------------------------
-collect_descendants() {
-    local parent=$1 child
-    for child in $(pgrep -P "$parent" 2>/dev/null); do
-        collect_descendants "$child"
-        echo "$child"
-    done
-}
-
-kill_tree() {
-    local root=$1 pids
-    pids="$(collect_descendants "$root") $root"
-    # shellcheck disable=SC2086
-    kill -TERM $pids 2>/dev/null || true
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        kill -0 "$root" 2>/dev/null || return 0
-        sleep 0.3
-    done
-    pids="$(collect_descendants "$root") $root"
-    # shellcheck disable=SC2086
-    kill -KILL $pids 2>/dev/null || true
-}
-
-start_process() {
-    local name=$1
-    shift
-    local pidfile="$PID_DIR/$name.pid"
-    if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-        echo "  $name: already running (pid $(cat "$pidfile"))"
-        return
-    fi
-    mkdir -p "$LOG_DIR" "$PID_DIR"
-    # Background only the nohup command itself: `cd ... && nohup ... &` would
-    # background the whole list, leaving a wrapper bash holding the caller's
-    # stdout/stderr open (which blocks pipelines reading our output) and
-    # putting the wrapper's pid in the pidfile instead of the service's.
-    (
-        cd "$WORKTREE_ROOT" || exit 1
-        nohup "$@" < /dev/null > "$LOG_DIR/$name.log" 2>&1 &
-        echo $! > "$pidfile"
-    )
-    echo "  $name: started (pid $(cat "$pidfile"), log $LOG_DIR/$name.log)"
-}
-
 check_infra() {
     if ! (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null; then
         cat >&2 <<EOF
@@ -218,94 +183,145 @@ EOF
     fi
 }
 
-start_service() {
-    case "$1" in
-        proxy)
-            docker compose -p "$COMPOSE_PROJECT" -f "$WORKTREE_ROOT/docker-compose.dev.yml" up -d proxy \
-                && echo "  proxy: up at $SITE_URL (project $COMPOSE_PROJECT)"
-            ;;
-        backend)
-            start_process backend ./bin/start-backend
-            ;;
-        frontend)
-            start_process frontend ./bin/start-frontend
-            ;;
-        celery-worker)
-            start_process celery-worker ./bin/start-celery worker
-            ;;
-        nodejs)
-            HTTP_SERVER_PORT="$PLUGIN_HTTP_PORT" start_process nodejs ./bin/posthog-node
-            ;;
-        celery-beat)
-            echo "error: celery-beat is a singleton scheduler; run it only in the main stack" >&2
-            exit 1
-            ;;
-        *)
-            echo "error: unknown service '$1'" >&2
-            usage
-            ;;
-    esac
+# ---------------------------------------------------------------------------
+# phrocs resolution. The in-repo source build is canonical (it matches the
+# checkout); worktrees usually don't build their own dist, so borrow the main
+# checkout's before falling back to PATH.
+# ---------------------------------------------------------------------------
+resolve_phrocs() {
+    local candidate
+    for candidate in "$WORKTREE_ROOT/tools/phrocs/dist/phrocs" "$MAIN_ROOT/tools/phrocs/dist/phrocs"; do
+        if [[ -x "$candidate" ]]; then
+            echo "$candidate"
+            return
+        fi
+    done
+    if candidate="$(command -v phrocs)"; then
+        echo "$candidate"
+        return
+    fi
+    cat >&2 <<EOF
+error: phrocs not found. Build it in the main checkout (hogli phrocs:build)
+or install it: brew tap posthog/tap && brew install phrocs
+EOF
+    exit 1
 }
 
-probe() {
-    local label=$1 url=$2
-    if curl -fsS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
-        echo "  $label: ready ($url)"
-    else
-        echo "  $label: not responding ($url)"
-    fi
+# ---------------------------------------------------------------------------
+# phrocs config. One proc per service the worktree can override, same shells
+# and ready patterns as the main stack's registry (bin/mprocs.yaml), so the
+# TUI reads identically. Services not selected on `start` are defined with
+# autostart: false — visible in phrocs and toggleable there, but off.
+# ---------------------------------------------------------------------------
+KNOWN_SERVICES=(proxy backend frontend celery-worker nodejs)
+
+autostart_flag() {
+    local svc
+    for svc in "${AUTOSTART_SERVICES[@]}"; do
+        [[ "$svc" == "$1" ]] && { echo true; return; }
+    done
+    echo false
+}
+
+write_phrocs_config() {
+    mkdir -p "$STATE_DIR"
+    cat > "$PHROCS_CONFIG" <<EOF
+# Generated by bin/worktree-stack for worktree #$IDX — do not edit.
+procs:
+    info:
+        shell: |
+            echo ''
+            echo "  worktree-stack #$IDX"
+            echo "  App URL: $SITE_URL"
+            echo ''
+            echo '  Everything not listed here is served by the shared stack.'
+            echo '  Stopped services can be started from the sidebar.'
+
+    proxy:
+        shell: 'docker compose -p $COMPOSE_PROJECT -f docker-compose.dev.yml up proxy'
+        autostart: $(autostart_flag proxy)
+        ready_pattern: 'serving initial configuration'
+
+    backend:
+        shell: './bin/start-backend'
+        autostart: $(autostart_flag backend)
+        autorestart: true
+        ready_pattern: 'Listening at'
+
+    frontend:
+        shell: './bin/start-frontend'
+        autostart: $(autostart_flag frontend)
+        autorestart: true
+        ready_pattern: 'VITE.*ready in'
+
+    celery-worker:
+        shell: './bin/start-celery worker'
+        autostart: $(autostart_flag celery-worker)
+        autorestart: true
+        ready_pattern: 'celery@'
+
+    nodejs:
+        shell: './bin/posthog-node'
+        autostart: $(autostart_flag nodejs)
+        ready_pattern: 'All systems go'
+        env:
+            HTTP_SERVER_PORT: '$PLUGIN_HTTP_PORT'
+EOF
 }
 
 case "$COMMAND" in
-    up)
+    start|up)
         if [[ "$IDX" -eq 0 ]]; then
             echo "error: this is the main checkout; run the normal stack with hogli start" >&2
             exit 1
         fi
+        DETACH_ARGS=()
+        AUTOSTART_SERVICES=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -d|--detach)
+                    DETACH_ARGS=(--detach)
+                    ;;
+                celery-beat)
+                    echo "error: celery-beat is a singleton scheduler; run it only in the main stack" >&2
+                    exit 1
+                    ;;
+                *)
+                    if [[ ! " ${KNOWN_SERVICES[*]} " == *" $1 "* ]]; then
+                        echo "error: unknown service '$1' (known: ${KNOWN_SERVICES[*]})" >&2
+                        exit 1
+                    fi
+                    AUTOSTART_SERVICES+=("$1")
+                    ;;
+            esac
+            shift
+        done
+        [[ ${#AUTOSTART_SERVICES[@]} -eq 0 ]] && AUTOSTART_SERVICES=(proxy backend frontend)
         check_infra
         load_dev_env
-        SERVICES=("$@")
-        [[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=(proxy backend frontend)
+        PHROCS_BIN="$(resolve_phrocs)"
+        write_phrocs_config
         echo "worktree-stack #$IDX ($WORKTREE_ROOT)"
-        for svc in "${SERVICES[@]}"; do
-            start_service "$svc"
-        done
-        echo
         echo "App URL: $SITE_URL"
+        cd "$WORKTREE_ROOT"
+        exec "$PHROCS_BIN" "${DETACH_ARGS[@]}" --config "$PHROCS_CONFIG"
         ;;
-    down)
-        if [[ -d "$PID_DIR" ]]; then
-            for pidfile in "$PID_DIR"/*.pid; do
-                [[ -e "$pidfile" ]] || continue
-                name="$(basename "$pidfile" .pid)"
-                pid="$(cat "$pidfile")"
-                if kill -0 "$pid" 2>/dev/null; then
-                    echo "stopping $name (pid $pid)"
-                    kill_tree "$pid"
-                fi
-                rm -f "$pidfile"
-            done
-        fi
+    wait)
+        PHROCS_BIN="$(resolve_phrocs)"
+        cd "$WORKTREE_ROOT"
+        exec "$PHROCS_BIN" wait "$@"
+        ;;
+    stop|down)
+        PHROCS_BIN="$(resolve_phrocs)"
+        cd "$WORKTREE_ROOT"
+        "$PHROCS_BIN" stop "$@" || true
         docker compose -p "$COMPOSE_PROJECT" -f "$WORKTREE_ROOT/docker-compose.dev.yml" down --remove-orphans 2>/dev/null || true
         echo "worktree-stack #$IDX stopped"
         ;;
-    status)
-        echo "worktree-stack #$IDX ($WORKTREE_ROOT)"
-        if [[ -d "$PID_DIR" ]]; then
-            for pidfile in "$PID_DIR"/*.pid; do
-                [[ -e "$pidfile" ]] || continue
-                name="$(basename "$pidfile" .pid)"
-                pid="$(cat "$pidfile")"
-                if kill -0 "$pid" 2>/dev/null; then
-                    echo "  $name: running (pid $pid)"
-                else
-                    echo "  $name: dead (stale pidfile)"
-                fi
-            done
-        fi
-        probe proxy "$SITE_URL"
-        probe backend "http://localhost:$BACKEND_PORT/_health"
-        probe frontend "$JS_URL/@vite/client"
+    attach)
+        PHROCS_BIN="$(resolve_phrocs)"
+        cd "$WORKTREE_ROOT"
+        exec "$PHROCS_BIN" attach
         ;;
     url)
         echo "$SITE_URL"
