@@ -210,6 +210,9 @@ importers:
       '@posthog/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@posthog/quick-ask':
+        specifier: workspace:*
+        version: link:../../packages/quick-ask
       '@posthog/quill':
         specifier: 'catalog:'
         version: 0.3.0-beta.26(@base-ui/react@1.3.0(@types/react@19.2.17)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(tailwindcss@4.3.1)
@@ -1203,6 +1206,37 @@ importers:
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
+
+  packages/quick-ask:
+    dependencies:
+      '@posthog/core':
+        specifier: workspace:*
+        version: link:../core
+      '@posthog/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@posthog/ui':
+        specifier: workspace:*
+        version: link:../ui
+      inversify:
+        specifier: 'catalog:'
+        version: 7.11.0(reflect-metadata@0.2.2)
+      react:
+        specifier: 19.2.6
+        version: 19.2.6
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.17)(react@19.2.6)
+    devDependencies:
+      '@posthog/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.2.0)(@vitest/ui@4.1.8)(jsdom@26.1.0)(msw@2.12.8(@types/node@25.2.0)(typescript@5.9.3))(vite@7.3.5(@types/node@25.2.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/shared:
     dependencies:
@@ -7068,8 +7102,8 @@ packages:
       '@types/react-dom':
         optional: true
 
-  '@react-grab/cli@0.1.50':
-    resolution: {integrity: sha512-Px/Hwhhyk2PubCA4ZaRFsfvwxhbxXsetJyvqC6aFFi8WhJhA+oVC33aTzuAeWmM3fhb4/8ce8YsHXI1d6ChcKg==}
+  '@react-grab/cli@0.2.0':
+    resolution: {integrity: sha512-LVfA+j5cFT0Szd958WRD8W/B8ucCtz4ViiveDKWLqAwBkZFW9VRW1ZvwOUhp/M3SmVPtjDaRkW12GvAuTArP+Q==}
     hasBin: true
 
   '@react-native-async-storage/async-storage@2.2.0':
@@ -14142,8 +14176,8 @@ packages:
     peerDependencies:
       react: 19.2.6
 
-  react-grab@0.1.50:
-    resolution: {integrity: sha512-zRkHKq/8a1msCpEOp8BDROeQZT50m0OH2XPrP6jk5op+JAHrlsm3pj7eAQMOsct87EZDeGNnu4r+sGsJJzyw1Q==}
+  react-grab@0.2.0:
+    resolution: {integrity: sha512-ohhsfXD4qN0j6cMQd56aaVJBPDF3kUdviF/Od1Eak/rEIXQ3svQ4gjkwTfuTZwTBnxHRL16p9JqdlVQO5nUHqA==}
     hasBin: true
     peerDependencies:
       react: 19.2.6
@@ -21853,7 +21887,7 @@ snapshots:
       '@types/react': 19.2.17
       '@types/react-dom': 19.2.3(@types/react@19.2.17)
 
-  '@react-grab/cli@0.1.50':
+  '@react-grab/cli@0.2.0':
     dependencies:
       agent-install: 0.0.6
       commander: 14.0.3
@@ -26846,7 +26880,7 @@ snapshots:
 
   hast-util-to-jsx-runtime@2.3.6:
     dependencies:
-      '@types/estree': 1.0.8
+      '@types/estree': 1.0.9
       '@types/hast': 3.0.4
       '@types/unist': 3.0.3
       comma-separated-tokens: 2.0.3
@@ -30295,9 +30329,9 @@ snapshots:
     dependencies:
       react: 19.2.6
 
-  react-grab@0.1.50(react@19.2.6):
+  react-grab@0.2.0(react@19.2.6):
     dependencies:
-      '@react-grab/cli': 0.1.50
+      '@react-grab/cli': 0.2.0
       bippy: 0.6.1(react@19.2.6)
     optionalDependencies:
       react: 19.2.6
@@ -30563,7 +30597,7 @@ snapshots:
       react: 19.2.6
       react-doctor: 0.9.12(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.208.0(@opentelemetry/api@1.9.1))(eslint@10.5.0(jiti@2.7.0))
       react-dom: 19.2.6(react@19.2.6)
-      react-grab: 0.1.50(react@19.2.6)
+      react-grab: 0.2.0(react@19.2.6)
     optionalDependencies:
       esbuild: 0.27.7
       unplugin: 3.0.0

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+MAX_WORKFLOW_EMAIL_SENDERS = 10
 
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
@@ -484,6 +485,24 @@ class InputsItemSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
+
+                integration_ids = from_value.get("integrationIds")
+                if integration_ids is not None:
+                    if not isinstance(integration_ids, list):
+                        raise serializers.ValidationError(
+                            {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
+                        )
+                    if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
+                        raise serializers.ValidationError(
+                            {"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."}
+                        )
+                    if not all(
+                        isinstance(integration_id, int) and not isinstance(integration_id, bool)
+                        for integration_id in integration_ids
+                    ):
+                        raise serializers.ValidationError(
+                            {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
+                        )
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
