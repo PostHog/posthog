@@ -163,6 +163,11 @@ Any_Source_Errors: dict[str, str | None] = {
 
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 
+CANCELLED_RUN_MESSAGE = (
+    "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
+    "it or the source is paused. It will run again on its next schedule."
+)
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -179,6 +184,11 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
     if cause is None:
         return UNEXPECTED_ERROR_MESSAGE
+    # A cancelled activity surfaces as a Temporal `CancelledError` whose `message` is the bare word
+    # "Cancelled" — meaningless to a customer, and not a failure they caused (a newer run superseded
+    # this one, the source was paused, or a worker was rolled). Give them something readable.
+    if isinstance(cause, exceptions.CancelledError):
+        return CANCELLED_RUN_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 

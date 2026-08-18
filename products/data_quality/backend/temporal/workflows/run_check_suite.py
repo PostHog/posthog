@@ -56,7 +56,7 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
 
-            outcomes = await self._run_batches(inputs.team_id, prepared)
+            outcomes = await self._run_batches(inputs, prepared)
             return await workflow.execute_activity(
                 finalize_check_suite_activity,
                 FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=outcomes),
@@ -73,14 +73,23 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
                 )
             raise
 
-    async def _run_batches(self, team_id: int, prepared: PreparedSuite) -> list[BatchOutcome]:
+    async def _run_batches(self, inputs: RunCheckSuiteInputs, prepared: PreparedSuite) -> list[BatchOutcome]:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
+        staged_saved_query_id = (
+            inputs.saved_query_ids[0] if inputs.staged_queryable_folder and len(inputs.saved_query_ids) == 1 else None
+        )
 
         async def _run(check_ids: list[str]) -> BatchOutcome:
             async with semaphore:
                 return await workflow.execute_activity(
                     run_check_batch_activity,
-                    RunCheckBatchInputs(team_id=team_id, suite_run_id=prepared.suite_run_id, check_ids=check_ids),
+                    RunCheckBatchInputs(
+                        team_id=inputs.team_id,
+                        suite_run_id=prepared.suite_run_id,
+                        check_ids=check_ids,
+                        staged_queryable_folder=inputs.staged_queryable_folder if staged_saved_query_id else None,
+                        staged_saved_query_id=staged_saved_query_id,
+                    ),
                     start_to_close_timeout=dt.timedelta(minutes=30),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=2),
