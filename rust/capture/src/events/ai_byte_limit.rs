@@ -9,6 +9,10 @@
 //! limiter is charged an event's serialized size instead of `1`, so a token's
 //! bytes count against one window no matter which pod or which capture
 //! deployment ingests them.
+//!
+//! Callers charge the budget after event restrictions have filtered the batch,
+//! so an event a `DropEvent` restriction discards never spends the project's
+//! budget.
 use std::sync::Arc;
 
 use crate::global_rate_limiter::GlobalRateLimiter;

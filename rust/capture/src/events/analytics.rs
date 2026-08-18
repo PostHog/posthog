@@ -222,9 +222,9 @@ pub fn process_single_event(
 ///
 /// All routing policy lives here: token dropping, AI lane assignment
 /// (resolved into `DataType::AiEvents` at classification time), event
-/// restrictions, global
-/// rate limiting (per `token:distinct_id`), historical rerouting, and
-/// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
+/// restrictions, the AI lane's per-project byte budget, global rate
+/// limiting (per `token:distinct_id`), historical rerouting, and per-key
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
 /// call so every `DataType::AnalyticsMain` event gets identical limiter
@@ -393,8 +393,6 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
-
     // Apply event restrictions, looking each event up under its `DataType`'s
     // pipeline. The single restriction service holds entries for all
     // pipelines its host capture deployment serves; the pipeline argument
@@ -448,6 +446,13 @@ async fn process_events_inner(
         events = filtered_events;
         debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by event_restrictions");
     }
+
+    // Charge the AI lane's per-project byte budget. This runs after event
+    // restrictions so an event a `DropEvent` discards never spends the
+    // project's budget on a send that was never going to happen. Events that
+    // survive to here are charged whether or not the budget then sheds them:
+    // those bytes crossed the wire either way.
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
     // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
@@ -1446,6 +1451,77 @@ mod tests {
             records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
+    }
+
+    /// A `DropEvent` restriction discards its event before the byte budget is
+    /// charged, so the budget still has room for the events that survive it.
+    /// Charging first would let a restricted event shed a legitimate one
+    /// behind it.
+    #[tokio::test]
+    async fn restriction_dropped_ai_events_do_not_spend_the_byte_budget() {
+        // 800-byte budget against two ~670 B enveloped events: whichever is
+        // charged first is admitted, and a second charge exceeds the budget.
+        let limiter = Some(Arc::new(GlobalRateLimiter::mock_budget(800)));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::Ai],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        let mut filters = RestrictionFilters::default();
+        filters.event_names.insert("$ai_generation".to_string());
+        manager.insert_restrictions(
+            Pipeline::Ai,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::Filtered(filters),
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        let sink = Arc::new(MockSink::new());
+        let events = vec![
+            create_test_event_with_name(
+                "$ai_generation",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$ai_span",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        run_pipeline(
+            sink.clone(),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                ai_byte_rate_limiter: limiter,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured.len(),
+            1,
+            "the restricted event must not spend budget the surviving event needs"
+        );
+        assert_eq!(captured[0].event.event, "$ai_span");
     }
 
     /// capture-ai loads only AI restrictions, so anything off the AI lane must
