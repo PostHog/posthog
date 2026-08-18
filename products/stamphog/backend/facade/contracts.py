@@ -30,6 +30,8 @@ class RepoConfigDTO:
     enabled: bool
     installation_id: str
     digest_enabled: bool = False
+    review_mode: str = ""
+    trigger_label: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -102,6 +104,7 @@ class ReviewRunDTO:
     repository: str
     pr_number: int
     pr_url: str
+    head_branch: str
     head_sha: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
@@ -112,3 +115,20 @@ class ReviewRunDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class RepoAlreadyClaimedError(Exception):
+    """Another team already owns this repository under this GitHub installation."""
+
+
+class DuplicateAudienceError(Exception):
+    """A digest channel for this audience already exists on the team."""
+
+
+class StamphogGitHubError(Exception):
+    """A Stamphog GitHub API call failed for a non-rate-limit reason (auth failure, unexpected status,
+    malformed response). Rate limits raise ``GitHubRateLimitError`` from the egress layer instead."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code

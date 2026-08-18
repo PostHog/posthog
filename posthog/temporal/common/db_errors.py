@@ -12,6 +12,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "connection reset by peer",
     "the database system is starting up",
     "the database system is shutting down",
+    # pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer
+    # caches the failure and hands it to every client asking for a connection until the cooldown
+    # (default 15s) elapses and it retries the backend itself. Self-heals without our retry doing
+    # anything special, so it's transient by construction, not a symptom of the underlying cause.
+    "server login has been failing, cached error",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
