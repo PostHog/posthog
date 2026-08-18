@@ -437,9 +437,6 @@ export const CanvasesLayoutPatchCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const canvasesLayoutPatchCreateBodyOperationsItemGridOneColumnsMin = 4
-export const canvasesLayoutPatchCreateBodyOperationsItemGridOneColumnsMax = 12
-
 export const canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMin = 24
 export const canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMax = 400
 
@@ -448,6 +445,7 @@ export const canvasesLayoutPatchCreateBodyOperationsItemGridOneGapMax = 48
 
 export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdMax = 64
 
+export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
 export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneXMin = 0
 
 export const canvasesLayoutPatchCreateBodyOperationsItemPlacementOneYMin = 0
@@ -479,10 +477,17 @@ export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
                         grid: zod
                             .object({
                                 columns: zod
-                                    .number()
-                                    .min(canvasesLayoutPatchCreateBodyOperationsItemGridOneColumnsMin)
-                                    .max(canvasesLayoutPatchCreateBodyOperationsItemGridOneColumnsMax)
-                                    .describe('Grid width in columns. One of 4, 6, 8, 10, or 12.'),
+                                    .union([
+                                        zod.literal(4),
+                                        zod.literal(6),
+                                        zod.literal(8),
+                                        zod.literal(10),
+                                        zod.literal(12),
+                                    ])
+                                    .describe('\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12')
+                                    .describe(
+                                        'Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12'
+                                    ),
                                 rowHeight: zod
                                     .number()
                                     .min(canvasesLayoutPatchCreateBodyOperationsItemGridOneRowHeightMin)
@@ -502,6 +507,7 @@ export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
                                 id: zod
                                     .string()
                                     .max(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdMax)
+                                    .regex(canvasesLayoutPatchCreateBodyOperationsItemPlacementOneIdRegExp)
                                     .describe(
                                         "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'."
                                     ),
@@ -624,7 +630,7 @@ export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One surgical layout operation.')
             )
-            .describe("Operations applied in order to the canvas's current layout."),
+            .describe("Operations applied in order to the canvas's current layout, at most 64."),
         prompt: zod
             .string()
             .optional()
@@ -654,9 +660,6 @@ export const CanvasesLayoutPublishCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const canvasesLayoutPublishCreateBodyLayoutOneGridOneColumnsMin = 4
-export const canvasesLayoutPublishCreateBodyLayoutOneGridOneColumnsMax = 12
-
 export const canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMin = 24
 export const canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMax = 400
 
@@ -665,6 +668,7 @@ export const canvasesLayoutPublishCreateBodyLayoutOneGridOneGapMax = 48
 
 export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdMax = 64
 
+export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
 export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemXMin = 0
 
 export const canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemYMin = 0
@@ -675,14 +679,18 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
     .object({
         layout: zod
             .object({
-                schemaVersion: zod.number().describe('Layout schema version. Currently always 1.'),
+                schemaVersion: zod
+                    .literal(1)
+                    .describe('\* `1` - 1')
+                    .describe('Layout schema version. Currently always 1.\n\n\* `1` - 1'),
                 grid: zod
                     .object({
                         columns: zod
-                            .number()
-                            .min(canvasesLayoutPublishCreateBodyLayoutOneGridOneColumnsMin)
-                            .max(canvasesLayoutPublishCreateBodyLayoutOneGridOneColumnsMax)
-                            .describe('Grid width in columns. One of 4, 6, 8, 10, or 12.'),
+                            .union([zod.literal(4), zod.literal(6), zod.literal(8), zod.literal(10), zod.literal(12)])
+                            .describe('\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12')
+                            .describe(
+                                'Grid width in columns. One of 4, 6, 8, 10, or 12.\n\n\* `4` - 4\n\* `6` - 6\n\* `8` - 8\n\* `10` - 10\n\* `12` - 12'
+                            ),
                         rowHeight: zod
                             .number()
                             .min(canvasesLayoutPublishCreateBodyLayoutOneGridOneRowHeightMin)
@@ -703,6 +711,7 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
                                 id: zod
                                     .string()
                                     .max(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdMax)
+                                    .regex(canvasesLayoutPublishCreateBodyLayoutOnePlacementsItemIdRegExp)
                                     .describe(
                                         "Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'."
                                     ),
@@ -758,7 +767,7 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
                             })
                             .describe('One placed widget on a grid canvas.')
                     )
-                    .describe('The placed widgets. Placements may not overlap or extend past the grid.'),
+                    .describe('The placed widgets, at most 24. Placements may not overlap or extend past the grid.'),
             })
             .describe("A grid canvas's layout document — its entire 'source'.")
             .describe('The complete layout document to publish.'),

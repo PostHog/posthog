@@ -138,9 +138,6 @@ tools:
             `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet
             returns the default empty layout with a null version id. Placements reference component canvases
             (kind=component) — resolve their contracts via canvas-list.
-        # Historical version browsing is a viewer feature, not an agent one: the response's
-        # current_version_id is always the live head, so an old layout paired with that guard
-        # would publish over newer versions without a 409.
         exclude_params:
             - version_id
         param_overrides:
@@ -191,11 +188,11 @@ tools:
             id:
                 description: ID of the grid canvas whose layout to publish.
             expected_current_version_id:
-                required: true
                 description:
-                    'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid
-                    canvas that has never published a layout). A whole document replaces the head, so without the guard
-                    a layout the user changed after you read it is silently discarded.'
+                    The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas
+                    that has never published a layout). A whole document replaces the head, so without the guard a
+                    layout the user changed after you read it is silently discarded.
+                required: true
     canvas-list:
         operation: canvases_list
         enabled: true
