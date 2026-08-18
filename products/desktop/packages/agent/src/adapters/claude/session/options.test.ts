@@ -387,6 +387,7 @@ describe("buildSessionOptions", () => {
         existingHeaders: undefined,
         expected: [
           "x-posthog-property-team_id: 42",
+          "X-PostHog-Project-Id: 42",
           "x-posthog-property-$ai_session_id: test-session",
           "x-posthog-use-bedrock-fallback: true",
         ].join("\n"),
@@ -398,6 +399,7 @@ describe("buildSessionOptions", () => {
         expected: [
           "x-posthog-property-task_id: task-abc",
           "x-posthog-property-team_id: 42",
+          "X-PostHog-Project-Id: 42",
           "x-posthog-property-$ai_session_id: test-session",
           "x-posthog-use-bedrock-fallback: true",
         ].join("\n"),

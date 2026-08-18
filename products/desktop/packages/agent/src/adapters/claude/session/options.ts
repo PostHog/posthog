@@ -12,7 +12,10 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildPosthogPropertyHeaderLines } from "@posthog/shared/posthog-property-headers";
+import {
+  buildPosthogPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderLines,
+} from "@posthog/shared/posthog-property-headers";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
@@ -177,7 +180,12 @@ function buildEnvironment(
   // get_llm_client(team_id=...).
   const projectId = gateway?.posthogProjectId ?? process.env.POSTHOG_PROJECT_ID;
   if (projectId) {
-    headerLines.push(buildPosthogPropertyHeaderLines({ team_id: projectId }));
+    headerLines.push(
+      buildPosthogScopedPropertyHeaderLines(
+        { team_id: projectId },
+        Number(projectId),
+      ),
+    );
   }
   if (sessionId) {
     headerLines.push(
