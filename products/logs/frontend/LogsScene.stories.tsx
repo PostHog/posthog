@@ -15,6 +15,14 @@ import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
+import {
+    FacetSelection,
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+    setFacetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+
 function createSeededRandom(seed: number): () => number {
     // LCG constants from Numerical Recipes
     let m = 0x80000000 // 2^31
@@ -30,6 +38,8 @@ function createSeededRandom(seed: number): () => number {
 }
 
 const deterministicRandom = createSeededRandom(1234)
+
+const EMPTY_SELECTION: FacetSelection = { included: [], excluded: [] }
 
 const delayIfNotTestRunner = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))
@@ -193,7 +203,8 @@ const getLogs = async (
         _cachedLogs = generateLogs()
     }
     const ALL_LOGS_GENERATED = _cachedLogs
-    const severityLevels = body.query?.severityLevels ?? []
+    const levels = facetSelection(body.query?.filterGroup, SEVERITY_LEVEL_FILTER)
+    const services = facetSelection(body.query?.filterGroup, SERVICE_NAME_FILTER)
 
     const startDate = dateStringToDayJs(body.query?.dateRange?.date_from ?? null) ?? dayjs().subtract(30, 'minutes')
     const endDate = dateStringToDayJs(body.query?.dateRange?.date_to ?? null) ?? dayjs()
@@ -205,13 +216,18 @@ const getLogs = async (
         if (endDate && endDate.isBefore(dayjs(log.timestamp))) {
             return false
         }
-        if (
-            body.query?.serviceNames?.length &&
-            !body.query?.serviceNames.includes(log.resource_attributes['service.name'])
-        ) {
+        const service = log.resource_attributes['service.name']
+        if (services.included.length && !services.included.includes(service)) {
             return false
         }
-        if (severityLevels.length && !severityLevels.includes(log.severity_text.toLowerCase())) {
+        if (services.excluded.includes(service)) {
+            return false
+        }
+        const level = log.severity_text.toLowerCase()
+        if (levels.included.length && !levels.included.includes(level)) {
+            return false
+        }
+        if (levels.excluded.includes(level)) {
             return false
         }
         return true
@@ -309,6 +325,42 @@ const sparklineMock: MockSignature = async ({ request }) => {
         )
 
     return [200, results]
+}
+
+/**
+ * Facet values + counts for the rail, computed over the same generated logs the viewer is showing so
+ * the counts and the rows agree. Cross-filtering is the backend's job: it strips the faceted field's
+ * own filter, which here means faceting on a field ignores that field's selection but honors the rest.
+ */
+const facetValuesMock: MockSignature = async ({ request }) => {
+    await delayIfNotTestRunner()
+    const body = (await request.json()) as Record<string, any>
+    const facetField = body.query?.facetField
+    const resourceAttribute = body.query?.facetResourceAttribute
+    const own = facetField === 'service_name' ? SERVICE_NAME_FILTER : SEVERITY_LEVEL_FILTER
+    const { logs } = await getLogs({
+        query: { ...body.query, filterGroup: setFacetSelection(body.query?.filterGroup, own, EMPTY_SELECTION) },
+    })
+
+    const counts = new Map<string, number>()
+    for (const log of logs) {
+        const value =
+            facetField === 'service_name'
+                ? log.resource_attributes['service.name']
+                : facetField === 'severity_text'
+                  ? log.severity_text.toLowerCase()
+                  : log.resource_attributes[resourceAttribute]
+        if (value) {
+            counts.set(String(value), (counts.get(String(value)) ?? 0) + 1)
+        }
+    }
+
+    const search = String(body.query?.facetSearch ?? '').toLowerCase()
+    const results = Array.from(counts.entries())
+        .filter(([value]) => !search || value.toLowerCase().includes(search))
+        .sort(([, a], [, b]) => b - a)
+        .map(([value, count]) => ({ value, count }))
+    return [200, { results }]
 }
 
 const attributesMock: MockSignature = async ({ request }) => {
@@ -431,6 +483,7 @@ export default {
             },
             post: {
                 '/api/environments/:team_id/logs/query': queryMock,
+                '/api/projects/:team_id/logs/facet_values': facetValuesMock,
                 '/api/environments/:team_id/logs/sparkline': sparklineMock,
                 '/api/projects/:team_id/logs/services': servicesMock,
             },
