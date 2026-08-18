@@ -45,6 +45,19 @@ pub fn expand_into_events(
             .as_ref()
             .map(|resource| filter_resource_attributes(&resource.attributes))
             .unwrap_or_default();
+        let resource_bytes = serde_json::to_vec(&resource_attributes)
+            .map_err(|error| CaptureError::InternalError(error.to_string()))?
+            .len();
+        if resource_bytes > super::MAX_EXPANDED_AI_EVENT_BYTES_PER_EVENT {
+            let dropped_records = resource_logs
+                .scope_logs
+                .iter()
+                .map(|scope_logs| scope_logs.log_records.len())
+                .sum::<usize>();
+            counter!("capture_ai_otel_evaluation_records_dropped", "reason" => "expanded_size")
+                .increment(dropped_records as u64);
+            continue;
+        }
 
         for scope_logs in &resource_logs.scope_logs {
             for record in &scope_logs.log_records {
@@ -349,6 +362,31 @@ mod tests {
             .push(evaluation_record());
 
         let events = expand_into_events(&request, "fallback").unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].properties["$ai_evaluation_name"], "correctness");
+    }
+
+    #[test]
+    fn skips_oversized_resource_group_without_cloning_each_record() {
+        let mut oversized_request = request(evaluation_record());
+        oversized_request.resource_logs[0]
+            .resource
+            .as_mut()
+            .unwrap()
+            .attributes
+            .push(string_attribute(
+                "large.resource.attribute",
+                &"x".repeat(super::super::MAX_EXPANDED_AI_EVENT_BYTES_PER_EVENT),
+            ));
+        oversized_request.resource_logs[0].scope_logs[0]
+            .log_records
+            .extend(vec![evaluation_record(); 99]);
+        oversized_request
+            .resource_logs
+            .extend(request(evaluation_record()).resource_logs);
+
+        let events = expand_into_events(&oversized_request, "fallback").unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].properties["$ai_evaluation_name"], "correctness");
