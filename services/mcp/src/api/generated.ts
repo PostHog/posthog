@@ -70852,6 +70852,20 @@ export namespace Schemas {
     }
 
     /**
+     * Response of GET /vision/scanners/:id/self_driving_stats/.
+     */
+    export interface ScannerSelfDrivingStats {
+      /** Signals this scanner has pushed into the Signals inbox, all time. */
+      signals_emitted: number;
+      /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+      reports_contributed: number;
+      /** Implementation PRs opened by self-driving on those reports. */
+      prs_opened: number;
+      /** Of the opened PRs, how many have merged. */
+      prs_merged: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
