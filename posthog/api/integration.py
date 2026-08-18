@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from collections.abc import Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
@@ -440,6 +441,12 @@ SLACK_USERS_MIN_REFRESH_SECONDS = 30
 # Cap on uncached per-id member lookups per integration per minute; each one reaches Slack's
 # users.info endpoint, so distinct fabricated ids must not be able to drain the workspace quota.
 SLACK_USERS_INFO_LOOKUPS_PER_MINUTE = 30
+
+# How long a request that lost the member-list fill waits for the winner's result before
+# enumerating Slack itself. Bounds a cold-cache burst to one enumeration without failing the
+# request outright, at the cost of holding the losing requests for at most this long.
+SLACK_USERS_FILL_WAIT_SECONDS = 3.0
+SLACK_USERS_FILL_POLL_SECONDS = 0.1
 
 
 class SlackUsersQuerySerializer(serializers.Serializer):
@@ -1494,11 +1501,22 @@ class IntegrationViewSet(
 
         # The refresh floor above compares a value that concurrent requests all read before any of
         # them writes, so it alone can't stop parallel forced refreshes from each enumerating the
-        # workspace. Whoever claims this sentinel refreshes; the rest serve the list they have. A
-        # cold cache still fills on every racing request, having nothing to serve instead.
+        # workspace. Whoever claims this sentinel refreshes; the rest serve the list they have.
         needs_fill = data is None or force_refresh
         filling_key = f"{key}/filling"
         claimed_fill = needs_fill and cache.add(filling_key, 1, 60)
+
+        if needs_fill and not claimed_fill and data is None:
+            # Nothing to serve, so a cold-cache burst would otherwise have every request enumerate
+            # the workspace at once. Wait for the winner instead, and only enumerate if it never
+            # lands — a winner that died must not leave the rest waiting on a list that never comes.
+            deadline = time.monotonic() + SLACK_USERS_FILL_WAIT_SECONDS
+            while data is None and time.monotonic() < deadline:
+                time.sleep(SLACK_USERS_FILL_POLL_SECONDS)
+                data = cache.get(key)
+            if data is None:
+                claimed_fill = cache.add(filling_key, 1, 60)
+
         if needs_fill and (claimed_fill or data is None):
             try:
                 members = slack.list_users()

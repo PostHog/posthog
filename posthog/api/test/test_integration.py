@@ -2219,6 +2219,45 @@ class TestIntegrationAPIKeyAccess:
         assert [user["id"] for user in response.json()["users"]] == ["U1"]
         mock_slack_instance.list_users.assert_not_called()
 
+    @patch("posthog.api.integration.SLACK_USERS_FILL_WAIT_SECONDS", 0.05)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_fills_when_a_cold_cache_fill_never_lands(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_COLD",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_users.return_value = [
+            {"id": "U1", "name": "andy.m", "real_name": "Andy Maguire", "profile": {"display_name": "Andy Maguire"}},
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_cold"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        # Someone else holds the fill sentinel but never publishes a list — the loser has to fall
+        # through and enumerate rather than answer from the empty cache it waited on.
+        cache.delete(f"slack/{slack_integration.id}/users")
+        cache.add(f"slack/{slack_integration.id}/users/filling", 1, 60)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [user["id"] for user in response.json()["users"]] == ["U1"]
+        mock_slack_instance.list_users.assert_called_once()
+
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,
