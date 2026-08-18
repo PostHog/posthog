@@ -15,7 +15,6 @@ import {
   buildMarkdownLink,
   buildPastedTextLabel,
   extractBashCommand,
-  isBashModeText,
   isRepeatOfAutoConvertedPaste,
   isUrlOnly,
   shouldAutoConvertLongText,
@@ -32,7 +31,7 @@ import { sessionStoreSetters } from "@posthog/ui/features/sessions/sessionStore"
 import { useSettingsStore as useFeatureSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { type ToastOptions, toast } from "@posthog/ui/primitives/toast";
 import { isSendMessageSubmitKey } from "@posthog/ui/utils/sendMessageKey";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor } from "@tiptap/react";
@@ -53,6 +52,7 @@ import {
   persistTextContent,
   resolveAndAttachDroppedFiles,
 } from "../utils/persistFile";
+import { isBashModeDoc, markdownFragment } from "./composerDocument";
 
 export interface UseTiptapEditorOptions {
   sessionId: string;
@@ -201,13 +201,12 @@ async function resolveGithubRefChip(
 
 function replaceComposerText(view: EditorView, text = "") {
   const { schema, doc, tr } = view.state;
-  // Replaces whole blocks, not just their text, so a doc that starts with a
-  // list or code block comes back as a plain paragraph.
-  const paragraph = schema.nodes.paragraph.create(
-    null,
-    text ? schema.text(text) : null,
-  );
-  return tr.replaceWith(0, doc.content.size, paragraph);
+  // Replaces whole blocks, not just their text, so the recalled document
+  // replaces whatever block the composer held.
+  const content = text
+    ? markdownFragment(schema, text)
+    : Fragment.from(schema.nodes.paragraph.create());
+  return tr.replaceWith(0, doc.content.size, content);
 }
 
 function hasVisibleSuggestionPopup(sessionId: string): boolean {
@@ -480,7 +479,9 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
                 // Recalling up parks the caret at the start so the next Up
                 // press keeps cycling; recalling down parks it at the end.
                 if (event.key === "ArrowUp") {
-                  tr.setSelection(TextSelection.create(tr.doc, 1));
+                  // atStart, not position 1: a recalled list or fence puts the
+                  // first text position deeper than the first paragraph would.
+                  tr.setSelection(TextSelection.atStart(tr.doc));
                 }
                 view.dispatch(tr);
                 return true;
@@ -723,7 +724,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       },
       onUpdate: ({ editor: e }) => {
         const text = e.getText();
-        const newBashMode = enableBashMode && isBashModeText(text);
+        const newBashMode = enableBashMode && isBashModeDoc(e, text);
 
         if (newBashMode !== prevBashModeRef.current) {
           prevBashModeRef.current = newBashMode;
@@ -811,7 +812,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       draft.clearDraft();
     };
 
-    if (enableBashMode && isBashModeText(text)) {
+    if (enableBashMode && isBashModeDoc(editor, text)) {
       // Bash mode requires immediate execution, can't be queued.
       // Intentionally bypasses onBeforeSubmit — bash commands run inline and
       // cannot be deferred the way normal prompts can.
@@ -967,7 +968,8 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
   const isEmpty = !editor || (isEmptyState && attachments.length === 0);
   const isBashMode =
-    enableBashMode && (editor ? isBashModeText(editor.getText()) : false);
+    enableBashMode &&
+    (editor ? isBashModeDoc(editor, editor.getText()) : false);
 
   return {
     editor,
