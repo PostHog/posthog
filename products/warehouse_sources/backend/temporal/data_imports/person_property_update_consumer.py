@@ -50,8 +50,16 @@ _RATE_KEY = f"{_RATE_DOMAIN}:global"
 # pods just run slower, never faster). Keep in sync with charts ``autoscaling.maxPods``.
 _IN_MEMORY_DIVIDER = 6
 
-SENT_TOTAL = Counter("warehouse_person_property_sent_total", "person-property $set events sent to capture")
-DLQ_TOTAL = Counter("warehouse_person_property_dlq_total", "person-property update messages routed to DLQ")
+SENT_TOTAL = Counter(
+    "warehouse_person_property_sent_total",
+    "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
+    labelnames=["kind"],
+)
+DLQ_TOTAL = Counter(
+    "warehouse_person_property_dlq_total",
+    "person-property update messages routed to DLQ",
+    labelnames=["reason"],
+)
 DLQ_FAILED_TOTAL = Counter(
     "warehouse_person_property_dlq_failed_total", "person-property DLQ writes that failed to deliver"
 )
@@ -158,6 +166,12 @@ DLQ = "dlq"
 RETRY = "retry"
 
 
+def _dlq_reason_label(reason: str) -> str:
+    """Collapse a DLQ reason to a bounded metric label: drop per-message detail after ':' (status
+    codes) and replace spaces so the validation sentences become stable slugs."""
+    return reason.split(":", 1)[0].replace(" ", "_")
+
+
 def _is_permanent_client_error(status_code: object) -> bool:
     """True for a 4xx that can never succeed on retry (bad/stale token, validation) -> DLQ. The
     retryable 4xx (408 timeout, 429 throttled) are excluded so a client hammering capture into
@@ -212,6 +226,7 @@ class PersonPropertyUpdateConsumer:
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
             data={"raw": value.decode("utf-8", "replace"), "reason": reason},
         )
+        reason_label = _dlq_reason_label(reason)
         # Bound the flush: an unavailable DLQ broker must not block past the liveness timeout and get
         # the pod killed mid-write. Heartbeat either side so a slow-but-progressing write stays live.
         self._health_reporter()
@@ -223,7 +238,7 @@ class PersonPropertyUpdateConsumer:
             DLQ_FAILED_TOTAL.inc()
             logger.exception("person_property_update.dlq_delivery_failed", reason=reason)
             return RETRY
-        DLQ_TOTAL.inc()
+        DLQ_TOTAL.labels(reason=reason_label).inc()
         return DLQ
 
     def _acquire_slot(self) -> bool:
@@ -290,7 +305,7 @@ class PersonPropertyUpdateConsumer:
             logger.exception("person_property_update.capture_error")
             return RETRY
         if result.succeeded():
-            SENT_TOTAL.inc()
+            SENT_TOTAL.labels(kind="group" if kwargs["event_name"] == "$groupidentify" else "person").inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
