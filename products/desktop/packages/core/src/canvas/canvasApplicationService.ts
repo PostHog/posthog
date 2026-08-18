@@ -70,11 +70,13 @@ export interface CanvasGenerationGateway {
   onAutoNamed?(taskId: string, title: string): void;
 }
 
-// Unattended canvas runs default to Sonnet (mirrors LOOP_DEFAULT_MODELS for
-// loops): the gateway's own default can be a pricier Opus tier. The resolver
-// validates this against the gateway's model list, so when it's absent the
-// run falls back to the server default instead of failing.
-const CANVAS_PREFERRED_MODEL = "claude-sonnet-5";
+// Unattended canvas runs default to GPT-5.6 Luna on the codex adapter: it is
+// markedly faster than the Claude tiers for canvas work, and speed is what a
+// user staring at a generating tile feels. The resolver validates the id
+// against the gateway's model list, so when it's absent the run falls back to
+// the server default instead of failing.
+const CANVAS_PREFERRED_ADAPTER = "codex" as const;
+const CANVAS_PREFERRED_MODEL = "gpt-5.6-luna";
 
 const TASK_TITLE_MAX = 80;
 
@@ -131,7 +133,7 @@ export class CanvasApplicationService {
     gateway: CanvasGenerationGateway,
   ): Promise<GenerateCanvasResult> {
     const {
-      adapter = "claude",
+      adapter = CANVAS_PREFERRED_ADAPTER,
       // Defaults to a cloud run — canvas generation should never tie up (or
       // depend on) the local machine. The dev-only picker can override to
       // "local" to test a local build of these features before merging.
@@ -149,7 +151,11 @@ export class CanvasApplicationService {
             getCloudUrlFromRegion(input.cloudRegion),
             adapter,
             input.model ??
-              (adapter === "claude" ? CANVAS_PREFERRED_MODEL : null),
+              // The preferred id only fits its own adapter; a caller-picked
+              // other adapter resolves to that adapter's server default.
+              (adapter === CANVAS_PREFERRED_ADAPTER
+                ? CANVAS_PREFERRED_MODEL
+                : null),
           )
         : undefined;
       if (!model) {

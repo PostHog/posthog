@@ -68,12 +68,12 @@ describe("CanvasApplicationService", () => {
     const result = await service.generateCanvas(input(), gateway);
 
     expect(result).toEqual({ ok: true, taskId: "task-1" });
-    // No caller pick: prefer Sonnet over the gateway's default tier, validated
-    // by the resolver against the gateway's model list.
+    // No caller pick: prefer the fast Luna tier over the gateway's default,
+    // validated by the resolver against the gateway's model list.
     expect(resolveDefaultModel).toHaveBeenCalledWith(
       "https://us.posthog.com",
-      "claude",
-      "claude-sonnet-5",
+      "codex",
+      "gpt-5.6-luna",
     );
     const [taskInput] = createTask.mock.calls[0];
     expect(taskInput.content).toContain("`building-canvases` skill");
@@ -81,7 +81,7 @@ describe("CanvasApplicationService", () => {
     expect(taskInput).toMatchObject({
       executionMode: "bypassPermissions",
       workspaceMode: "cloud",
-      adapter: "claude",
+      adapter: "codex",
       model: "model-1",
       allowNoRepo: true,
     });
