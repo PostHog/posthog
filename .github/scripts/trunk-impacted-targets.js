@@ -1145,8 +1145,8 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the three binding packages
-// (@posthog/cyclotron, @posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the two binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
