@@ -144,6 +144,31 @@ describe('facets', () => {
             const excluded = cycleFacetFilter(legacy, STATUS_SOURCE, '1')
             expect(facetFilterSelection(excluded, STATUS_SOURCE)).toEqual({ included: [], excluded: ['0', '1'] })
         })
+
+        it.each<[string, PropertyOperator]>([
+            ['included', PropertyOperator.Exact],
+            ['excluded', PropertyOperator.IsNot],
+        ])('reports a pre-fold Unset-only ("0") %s filter against the OK row', (_, operator) => {
+            // Before the fold, Unset was its own row, so a saved view or URL can carry "0" alone. The
+            // OK row has to render it as active, or the first click reads as "select OK" while it
+            // actually cycles the already-active group straight to excluded.
+            const legacy = groupWith([{ key: 'status_code', type: PropertyFilterType.Span, operator, value: ['0'] }])
+            const expected =
+                operator === PropertyOperator.Exact
+                    ? { included: ['1'], excluded: [] }
+                    : { included: [], excluded: ['1'] }
+            expect(facetSelection(legacy, null, STATUS_SOURCE)).toEqual(expected)
+        })
+
+        it('completes a pre-fold Unset-only group when a different row is toggled', () => {
+            // Clicking Error must not leave "0" behind without "1": the rail would show OK selected
+            // while the query dropped every explicitly-OK span.
+            const legacy = groupWith([
+                { key: 'status_code', type: PropertyFilterType.Span, operator: PropertyOperator.Exact, value: ['0'] },
+            ])
+            const group = cycleFacetFilter(legacy, STATUS_SOURCE, '2')
+            expect(facetFilterSelection(group, STATUS_SOURCE)).toEqual({ included: ['0', '1', '2'], excluded: [] })
+        })
     })
 
     describe('facetSelection', () => {

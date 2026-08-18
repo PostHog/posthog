@@ -143,6 +143,8 @@ export function facetFilterSelection(
 /**
  * Selection for any facet — routes the service facet to the dedicated serviceNames field
  * (include-only, so nothing is ever excluded there) and everything else to its filterGroup filters.
+ * Column selections are reported against the rows the rail renders, so a folded-away value
+ * (status_code "0") shows up as its group's row instead of as a selection with no row to click.
  */
 export function facetSelection(
     group: UniversalFiltersGroup | undefined,
@@ -154,7 +156,7 @@ export function facetSelection(
             // Empty strings from external state (URL, saved view) would select a value with no visible row.
             return { included: (serviceNames ?? []).filter((v) => v !== ''), excluded: [] }
         }
-        return facetFilterSelection(group, { type: 'column', column: source.column })
+        return facetRowSelection(source, facetFilterSelection(group, { type: 'column', column: source.column }))
     }
     return facetFilterSelection(group, source)
 }
@@ -163,6 +165,7 @@ export function facetSelection(
  * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
  * returning a new filterGroup. Selection is stored as up to two property filters per key with
  * array values, `exact` and `is_not`; a filter is dropped when its side of the selection empties.
+ * Both sides are written as whole value groups, so no click can leave half of a folded group behind.
  */
 export function cycleFacetFilter(
     group: UniversalFiltersGroup | undefined,
@@ -183,20 +186,22 @@ export function cycleFacetFilter(
     }
 
     const values = innerFilters(group).filter((f) => !isRailFacetFilter(f, source))
-    if (nextIncluded.length > 0) {
+    const nextIncludedValues = expandToValueGroups(source, nextIncluded)
+    const nextExcludedValues = expandToValueGroups(source, nextExcluded)
+    if (nextIncludedValues.length > 0) {
         values.push({
             key: facetFilterKey(source),
             type: facetFilterType(source),
             operator: PropertyOperator.Exact,
-            value: nextIncluded,
+            value: nextIncludedValues,
         })
     }
-    if (nextExcluded.length > 0) {
+    if (nextExcludedValues.length > 0) {
         values.push({
             key: facetFilterKey(source),
             type: facetFilterType(source),
             operator: PropertyOperator.IsNot,
-            value: nextExcluded,
+            value: nextExcludedValues,
         })
     }
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
@@ -220,6 +225,40 @@ export function facetValueGroup(source: FacetSource, value: string): string[] {
         return STATUS_CODE_VALUE_GROUPS[value] ?? [value]
     }
     return [value]
+}
+
+// Reverse of STATUS_CODE_VALUE_GROUPS: which row each underlying value is rendered under.
+const STATUS_CODE_ROW_BY_VALUE: Record<string, string> = Object.fromEntries(
+    Object.entries(STATUS_CODE_VALUE_GROUPS).flatMap(([row, values]) => values.map((value) => [value, row]))
+)
+
+/**
+ * The rail row `value` is rendered under: itself for every value except one that was folded away,
+ * which reports the row it folded into. Filters written before the fold (or by hand outside the
+ * rail) can carry status_code "0" on its own, so the OK row has to read as active for it; otherwise
+ * the first click would cycle that already-active group to excluded instead of selecting it.
+ */
+function facetRowValue(source: FacetSource, value: string): string {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_ROW_BY_VALUE[value] ?? value
+    }
+    return value
+}
+
+/** Map a raw filter selection onto the rows the rail renders, deduping values that share a row. */
+function facetRowSelection(source: FacetSource, selection: FacetSelection): FacetSelection {
+    const toRows = (values: string[]): string[] => [...new Set(values.map((v) => facetRowValue(source, v)))]
+    return { included: toRows(selection.included), excluded: toRows(selection.excluded) }
+}
+
+/**
+ * Expand a set of filter values onto whole value groups, so a write always covers every value behind
+ * the rows it touches. Legacy state carrying part of a group (status_code "0" without "1") would
+ * otherwise survive a click on a different row, leaving the rail showing OK while the query drops
+ * explicitly-OK spans.
+ */
+function expandToValueGroups(source: FacetSource, values: string[]): string[] {
+    return [...new Set(values.flatMap((v) => facetValueGroup(source, facetRowValue(source, v))))]
 }
 
 // OTel span status. Values must stay the digit strings "1"/"2": breakdown rows arrive
