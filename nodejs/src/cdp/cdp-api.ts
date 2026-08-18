@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
+import { z } from 'zod'
 
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
@@ -1031,6 +1032,32 @@ export class CdpApi {
         }
     }
 
+    // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
+    // token and requires its claims to match the URL's team + workflow, so a leaked token can't
+    // touch another team or flow. Writes the 401 itself and returns false on any mismatch.
+    private verifyScopedWorkflowJwt(
+        jwt: ScopedServiceJwt,
+        req: ModifiedRequest,
+        res: express.Response,
+        label: string
+    ): boolean {
+        const { team_id, id } = req.params
+        const authHeader = req.headers['authorization']
+        const token =
+            typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+        let claims: { team_id?: number; hog_flow_id?: string } | undefined
+        try {
+            claims = token ? (jwt.verify(token) as typeof claims) : undefined
+        } catch {
+            claims = undefined
+        }
+        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+            res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
+            return false
+        }
+        return true
+    }
+
     // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
     // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
     // wait window; one call is one slice, and the caller loops with the returned bounds until
@@ -1054,18 +1081,8 @@ export class CdpApi {
 
             const { team_id, id } = req.params
 
-            const authHeader = req.headers['authorization']
-            const token =
-                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            let claims: { team_id?: number; hog_flow_id?: string } | undefined
-            try {
-                claims = token ? (this.rescheduleJwt.verify(token) as typeof claims) : undefined
-            } catch {
-                claims = undefined
-            }
-            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
-            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            if (!this.verifyScopedWorkflowJwt(this.rescheduleJwt, req, res, 'reschedule')) {
+                return
             }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
@@ -1145,18 +1162,8 @@ export class CdpApi {
 
             const { team_id, id } = req.params
 
-            const authHeader = req.headers['authorization']
-            const token =
-                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-            let claims: { team_id?: number; hog_flow_id?: string } | undefined
-            try {
-                claims = token ? (this.cancelInvocationsJwt.verify(token) as typeof claims) : undefined
-            } catch {
-                claims = undefined
-            }
-            // The claims pin the token to one team + workflow, so a leaked token can't cancel anything else.
-            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid cancel token' })
+            if (!this.verifyScopedWorkflowJwt(this.cancelInvocationsJwt, req, res, 'cancel')) {
+                return
             }
 
             const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
@@ -1168,30 +1175,30 @@ export class CdpApi {
             // for flows that were deleted with runs still parked. The JWT claims already bind the
             // request to this flow id, and cancelJobs filters on (team_id, function_id).
 
-            const body = req.body ?? {}
-            const invocationIds = body.invocation_ids
-            const all = body.all
-            if ((invocationIds !== undefined) === (all === true)) {
-                return res.status(400).json({ error: 'Provide exactly one of invocation_ids or all=true' })
-            }
-            // UUID-shaped only: cancelJobs binds ids as ::uuid[], so a malformed id must be a 400
-            // here rather than a Postgres cast error surfaced as a 500.
-            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-            // Same env-driven cap the Django cancel serializer validates against, so raising the
-            // env var lifts both sides together instead of leaving Django accepting ids this route
+            // UUID-shaped ids only: cancelJobs binds them as ::uuid[], so a malformed id must be a
+            // 400 here rather than a Postgres cast error surfaced as a 500. The cap is the same
+            // env-driven one the Django cancel serializer validates against, so raising the env
+            // var lifts both sides together instead of leaving Django accepting ids this route
             // then rejects with a 400 (which Django surfaces as a 500).
             const maxInvocationIds = this.config.HOG_INVOCATION_RERUN_MAX_COUNT
-            if (
-                invocationIds !== undefined &&
-                (!Array.isArray(invocationIds) ||
-                    invocationIds.length === 0 ||
-                    invocationIds.length > maxInvocationIds ||
-                    !invocationIds.every((i: unknown) => typeof i === 'string' && uuidRe.test(i)))
-            ) {
-                return res.status(400).json({
-                    error: `invocation_ids must be a non-empty array of up to ${maxInvocationIds} invocation UUIDs`,
+            const idsMessage = `invocation_ids must be a non-empty array of up to ${maxInvocationIds} invocation UUIDs`
+            const parsed = z
+                .object({
+                    invocation_ids: z
+                        .array(z.string().uuid(idsMessage))
+                        .min(1, idsMessage)
+                        .max(maxInvocationIds, idsMessage)
+                        .optional(),
+                    all: z.boolean().optional(),
                 })
+                .refine((body) => (body.invocation_ids !== undefined) !== (body.all === true), {
+                    message: 'Provide exactly one of invocation_ids or all=true',
+                })
+                .safeParse(req.body ?? {})
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
             }
+            const { invocation_ids: invocationIds, all } = parsed.data
 
             const result = await this.batchResolverProducer.cancelJobs({
                 teamId: team.id,
