@@ -196,6 +196,60 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.draftMaxReportsPerDay).toBe(7)
     })
 
+    it('does not save the daily limit while a config request is in flight', async () => {
+        let getCount = 0
+        let resolveRefresh: (() => void) | undefined
+        const postBodies: Partial<SignalTeamConfig>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': async () => {
+                    getCount += 1
+                    if (getCount > 1) {
+                        // Hold the refresh GET open so a save can land while it is in flight.
+                        await new Promise<void>((resolve) => {
+                            resolveRefresh = resolve
+                        })
+                    }
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                            max_reports_per_day: null,
+                        },
+                    ]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/signals/config/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<SignalTeamConfig>
+                    postBodies.push(body)
+                    return [200, { id: 'cfg-1', autostart_enabled: true, default_autostart_priority: 'P4', ...body }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // Type a new limit, then a background refresh starts (jsdom's visibilityState is 'visible').
+        logic.actions.setDraftMaxReportsPerDay(5)
+        document.dispatchEvent(new Event('visibilitychange'))
+        await waitFor(() => expect(logic.values.teamConfigLoading).toBe(true))
+        // The draft differs from the saved value, so only the in-flight guard can block the save.
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+
+        // Pressing Enter while the refresh GET is in flight must not fire a racing PATCH.
+        logic.actions.saveDraftMaxReportsPerDay()
+        expect(postBodies).toHaveLength(0)
+
+        resolveRefresh?.()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('throttles rapid tab-return refreshes to one request per window', async () => {
         let getCount = 0
         useMocks({

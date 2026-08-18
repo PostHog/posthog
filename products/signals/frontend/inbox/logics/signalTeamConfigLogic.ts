@@ -368,7 +368,11 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 actions.patchTeamConfig({ autostart_base_branches: next })
             },
             saveDraftMaxReportsPerDay: () => {
-                if (values.saveMaxReportsPerDayDisabledReason) {
+                // Guard the Enter path against double-submission: the Save button disables itself while
+                // a save runs, but LemonInput's onPressEnter does not, so also bail while any request
+                // for this singleton is in flight. A save must not race a concurrent GET or PATCH — they
+                // share one loader key with no ordering, so a late response could clobber the saved value.
+                if (values.saveMaxReportsPerDayDisabledReason || values.teamConfigLoading) {
                     return
                 }
                 actions.patchTeamConfig({ max_reports_per_day: values.draftMaxReportsPerDay })
