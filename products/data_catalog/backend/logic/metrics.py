@@ -421,15 +421,30 @@ def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
 
     Locks in ``pk`` order so two concurrent bulk operations over overlapping rows queue behind each
     other instead of deadlocking. A metric missing from the result was deleted between resolution and
-    the lock.
+    the lock. ``of`` keeps the lock on the metric rows: the joined user rows are only read to
+    serialize the response, and locking them would block unrelated writes to those users.
     """
     locked = (
         Metric.objects.for_team(team_id)
         .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
-        .select_for_update()
+        .select_related("owner", "created_by")
+        .select_for_update(of=("self",))
         .order_by("pk")
     )
     return {metric.id: metric for metric in locked}
+
+
+def _locked_match(locked: dict[UUID, Metric], requested: Metric) -> Optional[Metric]:
+    """The locked row that still holds the name the caller asked for, or None.
+
+    Callers address a metric by name, and a name is freed for reuse. A row renamed between name
+    resolution and the lock is no longer the metric that was requested, so the batch leaves it alone
+    rather than acting on it under a name nobody sent.
+    """
+    metric = locked.get(requested.id)
+    if metric is None or metric.name != requested.name:
+        return None
+    return metric
 
 
 def _capture_after_commit(
@@ -458,7 +473,7 @@ def bulk_approve_metrics(
         locked = _lock_batch(team.id, metrics)
         drifted = compute_drift(locked.values())
         for requested in metrics:
-            metric = locked.get(requested.id)
+            metric = _locked_match(locked, requested)
             if metric is None:
                 skipped.append(MetricBulkSkip(name=requested.name, reason=BULK_SKIP_NOT_FOUND))
             elif drifted[metric.id]:
@@ -488,7 +503,7 @@ def bulk_soft_delete_metrics(
         # Same pk lock order as bulk_approve_metrics, so a mixed approve/delete pair can't deadlock.
         locked = _lock_batch(team.id, metrics)
         for requested in metrics:
-            metric = locked.get(requested.id)
+            metric = _locked_match(locked, requested)
             if metric is None:
                 skipped.append(MetricBulkSkip(name=requested.name, reason=BULK_SKIP_NOT_FOUND))
                 continue
