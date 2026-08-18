@@ -181,6 +181,7 @@ class TaskDetailDTO:
     archived: bool
     archived_at: datetime | None
     ci_prompt: str | None
+    ci_follow_up_enabled: bool = True
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

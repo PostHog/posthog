@@ -876,7 +876,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
-    pr_loop_enabled = (
+    pr_loop_enabled = task.ci_follow_up_enabled and (
         task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         or _loop_pr_follow_up_enabled(task, state)
         or posthoganalytics.feature_enabled(

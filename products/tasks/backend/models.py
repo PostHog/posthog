@@ -326,6 +326,14 @@ class Task(DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    ci_follow_up_enabled = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text=(
+            "If false, the agent does not wake to push follow-up commits to the task's pull request "
+            "after CI failures or review feedback. Lets a user stop automatic changes to their PR."
+        ),
+    )
 
     # Conversation-level state shared across the task's runs (each resume/follow-up
     # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.

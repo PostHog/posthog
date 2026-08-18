@@ -460,6 +460,7 @@ const TasksCreateSchema = TasksCreateBody.omit({
     internal: true,
     archived: true,
     ci_prompt: true,
+    ci_follow_up_enabled: true,
     branch: true,
     runtime_adapter: true,
     model: true,

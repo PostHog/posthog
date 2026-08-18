@@ -1253,6 +1253,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        ci_follow_up_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR."
+            ),
         branch: zod
             .string()
             .max(tasksCreateBodyBranchMax)
@@ -1418,6 +1424,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        ci_follow_up_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR."
+            ),
         branch: zod
             .string()
             .max(tasksUpdateBodyBranchMax)
@@ -1568,6 +1580,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        ci_follow_up_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR."
+            ),
         branch: zod
             .string()
             .max(tasksPartialUpdateBodyBranchMax)

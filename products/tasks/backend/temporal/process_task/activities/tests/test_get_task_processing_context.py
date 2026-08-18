@@ -503,6 +503,24 @@ class TestGetTaskProcessingContextActivity:
         called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
         assert "tasks-pr-loop" not in called_flags
 
+    @pytest.mark.django_db(transaction=True)
+    def test_ci_follow_up_disabled_vetoes_pr_loop_for_every_origin(self, activity_environment, test_task):
+        # The per-task toggle must stop the follow-up loop even for a signal_report origin,
+        # which otherwise opts in unconditionally. This is the user's "stop changing my PR" switch.
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.ci_follow_up_enabled = False
+        test_task.save(update_fields=["origin_product", "ci_follow_up_enabled"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is False
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [

@@ -1619,6 +1619,7 @@ export interface TaskDetailDTOApi {
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     ci_prompt: string | null
+    ci_follow_up_enabled?: boolean
     /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
@@ -1760,6 +1761,8 @@ export interface TaskCreateApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /** If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR. */
+    ci_follow_up_enabled?: boolean
     /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
@@ -1904,6 +1907,8 @@ export interface TaskWriteApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /** If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR. */
+    ci_follow_up_enabled?: boolean
     /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
@@ -2033,6 +2038,8 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /** If false, the agent does not wake to push follow-up commits to the task's pull request after CI failures or review feedback. Lets a user stop automatic changes to their PR. */
+    ci_follow_up_enabled?: boolean
     /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
