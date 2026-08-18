@@ -2,16 +2,20 @@ import {
   ArrowSquareOut,
   ArrowsClockwise,
   CheckCircle,
+  Clock,
   GearSix,
   GithubLogo,
   Plus,
 } from "@phosphor-icons/react";
+import { isGithubConnectPendingApproval } from "@posthog/core/integrations/connectErrors";
 import {
+  buildConnectAbandonedProps,
   buildConnectFailedProps,
   buildConnectFailureFingerprint,
   buildInstallationSettingsUrl,
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
+  deriveGithubApprovalState,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -19,6 +23,7 @@ import {
 import type { GithubConnectService } from "@posthog/core/onboarding/githubConnectService";
 import { GITHUB_CONNECT_SERVICE } from "@posthog/core/onboarding/identifiers";
 import { useService } from "@posthog/di/react";
+import { Button as QuillButton } from "@posthog/quill";
 import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -28,6 +33,7 @@ import {
   useGithubConnect,
 } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import {
+  useGithubInstallRequests,
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
@@ -48,7 +54,7 @@ import {
   Text,
 } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export function GitHubConnectPanel() {
   const queryClient = useQueryClient();
@@ -75,6 +81,13 @@ export function GitHubConnectPanel() {
     [projects, selectedProjectId],
   );
 
+  // Armed on connect start, cleared on any terminal outcome, so an unmount in
+  // between is reported as an abandoned connect.
+  const inFlightConnectRef = useRef<{
+    flowType: OnboardingGithubConnectFlow;
+    startedAtMs: number;
+  } | null>(null);
+
   const {
     error: connectError,
     isConnecting,
@@ -85,11 +98,17 @@ export function GitHubConnectPanel() {
   } = useGithubConnect({
     projectId: selectedProjectId,
     projectHasTeamIntegration: selectedProject?.hasGithubIntegration ?? null,
-    onConnected: () => track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED),
+    onConnected: () => {
+      inFlightConnectRef.current = null;
+      track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED);
+    },
   });
   const canTakeAction = !isConnecting && !timedOut && !hasConnectError;
+  const isPendingApproval = isGithubConnectPendingApproval(connectError?.code);
 
-  const initiateConnect = (
+  // Every path that begins a connect, including reconnect, must go through
+  // this, or its "started" event has no abandoned counterpart.
+  const markConnectStarted = (
     flowType: OnboardingGithubConnectFlow,
     isRetry = false,
   ) => {
@@ -97,8 +116,31 @@ export function GitHubConnectPanel() {
       flow_type: flowType,
       is_retry: isRetry,
     });
+    inFlightConnectRef.current = { flowType, startedAtMs: Date.now() };
+  };
+
+  const initiateConnect = (
+    flowType: OnboardingGithubConnectFlow,
+    isRetry = false,
+  ) => {
+    markConnectStarted(flowType, isRetry);
     void handleConnectGitHub();
   };
+
+  useEffect(() => {
+    return () => {
+      const inFlight = inFlightConnectRef.current;
+      if (!inFlight) return;
+      track(
+        ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED,
+        buildConnectAbandonedProps({
+          flowType: inFlight.flowType,
+          startedAtMs: inFlight.startedAtMs,
+          nowMs: Date.now(),
+        }),
+      );
+    };
+  }, []);
 
   const connectService = useService<GithubConnectService>(
     GITHUB_CONNECT_SERVICE,
@@ -109,13 +151,31 @@ export function GitHubConnectPanel() {
       timedOut,
       errorCode: connectError?.code,
     };
+    // Any terminal outcome ends the in-flight attempt, even one the dedupe below
+    // decides not to report again.
+    const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
+    inFlightConnectRef.current = null;
     const fingerprint = buildConnectFailureFingerprint(failureInputs);
     if (!connectService.shouldReportFailure(fingerprint)) return;
+    if (isPendingApproval) {
+      // The pending marker itself is written in useConnectStateMachine; only
+      // the onboarding-scoped event lives here.
+      track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN, {
+        flow_type: flowType,
+      });
+      return;
+    }
     track(
       ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED,
       buildConnectFailedProps(failureInputs),
     );
-  }, [hasConnectError, timedOut, connectError, connectService]);
+  }, [
+    hasConnectError,
+    timedOut,
+    connectError,
+    connectService,
+    isPendingApproval,
+  ]);
 
   const defaultPanelMessage = getGithubPanelMessage({
     hasConnectError,
@@ -129,6 +189,14 @@ export function GitHubConnectPanel() {
     isLoading: githubUserIntegrationsLoading,
   } = useUserGithubIntegrations();
   const hasGitIntegration = githubUserIntegrations.length > 0;
+  const { data: githubInstallRequests = [] } = useGithubInstallRequests();
+  const approvalState = deriveGithubApprovalState({
+    errorCode: connectError?.code,
+    requests: githubInstallRequests,
+    hasIntegration: hasGitIntegration,
+  });
+  const isAwaitingApproval = approvalState === "awaiting";
+  const isApprovedNotLinked = approvalState === "approved";
   const { failedInstallationIds, reposByInstallationId } =
     useUserRepositoryIntegration();
   const anyIntegrationStale = isAnyIntegrationStale(
@@ -256,6 +324,25 @@ export function GitHubConnectPanel() {
                   )}
                   .
                 </Text>
+              ) : isAwaitingApproval ? (
+                <div className="flex flex-col gap-1 pt-3">
+                  <div className="flex items-center gap-2 font-medium text-(--gray-12) text-sm">
+                    <Clock size={16} className="text-(--amber-11)" />
+                    Waiting for a GitHub org owner to approve
+                  </div>
+                  <span className="text-(--gray-11) text-sm">
+                    Tasks run on your machine until then. You can keep going.
+                  </span>
+                </div>
+              ) : isApprovedNotLinked ? (
+                <div className="flex items-center gap-2 pt-3 font-medium text-(--gray-12) text-sm">
+                  <CheckCircle
+                    size={16}
+                    weight="fill"
+                    className="text-(--green-9)"
+                  />
+                  Your GitHub org owner approved the request
+                </div>
               ) : (
                 <Text
                   className={
@@ -322,10 +409,7 @@ export function GitHubConnectPanel() {
                             !isReconnecting
                           }
                           onClick={async () => {
-                            track(
-                              ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED,
-                              { flow_type: "user_new", is_retry: true },
-                            );
+                            markConnectStarted("user_new", true);
                             setReconnectingInstallationId(installationId);
                             try {
                               await reconnect(
@@ -400,6 +484,17 @@ export function GitHubConnectPanel() {
                 </Button>
               </Flex>
             </Flex>
+          ) : isAwaitingApproval ? null : isApprovedNotLinked ? (
+            <QuillButton
+              variant="primary"
+              size="sm"
+              className="self-start"
+              loading={isConnecting}
+              onClick={() => initiateConnect("user_new")}
+            >
+              Connect GitHub
+              <ArrowSquareOut size={12} />
+            </QuillButton>
           ) : !isLoading && !githubUserIntegrationsLoading ? (
             selectedProject?.hasGithubIntegration && canTakeAction ? (
               <Button

@@ -76,6 +76,7 @@ export function githubInvalidationKeys(
   keys.push(["integrations", "list"]);
   keys.push(["user-github-integrations"]);
   keys.push(["github_login"]);
+  keys.push(["github-install-requests"]);
   return keys;
 }
 

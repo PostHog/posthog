@@ -25,6 +25,7 @@ import {
 } from "@posthog/core/integrations/repositories";
 import type { RepositoriesService } from "@posthog/core/integrations/repositoriesService";
 import {
+  githubInstallRequestKeys,
   integrationKeys,
   type RepositoryRefetchKey,
   userGithubIntegrationKeys,
@@ -110,6 +111,23 @@ function useAllGithubRepositories(githubIntegrations: Integration[]) {
 export function useUserGithubIntegrations() {
   return useAuthenticatedQuery(userGithubIntegrationKeys.list(), (client) =>
     client.getGithubUserIntegrations(),
+  );
+}
+
+/** The durable "awaiting org owner approval" state (see `GitHubInstallRequest` on the
+ * backend) — polled only while a request is still pending, since an approved or empty
+ * list never changes again on its own. */
+export function useGithubInstallRequests() {
+  return useAuthenticatedQuery(
+    githubInstallRequestKeys.list(),
+    (client) => client.getGithubInstallRequests(),
+    {
+      refetchInterval: (query) =>
+        (query.state.data ?? []).some((request) => request.status === "pending")
+          ? 30_000
+          : false,
+      refetchOnWindowFocus: true,
+    },
   );
 }
 
