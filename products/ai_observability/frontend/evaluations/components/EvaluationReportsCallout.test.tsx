@@ -43,13 +43,14 @@ describe('EvaluationReportsCallout', () => {
 
     afterEach(cleanup)
 
-    it.each([
-        ['shows for a disabled report configuration', false, true],
-        ['stays hidden for an enabled report configuration', true, false],
-    ])('%s', async (_, enabled, expectedVisible) => {
+    it.each<[name: string, reports: EvaluationReport[], expectedVisible: boolean]>([
+        ['shows when no report is configured', [], true],
+        ['shows for a disabled report configuration', [buildReport(false)], true],
+        ['stays hidden for an enabled report configuration', [buildReport(true)], false],
+    ])('%s', async (_, reports, expectedVisible) => {
         useMocks({
             get: {
-                '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: [buildReport(enabled)] },
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/': { results: reports },
                 '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/runs/': { results: [] },
             },
         })
