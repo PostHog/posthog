@@ -300,6 +300,7 @@ the row lists both.
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
+| google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
@@ -1045,7 +1046,6 @@ doesn't conflict with concurrent PRs.
 - google_drive
 - google_forms
 - google_merchant_center
-- google_play_console
 - google_tasks
 - google_workspace_admin_reports
 - greythr
