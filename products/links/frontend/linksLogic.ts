@@ -25,10 +25,10 @@ export interface linksLogicActions {
         errorObject?: any
     }
     loadLinksSuccess: (
-        links: LinkType[],
+        links: LinkApi[],
         payload?: any
     ) => {
-        links: LinkType[]
+        links: LinkApi[]
         payload?: any
     }
 }

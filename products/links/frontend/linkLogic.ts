@@ -56,17 +56,17 @@ export interface linkLogicValues {
     isEditingLink: boolean
     isLinkSubmitting: boolean
     isLinkValid: boolean
-    link: LinkType
+    link: LinkApi
     linkAllErrors: Record<string, any>
     linkChanged: boolean
-    linkErrors: DeepPartialMap<LinkType, ValidationErrorType>
+    linkErrors: DeepPartialMap<LinkApi, ValidationErrorType>
     linkHasErrors: boolean
     linkLoading: boolean
     linkManualErrors: Record<string, any>
     linkMissing: boolean
     linkTouched: boolean
     linkTouches: Record<string, boolean>
-    linkValidationErrors: DeepPartialMap<LinkType, ValidationErrorType>
+    linkValidationErrors: DeepPartialMap<LinkApi, ValidationErrorType>
     mode: 'edit' | 'view'
     projectTreeRef: ProjectTreeRef
     showLinkErrors: boolean
@@ -76,10 +76,10 @@ export interface linkLogicValues {
 export interface linkLogicActions {
     loadLinks: () => any // linksLogic
     loadLinksSuccess: (
-        links: LinkType[],
+        links: LinkApi[],
         payload?: any
     ) => {
-        links: LinkType[]
+        links: LinkApi[]
         payload?: any
     } // linksLogic
     deleteLink: (linkId: LinkType['id']) => {
@@ -97,14 +97,14 @@ export interface linkLogicActions {
         errorObject?: any
     }
     loadLinkSuccess: (
-        link: LinkType,
+        link: LinkApi,
         payload?: any
     ) => {
-        link: LinkType
+        link: LinkApi
         payload?: any
     }
-    resetLink: (values?: LinkType) => {
-        values?: LinkType
+    resetLink: (values?: LinkApi) => {
+        values?: LinkApi
     }
     saveLink: (updatedLink: Partial<LinkType>) => Partial<LinkType>
     saveLinkFailure: (
@@ -115,10 +115,10 @@ export interface linkLogicActions {
         errorObject?: any
     }
     saveLinkSuccess: (
-        link: LinkType,
+        link: LinkApi,
         payload?: Partial<LinkType>
     ) => {
-        link: LinkType
+        link: LinkApi
         payload?: Partial<LinkType>
     }
     setLinkManualErrors: (errors: Record<string, any>) => {
@@ -134,8 +134,8 @@ export interface linkLogicActions {
         name: FieldName
         value: any
     }
-    setLinkValues: (values: DeepPartial<LinkType>) => {
-        values: DeepPartial<LinkType>
+    setLinkValues: (values: DeepPartial<LinkApi>) => {
+        values: DeepPartial<LinkApi>
     }
     submitLink: () => {
         value: boolean
@@ -147,11 +147,11 @@ export interface linkLogicActions {
         error: Error
         errors: Record<string, any>
     }
-    submitLinkRequest: (link: LinkType) => {
-        link: LinkType
+    submitLinkRequest: (link: LinkApi) => {
+        link: LinkApi
     }
-    submitLinkSuccess: (link: LinkType) => {
-        link: LinkType
+    submitLinkSuccess: (link: LinkApi) => {
+        link: LinkApi
     }
     touchLinkField: (key: string) => {
         key: string
@@ -163,7 +163,7 @@ export interface linkLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         mode: (id: string) => 'edit' | 'view'
-        breadcrumbs: (link: LinkType) => Breadcrumb[]
+        breadcrumbs: (link: LinkApi) => Breadcrumb[]
         projectTreeRef: (arg: string) => ProjectTreeRef
     }
 }
