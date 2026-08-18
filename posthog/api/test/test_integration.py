@@ -5547,12 +5547,12 @@ class TestIntegrationDeletionHogFunctionGuard:
 class TestIntegrationRequestAccessAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # The endpoint is members-only, so default the requester to a plain member.
+        # Members and users with no project access can request; default the requester to a member.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-    def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/integrations/request_access/"
+    def _url(self, team_id: int | None = None) -> str:
+        return f"/api/projects/{team_id or self.team.id}/integrations/request_access/"
 
     @patch("posthog.api.integration.report_user_action")
     @patch("posthog.api.integration.send_integration_access_request")
@@ -5578,6 +5578,68 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
             team=self.team,
             request=ANY,
         )
+
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_user_without_project_access_can_request_access(self, mock_task, mock_report):
+        # The UI only shows the request-access form to users whose effective project level is null,
+        # so this is the requester the form actually routes to. A private, access-controlled project
+        # the member has no role in gives a null effective level.
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        response = self.client.post(
+            self._url(private_team.id), {"kind": "slack", "reason": "We need Slack alerts"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"success": True}
+        mock_task.delay.assert_called_once_with(
+            team_id=private_team.id,
+            requesting_user_id=self.user.id,
+            kind="slack",
+            reason="We need Slack alerts",
+        )
+        mock_report.assert_called_once_with(
+            self.user,
+            "integration access requested",
+            {
+                "integration_kind": "slack",
+                "requester_level": None,
+                "reason_length": len("We need Slack alerts"),
+            },
+            team=private_team,
+            request=ANY,
+        )
+
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_non_org_member_cannot_request_access(self, mock_task, mock_report):
+        # Requesting access emails the org's admins, so a user outside the organization must not
+        # reach it even though the project-membership gate no longer applies.
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        response = self.client.post(
+            self._url(other_team.id), {"kind": "slack", "reason": "We need Slack alerts"}, format="json"
+        )
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND), response.content
+        mock_task.delay.assert_not_called()
+        mock_report.assert_not_called()
 
     @parameterized.expand(
         [

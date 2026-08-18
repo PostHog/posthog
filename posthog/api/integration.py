@@ -97,6 +97,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    OrganizationMemberPermissions,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -1061,8 +1062,14 @@ class IntegrationViewSet(
         # Adding (connecting) an integration only requires project membership; editing or removing
         # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
         # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
-        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+        if self.action in ("create", "github_link_existing", "github_oauth_authorize"):
             return base_permissions
+        # The UI only shows the request-access form to users with no project access, so requiring
+        # project membership here would reject exactly the people the form is for. Gate on
+        # organization membership instead; the action body still rejects admins and owners, who can
+        # connect integrations themselves. APIScopePermission keeps the write-scope check.
+        if self.action == "request_access":
+            return [IsAuthenticated(), APIScopePermission(), OrganizationMemberPermissions()]
         if self.action == "refresh_github_repos":
             return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
@@ -1712,9 +1719,10 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=False, url_path="request_access")
     def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Notify project admins that a member is requesting an integration be connected."""
-        # Members only — admins can connect integrations themselves, so there's nobody to ask.
+        # Members and users with no project access can ask an admin to connect it. Admins and owners
+        # can connect integrations themselves, so there's nobody for them to ask.
         requesting_level = self.user_permissions.current_team.effective_membership_level
-        if requesting_level is None or requesting_level >= OrganizationMembership.Level.ADMIN:
+        if requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("Only members can request access; admins can connect integrations directly.")
 
         serializer = IntegrationAccessRequestSerializer(data=request.data)
