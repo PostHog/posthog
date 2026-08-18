@@ -128,9 +128,7 @@ class SubjectAccessControl(UserAccessControl):
             if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
                 return None
 
-        member = self._subject_member
-        is_creator = member is not None and getattr(obj, "created_by", None) == member.user
-        resolved, access = self._object_access_level_precheck(resource, is_creator)
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
         if resolved:
             return access
 
@@ -232,6 +230,11 @@ class SubjectAccessControl(UserAccessControl):
         pool = rows if rows is not None else self.team_access_controls
         role_ids = frozenset(str(role_id) for role_id in self._user_role_ids)
         self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac, role_ids)]
+
+    def _is_creator(self, obj: Model) -> bool:
+        """The subject created the object, not the requesting user. A role and the default subject
+        are not people, so they never created anything."""
+        return self._subject_member is not None and getattr(obj, "created_by", None) == self._subject_member.user
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""

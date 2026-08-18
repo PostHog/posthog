@@ -2040,6 +2040,23 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         expected_ids = {None: None, "source": str(self.source.id), "table": str(self.sourced_table.id)}
         assert access.source_resource_id == expected_ids[expected_id_of]
 
+    def test_creator_access_follows_the_subject_not_the_requester(self):
+        # A subject resolves someone else's access, so the creator bypass must be theirs. Taking it
+        # from the requesting user would hand every subject the access of whatever the requester made
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        other = User.objects.create_and_join(self.organization, "subject-creator@posthog.com", None)
+        other_membership = other.organization_memberships.get(organization=self.organization)
+
+        for_other = SubjectAccessControl(self.user, self.team, member=other_membership)
+        assert for_other.get_user_access_level(dashboard) != "manager"
+
+        dashboard.created_by = other
+        dashboard.save()
+        assert (
+            SubjectAccessControl(self.user, self.team, member=other_membership).get_user_access_level(dashboard)
+            == "manager"
+        )
+
     def test_inherited_access_for_a_subject(self):
         # The inherited level is "what would this subject have without their override": the walk
         # runs over the subject's rules with their own row on the object left out, and a member

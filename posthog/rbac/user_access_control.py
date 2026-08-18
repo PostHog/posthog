@@ -541,6 +541,12 @@ class UserAccessControl:
         org_membership = self._organization_membership
         return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
 
+    def _is_creator(self, obj: Model) -> bool:
+        """Whether the principal created the object, which grants them the highest access to it.
+        Creator is a property of the principal, so a subclass that resolves for someone other than
+        the requesting user must override this."""
+        return getattr(obj, "created_by", None) == self._user
+
     # ------------------------------------------------------------
     # Access control helpers
     # ------------------------------------------------------------
@@ -733,7 +739,7 @@ class UserAccessControl:
             return None
 
         # Creators always have highest access
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             return highest_access_level(resource)
 
         # Org admins always have highest access
@@ -800,7 +806,7 @@ class UserAccessControl:
         4. The user has "manager" access to the resource
         """
 
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             # TODO: Should this always be the case, even for projects?
             return True
 
@@ -833,7 +839,7 @@ class UserAccessControl:
             return None
 
         # Check if user is the creator
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             return AccessSource.CREATOR
 
         # Check if user is org admin
@@ -1531,8 +1537,7 @@ class UserAccessControl:
         if not resource:
             return None
 
-        is_creator = getattr(obj, "created_by", None) == self._user
-        resolved, access = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj), explicit=explicit)
         if resolved:
             return access.access_level if access else None
 
