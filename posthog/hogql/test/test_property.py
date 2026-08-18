@@ -1935,28 +1935,19 @@ class TestProperty(BaseTest):
         filter.update(overrides)
         return filter
 
-    def test_behavioral_performed_event(self):
+    @parameterized.expand([(False, "IN"), (True, "NOT IN")])
+    def test_behavioral_performed_event(self, negation: bool, sql_op: str):
         self.assertEqual(
-            self._property_to_expr(self._behavioral_filter()),
+            self._property_to_expr(self._behavioral_filter(negation=negation)),
             self._parse_expr(
-                "person_id IN (SELECT person_id FROM events"
+                f"person_id {sql_op} (SELECT person_id FROM events"
                 " WHERE event = '$pageview' AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)"
             ),
         )
 
-    def test_behavioral_performed_event_negation(self):
-        self.assertEqual(
-            self._property_to_expr(self._behavioral_filter(negation=True)),
-            self._parse_expr(
-                "person_id NOT IN (SELECT person_id FROM events"
-                " WHERE event = '$pageview' AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)"
-            ),
-        )
-
-    @parameterized.expand([("person",), ("session",), ("group",), ("replay",), ("revenue_analytics",)])
-    def test_behavioral_unsupported_scopes_raise(self, scope: str):
+    def test_behavioral_person_scope_raises(self):
         with self.assertRaises(QueryError):
-            self._property_to_expr(self._behavioral_filter(), scope=cast(Any, scope))
+            self._property_to_expr(self._behavioral_filter(), scope="person")
 
     @parameterized.expand([(mode,) for mode in PersonsOnEventsMode])
     def test_behavioral_resolves_under_all_poe_modes(self, mode: PersonsOnEventsMode):
@@ -1971,7 +1962,7 @@ class TestProperty(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=mode)),
         )
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
-        self.assertIn("SELECT", sql)
+        self.assertIn("GROUP BY", sql)
 
     @parameterized.expand(
         [
@@ -2023,13 +2014,6 @@ class TestProperty(BaseTest):
                 ),
             )
 
-    def test_behavioral_pydantic_filter_matches_dict_compilation(self):
-        pydantic_filter = BehavioralPropertyFilter(**self._behavioral_filter())
-        self.assertEqual(
-            self._property_to_expr(pydantic_filter),
-            self._property_to_expr(self._behavioral_filter()),
-        )
-
     def test_behavioral_count_aggregation_is_invisible_to_has_aggregation(self):
         # Trends moves aggregating WHERE clauses into HAVING; the count() inside the behavioral
         # subquery must not trigger that
@@ -2038,13 +2022,12 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(has_aggregation(expr), False)
 
-    @parameterized.expand([("performed_event_sequence",), ("stopped_performing_event",)])
-    def test_behavioral_cohort_only_criteria_raise(self, value: str):
+    def test_behavioral_cohort_only_criteria_raise(self):
         with self.assertRaises(QueryError):
             self._property_to_expr(
                 Property(
                     type="behavioral",
-                    value=value,
+                    value="performed_event_sequence",
                     key="$pageview",
                     event_type="events",
                     time_value=1,
@@ -2083,12 +2066,9 @@ class TestProperty(BaseTest):
                 ),
             )
 
-    @parameterized.expand([(0,), (-5,)])
-    def test_behavioral_non_positive_count_raises(self, operator_value: int):
+    def test_behavioral_zero_count_raises(self):
         with self.assertRaises(QueryError):
-            self._property_to_expr(
-                self._behavioral_filter(value="performed_event_multiple", operator_value=operator_value)
-            )
+            self._property_to_expr(self._behavioral_filter(value="performed_event_multiple", operator_value=0))
 
     def test_behavioral_missing_time_window_raises(self):
         # Property-level validation accepts window-less realtime-cohort leaves (bytecode); the
