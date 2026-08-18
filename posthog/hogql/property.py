@@ -56,6 +56,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.dataclasses import frozen
+from posthog.interval_specs import get_interval_func
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
@@ -739,12 +740,8 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     return path_expr
 
 
-_BEHAVIORAL_INTERVAL_FUNCTIONS = {
-    "day": "toIntervalDay",
-    "week": "toIntervalWeek",
-    "month": "toIntervalMonth",
-    "year": "toIntervalYear",
-}
+# get_interval_func also resolves minute/hour/quarter; behavioral windows are restricted to calendar intervals.
+_BEHAVIORAL_INTERVALS = frozenset({"day", "week", "month", "year"})
 
 _BEHAVIORAL_COUNT_OPERATORS = {
     "gte": ast.CompareOperationOp.GtEq,
@@ -803,9 +800,9 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
                 )
             )
     elif property.time_value is not None and property.time_interval is not None:
-        interval_function = _BEHAVIORAL_INTERVAL_FUNCTIONS.get(property.time_interval)
-        if interval_function is None:
+        if property.time_interval not in _BEHAVIORAL_INTERVALS:
             raise QueryError(f"Invalid behavioral filter time interval: {property.time_interval}")
+        interval_function = get_interval_func(property.time_interval)
         try:
             time_value = int(property.time_value)
         except (ValueError, TypeError):

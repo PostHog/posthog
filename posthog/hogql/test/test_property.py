@@ -27,6 +27,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    action_to_expr,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -42,6 +43,7 @@ from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.utils import relative_date_parse
 
+from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -2061,6 +2063,17 @@ class TestProperty(BaseTest):
     def test_behavioral_action_not_found_raises(self):
         with self.assertRaises(QueryError):
             self._property_to_expr(self._behavioral_filter(event_type="actions", key="999999"))
+
+    def test_behavioral_performed_event_with_action(self):
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
+        self.assertEqual(
+            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.pk))),
+            self._parse_expr(
+                "person_id IN (SELECT person_id FROM events WHERE {action}"
+                " AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)",
+                {"action": action_to_expr(action)},
+            ),
+        )
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
