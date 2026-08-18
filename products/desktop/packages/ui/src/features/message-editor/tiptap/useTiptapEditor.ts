@@ -44,6 +44,7 @@ import { usePromptHistoryStore } from "../promptHistoryStore";
 import { findChipRangeById } from "../tiptap/chipRange";
 import { getEditorExtensions } from "../tiptap/extensions";
 import { editorContentToTiptapJson } from "../tiptap/markdownDoc";
+import { insertPastedMarkdown } from "../tiptap/markdownPaste";
 import { getPromptEditorAttributes } from "../tiptap/promptEditorAttributes";
 import { type DraftContext, useDraftSync } from "../tiptap/useDraftSync";
 import { htmlToMarkdown } from "../utils/htmlToMarkdown";
@@ -685,6 +686,13 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
               }
             })();
 
+            return true;
+          }
+
+          // Lists, fences and inline code paste as nodes; input rules only fire
+          // while typing, so without this they would stay literal text.
+          if (effectiveText && insertPastedMarkdown(view, effectiveText)) {
+            event.preventDefault();
             return true;
           }
 
