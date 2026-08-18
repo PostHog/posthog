@@ -213,7 +213,7 @@ def _get_debug_only_ports() -> list[int]:
     return ports
 
 
-_MANAGED_CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "POSTHOG_PERSONAL_API_KEY")
+_MANAGED_CREDENTIAL_ENV_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "POSTHOG_PERSONAL_API_KEY", "AI_GATEWAY_TOKEN")
 _EXCLUDED_AGENT_ENV_KEYS = (
     *SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     "BASH_ENV",
@@ -262,7 +262,7 @@ done < {quoted_github_env_file} 2>/dev/null
 
 while IFS= read -r -d $'\\0' line; do
   case "$line" in
-    POSTHOG_PERSONAL_API_KEY=*) export "$line" ;;
+    POSTHOG_PERSONAL_API_KEY=*|AI_GATEWAY_TOKEN=*) export "$line" ;;
   esac
 done < {quoted_oauth_env_file} 2>/dev/null
 exec "$@"
@@ -321,6 +321,9 @@ if [[ "${{BASH_SOURCE[0]}}" == "$0" ]]; then
 
   if [[ -n "${{POSTHOG_PERSONAL_API_KEY:-}}" ]]; then
     printf 'POSTHOG_PERSONAL_API_KEY=%s\\0' "$POSTHOG_PERSONAL_API_KEY" > "$oauth_tmp"
+  fi
+  if [[ -n "${{AI_GATEWAY_TOKEN:-}}" ]]; then
+    printf 'AI_GATEWAY_TOKEN=%s\\0' "$AI_GATEWAY_TOKEN" >> "$oauth_tmp"
   fi
   chmod 600 "$oauth_tmp"
   if [[ -e {quoted_oauth_env_file} || -L {quoted_oauth_env_file} ]]; then
@@ -529,6 +532,7 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "LLM_GATEWAY_URL",
                 "AI_GATEWAY_URL",
                 "AI_GATEWAY_PRODUCTS",
+                "AI_GATEWAY_TOKEN",
                 "IS_SANDBOX",
                 "PYTHONPATH",
             ],

@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.temporal.ai_gateway import mint_signals_scoped_token
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
@@ -253,6 +254,10 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
         environment_variables.update(ai_gateway_env_vars())
+
+        ai_gateway_token = mint_signals_scoped_token(task, access_token)
+        if ai_gateway_token:
+            environment_variables["AI_GATEWAY_TOKEN"] = ai_gateway_token
 
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

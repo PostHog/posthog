@@ -21,6 +21,7 @@ const ENV_KEYS_UNDER_TEST = [
   "POSTHOG_PROJECT_ID",
   "AI_GATEWAY_URL",
   "AI_GATEWAY_PRODUCTS",
+  "AI_GATEWAY_TOKEN",
 ] as const;
 
 describe("AgentServer.configureEnvironment", () => {
@@ -389,6 +390,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     "POSTHOG_PROJECT_ID",
     "AI_GATEWAY_URL",
     "AI_GATEWAY_PRODUCTS",
+    "AI_GATEWAY_TOKEN",
   ];
   const GO_GATEWAY = "https://ai-gateway.us.posthog.com";
 
@@ -444,6 +446,36 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
     expect(env.anthropicBaseUrl).toBe(GO_GATEWAY);
     expect(env.openaiBaseUrl).toBe(`${GO_GATEWAY}/v1`);
+  });
+
+  it("prefers the run-scoped AI_GATEWAY_TOKEN as the gateway bearer", () => {
+    process.env.AI_GATEWAY_TOKEN = "phe_scoped";
+    const env = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "implementation",
+    });
+
+    expect(env.anthropicAuthToken).toBe("phe_scoped");
+    expect(env.openaiApiKey).toBe("phe_scoped");
+  });
+
+  it("keeps the OAuth token as the bearer when no scoped token was minted", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "implementation",
+    });
+
+    expect(env.anthropicAuthToken).toBe("test-api-key");
+    expect(env.openaiApiKey).toBe("test-api-key");
+  });
+
+  it("never sends the scoped token to the Python gateway", () => {
+    process.env.AI_GATEWAY_TOKEN = "phe_scoped";
+    process.env.AI_GATEWAY_PRODUCTS = "signals_scout";
+    const env = buildServer().configureEnvironment({ isInternal: false });
+
+    expect(env.anthropicAuthToken).toBe("test-api-key");
+    expect(env.openaiApiKey).toBe("test-api-key");
   });
 
   it("honours an explicit AI_GATEWAY_URL with a trailing /v1", () => {

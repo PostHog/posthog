@@ -55,6 +55,7 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.temporal.ai_gateway import mint_signals_scoped_token
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_snapshot_restore,
@@ -388,7 +389,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
 
 
 def _build_environment_variables(
-    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str, ai_gateway_token: str | None = None
 ) -> dict[str, str]:
     environment_variables = {
         "POSTHOG_PERSONAL_API_KEY": access_token,
@@ -431,6 +432,9 @@ def _build_environment_variables(
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(ai_gateway_env_vars())
+
+    if ai_gateway_token:
+        environment_variables["AI_GATEWAY_TOKEN"] = ai_gateway_token
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
@@ -554,7 +558,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 cause=e,
             )
 
-        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
+        environment_variables = _build_environment_variables(
+            ctx, task, github_token, access_token, ai_gateway_token=mint_signals_scoped_token(task, access_token)
+        )
 
         run_state = parse_run_state(ctx.state)
         # VM and gVisor both resume from snapshots. A run's stored snapshot kind
@@ -1072,7 +1078,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.
-        if not replace_sandbox_credentials(sandbox, github_token or None, access_token or None):
+        ai_gateway_token = mint_signals_scoped_token(task, access_token) if access_token else None
+        if not replace_sandbox_credentials(
+            sandbox, github_token or None, access_token or None, ai_gateway_token=ai_gateway_token
+        ):
             raise RuntimeError("Failed to replace resumed sandbox credentials")
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")

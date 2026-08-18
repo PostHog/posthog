@@ -4283,14 +4283,21 @@ ${commonInstructions}
       POSTHOG_PROJECT_ID: String(projectId),
     });
 
+    // A run-scoped Go-gateway credential (phe_), minted server-side with the run's
+    // spend cap and pinned attribution. Only the Go gateway accepts it, so the
+    // Python-gateway path keeps the OAuth token, whose scopes that gateway checks.
+    const aiGatewayToken = process.env.AI_GATEWAY_TOKEN?.trim();
+    const gatewayAuthToken =
+      isAiGateway && aiGatewayToken ? aiGatewayToken : apiKey;
+
     // Task-specific gateway config is returned rather than written to
     // process.env so that concurrent sessions do not clobber each other's
     // gateway URL, auth token, or custom headers.
     return {
       anthropicBaseUrl: gatewayUrl,
-      anthropicAuthToken: apiKey,
+      anthropicAuthToken: gatewayAuthToken,
       openaiBaseUrl,
-      openaiApiKey: apiKey,
+      openaiApiKey: gatewayAuthToken,
       anthropicCustomHeaders: customHeaders,
       openaiCustomHeaders,
       posthogProjectId: String(projectId),

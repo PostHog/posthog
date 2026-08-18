@@ -82,7 +82,7 @@ class TestReplaceSandboxCredentials:
         sandbox.execute.return_value = _ok()
         sandbox.write_file.return_value = _ok()
 
-        assert replace_sandbox_credentials(sandbox, "ghs_new", "oauth_new") is True
+        assert replace_sandbox_credentials(sandbox, "ghs_new", "oauth_new", ai_gateway_token="phe_new") is True
 
         assert sandbox.write_file.call_args_list[0].args == (
             GITHUB_ENV_FILE,
@@ -90,7 +90,7 @@ class TestReplaceSandboxCredentials:
         )
         assert sandbox.write_file.call_args_list[1].args == (
             OAUTH_ENV_FILE,
-            b"POSTHOG_PERSONAL_API_KEY=oauth_new\x00",
+            b"POSTHOG_PERSONAL_API_KEY=oauth_new\x00AI_GATEWAY_TOKEN=phe_new\x00",
         )
         assert [call.args[0] for call in sandbox.execute.call_args_list] == [
             f"chmod 600 {GITHUB_ENV_FILE}",

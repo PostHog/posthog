@@ -56,6 +56,17 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+# Minting Go-gateway scoped tokens (phe_) for interactive Signals runs. AI_GATEWAY_MINT_URL is
+# the gateway origin Django itself can reach, which may differ from the sandbox-visible
+# SANDBOX_AI_GATEWAY_URL; leaving it unset disables minting entirely. AI_GATEWAY_MINT_CREDENTIAL
+# is the phs_ project secret of the PostHog-owned team whose wallet pays for Signals inference.
+# Without it the run's own OAuth token mints instead, which works but leaves the per-run cap
+# evadable by the sandbox, since it also holds that OAuth token and can call the gateway with it.
+AI_GATEWAY_MINT_URL: str | None = get_from_env("AI_GATEWAY_MINT_URL", None, optional=True)
+AI_GATEWAY_MINT_CREDENTIAL: str | None = get_from_env("AI_GATEWAY_MINT_CREDENTIAL", None, optional=True)
+# Per-run inference spend ceiling for interactive Signals runs, enforced fail-closed by the Go
+# gateway's scoped-token cap. Decimal USD string, matching the mint API's cap_usd wire format.
+TASKS_SIGNALS_INTERACTIVE_COST_CAP_USD: str = get_from_env("TASKS_SIGNALS_INTERACTIVE_COST_CAP_USD", "50")
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).

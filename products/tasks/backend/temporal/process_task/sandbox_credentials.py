@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 GITHUB_ENV_KEYS = ("GITHUB_TOKEN", "GH_TOKEN")
 OAUTH_ENV_KEY = "POSTHOG_PERSONAL_API_KEY"
+AI_GATEWAY_TOKEN_ENV_KEY = "AI_GATEWAY_TOKEN"
 
 # Refresh at half the token's server-side half-life so the in-sandbox copy never lapses mid-run.
 #   ghs_ = installation token (~1h) → 20 min; ghu_ = user-to-server token (~8h) → 2 h
@@ -104,11 +105,19 @@ def _write_sandbox_credential_file(sandbox: "SandboxBase", path: str, payload: b
 
 
 def replace_sandbox_credentials(
-    sandbox: "SandboxBase", github_token: str | None, oauth_access_token: str | None
+    sandbox: "SandboxBase",
+    github_token: str | None,
+    oauth_access_token: str | None,
+    ai_gateway_token: str | None = None,
 ) -> bool:
     """Replace every managed credential, including empty values that revoke stale snapshot state."""
     github_payload = b"".join(f"{key}={github_token}\x00".encode() for key in GITHUB_ENV_KEYS) if github_token else b""
-    oauth_payload = f"{OAUTH_ENV_KEY}={oauth_access_token}\x00".encode() if oauth_access_token else b""
+    oauth_entries: list[str] = []
+    if oauth_access_token:
+        oauth_entries.append(f"{OAUTH_ENV_KEY}={oauth_access_token}")
+    if ai_gateway_token:
+        oauth_entries.append(f"{AI_GATEWAY_TOKEN_ENV_KEY}={ai_gateway_token}")
+    oauth_payload = b"".join(f"{entry}\x00".encode() for entry in oauth_entries)
 
     github_updated = _write_sandbox_credential_file(sandbox, GITHUB_ENV_FILE, github_payload)
     oauth_updated = _write_sandbox_credential_file(sandbox, OAUTH_ENV_FILE, oauth_payload)

@@ -353,10 +353,13 @@ class TestEnvWrapper(SimpleTestCase):
             oauth_env_file = Path(temp_dir) / "oauth env"
             wrapper_file = Path(temp_dir) / "wrapper.sh"
             env_file.write_bytes(
-                b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+                b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00"
+                b"GITHUB_TOKEN=ghs_snapshot\x00AI_GATEWAY_TOKEN=phe_snapshot\x00"
             )
             github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
-            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
+            oauth_env_file.write_bytes(
+                b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00AI_GATEWAY_TOKEN=phe_fresh\x00IGNORED=unsafe\x00"
+            )
             wrapper_file.write_text(generate_env_wrapper(str(env_file), str(github_env_file), str(oauth_env_file)))
 
             result = subprocess.run(
@@ -365,8 +368,8 @@ class TestEnvWrapper(SimpleTestCase):
                     str(wrapper_file),
                     "bash",
                     "-c",
-                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
-                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                    'printf "%s|%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "$AI_GATEWAY_TOKEN" "${NODE_OPTIONS:-}"',
                 ],
                 check=True,
                 capture_output=True,
@@ -374,7 +377,7 @@ class TestEnvWrapper(SimpleTestCase):
                 env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
             )
 
-            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
+            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|phe_fresh|")
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
@@ -448,6 +451,7 @@ class TestBashEnvScript(SimpleTestCase):
                     "SAFE_BASE": "kept",
                     "GITHUB_TOKEN": "ghs_current",
                     "POSTHOG_PERSONAL_API_KEY": "oauth_current",
+                    "AI_GATEWAY_TOKEN": "phe_current",
                 },
             )
 
@@ -455,7 +459,10 @@ class TestBashEnvScript(SimpleTestCase):
                 github_env_file.read_bytes(),
                 b"GITHUB_TOKEN=ghs_current\x00GH_TOKEN=ghs_current\x00",
             )
-            self.assertEqual(oauth_env_file.read_bytes(), b"POSTHOG_PERSONAL_API_KEY=oauth_current\x00")
+            self.assertEqual(
+                oauth_env_file.read_bytes(),
+                b"POSTHOG_PERSONAL_API_KEY=oauth_current\x00AI_GATEWAY_TOKEN=phe_current\x00",
+            )
             for path in (env_file, github_env_file, oauth_env_file):
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 

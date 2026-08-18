@@ -20,6 +20,7 @@ from products.tasks.backend.logic.services.sandbox import (
     workload_for_origin_product,
 )
 from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.temporal.ai_gateway import mint_signals_scoped_token
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -132,6 +133,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             team_id=ctx.team_id,
             sandbox_environment=sandbox_env,
             otel_telemetry_enabled=ctx.agent_otel_telemetry_enabled,
+            ai_gateway_token=mint_signals_scoped_token(task, access_token),
         )
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
