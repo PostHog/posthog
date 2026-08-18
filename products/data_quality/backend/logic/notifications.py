@@ -65,6 +65,23 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         self._subject_type = subject_type
         self._subject_uuid = subject_uuid
         self._referenced_names = referenced_names or []
+        # One access-control object per member, reused across both gates below (and the warehouse
+        # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
+        # it -- and its membership, role, and access-control lookups -- once per pass.
+        self._access: dict[int, UserAccessControl] = {}
+
+    def _access_of(self, user: User) -> UserAccessControl:
+        access = self._access.get(user.id)
+        if access is None:
+            access = UserAccessControl(user, self._team)
+            self._access[user.id] = access
+        return access
+
+    def _access_controls_supported(self, user_ids: list[int]) -> bool:
+        # When access controls aren't available for the org, the built-in filter lets everyone
+        # through and neither gate below can deny anyone; the callers skip their per-member work.
+        sample = User.objects.filter(id__in=user_ids).first()
+        return sample is not None and self._access_of(sample).access_controls_supported
 
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
@@ -78,19 +95,12 @@ class _WarehouseSubjectResolver(RecipientsResolver):
             return user_ids
         object_id = self._subject_uuid
 
-        # When access controls aren't available for the org, the built-in filter lets everyone
-        # through; match that here rather than dropping the whole team.
-        sample = User.objects.filter(id__in=user_ids).first()
-        if sample is None or not UserAccessControl(sample, self._team).access_controls_supported:
+        if not self._access_controls_supported(user_ids):
             return user_ids
 
         allowed: list[int] = []
         for user in User.objects.filter(id__in=user_ids):
-            level = (
-                UserAccessControl(user, self._team)
-                .bulk_object_access_levels(resource, [(object_id, None)])
-                .get(object_id)
-            )
+            level = self._access_of(user).bulk_object_access_levels(resource, [(object_id, None)]).get(object_id)
             if level is not None and access_level_satisfied_for_resource(resource, level, "viewer"):
                 allowed.append(user.id)
         return allowed
@@ -102,9 +112,14 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         if not self._referenced_names:
             return user_ids
 
+        # No warehouse access control means no denials, so skip the per-member database build the
+        # denial check would otherwise run -- the same early exit the object-access gate makes.
+        if not self._access_controls_supported(user_ids):
+            return user_ids
+
         allowed: list[int] = []
         for user in User.objects.filter(id__in=user_ids):
-            denied = denied_subject_names(self._team, user)
+            denied = denied_subject_names(self._team, user, self._access_of(user))
             if not any(is_subject_denied(name, denied) for name in self._referenced_names):
                 allowed.append(user.id)
         return allowed
