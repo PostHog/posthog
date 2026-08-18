@@ -3,7 +3,7 @@ use bytes::{Buf, Bytes};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
-use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::Deserializer;
 use serde_json::Value;
 
@@ -178,18 +178,18 @@ fn count_resource_log_records(
     while resource_logs.has_remaining() {
         let (tag, wire_type) =
             prost::encoding::decode_key(resource_logs).map_err(invalid_logs_protobuf)?;
-        if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
-            increment_log_node_count(node_count, node_limit)?;
-            let mut scope_logs = take_message(resource_logs).map_err(invalid_logs_protobuf)?;
-            count_scope_log_records(&mut scope_logs, node_count, node_limit)?;
-        } else {
-            prost::encoding::skip_field(
-                wire_type,
-                tag,
-                resource_logs,
-                prost::encoding::DecodeContext::default(),
-            )
-            .map_err(invalid_logs_protobuf)?;
+        match (tag, wire_type) {
+            (1, prost::encoding::WireType::LengthDelimited) => {
+                increment_log_node_count(node_count, node_limit)?;
+                let mut resource = take_message(resource_logs).map_err(invalid_logs_protobuf)?;
+                count_resource_nodes(&mut resource, node_count, node_limit)?;
+            }
+            (2, prost::encoding::WireType::LengthDelimited) => {
+                increment_log_node_count(node_count, node_limit)?;
+                let mut scope_logs = take_message(resource_logs).map_err(invalid_logs_protobuf)?;
+                count_scope_log_records(&mut scope_logs, node_count, node_limit)?;
+            }
+            _ => skip_protobuf_field(wire_type, tag, resource_logs)?,
         }
     }
     Ok(())
@@ -203,20 +203,153 @@ fn count_scope_log_records(
     while scope_logs.has_remaining() {
         let (tag, wire_type) =
             prost::encoding::decode_key(scope_logs).map_err(invalid_logs_protobuf)?;
-        if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
-            let _ = take_message(scope_logs).map_err(invalid_logs_protobuf)?;
-            increment_log_node_count(node_count, node_limit)?;
-        } else {
-            prost::encoding::skip_field(
-                wire_type,
-                tag,
-                scope_logs,
-                prost::encoding::DecodeContext::default(),
-            )
-            .map_err(invalid_logs_protobuf)?;
+        match (tag, wire_type) {
+            (1, prost::encoding::WireType::LengthDelimited) => {
+                increment_log_node_count(node_count, node_limit)?;
+                let mut scope = take_message(scope_logs).map_err(invalid_logs_protobuf)?;
+                count_instrumentation_scope_nodes(&mut scope, node_count, node_limit)?;
+            }
+            (2, prost::encoding::WireType::LengthDelimited) => {
+                increment_log_node_count(node_count, node_limit)?;
+                let mut record = take_message(scope_logs).map_err(invalid_logs_protobuf)?;
+                count_log_record_nodes(&mut record, node_count, node_limit)?;
+            }
+            _ => skip_protobuf_field(wire_type, tag, scope_logs)?,
         }
     }
     Ok(())
+}
+
+fn count_resource_nodes(
+    resource: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    count_repeated_key_values(resource, 1, node_count, node_limit)
+}
+
+fn count_instrumentation_scope_nodes(
+    scope: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    count_repeated_key_values(scope, 3, node_count, node_limit)
+}
+
+fn count_log_record_nodes(
+    record: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    while record.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(record).map_err(invalid_logs_protobuf)?;
+        match (tag, wire_type) {
+            (5, prost::encoding::WireType::LengthDelimited) => {
+                increment_log_node_count(node_count, node_limit)?;
+                let mut body = take_message(record).map_err(invalid_logs_protobuf)?;
+                count_any_value_nodes(&mut body, node_count, node_limit)?;
+            }
+            (6, prost::encoding::WireType::LengthDelimited) => {
+                count_key_value_field(record, node_count, node_limit)?;
+            }
+            _ => skip_protobuf_field(wire_type, tag, record)?,
+        }
+    }
+    Ok(())
+}
+
+fn count_repeated_key_values(
+    message: &mut &[u8],
+    attribute_tag: u32,
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    while message.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(message).map_err(invalid_logs_protobuf)?;
+        if tag == attribute_tag && wire_type == prost::encoding::WireType::LengthDelimited {
+            count_key_value_field(message, node_count, node_limit)?;
+        } else {
+            skip_protobuf_field(wire_type, tag, message)?;
+        }
+    }
+    Ok(())
+}
+
+fn count_key_value_field(
+    message: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    increment_log_node_count(node_count, node_limit)?;
+    let mut key_value = take_message(message).map_err(invalid_logs_protobuf)?;
+    while key_value.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(&mut key_value).map_err(invalid_logs_protobuf)?;
+        if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
+            increment_log_node_count(node_count, node_limit)?;
+            let mut value = take_message(&mut key_value).map_err(invalid_logs_protobuf)?;
+            count_any_value_nodes(&mut value, node_count, node_limit)?;
+        } else {
+            skip_protobuf_field(wire_type, tag, &mut key_value)?;
+        }
+    }
+    Ok(())
+}
+
+fn count_any_value_nodes(
+    value: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    while value.has_remaining() {
+        let (tag, wire_type) = prost::encoding::decode_key(value).map_err(invalid_logs_protobuf)?;
+        match (tag, wire_type) {
+            (5, prost::encoding::WireType::LengthDelimited) => {
+                let mut array = take_message(value).map_err(invalid_logs_protobuf)?;
+                count_repeated_any_values(&mut array, node_count, node_limit)?;
+            }
+            (6, prost::encoding::WireType::LengthDelimited) => {
+                let mut list = take_message(value).map_err(invalid_logs_protobuf)?;
+                count_repeated_key_values(&mut list, 1, node_count, node_limit)?;
+            }
+            _ => skip_protobuf_field(wire_type, tag, value)?,
+        }
+    }
+    Ok(())
+}
+
+fn count_repeated_any_values(
+    array: &mut &[u8],
+    node_count: &mut usize,
+    node_limit: usize,
+) -> Result<(), CaptureError> {
+    while array.has_remaining() {
+        let (tag, wire_type) = prost::encoding::decode_key(array).map_err(invalid_logs_protobuf)?;
+        if tag == 1 && wire_type == prost::encoding::WireType::LengthDelimited {
+            increment_log_node_count(node_count, node_limit)?;
+            let mut value = take_message(array).map_err(invalid_logs_protobuf)?;
+            count_any_value_nodes(&mut value, node_count, node_limit)?;
+        } else {
+            skip_protobuf_field(wire_type, tag, array)?;
+        }
+    }
+    Ok(())
+}
+
+fn skip_protobuf_field(
+    wire_type: prost::encoding::WireType,
+    tag: u32,
+    message: &mut &[u8],
+) -> Result<(), CaptureError> {
+    prost::encoding::skip_field(
+        wire_type,
+        tag,
+        message,
+        prost::encoding::DecodeContext::default(),
+    )
+    .map_err(invalid_logs_protobuf)
 }
 
 fn take_message<'a>(buf: &mut &'a [u8]) -> Result<&'a [u8], prost::DecodeError> {
@@ -236,7 +369,7 @@ fn invalid_logs_protobuf(error: prost::DecodeError) -> CaptureError {
 fn ensure_json_log_record_limit(body: &[u8], node_limit: usize) -> Result<(), CaptureError> {
     let mut node_count = 0;
     let mut deserializer = serde_json::Deserializer::from_slice(body);
-    LogsSeed {
+    JsonBudgetSeed {
         node_count: &mut node_count,
         node_limit,
     }
@@ -258,158 +391,93 @@ fn increment_log_node_count(node_count: &mut usize, node_limit: usize) -> Result
     Ok(())
 }
 
-struct LogsSeed<'a> {
+struct JsonBudgetSeed<'a> {
     node_count: &'a mut usize,
     node_limit: usize,
 }
 
-impl<'de> DeserializeSeed<'de> for LogsSeed<'_> {
+impl<'de> DeserializeSeed<'de> for JsonBudgetSeed<'_> {
     type Value = ();
 
     fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_map(LogsVisitor {
+        deserializer.deserialize_any(JsonBudgetVisitor {
             node_count: self.node_count,
             node_limit: self.node_limit,
         })
     }
 }
 
-struct LogsVisitor<'a> {
+struct JsonBudgetVisitor<'a> {
     node_count: &'a mut usize,
     node_limit: usize,
 }
 
-impl<'de> Visitor<'de> for LogsVisitor<'_> {
+impl<'de> Visitor<'de> for JsonBudgetVisitor<'_> {
     type Value = ();
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an OTLP logs request")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<(), A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        while let Some(key) = map.next_key::<String>()? {
-            if key == "resourceLogs" {
-                map.next_value_seed(NodeSequenceSeed {
-                    node_count: self.node_count,
-                    node_limit: self.node_limit,
-                    child_key: Some("scopeLogs"),
-                })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
-            }
-        }
-        Ok(())
-    }
-}
-
-struct NodeSequenceSeed<'a> {
-    node_count: &'a mut usize,
-    node_limit: usize,
-    child_key: Option<&'static str>,
-}
-
-impl<'de> DeserializeSeed<'de> for NodeSequenceSeed<'_> {
-    type Value = ();
-
-    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(NodeSequenceVisitor {
-            node_count: self.node_count,
-            node_limit: self.node_limit,
-            child_key: self.child_key,
-        })
-    }
-}
-
-struct NodeSequenceVisitor<'a> {
-    node_count: &'a mut usize,
-    node_limit: usize,
-    child_key: Option<&'static str>,
-}
-
-impl<'de> Visitor<'de> for NodeSequenceVisitor<'_> {
-    type Value = ();
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an OTLP node array")
+        formatter.write_str("valid JSON")
     }
 
     fn visit_seq<A>(self, mut sequence: A) -> Result<(), A::Error>
     where
         A: SeqAccess<'de>,
     {
-        while let Some(()) = sequence.next_element_seed(NodeSeed {
+        while let Some(()) = sequence.next_element_seed(JsonBudgetSeed {
             node_count: self.node_count,
             node_limit: self.node_limit,
-            child_key: self.child_key,
-        })? {}
-        Ok(())
-    }
-}
-
-struct NodeSeed<'a> {
-    node_count: &'a mut usize,
-    node_limit: usize,
-    child_key: Option<&'static str>,
-}
-
-impl<'de> DeserializeSeed<'de> for NodeSeed<'_> {
-    type Value = ();
-
-    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        increment_log_node_count(self.node_count, self.node_limit)
-            .map_err(serde::de::Error::custom)?;
-        match self.child_key {
-            Some(child_key) => deserializer.deserialize_map(NodeVisitor {
-                node_count: self.node_count,
-                node_limit: self.node_limit,
-                child_key,
-            }),
-            None => <IgnoredAny as serde::Deserialize>::deserialize(deserializer).map(|_| ()),
+        })? {
+            increment_log_node_count(self.node_count, self.node_limit)
+                .map_err(serde::de::Error::custom)?;
         }
-    }
-}
-
-struct NodeVisitor<'a> {
-    node_count: &'a mut usize,
-    node_limit: usize,
-    child_key: &'static str,
-}
-
-impl<'de> Visitor<'de> for NodeVisitor<'_> {
-    type Value = ();
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an OTLP container")
+        Ok(())
     }
 
     fn visit_map<A>(self, mut map: A) -> Result<(), A::Error>
     where
         A: MapAccess<'de>,
     {
-        while let Some(key) = map.next_key::<String>()? {
-            if key == self.child_key {
-                let next_key = (self.child_key == "scopeLogs").then_some("logRecords");
-                map.next_value_seed(NodeSequenceSeed {
-                    node_count: self.node_count,
-                    node_limit: self.node_limit,
-                    child_key: next_key,
-                })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
-            }
+        while map.next_key::<String>()?.is_some() {
+            map.next_value_seed(JsonBudgetSeed {
+                node_count: self.node_count,
+                node_limit: self.node_limit,
+            })?;
         }
+        Ok(())
+    }
+
+    fn visit_bool<E>(self, _value: bool) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_i64<E>(self, _value: i64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_u64<E>(self, _value: u64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_f64<E>(self, _value: f64) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_str<E>(self, _value: &str) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_string<E>(self, _value: String) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_none<E>(self) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_unit<E>(self) -> Result<(), E> {
         Ok(())
     }
 }
@@ -420,6 +488,11 @@ mod tests {
     use axum::http::HeaderMap;
     use flate2::write::GzEncoder;
     use flate2::Compression;
+    use opentelemetry_proto::tonic::common::v1::{
+        any_value, AnyValue, ArrayValue, KeyValue, KeyValueList,
+    };
+    use opentelemetry_proto::tonic::logs::v1::{ResourceLogs, ScopeLogs};
+    use opentelemetry_proto::tonic::resource::v1::Resource;
     use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
     use std::io::Write;
 
@@ -510,6 +583,66 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_logs_json_rejects_too_many_resource_attributes() {
+        let body = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "resourceLogs": [{
+                    "resource": {"attributes": vec![serde_json::json!({}); 1001]}
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_json_rejects_too_many_nested_any_values() {
+        let body = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "resourceLogs": [{
+                    "resource": {"attributes": [{
+                        "key": "nested",
+                        "value": {"arrayValue": {"values": vec![serde_json::json!({}); 1001]}}
+                    }]}
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_json_rejects_too_many_nested_key_values() {
+        let body = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "resourceLogs": [{
+                    "resource": {"attributes": [{
+                        "key": "nested",
+                        "value": {"kvlistValue": {"values": vec![serde_json::json!({}); 1001]}}
+                    }]}
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
     fn test_parse_logs_json_rejects_too_many_empty_scope_containers() {
         let body = Bytes::from(
             serde_json::to_vec(&serde_json::json!({
@@ -546,6 +679,82 @@ mod tests {
         let request = ExportLogsServiceRequest {
             resource_logs: vec![opentelemetry_proto::tonic::logs::v1::ResourceLogs {
                 scope_logs: vec![Default::default(); 1000],
+                ..Default::default()
+            }],
+        };
+        let body = Bytes::from(request.encode_to_vec());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_protobuf_rejects_too_many_resource_attributes() {
+        let request = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue::default(); 1001],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        };
+        let body = Bytes::from(request.encode_to_vec());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_protobuf_rejects_too_many_nested_any_values() {
+        let request = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "nested".to_string(),
+                        value: Some(AnyValue {
+                            value: Some(any_value::Value::ArrayValue(ArrayValue {
+                                values: vec![AnyValue::default(); 1001],
+                            })),
+                        }),
+                    }],
+                    ..Default::default()
+                }),
+                scope_logs: vec![ScopeLogs::default()],
+                ..Default::default()
+            }],
+        };
+        let body = Bytes::from(request.encode_to_vec());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_protobuf_rejects_too_many_nested_key_values() {
+        let request = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "nested".to_string(),
+                        value: Some(AnyValue {
+                            value: Some(any_value::Value::KvlistValue(KeyValueList {
+                                values: vec![KeyValue::default(); 1001],
+                            })),
+                        }),
+                    }],
+                    ..Default::default()
+                }),
+                scope_logs: vec![ScopeLogs::default()],
                 ..Default::default()
             }],
         };
