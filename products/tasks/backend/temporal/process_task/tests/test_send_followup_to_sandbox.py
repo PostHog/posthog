@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     REFRESH_RETRY_DELAY_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
+    SandboxRebindFailure,
     SendFollowupToSandboxInput,
     _refresh_sandbox_github,
     _refresh_sandbox_mcp,
@@ -251,7 +252,7 @@ class TestRefreshSandboxMcp:
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert failure == "refresh_session_failed"
+        assert failure == SandboxRebindFailure.REFRESH_SESSION_FAILED
         assert get_sandbox_mcp_session_user("run-1") == 99
 
     def test_unknown_binding_refresh_failure_fails_closed(
@@ -269,7 +270,7 @@ class TestRefreshSandboxMcp:
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert failure == "refresh_session_failed"
+        assert failure == SandboxRebindFailure.REFRESH_SESSION_FAILED
 
 
 @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_refresh_session")
@@ -371,7 +372,7 @@ class TestSessionIdentityGate:
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
 
-        assert failure == "no_configs_on_transition"  # fail closed: prior session may still be live
+        assert failure == SandboxRebindFailure.NO_CONFIGS_ON_TRANSITION  # fail closed: prior session may still be live
         mock_send_refresh.assert_not_called()
         assert get_sandbox_mcp_session_user("run-1") == 99  # binding unchanged
 
@@ -450,7 +451,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == "logout_unconfirmed"
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
 
     def test_a_transition_that_cannot_clear_still_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -462,7 +466,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == "logout_unconfirmed"
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
 
     def test_reconnecting_after_a_logout_rebinds_the_actor(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -573,7 +580,10 @@ class TestSandboxGithubIdentityGate:
         mock_resolve.return_value = None
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == "no_sandbox_handle"
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.NO_SANDBOX_HANDLE
+        )
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
@@ -590,7 +600,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == "logout_unconfirmed"
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_UNCONFIRMED
+        )
         assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
     def test_logout_exception_fails_closed(
@@ -604,7 +617,10 @@ class TestSandboxGithubIdentityGate:
         mock_clear.side_effect = RuntimeError("sandbox stopped")
         mark_sandbox_github_identity("run-1", 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) == "logout_errored"
+        assert (
+            _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None)
+            == SandboxRebindFailure.LOGOUT_ERRORED
+        )
         assert get_sandbox_github_identity_user("run-1") == 99  # binding unchanged
 
     def test_credential_unavailable_logs_out(
