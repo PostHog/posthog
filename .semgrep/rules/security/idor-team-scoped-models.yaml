@@ -87,6 +87,7 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
                               |CanvasState
                               |ChangeRequest
@@ -453,6 +454,7 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
                         |CanvasState
                         |ChangeRequest
