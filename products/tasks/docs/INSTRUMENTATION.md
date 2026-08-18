@@ -184,22 +184,91 @@ The workflow emission feeds the `posthog_tasks_task_run_failed_total` Prometheus
 Source: `products/tasks/backend/webhooks.py`
 
 These events use `TaskRun.capture_event()` so include all [TaskRun standard properties](#taskrun-events).
+PRs that no task run claims (`pr_source = external`) are captured against the installation's team instead, with the task-attribution properties nulled.
+
+### Person vs group attribution
+
+Every event describing a **human act on GitHub** (`pr_merged`, `pr_reviewed`, `pr_review_requested`, `pr_review_request_removed`) follows one rule:
+
+- The GitHub login resolves to an org member: the event's `distinct_id` is that person, `actor_attribution` is `person`, and `github_identity_source` says which linkage matched (`personal_integration`, `sso`, `team_integration`).
+- It does not resolve: the event's `distinct_id` is the **team uuid** and `actor_attribution` is `group`. It is never attributed to the task's assignee, who did not perform the act.
+
+Most GitHub actors do not resolve, so read these events at organization or project grain (`uniq($group_0)`), not person grain.
+
+### Shared PR properties
+
+Every `pr_*` event carries the PR snapshot from the payload:
+
+| Property                       | Type        | Description                                                                              |
+| ------------------------------ | ----------- | ---------------------------------------------------------------------------------------- |
+| `pr_url`                       | `str`       | GitHub PR URL                                                                            |
+| `pr_number`                    | `int`       | PR number                                                                                |
+| `pr_author`                    | `str`       | Login of whoever opened the PR                                                           |
+| `pr_base_ref` / `pr_head_ref`  | `str`       | Base and head branches                                                                   |
+| `pr_requested_reviewer_count`  | `int`       | Reviewers still awaiting review at event time; GitHub drops a reviewer once they respond |
+| `pr_requested_reviewer_logins` | `list[str]` | Those reviewers' logins                                                                  |
+| `pr_source`                    | `str`       | `task` when a task run claims the PR, else `external`                                    |
 
 ### `pr_created`
 
-Tracked when a GitHub `pull_request.opened` webhook is received. Additional properties:
-
-| Property | Type  | Description   |
-| -------- | ----- | ------------- |
-| `pr_url` | `str` | GitHub PR URL |
+Tracked when a GitHub `pull_request.opened` webhook is received.
 
 ### `pr_merged`
 
-Tracked when a GitHub `pull_request.closed` webhook is received with `merged=true`. Same additional properties as `pr_created`.
+Tracked when a GitHub `pull_request.closed` webhook is received with `merged=true`. Additional properties:
+
+| Property                   | Type  | Description                                             |
+| -------------------------- | ----- | ------------------------------------------------------- |
+| `pr_merged_by_login`       | `str` | GitHub login of the merger                              |
+| `pr_merged_by_id`          | `int` | GitHub user id of the merger                            |
+| `pr_merged_by_distinct_id` | `str` | Present only when the merger resolved to a PostHog user |
 
 ### `pr_closed`
 
-Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`. Same additional properties as `pr_created`.
+Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`.
+
+### `pr_reviewed`
+
+Tracked when a GitHub `pull_request_review` webhook is received with `action=submitted`. Bot reviews (StampHog, ReviewHog, CI apps) are skipped so the human review signal stays readable. Additional properties:
+
+| Property                     | Type  | Description                                               |
+| ---------------------------- | ----- | --------------------------------------------------------- |
+| `pr_review_state`            | `str` | `approved`, `changes_requested`, or `commented`           |
+| `pr_reviewed_by_login`       | `str` | GitHub login of the reviewer                              |
+| `pr_reviewed_by_id`          | `int` | GitHub user id of the reviewer                            |
+| `pr_reviewed_by_distinct_id` | `str` | Present only when the reviewer resolved to a PostHog user |
+
+### `pr_review_requested` / `pr_review_request_removed`
+
+Tracked when a GitHub `pull_request` webhook is received with `action=review_requested` / `review_request_removed`.
+
+PostHog never requests reviewers itself, so this records who the repository's own CODEOWNERS, the PR author, or a teammate tagged. It is the only evidence that GitHub notified a person about a self-driving PR.
+
+**Task-linked PRs only.** These webhooks arrive for every PR in an installed repository, the vast majority of which PostHog did not open. A tag on someone else's PR says nothing about whether our notifications work, so it is dropped.
+
+| Property                             | Type  | Description                                                        |
+| ------------------------------------ | ----- | ------------------------------------------------------------------ |
+| `pr_requested_reviewer_login`        | `str` | GitHub login of the person tagged                                  |
+| `pr_requested_reviewer_id`           | `int` | GitHub user id of the person tagged                                |
+| `pr_requested_reviewer_distinct_id`  | `str` | Present only when that person resolved to a PostHog user           |
+| `pr_requested_team_slug`             | `str` | Set instead of the reviewer trio when a GitHub **team** was tagged |
+| `pr_review_requested_by_login`       | `str` | Who did the tagging (the webhook's `sender`)                       |
+| `pr_review_requested_by_distinct_id` | `str` | Present only when the requester resolved to a PostHog user         |
+
+### `pr_notification_sent`
+
+Source: `products/tasks/backend/temporal/process_task/activities/post_slack_update.py`
+
+Tracked when the "Pull request opened" card is posted to a Slack thread. The send side of the Slack path, so arrivals in the app have a denominator. See [signals notifications](../../signals/docs/NOTIFICATIONS.md) for the other senders and the link-tagging scheme.
+
+| Property                | Type   | Description                                                       |
+| ----------------------- | ------ | ----------------------------------------------------------------- |
+| `notification_id`       | `str`  | Matches the `nid` on the card's "Open in PostHog" link            |
+| `channel`               | `str`  | `slack`                                                           |
+| `surface`               | `str`  | `pr_card`                                                         |
+| `pr_url`                | `str`  | GitHub PR URL                                                     |
+| `mentioned_slack_user`  | `bool` | Whether the card @-mentioned someone                              |
+| `recipient_attribution` | `str`  | `person` when the run has a creator to attribute to, else `group` |
 
 ## API Events
 

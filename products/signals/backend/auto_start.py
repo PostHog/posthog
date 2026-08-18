@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.notification_links import tag_notification_url
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
@@ -212,7 +213,14 @@ def _build_autostart_task_description(
     source_references: list[SignalSourceReference] | None = None,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    # Tagged as a GitHub arrival: this link lives in the PR description, so a click means the
+    # person found the work on GitHub rather than in Slack or the inbox. It carries no notification
+    # id, because the description is written once and read by whoever opens the PR, not sent.
+    report_link = tag_notification_url(
+        f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}",
+        source="github",
+        surface="pr_footer",
+    )
     source_links = ", ".join(f"[{ref.label}]({ref.url})" for ref in source_references or [])
     source_issues_line = f"Source issues: {source_links}\n\n" if source_links else ""
     source_reference_instruction = (

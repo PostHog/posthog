@@ -9,7 +9,10 @@ from django.conf import settings
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.event_usage import groups
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.notification_links import tag_notification_url
+from posthog.ph_client import ph_background_capture
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.slack_formatting import (
@@ -241,8 +244,13 @@ def _report_header(report: SignalReport) -> str:
     return title if len(title) <= 150 else title[:147].rstrip() + "..."
 
 
-def _report_link_block(report: SignalReport) -> dict:
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+def _report_link_block(report: SignalReport, *, notification_id: str | None = None) -> dict:
+    report_url = tag_notification_url(
+        f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}",
+        source="slack",
+        surface="scout_delivery",
+        notification_id=notification_id,
+    )
     return {
         "type": "actions",
         "elements": [
@@ -255,7 +263,9 @@ def _report_link_block(report: SignalReport) -> dict:
     }
 
 
-def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
+def build_scout_report_slack_message(
+    report: SignalReport, run: SignalScoutRun, *, notification_id: str | None = None
+) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
     blocks: list[dict] = [
@@ -271,13 +281,13 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
-    blocks.append(_report_link_block(report))
+    blocks.append(_report_link_block(report, notification_id=notification_id))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
 
 
 def build_scout_report_note_slack_message(
-    report: SignalReport, run: SignalScoutRun, note: str
+    report: SignalReport, run: SignalScoutRun, note: str, *, notification_id: str | None = None
 ) -> tuple[list[dict], str]:
     """Render a note-only report edit as the note itself, framed as an update.
 
@@ -304,7 +314,7 @@ def build_scout_report_note_slack_message(
     if rendered_note:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
 
-    blocks.append(_report_link_block(report))
+    blocks.append(_report_link_block(report, notification_id=notification_id))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
 
@@ -329,10 +339,13 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
+    # The delivery id is already unique per send and is what the retrying worker dedupes on, so it
+    # keys the notification too, so a retried delivery cannot read as a second notification.
+    notification_id = delivery_id
     blocks, fallback = (
-        build_scout_report_note_slack_message(report, run, edit_note)
+        build_scout_report_note_slack_message(report, run, edit_note, notification_id=notification_id)
         if edit_note is not None
-        else build_scout_report_slack_message(report, run)
+        else build_scout_report_slack_message(report, run, notification_id=notification_id)
     )
     client = SlackIntegration(integration).client
     try:
@@ -353,6 +366,8 @@ def post_scout_report_to_slack(
             ) from exc
         raise
 
+    _capture_scout_report_notification_sent(report, run, notification_id=notification_id)
+
     _post_scout_slack_reply(
         client,
         channel_id=channel_id,
@@ -360,3 +375,34 @@ def post_scout_report_to_slack(
         scout_team_id=run.team_id,
         integration_team_id=integration.team_id,
     )
+
+
+def _capture_scout_report_notification_sent(report: SignalReport, run: SignalScoutRun, *, notification_id: str) -> None:
+    """Record a scout report reaching a Slack channel, so its arrivals have a denominator.
+
+    A configured scout channel is a broadcast with no single recipient, so it attributes to the
+    team rather than to a person.
+    """
+    try:
+        ph_background_capture()(
+            distinct_id=str(report.team.uuid),
+            event="signals_notification_sent",
+            properties={
+                "notification_id": notification_id,
+                "report_id": str(report.id),
+                "team_id": report.team_id,
+                "channel": "slack",
+                "destination": "team",
+                "recipient_attribution": "group",
+                "mentioned_user_count": 0,
+                "dispatch_reason": "scout_report",
+                "skill_name": run.skill_name,
+            },
+            groups=groups(report.team.organization, report.team),
+        )
+    except Exception:
+        logger.exception(
+            "scout_report_notification_capture_failed",
+            report_id=str(report.id),
+            team_id=report.team_id,
+        )

@@ -435,7 +435,7 @@ class Task(DeletedMetaFields, models.Model):
                 distinct_id=distinct_id,
                 event=event,
                 properties=all_properties,
-                groups=groups(team=self.team),
+                groups=groups(self.team.organization, self.team),
                 send_feature_flags=True,
             )
         except Exception as e:
@@ -2373,8 +2373,9 @@ class TaskRun(models.Model):
         distinct_id_override: str | None = None,
     ) -> None:
         try:
-            # The override lets the PR webhook attribute pr_merged to the GitHub user who
-            # actually merged, rather than the task's assigned user.
+            # The override lets the PR webhook attribute an event to the GitHub user who actually
+            # acted, rather than the task's assigned user, or to the team when that user cannot be
+            # named, which is why the webhook passes a team uuid instead of leaving it unset.
             distinct_id = distinct_id_override or (
                 str(self.task.created_by.distinct_id)
                 if self.task.created_by_id and self.task.created_by
@@ -2407,7 +2408,10 @@ class TaskRun(models.Model):
                 "distinct_id": distinct_id,
                 "event": event,
                 "properties": all_properties,
-                "groups": groups(team=self.team),
+                # Passing the organization adds the customer group, which `groups(team=...)` alone
+                # cannot resolve. Most GitHub actor events attribute to the team rather than to a
+                # person, so group grain is what carries the analysis for them.
+                "groups": groups(self.team.organization, self.team),
                 "send_feature_flags": True,
             }
             if event_uuid:

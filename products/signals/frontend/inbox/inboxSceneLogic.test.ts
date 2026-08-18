@@ -1,8 +1,24 @@
+import { router } from 'kea-router'
+
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { mergeSignalRuns } from './inboxSceneLogic'
+import { setInboxArrival } from './inboxAnalytics'
+import { consumeArrivalParams, mergeSignalRuns } from './inboxSceneLogic'
 import { SignalScoutRunSummary } from './types'
+
+jest.mock('./inboxAnalytics', () => ({
+    ...jest.requireActual('./inboxAnalytics'),
+    setInboxArrival: jest.fn(),
+}))
+
+jest.mock('kea-router', () => ({
+    ...jest.requireActual('kea-router'),
+    router: {
+        actions: { replace: jest.fn() },
+        values: { location: { pathname: '/project/2/inbox/reports/r1' }, hashParams: {} },
+    },
+}))
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
@@ -91,5 +107,38 @@ describe('mergeSignalRuns', () => {
         // The `TaskRunStatus` enum is bridged to the equivalent `SignalScoutRunStatus` string the row
         // field holds (here 'in_progress'), and the run's own timestamp wins over the task's.
         expect(row).toMatchObject({ status: 'in_progress', created_at: '2026-06-11T12:00:00Z' })
+    })
+})
+
+describe('consumeArrivalParams', () => {
+    beforeEach(() => {
+        ;(setInboxArrival as jest.Mock).mockClear()
+        ;(router.actions.replace as jest.Mock).mockClear()
+    })
+
+    it('records the channel and send from a tagged notification link', () => {
+        consumeArrivalParams({ nid: 'n-1', utm_source: 'slack', utm_content: 'inbox_card_team', tab: 'pulls' })
+
+        expect(setInboxArrival).toHaveBeenCalledWith({
+            notificationId: 'n-1',
+            channel: 'slack',
+            surface: 'inbox_card_team',
+        })
+    })
+
+    it('strips the send id but keeps the campaign parameters', () => {
+        // The send id has to go, or a refresh reads as a second click on the same notification.
+        // The utm parameters have to stay: posthog-js reads them off the live URL.
+        consumeArrivalParams({ nid: 'n-1', utm_source: 'slack', utm_medium: 'notification', tab: 'pulls' })
+
+        const [, searchParams] = (router.actions.replace as jest.Mock).mock.calls[0]
+        expect(searchParams).toEqual({ utm_source: 'slack', utm_medium: 'notification', tab: 'pulls' })
+    })
+
+    it('leaves an untagged visit alone', () => {
+        consumeArrivalParams({ tab: 'pulls' })
+
+        expect(setInboxArrival).not.toHaveBeenCalled()
+        expect(router.actions.replace).not.toHaveBeenCalled()
     })
 })

@@ -11,6 +11,7 @@ import {
     captureScoutConfigChanged,
     captureSignalSourceConnected,
     INBOX_EVENTS,
+    setInboxArrival,
 } from './inboxAnalytics'
 import { SignalReport, SignalReportStatus } from './types'
 
@@ -43,6 +44,26 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 describe('inboxAnalytics', () => {
     beforeEach(() => {
         ;(posthog.capture as jest.Mock).mockClear()
+        setInboxArrival(null)
+    })
+
+    it('carries the notification that produced the visit onto later report actions', () => {
+        // The action is what makes a channel worth keeping, and it fires long after the arrival,
+        // so without this only the open would carry the channel.
+        setInboxArrival({ notificationId: 'n-1', channel: 'slack', surface: 'inbox_card_team' })
+
+        captureInboxReportAction({ report: makeReport(), actionType: 'open_pr', surface: 'detail_pane' })
+
+        const properties = lastCapture(INBOX_EVENTS.REPORT_ACTION)
+        expect(properties?.notification_id).toBe('n-1')
+        expect(properties?.notification_channel).toBe('slack')
+        expect(properties?.notification_surface).toBe('inbox_card_team')
+    })
+
+    it('leaves report events unmarked when the visit came from no notification', () => {
+        captureInboxReportAction({ report: makeReport(), actionType: 'open_pr', surface: 'detail_pane' })
+
+        expect(lastCapture(INBOX_EVENTS.REPORT_ACTION)).not.toHaveProperty('notification_channel')
     })
 
     it('stamps every event with the cloud client discriminator', () => {

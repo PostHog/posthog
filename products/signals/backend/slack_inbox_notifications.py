@@ -14,6 +14,7 @@ All sends are best-effort.
 from __future__ import annotations
 
 import json
+import uuid
 import logging
 from collections.abc import Iterable
 
@@ -21,8 +22,11 @@ from django.conf import settings
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.notification_links import tag_notification_url
+from posthog.ph_client import ph_background_capture
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
@@ -326,6 +330,7 @@ def _build_message_blocks(
     priority: str | None,
     source_products: list[str],
     reviewer_mentions: list[str],
+    report_url: str,
     repository: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New report"
@@ -378,7 +383,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": report_url,
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})
@@ -604,6 +609,7 @@ def _deliver_route_notification(
     priority: str | None,
     source_products: list[str],
     repository: str | None,
+    dispatch_reason: str,
     signals: list[dict] | None = None,
 ) -> bool:
     """Post one report notification to a route's channel (with optional evidence thread).
@@ -612,12 +618,14 @@ def _deliver_route_notification(
     message was sent. Best-effort: Slack errors are logged, not raised.
     """
     channel_id = _channel_id_from_target(route.channel)
+    destination = "team" if route.is_team_channel else "user"
     log_context = {
         "report_id": str(report.id),
         "team_id": report.team_id,
         "channel": _channel_display_name(route.channel),
-        "destination": "team" if route.is_team_channel else "user",
+        "destination": destination,
     }
+    notification_id = str(uuid.uuid4())
     try:
         slack = SlackIntegration(route.integration)
         mentions = _resolve_reviewer_mentions(slack, route.users)
@@ -626,16 +634,88 @@ def _deliver_route_notification(
             priority=priority,
             source_products=source_products,
             reviewer_mentions=mentions,
+            report_url=tag_notification_url(
+                _inbox_report_url(report.team_id, str(report.id)),
+                source="slack",
+                surface=f"inbox_card_{destination}",
+                notification_id=notification_id,
+            ),
             repository=repository,
         )
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         thread_ts = response.get("ts") if hasattr(response, "get") else None
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
-        return True
     except Exception:
         logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
         return False
+
+    _capture_notification_sent(
+        report,
+        route,
+        notification_id=notification_id,
+        destination=destination,
+        priority=priority,
+        source_products=source_products,
+        repository=repository,
+        dispatch_reason=dispatch_reason,
+        had_evidence_thread=bool(signals),
+    )
+    return True
+
+
+def _inbox_report_url(team_id: int, report_id: str) -> str:
+    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+
+
+def _capture_notification_sent(
+    report: SignalReport,
+    route: _ChannelRoute,
+    *,
+    notification_id: str,
+    destination: str,
+    priority: str | None,
+    source_products: list[str],
+    repository: str | None,
+    dispatch_reason: str,
+    had_evidence_thread: bool,
+) -> None:
+    """Record that a report notification went out, so arrivals have a denominator.
+
+    Without this, only the people who came back are visible, and silence, which is the response we
+    most need to measure, is indistinguishable from never having been told. Fired only after a
+    successful post, so a failed send can never read as one nobody answered.
+
+    A personal channel has exactly one recipient and attributes to them; a team channel is a
+    broadcast with no single recipient, so it attributes to the team and carries its reach in
+    `mentioned_user_count`.
+    """
+    recipient = route.users[0] if len(route.users) == 1 and not route.is_team_channel else None
+    try:
+        ph_background_capture()(
+            distinct_id=str(recipient.distinct_id) if recipient else str(report.team.uuid),
+            event="signals_notification_sent",
+            properties={
+                "notification_id": notification_id,
+                "report_id": str(report.id),
+                "team_id": report.team_id,
+                "channel": "slack",
+                "destination": destination,
+                "recipient_attribution": "person" if recipient else "group",
+                "mentioned_user_count": len(route.users),
+                "dispatch_reason": dispatch_reason,
+                "priority": priority,
+                "source_products": source_products,
+                "repository": repository,
+                "had_evidence_thread": had_evidence_thread,
+            },
+            groups=groups(report.team.organization, report.team),
+        )
+    except Exception:
+        logger.exception(
+            "Failed to capture signals_notification_sent",
+            extra={"report_id": str(report.id), "team_id": report.team_id},
+        )
 
 
 def dispatch_inbox_item_notifications(
@@ -710,6 +790,7 @@ def dispatch_inbox_item_notifications(
             priority=priority,
             source_products=sources,
             repository=repository,
+            dispatch_reason="report_ready",
             signals=signals,
         ):
             sent += 1
@@ -812,6 +893,7 @@ def dispatch_reviewer_added_notifications(
             priority=priority,
             source_products=sources,
             repository=repository,
+            dispatch_reason="reviewer_added",
         ):
             sent += 1
     logger.info(

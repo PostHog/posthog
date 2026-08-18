@@ -25,6 +25,7 @@ import {
     captureInboxReportScrolled,
     InboxReportCloseMethod,
     InboxReportOpenMethod,
+    setInboxArrival,
 } from './inboxAnalytics'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
@@ -49,6 +50,31 @@ const SCOUT_RUNS_LIMIT = 100
 // Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
 // at 100); passed explicitly so the cap is visible rather than relying on the server default.
 const SIGNAL_TASKS_LIMIT = 100
+
+/**
+ * Records which notification carried this session, from the parameters the send side tagged its
+ * link with (`utm_source` / `utm_content` name the channel and surface, `nid` identifies the send).
+ *
+ * Only `nid` is stripped afterwards, so a refresh can't count as a second click on the same send.
+ * The `utm_*` parameters stay: posthog-js reads campaign parameters off the live URL, so removing
+ * them would defeat the automatic capture that makes the channel readable on every event.
+ */
+export function consumeArrivalParams(searchParams: Record<string, any> | undefined): void {
+    const notificationId = searchParams?.['nid']
+    const channel = searchParams?.['utm_source']
+    if (notificationId === undefined && channel === undefined) {
+        return
+    }
+    setInboxArrival({
+        notificationId: notificationId === undefined ? null : String(notificationId),
+        channel: channel === undefined ? null : String(channel),
+        surface: searchParams?.['utm_content'] === undefined ? null : String(searchParams['utm_content']),
+    })
+    if (notificationId !== undefined) {
+        const { nid: _consumed, ...remainingSearchParams } = searchParams ?? {}
+        router.actions.replace(router.values.location.pathname, remainingSearchParams, router.values.hashParams)
+    }
+}
 
 /** Strips `#createScout=` from the URL so a refresh can't re-trigger it, then opens the modal. */
 function consumeScoutTemplateHash(
@@ -821,11 +847,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setSelectedScoutSkillName(name, finding)
             }
         },
-        [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
+        [urls.inboxReport(':tab', ':reportId')]: (
+            { tab, reportId }: { tab?: string; reportId?: string },
+            searchParams: Record<string, any>
+        ) => {
             // This pattern also matches `/inbox/scouts/<skillName>`; the scout handler owns that path.
             if (tab === 'scouts') {
                 return
             }
+            consumeArrivalParams(searchParams)
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
                 return

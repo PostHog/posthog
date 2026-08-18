@@ -98,6 +98,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
         priority="P1",
         source_products=["error_tracking"],
         reviewer_mentions=["<@U123>"],
+        report_url=f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?utm_source=slack",
     )
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
@@ -114,7 +115,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?utm_source=slack"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -125,6 +126,7 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
         priority="P2",
         source_products=[],
         reviewer_mentions=["<@U1>", "<@U2>"],
+        report_url="https://app.example.com/inbox",
     )
 
     assert blocks[1]["text"]["text"] == "*🟠 P2*"
@@ -138,6 +140,7 @@ def test_build_message_blocks_includes_repository_in_metadata_line() -> None:
         priority="P2",
         source_products=["error_tracking"],
         reviewer_mentions=[],
+        report_url="https://app.example.com/inbox",
         repository="PostHog/posthog",
     )
 
@@ -157,6 +160,7 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
         priority="P2",
         source_products=[],
         reviewer_mentions=[],
+        report_url="https://app.example.com/inbox",
         repository="<!channel>/repo",
     )
 
@@ -185,6 +189,7 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         priority=priority,
         source_products=[],
         reviewer_mentions=["<@U123>"],
+        report_url="https://app.example.com/inbox",
     )
 
     assert blocks[1]["text"]["text"] == f"*{expected_priority_label}*"
@@ -336,7 +341,10 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")
     assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    button_url = blocks[3]["elements"][0]["url"]
+    assert button_url.startswith(f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?")
+    assert "utm_source=slack" in button_url
+    assert "utm_content=inbox_card_user" in button_url
 
 
 @pytest.mark.django_db
@@ -715,6 +723,94 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 2
+
+
+@pytest.mark.django_db
+def test_notification_sent_event_records_a_personal_delivery(org_and_team):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "recorded@example.com", "recorded-login")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C1|#personal",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["recorded-login"])
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+        patch("products.signals.backend.slack_inbox_notifications.ph_background_capture") as mock_capture_client,
+    ):
+        slack_cls.return_value.client = fake_client
+        capture = mock_capture_client.return_value
+        dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    capture.assert_called_once()
+    kwargs = capture.call_args.kwargs
+    assert kwargs["event"] == "signals_notification_sent"
+    assert kwargs["distinct_id"] == str(user.distinct_id)
+    assert kwargs["properties"]["destination"] == "user"
+    assert kwargs["properties"]["recipient_attribution"] == "person"
+    assert kwargs["properties"]["dispatch_reason"] == "report_ready"
+    assert kwargs["properties"]["report_id"] == str(report.id)
+    # The id on the event is the one the link carries, or the two can never be joined.
+    assert (
+        kwargs["properties"]["notification_id"]
+        in fake_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["url"]
+    )
+
+
+@pytest.mark.django_db
+def test_notification_sent_event_attributes_a_team_channel_to_the_group(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "broadcast@example.com", "broadcast-login")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["broadcast-login"])
+
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+        patch("products.signals.backend.slack_inbox_notifications.ph_background_capture") as mock_capture_client,
+    ):
+        slack_cls.return_value.client = MagicMock()
+        capture = mock_capture_client.return_value
+        dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    kwargs = capture.call_args.kwargs
+    # A broadcast has no single recipient, so it counts for the team rather than for whoever
+    # happened to be mentioned in it.
+    assert kwargs["distinct_id"] == str(team.uuid)
+    assert kwargs["properties"]["destination"] == "team"
+    assert kwargs["properties"]["recipient_attribution"] == "group"
+    assert kwargs["groups"]["organization"] == str(org.id)
+
+
+@pytest.mark.django_db
+def test_failed_delivery_records_no_notification_sent(org_and_team):
+    # A failed send counted as a send would read as a notification nobody answered, which is the
+    # exact signal this event exists to measure.
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "failing@example.com", "failing-login")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["failing-login"])
+
+    fake_client = MagicMock()
+    fake_client.chat_postMessage.side_effect = Exception("slack down")
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+        patch("products.signals.backend.slack_inbox_notifications.ph_background_capture") as mock_capture_client,
+    ):
+        slack_cls.return_value.client = fake_client
+        capture = mock_capture_client.return_value
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    capture.assert_not_called()
 
 
 @pytest.mark.django_db

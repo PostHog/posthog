@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -227,6 +228,18 @@ class OnboardingSkippedReason(models.TextChoices):
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
+
+
+class GitHubIdentitySource(models.TextChoices):
+    PERSONAL_INTEGRATION = "personal_integration", "Personal GitHub integration"
+    SSO = "sso", "GitHub SSO login"
+    TEAM_INTEGRATION = "team_integration", "Team GitHub integration"
+
+
+@frozen
+class GitHubLoginResolution:
+    login: str
+    source: str
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -478,7 +491,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return self.current_team
 
     def get_github_login(self) -> str | None:
-        """Resolve this user's GitHub login.
+        """Resolve this user's GitHub login. See `get_github_login_with_source` for the precedence."""
+        resolution = self.get_github_login_with_source()
+        return resolution.login if resolution is not None else None
+
+    def get_github_login_with_source(self) -> GitHubLoginResolution | None:
+        """Resolve this user's GitHub login, and which linkage produced it.
 
         Precedence:
         1. `UserIntegration` (kind=github) — user's own GitHub integration
@@ -486,6 +504,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
            team's GitHub integration (e.g. captured at install). Still a supported integration path,
            lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+
+        The source rides along so analytics can tell which linkage is missing for the GitHub actors
+        we fail to resolve, rather than only how many of them there are.
         """
         from posthog.models.user_integration import UserGitHubIntegration
 
@@ -498,18 +519,18 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         for user_integration in user_integrations:
             login = UserGitHubIntegration(user_integration).github_login
             if login:
-                return login
+                return GitHubLoginResolution(login=login, source=GitHubIdentitySource.PERSONAL_INTEGRATION)
 
         for sa in self.social_auth.all():
             if sa.provider != "github":
                 continue
             login_val = getattr(sa, "_prefetched_github_login", None)
             if login_val:
-                return str(login_val)
+                return GitHubLoginResolution(login=str(login_val), source=GitHubIdentitySource.SSO)
             if isinstance(sa.extra_data, dict):
                 login = sa.extra_data.get("login")
                 if login:
-                    return str(login)
+                    return GitHubLoginResolution(login=str(login), source=GitHubIdentitySource.SSO)
 
         # Team-level GitHub integration: connecting_user_github_login from install / configuration.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
@@ -517,7 +538,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             for integration in prefetched_integrations:
                 login = (integration.config or {}).get("connecting_user_github_login")
                 if login:
-                    return str(login)
+                    return GitHubLoginResolution(login=str(login), source=GitHubIdentitySource.TEAM_INTEGRATION)
         else:
             team_github_integration = (
                 self.integration_set.filter(kind="github")
@@ -528,7 +549,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             if team_github_integration and isinstance(team_github_integration.config, dict):
                 login_val = team_github_integration.config.get("connecting_user_github_login")
                 if login_val:
-                    return str(login_val)
+                    return GitHubLoginResolution(login=str(login_val), source=GitHubIdentitySource.TEAM_INTEGRATION)
 
         return None
 

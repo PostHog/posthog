@@ -1,8 +1,10 @@
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 from temporalio import activity
 
+from posthog.notification_links import tag_notification_url
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -209,9 +211,30 @@ def _post_pr_opened_notification_once(
         mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
         reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
 
-    handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
+    # The card is the moment someone is told a PR exists, so its PostHog-bound button carries the
+    # channel. The github.com button can't: that click leaves our domain entirely.
+    notification_id = str(uuid.uuid4())
+    tagged_task_url = (
+        tag_notification_url(task_url, source="slack", surface="pr_card", notification_id=notification_id)
+        if task_url
+        else None
+    )
+
+    handler.post_pr_opened(pr_url, tagged_task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
     task_run.task.mark_slack_pr_notified(pr_url)
+
+    task_run.capture_event(
+        "pr_notification_sent",
+        {
+            "notification_id": notification_id,
+            "channel": "slack",
+            "surface": "pr_card",
+            "pr_url": pr_url,
+            "mentioned_slack_user": bool(reply_target_slack_user_id),
+            "recipient_attribution": "person" if task_run.task.created_by_id else "group",
+        },
+    )
 
 
 def _is_terminal_notified(task_run: Any, status: str, error: str | None = None) -> bool:
