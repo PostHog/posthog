@@ -3,7 +3,6 @@ import {
   MagnifyingGlassIcon,
   SpinnerGapIcon,
 } from "@phosphor-icons/react";
-import type { Schemas } from "@posthog/api-client";
 import type {
   SupportAssigneeFilter,
   SupportTicket,
@@ -39,7 +38,6 @@ import {
   type SupportAssigneeScope,
   useSupportQueueStore,
 } from "@posthog/ui/features/support/supportQueueStore";
-import { TICKET_STATUS_LABELS } from "@posthog/ui/features/support/ticketPresentation";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { navigateToSupportTicket } from "@posthog/ui/router/navigationBridge";
 import { useMemo } from "react";
@@ -223,55 +221,18 @@ function TicketRows({
   activeTicketId?: string;
 }) {
   const now = Date.now();
-  const groups = useMemo(() => groupByStatus(tickets), [tickets]);
 
   return (
-    <div className="flex flex-col gap-3">
-      {groups.map(({ status, rows }) => (
-        <div key={status} className="flex flex-col gap-px">
-          <div className="flex items-center gap-1.5 px-2 py-1">
-            <Text className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
-              {TICKET_STATUS_LABELS[status]}
-            </Text>
-            <Text className="text-[10px] text-gray-11 tabular-nums">
-              {rows.length}
-            </Text>
-          </div>
-          {rows.map((ticket) => (
-            <TicketRow
-              key={ticket.id}
-              ticket={ticket}
-              now={now}
-              isActive={ticket.id === activeTicketId}
-              onSelect={() => navigateToSupportTicket(ticket.id)}
-            />
-          ))}
-        </div>
+    <div className="flex flex-col gap-px">
+      {tickets.map((ticket) => (
+        <TicketRow
+          key={ticket.id}
+          ticket={ticket}
+          now={now}
+          isActive={ticket.id === activeTicketId}
+          onSelect={() => navigateToSupportTicket(ticket.id)}
+        />
       ))}
     </div>
   );
-}
-
-/** The queue's statuses first, in queue order, then anything else the filters let through. */
-function groupByStatus(
-  tickets: SupportTicket[],
-): { status: Schemas.TicketStatusEnum; rows: SupportTicket[] }[] {
-  const byStatus = new Map<Schemas.TicketStatusEnum, SupportTicket[]>();
-  for (const ticket of tickets) {
-    const status = ticket.status ?? "new";
-    const rows = byStatus.get(status);
-    if (rows) {
-      rows.push(ticket);
-    } else {
-      byStatus.set(status, [ticket]);
-    }
-  }
-
-  const ordered = [
-    ...QUEUE_STATUSES,
-    ...[...byStatus.keys()].filter((s) => !QUEUE_STATUSES.includes(s)),
-  ];
-  return ordered
-    .map((status) => ({ status, rows: byStatus.get(status) ?? [] }))
-    .filter((group) => group.rows.length > 0);
 }
