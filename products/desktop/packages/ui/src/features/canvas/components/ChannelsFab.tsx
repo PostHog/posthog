@@ -34,9 +34,10 @@ import { useState } from "react";
  * The create affordance for the Channels space, floated over the bottom-right
  * of whichever sidebar pane is showing.
  *
- * The same button on both panes, so "create" is always the same corner: given a
- * channel it creates inside it (task, canvas); from the list it creates a
- * channel, which has no other entry point.
+ * Under the layout it serves the channel list only, where creating a channel
+ * has no other entry point — inside a space the list leads with its own create
+ * row instead. Off the layout it keeps its original two-item menu on both
+ * panes.
  */
 export function ChannelsFab({ channelId }: { channelId?: string }) {
   const channelsLayout = useChannelsLayout();
@@ -49,6 +50,10 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
   const inChannels = useRouterState({
     select: (s) => s.location.pathname.startsWith("/website"),
   });
+
+  // Inside a space the list's own create row does this job, in the tab of the
+  // thing it makes, so a second create floating over those rows is one too many.
+  if (channelsLayout && channelId) return null;
 
   const newTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -72,10 +77,6 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
     </DropdownMenuItem>
   );
 
-  // Inside a space on the layout, the menu held one item, so the button is that
-  // item: a click starts the task instead of asking which kind to start.
-  const newTaskOnly = channelsLayout && !!channelId;
-
   const draftDot = channelsLayout && hasDraft && (
     <span
       aria-hidden
@@ -83,15 +84,12 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
     />
   );
 
-  const label = newTaskOnly ? "New task" : "Create";
-
   const trigger = (
     <Button
       variant="primary"
       size="icon-lg"
-      aria-label={label}
+      aria-label="Create"
       className="absolute right-3 bottom-3 z-10 rounded-full"
-      onClick={newTaskOnly ? newTask : undefined}
     >
       <PlusIcon size={20} weight="bold" />
       {draftDot}
@@ -104,7 +102,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
         <>
           {/* The draft dot needs saying out loud, and the button is where
               the create shortcut is worth advertising. */}
-          {hasDraft ? `${label} — you have a draft` : label}
+          {hasDraft ? "Create — you have a draft" : "Create"}
           <Kbd className="ml-1.5">{formatHotkey(SHORTCUTS.NEW_TASK)}</Kbd>
         </>
       ) : (
@@ -112,15 +110,6 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       )}
     </TooltipContent>
   );
-
-  if (newTaskOnly) {
-    return (
-      <Tooltip>
-        <TooltipTrigger render={trigger} />
-        {tooltip}
-      </Tooltip>
-    );
-  }
 
   return (
     <>
@@ -141,9 +130,10 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
             <FileTextIcon size={14} className="text-gray-9" />
             New task
           </DropdownMenuItem>
-          {/* Inside a space the menu is about filling that space; making
-              another one belongs to the list this button also serves. */}
-          {channelsLayout && !channelId && (
+          {/* Under the layout this button only serves the list, where a new
+              space has no other entry point — but starting a session is the
+              commoner errand, so it stays above the separator. */}
+          {channelsLayout && (
             <>
               <DropdownMenuSeparator />
               {newChannelItem}

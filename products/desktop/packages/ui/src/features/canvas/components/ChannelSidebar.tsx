@@ -37,6 +37,10 @@ import {
 import { LOOPS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
+import {
+  NewCanvasRow,
+  NewSessionRow,
+} from "@posthog/ui/features/canvas/components/ChannelCreateRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -49,11 +53,9 @@ import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelIte
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionFooter } from "@posthog/ui/features/sidebar/components/SidebarBulkActionFooter";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
@@ -522,22 +524,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       <ChannelBackRow channelId={channelId} />
 
       <div className="flex flex-col gap-px px-2 pt-2">
-        {/* Starting a session is what you came here to do, so it leads the
-            pane's list of places rather than hiding behind one of them. */}
-        <SidebarItem
-          depth={0}
-          label="New session"
-          isActive={pathname === `${base}/new`}
-          onClick={() =>
-            void navigate({
-              to: "/website/$channelId/new",
-              params: { channelId },
-            })
-          }
-          // ⌘N inside a space lands on this same route (openTaskInput scopes to
-          // the channel you're in), so the row can claim the key.
-          endHint={<SidebarKbdHint keys={SHORTCUTS.NEW_TASK} />}
-        />
         {sectionRow(
           "home",
           base,
@@ -600,6 +586,20 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               showRunFilters={tab === "task"}
               filtersActive={filtersActive}
             />
+          </div>
+        )}
+        {/* Above the scroll container, not in it: creating is what the tab you
+            just chose is for, so it can't scroll away with the rows. */}
+        {showHeader && (
+          <div className="px-2 pt-1">
+            {tab === "canvas" ? (
+              <NewCanvasRow channelId={channelId} />
+            ) : (
+              <NewSessionRow
+                channelId={channelId}
+                isActive={pathname === `${base}/new`}
+              />
+            )}
           </div>
         )}
         <div

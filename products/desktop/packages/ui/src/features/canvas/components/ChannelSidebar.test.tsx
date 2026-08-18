@@ -36,6 +36,15 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelBackRow", () => ({
 vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
   ChannelsFab: () => null,
 }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+// The canvases tab's create row reaches for the template list and the create
+// mutation, both of which come over tRPC.
+vi.mock("@posthog/ui/features/canvas/hooks/useCanvasTemplates", () => ({
+  useCanvasTemplates: () => [],
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
+  useCreateAndOpenDashboard: () => vi.fn(),
+}));
 
 // The row menu's spaces list reaches for a QueryClient the unit test has no
 // stack for. Stubbed at the module boundary, as WebsiteLayout.test.tsx does for
@@ -237,6 +246,34 @@ describe("ChannelSidebar", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  // The floating create button is gone inside a space, so this row is the only
+  // create affordance the pane has — and it has to make what the tab lists.
+  it("leads the list with the create action for the tab you're on", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item(),
+      item({
+        key: "canvas:c1",
+        kind: "canvas",
+        id: "c1",
+        title: "Signup funnel canvas",
+      }),
+    ];
+    const listed = () =>
+      screen
+        .getAllByText(
+          /^(New session|New canvas|Investigate signup drop-off|Signup funnel canvas)$/,
+        )
+        .map((el) => el.textContent);
+    renderSidebar();
+
+    expect(listed()).toEqual(["New session", "Investigate signup drop-off"]);
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+
+    expect(listed()).toEqual(["New canvas", "Signup funnel canvas"]);
   });
 
   it("shows one kind at a time, and drops the run filters with the sessions", async () => {

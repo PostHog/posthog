@@ -178,9 +178,14 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
-- One `ChannelsFab` serves both panes: given a `channelId` it creates a task in
-  that channel; from the list, where nothing else offers it, it creates a space
-  instead. Off the layout it keeps its original two-item menu.
+- **Creating follows the pane you're on.** Under the layout the floating
+  `ChannelsFab` serves the list only, where a new space has no other entry
+  point; inside a space it renders nothing, because the list there leads with
+  its own create row (`ChannelCreateRow`) — "New session" on the sessions tab,
+  "New canvas…" on the canvases tab, so the action makes the kind of thing the
+  tab below it shows. That row also carries the ⌘N hint and the unsent-draft
+  badge the FAB used to. Off the layout the FAB keeps its original two-item menu
+  on both panes.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
