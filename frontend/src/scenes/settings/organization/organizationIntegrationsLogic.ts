@@ -58,8 +58,8 @@ export interface organizationIntegrationsLogicValues {
         )[]
     ) => IntegrationType[]
     organizationIntegrations: IntegrationType[] | null
-    organizationIntegrationsLoading: boolean
     organizationIntegrationsError: boolean
+    organizationIntegrationsLoading: boolean
     vercelIntegrations: IntegrationType[] | undefined
 }
 
