@@ -1,4 +1,4 @@
-import socket
+import ipaddress
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -15,21 +15,28 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
+PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
+
 
 class TestTable(APIBaseTest):
     @parameterized.expand(
         [
             ("http_scheme", "http://example.com/path/*.csv", "URL pattern must use https."),
             ("s3_scheme", "s3://bucket/path/*.parquet", "URL pattern must use https."),
-            ("localhost", "https://localhost/path/*.csv", "hostname is not allowed"),
-            ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "internal IP ranges"),
-            ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "internal IP ranges"),
-            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "internal IP ranges"),
-            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "internal IP ranges"),
+            ("localhost", "https://localhost/path/*.csv", "Local/Loopback host not allowed"),
+            ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "Local/Loopback host not allowed"),
+            ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "Local/metadata host"),
+            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "Disallowed target IP"),
+            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "Disallowed target IP"),
         ]
     )
     def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
-        with patch.object(DataWarehouseTable, "get_columns") as patch_get_columns:
+        # is_dev_mode is forced off so this exercises the real SSRF check instead of the
+        # local-dev bypass that posthog.security.url_validation applies when DEBUG is set.
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch.object(DataWarehouseTable, "get_columns") as patch_get_columns,
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/warehouse_tables/",
                 {
@@ -52,50 +59,43 @@ class TestTable(APIBaseTest):
             (
                 "nip_io_loopback",
                 "https://127.0.0.1.nip.io/latest/meta-data/",
-                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 0))],
-                "internal IP ranges",
+                {ipaddress.ip_address("127.0.0.1")},
+                "Disallowed target IP",
             ),
             (
+                # The hostname string itself starts with "169.254." (a link-local prefix), so this
+                # is blocked by the literal-prefix check before resolve_host_ips is ever called.
                 "sslip_io_linklocal",
                 "https://169.254.169.254.sslip.io/latest/meta-data/",
-                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("169.254.169.254", 0))],
-                "internal IP ranges",
+                {ipaddress.ip_address("169.254.169.254")},
+                "Private IP address not allowed",
             ),
             (
                 "custom_dns_rebinding",
                 "https://evil.attacker.com/path/*.csv",
-                [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.1", 0))],
-                "internal IP ranges",
+                {ipaddress.ip_address("10.0.0.1")},
+                "Disallowed target IP",
             ),
             (
                 "mixed_results_one_internal",
                 "https://sneaky.example.com/path/*.csv",
-                [
-                    (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0)),
-                    (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.168.1.1", 0)),
-                ],
-                "internal IP ranges",
+                {ipaddress.ip_address("93.184.216.34"), ipaddress.ip_address("192.168.1.1")},
+                "Disallowed target IP",
             ),
             (
                 "unresolvable_hostname",
                 "https://does-not-exist.invalid/path/*.csv",
-                socket.gaierror("Name or service not known"),
-                "could not be resolved",
+                set(),
+                "Could not resolve host",
             ),
         ]
     )
     def test_create_columns_blocks_dns_resolved_internal_ips(
-        self, _: str, url_pattern: str, getaddrinfo_result: Any, expected_error: str
+        self, _: str, url_pattern: str, resolved_ips: set, expected_error: str
     ):
-        side_effect = getaddrinfo_result if isinstance(getaddrinfo_result, Exception) else None
-        return_value = None if isinstance(getaddrinfo_result, Exception) else getaddrinfo_result
-
         with (
-            patch(
-                "products.warehouse_sources.backend.models.util.socket.getaddrinfo",
-                side_effect=side_effect,
-                return_value=return_value,
-            ),
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
             patch.object(DataWarehouseTable, "get_columns") as patch_get_columns,
         ):
             response = self.client.post(
@@ -124,14 +124,15 @@ class TestTable(APIBaseTest):
             url_pattern="https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
             columns={},
         )
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
-            {
-                "url_pattern": "https://127.0.0.1/latest/meta-data/",
-            },
-        )
+        with patch("posthog.security.url_validation.is_dev_mode", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {
+                    "url_pattern": "https://127.0.0.1/latest/meta-data/",
+                },
+            )
         assert response.status_code == 400
-        assert "internal IP ranges" in str(response.json())
+        assert "Local/Loopback host not allowed" in str(response.json())
 
     @patch(
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
@@ -144,7 +145,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -185,7 +186,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=False,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns_invalid_schema(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -378,7 +379,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_table_name_duplicate(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -673,6 +674,70 @@ class TestTable(APIBaseTest):
 
         table.refresh_from_db()
         assert table.url_pattern == "https://your-org.s3.amazonaws.com/bucket/whatever.pqt"
+
+    @parameterized.expand(
+        [
+            # The path-style endpoint names the same bucket as DATAWAREHOUSE_BUCKET_DOMAIN without
+            # containing that domain, which is what made this reachable.
+            ("posthog_bucket_path_style", "https://s3.us-east-1.amazonaws.com/ph-warehouse/file_uploads/team_*/*.csv"),
+            ("unrelated_bucket", "https://acme-exports.s3.amazonaws.com/exports/*.csv"),
+        ]
+    )
+    @override_settings(
+        DATAWAREHOUSE_BUCKET_DOMAIN="warehouse-files.posthog.example", DATAWAREHOUSE_BUCKET="ph-warehouse"
+    )
+    def test_update_cannot_repoint_a_table_that_reads_with_the_node_role(self, _name: str, target_url: str):
+        hosted_url = "https://warehouse-files.posthog.example/file_uploads/team_1/abc/data.csv"
+        table = DataWarehouseTable.objects.create(
+            name="uploaded_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern=hosted_url,
+        )
+
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": target_url},
+            )
+
+        assert response.status_code == 400
+        table.refresh_from_db()
+        assert table.url_pattern == hosted_url
+
+    def test_update_can_repoint_a_table_that_has_its_own_credential(self):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern="https://acme-exports.s3.amazonaws.com/old/*.pqt",
+            credential=credential,
+        )
+
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://acme-exports.s3.amazonaws.com/new/*.pqt"},
+            )
+
+        assert response.status_code == 200
+        table.refresh_from_db()
+        assert table.url_pattern == "https://acme-exports.s3.amazonaws.com/new/*.pqt"
 
     def test_update_table_credential_blank_access_key(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential

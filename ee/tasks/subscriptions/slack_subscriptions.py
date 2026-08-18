@@ -16,7 +16,12 @@ from posthog.utils import absolute_uri
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    UTM_TAGS_BASE,
+    _has_asset_failed,
+    subscription_asset_error_message,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -51,7 +56,7 @@ def _next_delivery_date_display(subscription: Subscription) -> str:
 
 
 @dataclass
-class SlackMessageData:
+class SlackMessage:
     channel: str
     blocks: list[dict[str, Any]]
     title: str
@@ -85,7 +90,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         max_error_length = 2000
 
         if asset.exception:
-            exception_text = str(asset.exception)
+            exception_text = subscription_asset_error_message(asset)
             if len(exception_text) > max_error_length:
                 exception_text = exception_text[:max_error_length] + "... (truncated)"
         else:
@@ -142,7 +147,7 @@ def _prepare_slack_message(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
     integration: Integration | None = None,
-) -> SlackMessageData:
+) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
@@ -238,7 +243,7 @@ def _prepare_slack_message(
             }
         )
 
-    return SlackMessageData(
+    return SlackMessage(
         channel=channel,
         blocks=blocks,
         title=title,
@@ -320,9 +325,9 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
 async def deliver_slack_message_data(
     integration: Integration,
     subscription: Subscription,
-    message_data: SlackMessageData,
+    message_data: SlackMessage,
 ) -> SlackDeliveryResult:
-    # shared send path: callers build the SlackMessageData; retry + partial-failure handling are shared
+    # shared send path: callers build the SlackMessage; retry + partial-failure handling are shared
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:

@@ -138,9 +138,19 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DayRange:
+    start: datetime.datetime
+    end: datetime.datetime
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DayRange start must not be after end: start={self.start}, end={self.end}")
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the preceding day.
+    Returns the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -159,12 +169,12 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
         tzinfo=ZoneInfo("UTC"),
     )  # start of the previous day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the current day.
+    Returns the start and end of the current day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -183,7 +193,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.da
         tzinfo=ZoneInfo("UTC"),
     )  # start of the reference day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
 def relative_date_parse_with_delta_mapping(
@@ -610,7 +620,8 @@ def _build_template_context(
                 resource_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
                     with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                        access = user_access_control.access_level_for_resource(resource)
+                        resource_access[resource] = access.access_level if access else None
                 posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):
@@ -1228,8 +1239,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:

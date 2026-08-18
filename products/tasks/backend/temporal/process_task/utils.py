@@ -66,6 +66,10 @@ class RunSource(StrEnum):
     SIGNAL_REPORT = "signal_report"
 
 
+# Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+
+
 class RuntimeAdapter(StrEnum):
     CLAUDE = "claude"
     CODEX = "codex"
@@ -111,6 +115,10 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
     # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
     "@cf/zai-org/glm-5.2": (
+        ReasoningEffort.HIGH,
+        ReasoningEffort.MAX,
+    ),
+    "zai-org/glm-5.3": (
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
@@ -498,11 +506,13 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
 def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
     """Record which actor the sandbox's in-place GitHub credentials reflect.
 
-    The value is the actor whose token was applied, or who was logged out (no
-    usable access) — either way the sandbox no longer carries a *different*
-    actor's identity. Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an
-    absent entry reads as "must re-establish", which is always safe because
-    re-establishing re-applies or clears rather than trusting stale creds.
+    The value is the actor whose token was applied, or who was logged out (no usable
+    access) — either way the sandbox no longer carries a *different* actor's identity,
+    which is what owner-scoped refreshes check before re-applying the owner's token.
+
+    Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
+    "must re-establish", which is always safe because re-establishing re-applies or
+    clears rather than trusting stale creds.
     """
     _mark_sandbox_identity("github-identity", scope, user_id)
 
@@ -568,14 +578,19 @@ def get_user_mcp_server_configs(
     allowed_installation_ids: list[str] | None = None,
     origin_product: str | None = None,
     task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
-    include shared installations granted to that agent and never include a
-    member's personal installations. A mapped origin without its persisted
-    agent marker gets no Store installations. Built-in agent handling is
-    gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    include the connections granted to that agent: those ``credential_owner_id``
+    granted, plus any member's team-scoped grants. They never include a member's
+    personal installations. An agent task whose persisted owner is missing still
+    mounts the team-scoped grants, which is what keeps autonomous runs
+    (support replies, creatorless scouts) working. A mapped origin
+    without its persisted agent marker gets no Store installations. Built-in
+    agent handling is gated per team on the ``mcp-gateway`` rollout flag; teams without it
     resolve mapped origins like unmapped tasks. For unmapped tasks,
     ``include_personal`` includes the user's personal installations when a
     ``user_id`` is provided.
@@ -585,6 +600,11 @@ def get_user_mcp_server_configs(
     behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
     those installations. Without it, an unattended loop run would mount every shared team connector
     rather than only the ones its owner chose.
+
+    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's per-scout
+    selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's mounts to
+    the listed gateway servers regardless of grant scope. ``None`` leaves them unfiltered;
+    an empty list mounts nothing.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -600,6 +620,8 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        credential_owner_id=credential_owner_id,
+        allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
@@ -1290,11 +1312,62 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
         return PrAuthorshipMode.BOT
 
-    return (
-        PrAuthorshipMode.USER
-        if task.origin_product in (TaskModel.OriginProduct.USER_CREATED, TaskModel.OriginProduct.SLACK)
-        else PrAuthorshipMode.BOT
+    return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
+
+
+def upgrade_run_to_user_authorship(
+    task_run: TaskRun, actor_user: User | None, state: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Promote a run that fell back to bot authorship once its actor has a usable install.
+
+    A run started by someone with no personal GitHub is created as `BOT` and that value is
+    frozen in run state, so connecting GitHub mid-thread would otherwise never take effect —
+    the agent asks for the connection precisely when it needs the code, and the next turn has
+    to honor it. Only the fallback is promoted: a run that is bot-authored by design (signal
+    reports) or pinned to a caller-supplied token keeps the identity it was given.
+
+    There is no mirror image of this. A disconnection leaves the run on `USER` and lets token
+    resolution fail, which logs the sandbox out; falling back to the team installation would
+    hand broader access to someone who just revoked their own, and silently move PR authorship
+    onto the bot.
+
+    Returns the run's new persisted state when it was promoted, and None when nothing changed.
+    The state passed in is left untouched.
+    """
+    from products.tasks.backend.models import TaskRun as TaskRunModel
+
+    if actor_user is None:
+        return None
+    task = task_run.task
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return None
+    # Promotion is only for the creator. A thread participant's connection would retarget a run
+    # they don't own, and later turns by a creator without one would then resolve to nothing
+    # instead of the bot fallback they had. The cloud path refuses the same case outright.
+    if task.created_by_id != actor_user.id:
+        return None
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return None
+    if is_caller_token_run(str(task_run.id), state):
+        return None
+
+    # Nothing is pinned to the task: `Task.github_user_integration` only disambiguates *which*
+    # install to use when a user has several, and token resolution finds this one on its own by
+    # scoping to the repository. Writing it would put per-actor credential state on a row shared
+    # by every run of the task, for no gain.
+    if not user_github_integration_is_usable(
+        resolve_user_github_integration_for_task(task, actor_user=actor_user, allow_refresh=False)
+    ):
+        return None
+
+    promoted_state = TaskRunModel.update_state_atomic(
+        task_run.id, updates={"pr_authorship_mode": PrAuthorshipMode.USER.value}
     )
+    logger.info(
+        "run_promoted_to_user_authorship",
+        extra={"run_id": str(task_run.id), "task_id": str(task.id), "user_id": actor_user.id},
+    )
+    return promoted_state
 
 
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:

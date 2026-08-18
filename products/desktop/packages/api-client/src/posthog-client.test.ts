@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
-import { CloudCommandError, PostHogAPIClient } from "./posthog-client";
+import {
+  CloudCommandError,
+  CloudUsageLimitError,
+  DESKTOP_BILLING_LIMIT_ERROR_CODE,
+  PostHogAPIClient,
+} from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
   it.each([
@@ -210,8 +215,13 @@ describe("PostHogAPIClient", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({ method: "GET" }),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.any(Headers),
+      }),
     );
+    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
+    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",
@@ -1240,6 +1250,34 @@ describe("PostHogAPIClient", () => {
           github_integration: 42,
         }),
       ).rejects.toThrow("Bad Request");
+    });
+
+    it("maps the Desktop billing denial to a cloud usage limit", async () => {
+      const body = {
+        type: "rate_limit",
+        code: DESKTOP_BILLING_LIMIT_ERROR_CODE,
+        detail: "Your organization reached its PostHog Desktop usage limit.",
+      };
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new ApiRequestError(429, JSON.stringify(body), body),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.warmTask({ repository: null, github_integration: null }),
+      ).rejects.toBeInstanceOf(CloudUsageLimitError);
+    });
+
+    it("does not map unrelated 429 responses to billing", async () => {
+      const body = { code: "another_rate_limit" };
+      const error = new ApiRequestError(429, JSON.stringify(body), body);
+      const client = makeClient(vi.fn().mockRejectedValue(error));
+
+      await expect(
+        client.warmTask({ repository: null, github_integration: null }),
+      ).rejects.toBe(error);
     });
   });
 

@@ -274,7 +274,7 @@ def _build_autostart_task_description(
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
-        "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
+        "making the footer '*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) "
         f"from [this inbox report]({report_link}){footer_source_refs}.' - "
         "so the human reviewer can jump straight to it."
     )
@@ -465,11 +465,21 @@ def _resolve_autostart_assignee(
         login = reviewer.get("github_login")
         if not login:
             continue
-        candidate = login_to_user.get(login.lower())
+        # strip + lower matches the resolver's key normalization, so a legacy padded login
+        # (stored before the schema stripped on write) still resolves.
+        candidate = login_to_user.get(str(login).strip().lower())
         if isinstance(candidate, User):
             candidate_users.append(candidate)
 
     if not candidate_users:
+        attempted_count = len({str(r["github_login"]).lower() for r in identity_candidates if r.get("github_login")})
+        if attempted_count:
+            # Count only: GitHub logins are member PII and must not reach logs.
+            logger.info(
+                "no autostart identity: no suggested reviewer login maps to an org member",
+                team_id=team_id,
+                login_count=attempted_count,
+            )
         return None
 
     # Personal autonomy configs are optional: load any that exist to honor a reviewer's own
