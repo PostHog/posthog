@@ -221,6 +221,15 @@ impl<S> ExceptionEvent<S> {
         &self.props
     }
 
+    /// Fill a property the event did not send. Cymbal derives properties that SDKs also report,
+    /// and an SDK read them off the running app, so a value already on the event is the better one
+    /// and is left alone.
+    pub(crate) fn set_property_if_absent(&mut self, key: &str, value: Value) {
+        if !self.props.contains_key(key) {
+            self.props.insert(key.to_string(), value);
+        }
+    }
+
     pub(crate) fn exception_level(&self) -> Option<&str> {
         self.props.get("$exception_level").and_then(Value::as_str)
     }
