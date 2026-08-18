@@ -75,7 +75,11 @@ class TeamTasksConfig(models.Model):
     request, so altering it can stall site-wide traffic (see posthog/models/team/README.md).
     """
 
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+    # db_constraint=False, as on the other team FKs in this app: posthog_team is written on
+    # virtually every request, and creating an FK constraint takes a SHARE ROW EXCLUSIVE lock on
+    # it that stalls deploys. Django still enforces the relation and on_delete at the app level
+    # (see safe-django-migrations.md).
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False)
 
     # Project-wide default for the PR follow-up loop: whether an agent keeps watching a pull
     # request it opened, fixing CI and replying to review comments. Null means "no opinion",
