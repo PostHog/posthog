@@ -114,7 +114,7 @@ describe('hog-charts bar-layout', () => {
             const s = makeSeries({ key: 's', data: [75] })
             const scales = createBarScales([s], ['a'], dimensions, {
                 barLayout: 'grouped',
-                valueDomain: [50, 100],
+                valueDomain: { min: 50, max: 100 },
             })
             const bar = layoutOf({ series: s, scales })[0]!
             const plotBottom = dimensions.plotTop + dimensions.plotHeight
@@ -311,7 +311,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'stacked' as const,
                 axisOrientation: 'vertical' as const,
                 value: 1,
-                valueDomain: [0, 1000] as [number, number],
+                valueDomain: { min: 0, max: 1000 },
                 // baseline (value 0) sits at plotHeight (100); floored cap grows 6px above it — the
                 // bar's top edge (smaller y) is the cap here.
                 edge: 'top' as const,
@@ -322,7 +322,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'stacked' as const,
                 axisOrientation: 'vertical' as const,
                 value: 0,
-                valueDomain: [0, 1000] as [number, number],
+                valueDomain: { min: 0, max: 1000 },
                 edge: 'height' as const,
                 expected: 0,
             },
@@ -331,7 +331,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'stacked' as const,
                 axisOrientation: 'vertical' as const,
                 value: 1000,
-                valueDomain: [0, 1000] as [number, number],
+                valueDomain: { min: 0, max: 1000 },
                 edge: 'top' as const,
                 expected: 0,
             },
@@ -340,7 +340,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'grouped' as const,
                 axisOrientation: 'vertical' as const,
                 value: 1,
-                valueDomain: [0, 1000] as [number, number],
+                valueDomain: { min: 0, max: 1000 },
                 edge: 'top' as const,
                 expected: 94,
             },
@@ -349,7 +349,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'grouped' as const,
                 axisOrientation: 'vertical' as const,
                 value: -1,
-                valueDomain: [-1000, 1000] as [number, number],
+                valueDomain: { min: -1000, max: 1000 },
                 // baseline (value 0) sits at plotHeight / 2 (50) on a symmetric domain; the floored cap
                 // grows 6px below it — the bar's *bottom* edge (larger y) is the cap here, so asserting
                 // the top alone (which stays pinned to the baseline) would pass even if it floored upward.
@@ -361,7 +361,7 @@ describe('hog-charts bar-layout', () => {
                 layout: 'grouped' as const,
                 axisOrientation: 'horizontal' as const,
                 value: 1,
-                valueDomain: [0, 1000] as [number, number],
+                valueDomain: { min: 0, max: 1000 },
                 // baseline (value 0) sits at x=0; floored cap grows 6px right of it.
                 edge: 'right' as const,
                 expected: 6,
@@ -408,7 +408,7 @@ describe('hog-charts bar-layout', () => {
             const scales = createBarScales([lower, upper], labels, PIXEL_TEST_DIMENSIONS, {
                 barLayout: 'stacked',
                 minBarSize: 10,
-                valueDomain: [0, 1000],
+                valueDomain: { min: 0, max: 1000 },
             })
             const stacks = computeStackData([lower, upper], labels)
             const shared = { labels, scales, layout: 'stacked' as const, isHorizontal: false }

@@ -55,7 +55,10 @@ import type {
     ReviewRecentReviewApi,
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
@@ -695,14 +698,18 @@ function TriggerReviewSection(): JSX.Element | null {
                                 <>
                                     <LemonButton
                                         fullWidth
-                                        onClick={() => submitTriggerReview(RunModeEnumApi.ReviewOnly)}
+                                        onClick={() =>
+                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ReviewOnly)
+                                        }
                                         tooltip="Review the pull request but leave its comment threads alone, whatever your setting says."
                                     >
                                         Review without resolving comments
                                     </LemonButton>
                                     <LemonButton
                                         fullWidth
-                                        onClick={() => submitTriggerReview(RunModeEnumApi.ResolveOnly)}
+                                        onClick={() =>
+                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+                                        }
                                         tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
                                     >
                                         Only resolve existing comments

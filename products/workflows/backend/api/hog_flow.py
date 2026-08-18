@@ -5,6 +5,7 @@ import hashlib
 import dataclasses
 from copy import deepcopy
 from datetime import timedelta
+from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
 
 from django.conf import settings
@@ -33,6 +34,10 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
@@ -59,6 +64,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
@@ -323,12 +329,47 @@ def partition_flow_secrets(
     return stripped, encrypted
 
 
+def plaintext_secret_map(actions: Any, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # The secret inputs still sitting in plaintext inside an actions blob, as an {action_id: {key:
+    # value}} map. Non-empty only for legacy rows written before encryption shipped - the recovery
+    # base that lets a masked re-save migrate their secrets instead of wiping them.
+    if not isinstance(actions, list):
+        return {}
+    return partition_flow_secrets(actions, template_cache)[1]
+
+
+def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
+    # Every stored secret a masked re-save may need to recover, later sources winning: legacy
+    # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
+    result = plaintext_secret_map(instance.actions, template_cache)
+    result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
+    result = merge_secret_maps(result, instance.encrypted_inputs)
+    return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
 def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str, dict]:
     # Per-action, per-key merge of two {action_id: {key: value}} maps; overlay wins on conflicts.
     result: dict[str, dict] = {action_id: dict(values) for action_id, values in (base or {}).items()}
     for action_id, values in (overlay or {}).items():
         result[action_id] = {**result.get(action_id, {}), **values}
     return result
+
+
+def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
+    # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
+    # read-back marker in that raw payload must never persist as a stored value - the worker would
+    # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
+    # reject every request). Swap it for the stored secret, or drop the key when there is none.
+    if not isinstance(inputs, dict):
+        return
+    for key in secret_keys:
+        value = inputs.get(key)
+        if isinstance(value, dict) and value.get("secret") and "value" not in value:
+            stored = existing.get(key)
+            if stored:
+                inputs[key] = stored
+            else:
+                inputs.pop(key, None)
 
 
 def mask_secret_action_inputs(
@@ -1209,6 +1250,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+                    else:
+                        recover_or_drop_masked_inputs(
+                            inputs,
+                            {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
+                            (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                        )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
@@ -1893,6 +1940,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ),
     )
 
+    def _stages_draft(self) -> bool:
+        # stage_draft rides the raw request body rather than being a serializer field, mirroring
+        # base_updated_at (see perform_update, which does the actual draft routing off it).
+        request = self.context.get("request")
+        return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
+
     def to_internal_value(self, data):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
@@ -1912,15 +1965,26 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = instance.status
         if status != "active":
             self.context["is_draft"] = True
+        elif (
+            instance is not None
+            and instance.status == HogFlow.State.ACTIVE
+            and isinstance(data, dict)
+            and bool(set(data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            and self._stages_draft()
+        ):
+            # A stage_draft content save writes the draft blob, not the live row (perform_update
+            # routes it there), so it validates like any other draft: the web builder saves
+            # incomplete steps mid-edit, and publish revalidates strictly before promoting
+            # anything. _should_validate_strictly keeps programmatic callers strict regardless.
+            self.context["is_draft"] = True
 
         # Existing decrypted secrets, keyed by action id, so child action validation can recover a
-        # resent {"secret": true} marker. Merge live over draft (draft wins) so an in-progress draft
-        # edit recovers the value the client actually saw. Must be set before super() runs, since the
-        # nested action serializers validate inside it.
+        # resent {"secret": true} marker. Includes legacy plaintext still inside the stored actions
+        # (rows written before encryption shipped) as the base, then the encrypted live and draft
+        # maps (draft wins) so an in-progress draft edit recovers the value the client actually saw.
+        # Must be set before super() runs, since the nested action serializers validate inside it.
         if instance is not None:
-            self.context["existing_encrypted_inputs"] = merge_secret_maps(
-                instance.encrypted_inputs, instance.draft_encrypted_inputs
-            )
+            self.context["existing_encrypted_inputs"] = existing_secret_map(instance, template_cache={})
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -2260,8 +2324,10 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
-            "preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is "
-            "always re-rendered from it."
+            "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
+            "where email and name are optional templated overrides resolved per invocation; the address must "
+            "resolve to the selected sender's verified domain or the send fails. The design is edited via "
+            "operations, and html is always re-rendered from it."
         ),
     )
 
@@ -2661,6 +2727,7 @@ class HogFlowViewSet(
         "schedule_detail",
         "bulk_delete",
         "rerun",
+        "cancel_invocations",
         "graph",
         "action_email",
         "publish",
@@ -2824,6 +2891,76 @@ class HogFlowViewSet(
             )
 
         return Response(res.json())
+
+    @extend_schema(
+        request=HogInvocationCancelRequestSerializer,
+        responses={200: HogInvocationCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="invocations/cancel")
+    def cancel_invocations(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Cancel in-flight invocations of this workflow, by id or all at once.
+
+        Cancellation is asynchronous: runs are flagged here, then terminated by
+        the workflow workers, promptly for parked runs (delays and waits) and at
+        the next step boundary for runs mid-execution. Steps that already
+        executed are not undone. Canceled runs can be re-run later via `rerun`.
+        """
+        # Workflow deletes are hard deletes, so a flow deleted with runs still parked has no row
+        # here while its jobs live on. Cancel must still reach those jobs: fall back to the URL id,
+        # which is safe because the service JWT pins team + flow and the sweep filters on both, so
+        # an id that never belonged to this team matches nothing.
+        try:
+            hog_flow = self.get_object()
+            hog_flow_id = str(hog_flow.id)
+        except Http404:
+            hog_flow = None
+            # The row is gone, so get_object's per-object access check never ran. Require
+            # project-wide workflow editor access instead - without this, a member whose editor
+            # access came from per-object grants could cancel any deleted flow's runs by UUID.
+            if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+                raise exceptions.NotFound()
+            try:
+                hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
+            except (ValueError, KeyError):
+                raise exceptions.NotFound()
+
+        serializer = HogInvocationCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invocation_ids = serializer.validated_data.get("invocation_ids")
+        payload: dict = (
+            {"invocation_ids": [str(i) for i in invocation_ids]} if invocation_ids is not None else {"all": True}
+        )
+
+        # One CDP call flags a bounded chunk of rows, so a very large workflow needs several.
+        # Two stopping conditions keep one request from pinning a worker on a pathological
+        # backlog: a cap on the number of calls, and a wall-clock budget so that a
+        # slow-but-responsive CDP cannot stack several near-timeout (30s each) calls into a
+        # multi-minute hold. Either way the response's `done: false` tells the caller to
+        # request again for the rest.
+        sweep_deadline = monotonic() + 20
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"] or monotonic() >= sweep_deadline:
+                break
+
+        if hog_flow is not None:
+            self._report_workflow_action(
+                "hog_flow_invocations_cancel_requested",
+                hog_flow,
+                {"mode": "ids" if invocation_ids is not None else "all", "marked": data["marked"]},
+            )
+        return Response(data)
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of

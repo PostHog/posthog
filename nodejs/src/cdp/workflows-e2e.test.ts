@@ -595,6 +595,17 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
+
+            // The run must terminate through the result pipeline, not a silent queue flip:
+            // a 'canceled' metric lands and the run is not counted as 'succeeded'.
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.app_source_id === hogFlowId)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('canceled')
+                expect(metricNames).not.toContain('succeeded')
+            }, 5000)
         })
     })
 
@@ -3660,6 +3671,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     let api: CdpApi
     let batchResolverProducer: CyclotronV2Manager
     let deps: ReturnType<typeof createCdpConsumerDeps>
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
     // Fresh consumer per test — built in the it() body, stopped in afterEach.
     let resolverWorker: CdpCyclotronWorkerBatchResolve | undefined
 
@@ -3667,14 +3680,21 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
 
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the resolver produces a
+        // running row per enrolled person there, so the topic has to exist or the produce fails.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
 
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        // Lifecycle rows are gated on this flag, which is off by default outside dev — without
+        // it the row assertions below would pass against an empty topic.
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
-        deps = createCdpConsumerDeps(hub)
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
         batchResolverProducer = new CyclotronV2Manager({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 5 },
         })
@@ -3692,6 +3712,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     afterAll(async () => {
         server?.close()
         await batchResolverProducer?.disconnect()
+        await kafkaProducer?.disconnect()
         await closeHub(hub)
         await cyclotronPool.end()
     })
@@ -3701,6 +3722,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
         team = await getFirstTeam(hub.postgres)
         resolverWorker = undefined
+        mockProducerObserver.resetKafkaProducer()
     })
 
     afterEach(async () => {
@@ -3915,6 +3937,40 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(personIds.length)
+
+        // Enrolling a person has to register as a started run at the same time as it enqueues
+        // the work. Both of these used to be skipped here (only the event-triggered path wrote
+        // them), which read on the workflow page as a batch that never started and had no runs
+        // to list — for the whole of any delay the flow was parked on.
+        await waitForExpect(() => {
+            const triggered = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'triggered')
+            // Summed, not counted: the aggregator collapses a flush window's metrics onto one
+            // message per key, so a 3-page resolve produces fewer messages than persons.
+            expect(triggered.reduce((total, m: any) => total + m.value.count, 0)).toBe(personIds.length)
+            for (const metric of triggered) {
+                // Keyed on the batch run, which is what the batch metrics view queries. Keyed on
+                // the workflow id instead, the count is real but the page still reads zero.
+                expect((metric as any).value.app_source_id).toBe(parentRunId)
+                // Run-level, so no step id — the started and in-progress counters filter on the
+                // empty instance and would skip these otherwise.
+                expect((metric as any).value.instance_id).toBe('')
+            }
+
+            const rows = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map((m: any) => m.value)
+            expect(rows).toHaveLength(personIds.length)
+            for (const row of rows) {
+                // hog_flow, not hog_function: the invocations API filters on this, so a
+                // misclassified row is written but never listed.
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.function_id).toBe(flow.id)
+                expect(row.parent_run_id).toBe(parentRunId)
+                expect(row.status).toBe('running')
+            }
+        }, 10000)
     })
 
     // Regression test: batch-resolved invocations used to skip trigger_masking entirely
