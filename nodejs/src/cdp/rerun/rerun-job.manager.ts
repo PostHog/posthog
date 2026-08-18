@@ -79,7 +79,10 @@ export class RerunJobManager {
         }
 
         const contains = request.filter.error_message_contains?.trim()
-        if (contains && contains.length > RERUN_MAX_ERROR_MESSAGE_CONTAINS) {
+        // Count Unicode code points, not UTF-16 code units, to match Django's
+        // max_length (Python len()). Counting `.length` here would reject a
+        // non-BMP value Django already accepted, 500ing instead of enqueueing.
+        if (contains && Array.from(contains).length > RERUN_MAX_ERROR_MESSAGE_CONTAINS) {
             throw new Error(`error_message_contains cannot exceed ${RERUN_MAX_ERROR_MESSAGE_CONTAINS} characters`)
         }
 

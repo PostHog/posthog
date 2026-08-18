@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { RerunJobManager } from './rerun-job.manager'
-import { RERUN_QUEUE_NAME, RerunJobState } from './rerun-job.types'
+import { RERUN_MAX_ERROR_MESSAGE_CONTAINS, RERUN_QUEUE_NAME, RerunJobState } from './rerun-job.types'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const TEST_MAX_COUNT = 1000
@@ -137,6 +137,19 @@ describe('RerunJobManager', () => {
                 filter: { ...baseFilter, error_message_contains: 'x'.repeat(201) },
             })
         ).rejects.toThrow(/error_message_contains cannot exceed 200 characters/i)
+    })
+
+    it('accepts an error_message_contains at the cap made of non-BMP characters', async () => {
+        // 200 code points, 400 UTF-16 code units. Django caps on code points, so
+        // counting UTF-16 units here would reject a value Django already accepted.
+        const contains = '😀'.repeat(RERUN_MAX_ERROR_MESSAGE_CONTAINS)
+
+        const jobId = await manager.enqueue(1, 'hog_function', uuidv7(), {
+            filter: { ...baseFilter, error_message_contains: contains },
+        })
+
+        const state = fetchState(await queryJob(jobId))
+        expect(state.request.filter.error_message_contains).toBe(contains)
     })
 
     it('rejects a window longer than the TTL (30 days)', async () => {
