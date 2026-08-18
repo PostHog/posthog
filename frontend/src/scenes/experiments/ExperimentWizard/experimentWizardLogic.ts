@@ -72,11 +72,11 @@ export interface experimentWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     appliedDefaultEvaluationContexts: string[]
-    evaluationContextsEnabled: boolean
-    evaluationContextsRequired: boolean
     currentStep: ExperimentWizardStep
     currentStepHasErrors: boolean
     departedSteps: Record<string, boolean>
+    evaluationContextsEnabled: boolean
+    evaluationContextsRequired: boolean
     hasFormErrors: boolean
     initialFlagCheckDone: boolean
     isFirstStep: boolean
@@ -198,13 +198,13 @@ export interface experimentWizardLogicMeta {
         appliedDefaultEvaluationContexts: (
             featureFlags: FeatureFlagsSet,
             teamDefaultsEnabled: boolean,
-            teamDefaults: DefaultEvaluationContext[]
+            teamDefaultEvaluationContexts: DefaultEvaluationContext[]
         ) => string[]
         evaluationContextsRequired: (
             evaluationContextsEnabled: boolean,
             currentTeam: TeamPublicType | TeamType | null,
             linkedFeatureFlag: FeatureFlagType | null,
-            appliedDefaults: string[]
+            appliedDefaultEvaluationContexts: string[]
         ) => boolean
         stepValidationErrors: (
             experiment: Experiment & {
