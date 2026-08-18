@@ -784,22 +784,6 @@ services:
             opensearch:
                 condition: service_healthy
 
-    cyclotron-janitor:
-        image: ghcr.io/posthog/posthog/cyclotron-janitor:master
-        build:
-            context: rust/
-            args:
-                BIN: cyclotron-janitor
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'clickhouse_app_metrics2'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
     otel-collector:
         image: otel/opentelemetry-collector-contrib:0.142.0
         command: [--config=/etc/otel-collector-config.yaml]

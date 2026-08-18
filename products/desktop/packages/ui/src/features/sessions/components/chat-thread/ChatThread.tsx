@@ -60,10 +60,7 @@ import {
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
 import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
@@ -132,6 +129,7 @@ import {
   useSessionTaskId,
 } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
@@ -1018,7 +1016,7 @@ function ThreadKeyboardNav({
       const nextId = userMessageIds[nextIndex];
       if (!nextId) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextId);
       jump(nextId);
     },
