@@ -10,19 +10,11 @@ import { Pool } from 'generic-pool'
  */
 const CRAWL_HISTORY_PREFIX = 'imgfetch:seen'
 
-/**
- * The recrawl interval. Long enough that the key count converges on the distinct-URL count of the
- * window, which is the number that sizes the Redis. Short enough that an entry cannot outlive the
- * phase that wrote it.
- */
-export const CRAWL_HISTORY_TTL_SECONDS = 30 * 24 * 60 * 60
-
 /** Bounds one round trip. A poll batch can carry thousands of URLs, and one pipeline holding all of them times out as a unit. */
 const MAX_KEYS_PER_ROUND_TRIP = 256
 
-/** No team in the key, so one URL costs one fetch however many customers refer to it. Requirement 13.1. */
-export function crawlHistoryKey(urlHash: string): string {
-    return `${CRAWL_HISTORY_PREFIX}:${urlHash}`
+export function crawlHistoryKey(pseudoTeam: string, urlHash: string): string {
+    return `${CRAWL_HISTORY_PREFIX}:${pseudoTeam}:${urlHash}`
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

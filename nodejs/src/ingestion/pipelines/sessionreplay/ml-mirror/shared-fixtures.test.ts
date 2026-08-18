@@ -307,15 +307,14 @@ describeAddon('native image collection', () => {
     })
 
     it('rejects a per-team key with no pseudonym to attribute it to', async () => {
-        // Each lane's ref embeds the pseudonym, so enabling a lane without one would mint refs that
-        // nothing can attribute to a team. That fails loudly rather than collecting under a blank
-        // prefix.
+        // Each lane's ref embeds the pseudonym, so a key without one would mint refs that nothing
+        // can attribute to a team. That fails loudly rather than collecting under a blank prefix.
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
         ).rejects.toThrow('require pseudoTeam')
         await expect(
-            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, true)
+            rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).rejects.toThrow('require pseudoTeam')
     })
 

@@ -104,9 +104,8 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             continue
         }
         const host = typeof entry.host === 'string' ? entry.host : ''
-        const unfetchable = urlDropReason(entry.url, host)
-        if (unfetchable) {
-            rejected.push({ reason: unfetchable })
+        if (!isFetchableUrl(entry.url, host)) {
+            rejected.push({ reason: 'bad_url' })
             continue
         }
         // The connection layer refuses a private address, so this is not the only guard against
@@ -166,34 +165,9 @@ function withoutTrailingDot(value: string): string {
  * that a wrong or stale producer could get past. It is not the SSRF gate: that belongs immediately
  * before a request goes out, against the host of every redirect, and no request goes out here.
  */
-/**
- * Names that mean the URL carries a credential rather than an address.
- *
- * The collector declines these before it publishes, so a URL that reaches here carries one only
- * from a wrong or stale producer. Best effort, and the same list the collector holds.
- */
-const SIGNATURE_PARAMS = new Set(['x-amz-signature', 'x-amz-credential', 'x-amz-signedheaders', 'signature'])
-
-/** `s` sizes a Gravatar avatar and signs an imgix URL, so it counts only on the host that signs with it. */
-const HOST_SCOPED_SIGNATURE_PARAMS: [string, string][] = [['.imgix.net', 's']]
-
-/** Cloudinary signs in a path segment, as `/s--<token>--/`, rather than in the query. */
-function carriesSignature(parsed: URL): boolean {
-    for (const name of parsed.searchParams.keys()) {
-        const lower = name.toLowerCase()
-        if (SIGNATURE_PARAMS.has(lower)) {
-            return true
-        }
-        if (HOST_SCOPED_SIGNATURE_PARAMS.some(([suffix, p]) => lower === p && parsed.hostname.endsWith(suffix))) {
-            return true
-        }
-    }
-    return parsed.pathname.split('/').some((s) => s.length >= 6 && s.startsWith('s--') && s.endsWith('--'))
-}
-
-function urlDropReason(url: string, host: string): Extract<UrlDropReason, 'bad_url' | 'signed'> | null {
+function isFetchableUrl(url: string, host: string): boolean {
     if (url.length > MAX_URL_LENGTH || !host) {
-        return 'bad_url'
+        return false
     }
     try {
         const parsed = new URL(url)
@@ -201,23 +175,14 @@ function urlDropReason(url: string, host: string): Extract<UrlDropReason, 'bad_u
         // the wire in clear text, and requirement 2.4 keeps a redirect off HTTP only if the first URL
         // is HTTPS.
         if (parsed.protocol !== 'https:' || parsed.hostname !== host) {
-            return 'bad_url'
-        }
-        // A signature says the operator serves this to a holder of the signature rather than to
-        // anyone who asks, and it expires while the URL waits in a delay topic. The collector drops
-        // these, so a count above zero here means the producer is stale or the two lists disagree.
-        if (carriesSignature(parsed)) {
-            return 'signed'
+            return false
         }
         // The lane refuses both on a redirect target, so it holds the first hop to the same rule. A
         // port other than the scheme's own would make this lane a port prober, and userinfo is a
         // credential this lane never sends. The canonicalizer strips both, so this checks against a
         // wrong or stale producer rather than an expected case.
-        if (parsed.port !== '' || parsed.username || parsed.password) {
-            return 'bad_url'
-        }
-        return null
+        return parsed.port === '' && !parsed.username && !parsed.password
     } catch {
-        return 'bad_url'
+        return false
     }
 }

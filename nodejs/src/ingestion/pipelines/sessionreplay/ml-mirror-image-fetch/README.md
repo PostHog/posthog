@@ -576,22 +576,25 @@ one page, which a `Content-Type` check alone would accept whenever that page is 
 
 ### 16. The crawl history store
 
-**16.1** One item holds one URL. The store bills a write for the size of the whole item, so an item
+**16.1** The store deletes an entry 30 days after the lane wrote it. That interval sets how often
+the lane asks a site for an image it already holds, and it sets how large the store grows.
+
+**16.2** One item holds one URL. The store bills a write for the size of the whole item, so an item
 shared by many URLs would pay for all of them on every change, and a busy domain changes on nearly
 every pass. One URL per item costs one write unit, and it still costs one with the `ETag` and the
 `Last-Modified` of requirement 12.1 beside the timestamp.
 
-**16.2** A read is eventually consistent. It can report a URL as absent just after the lane recorded
+**16.3** A read is eventually consistent. It can report a URL as absent just after the lane recorded
 it, which costs one duplicate fetch. Requirement 5.3 already accepts a duplicate.
 
-**16.3** An entry does not disappear the moment it expires. The store deletes an expired entry
+**16.4** An entry does not disappear the moment it expires. The store deletes an expired entry
 within days of its expiry, and a read can return one until the delete happens. A URL therefore stays
 seen a little past 30 days, which delays a refetch rather than causing one.
 
-**16.4** One read carries at most 100 URLs and one write at most 25. A pass therefore makes about
+**16.5** One read carries at most 100 URLs and one write at most 25. A pass therefore makes about
 four times as many write round trips as read round trips for the same URLs.
 
-**16.5** A throttled request is a transient failure rather than a dead store. The lane retries it
+**16.6** A throttled request is a transient failure rather than a dead store. The lane retries it
 inside the batch budget, and reports whatever the budget does not cover as unanswered.
 
 ## How a message waits

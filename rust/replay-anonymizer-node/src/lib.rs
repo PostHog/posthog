@@ -98,22 +98,15 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         }
         .filter(|s| !s.is_empty()))
     };
-    // The same discipline for a flag: a present-but-non-boolean argument fails loudly rather than
-    // silently disabling the lane.
-    let opt_bool_arg = |cx: &mut FunctionContext, index: usize| -> NeonResult<bool> {
-        Ok(match cx.argument_opt(index) {
-            Some(v) if v.is_a::<JsUndefined, _>(cx) || v.is_a::<JsNull, _>(cx) => false,
-            Some(v) => v.downcast_or_throw::<JsBoolean, _>(cx)?.value(cx),
-            None => false,
-        })
-    };
     let pseudo_team = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
-    // The URL lane is enabled independently of the image lane, but its ref still embeds the
-    // pseudonym, so it needs one. Its hash is unkeyed, so a flag turns the lane on rather than a key.
-    let collect_urls = opt_bool_arg(&mut cx, 4)?;
-    if pseudo_team.is_none() && (content_key.is_some() || collect_urls) {
-        return cx.throw_error("contentKey and collectUrls each require pseudoTeam");
+    // The URL lane is enabled independently of the image lane, but it needs the same pseudonym, so
+    // a urlKey without a pseudoTeam is a mis-keyed ref rather than a partial opt-in.
+    let url_key = opt_string_arg(&mut cx, 4)?;
+    // Each lane needs the pseudonym, because its ref embeds it, and its own per-team key. A key
+    // without the pseudonym would mint refs nothing can attribute, so it fails loudly instead.
+    if pseudo_team.is_none() && (content_key.is_some() || url_key.is_some()) {
+        return cx.throw_error("contentKey and urlKey each require pseudoTeam");
     }
     let image_collection = match (pseudo_team.clone(), content_key) {
         (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
@@ -122,8 +115,11 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         }),
         _ => None,
     };
-    let url_collection = match (pseudo_team, collect_urls) {
-        (Some(pseudo_team), true) => Some(UrlCollection { pseudo_team }),
+    let url_collection = match (pseudo_team, url_key) {
+        (Some(pseudo_team), Some(url_key)) => Some(UrlCollection {
+            pseudo_team,
+            url_key,
+        }),
         _ => None,
     };
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark

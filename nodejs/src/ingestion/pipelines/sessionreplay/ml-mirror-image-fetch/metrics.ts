@@ -22,7 +22,6 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'private_host'
-    | 'signed'
     | 'oversized_record'
 
 export type DedupScope = 'batch' | 'pod' | 'store'
@@ -49,7 +48,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the key is not the registrable domain of the host), "private_host" (the host is a private address or a name that only resolves inside a network), "signed" (the URL carries a signature, which the collector should have dropped, so any of these means a stale producer)',
+        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the key is not the registrable domain of the host), "private_host" (the host is a private address or a name that only resolves inside a network)',
         labelNames: ['reason'],
     })
     /**

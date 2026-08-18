@@ -13,7 +13,12 @@ import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionre
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { hashImageBytes, imageRef, isImageRef, urlRef } from './ml-mirror-image-scrub/content-ref'
-import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
+import {
+    PSEUDONYM_IMAGE_CONTENT_KEY,
+    PSEUDONYM_IMAGE_URL_KEY,
+    PSEUDONYM_TEAM,
+    pseudonymize,
+} from './ml-mirror/pseudonymize'
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
@@ -52,7 +57,7 @@ export interface CollectedImage {
  * label, or any destination outside the fetch topic.
  */
 export interface CollectedUrl {
-    /** `imageurl:<pseudoTeam>:<hash>` — the ref the mirrored line carries for this URL. */
+    /** `imageurl:<pseudoTeam>:<hash>` stored in the mirrored line's namespaced ref attribute. */
     ref: string
     url: string
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
@@ -73,7 +78,7 @@ export interface ImageCollectionConfig {
     /** Replace inlined images with refs and return their bytes for the scrub topic. */
     collectImages: boolean
     /**
-     * Replace a remote image's `src` with a ref and return its URL for the fetch lane.
+     * Keep a remote image's placeholder, stash its ref, and return its URL for the fetch lane.
      *
      * Independent of `collectImages`. The two lanes have separate destinations and separate
      * rollouts, so tying them together would make the URL measurement wait on the scrub lane.
@@ -100,7 +105,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     interface TeamImageKeys {
         pseudoTeam: string
         contentKey?: string
-        collectUrls: boolean
+        urlKey?: string
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
     const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
@@ -126,9 +131,9 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             keys = {
                 pseudoTeam,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
-                // No key: the URL hash is unkeyed, so one URL gives one hash for every team and the
-                // fetch lane fetches it one time however many customers refer to it.
-                collectUrls: imageCollection.collectUrls,
+                urlKey: imageCollection.collectUrls
+                    ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, String(teamId))
+                    : undefined,
             }
             teamKeysCache.set(teamId, keys)
         }
@@ -159,7 +164,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 contentEncoding,
                 teamKeys?.pseudoTeam,
                 teamKeys?.contentKey,
-                teamKeys?.collectUrls
+                teamKeys?.urlKey
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -268,7 +273,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const collectedImages = teamKeys?.contentKey
             ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
             : undefined
-        const collectedUrls = teamKeys?.collectUrls ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
+        const collectedUrls = teamKeys?.urlKey ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }

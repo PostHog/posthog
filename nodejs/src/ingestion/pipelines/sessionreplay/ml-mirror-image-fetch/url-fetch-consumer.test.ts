@@ -99,6 +99,7 @@ describe('UrlFetchConsumer', () => {
         new UrlFetchConsumer(crawlHistory, publisher, {
             maxAgeMs: 6 * 60 * 60 * 1000,
             dedupMaxRefs,
+            seenTtlSeconds: 7 * 24 * 60 * 60,
             dryRun: true,
         })
 
@@ -120,8 +121,29 @@ describe('UrlFetchConsumer', () => {
         // The limit arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
         // false, so the lane stops shedding a backlog rather than fails.
         expect(
-            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds: 604_800,
+                    dryRun: true,
+                })
         ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS')
+    })
+
+    it.each([NaN, 0, -1, 1.5, 7, 3599])('refuses to start with a seen TTL of %p', (seenTtlSeconds) => {
+        // The TTL arrives from env, where a typo parses to NaN and a unit suffix truncates: "7d"
+        // parses to 7, and a 7-second TTL empties the ledger as fast as it fills. SET with a NaN
+        // expiry fails per command, so every ledger write would fail while the lane looks healthy.
+        expect(
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs: 1000,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds,
+                    dryRun: true,
+                })
+        ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS')
     })
 
     it('writes one ledger entry per URL it would fetch', async () => {
@@ -131,20 +153,20 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('does not re-record a URL another pod already reached', async () => {
-        crawlHistory.stored.set(crawlHistoryKey(hash('a')), NOW - 1000)
+        crawlHistory.stored.set(crawlHistoryKey(TEAM, hash('a')), NOW - 1000)
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
         // The earlier entry survives, so the store measures the hit rate rather than the rate of
         // first arrivals.
-        expect(crawlHistory.stored.get(crawlHistoryKey(hash('a')))).toBe(NOW - 1000)
-        expect(crawlHistory.stored.get(crawlHistoryKey(hash('b')))).toBe(NOW)
+        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('a')))).toBe(NOW - 1000)
+        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('b')))).toBe(NOW)
     })
 
     it('collapses a repeated URL inside one batch into a single ledger write', async () => {
         await consumer.handleBatch([record([url('a')]), record([url('a')]), record([url('a')])], NOW)
 
-        expect([...crawlHistory.stored.keys()]).toEqual([crawlHistoryKey(hash('a'))])
+        expect([...crawlHistory.stored.keys()]).toEqual([crawlHistoryKey(TEAM, hash('a'))])
     })
 
     it('does not consult the store for a URL this pod already handled', async () => {
@@ -258,7 +280,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('does not mark the pod cache for a URL whose write failed', async () => {
-        crawlHistory.partialWriteFailures.add(crawlHistoryKey(hash('a')))
+        crawlHistory.partialWriteFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
         await consumer.handleBatch([record([url('a')])], NOW)
         const readsAfterFirst = crawlHistory.reads
@@ -290,7 +312,7 @@ describe('UrlFetchConsumer', () => {
     it('holds back a URL whose dedup read failed, rather than treating it as new', async () => {
         // To count it as new would fetch it. A store outage would then make every batch send the
         // full un-deduped volume at customer sites, because our own store is down.
-        crawlHistory.partialReadFailures.add(crawlHistoryKey(hash('a')))
+        crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
         await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).resolves.toBeUndefined()
 
@@ -332,7 +354,7 @@ describe('UrlFetchConsumer', () => {
         const fetching = new UrlFetchConsumer(
             crawlHistory,
             publisher,
-            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, seenTtlSeconds: 604_800, dryRun: false },
             runner
         )
 
@@ -343,7 +365,13 @@ describe('UrlFetchConsumer', () => {
 
     it('refuses to leave dry run without a way to send the requests', () => {
         expect(
-            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })
+            () =>
+                new UrlFetchConsumer(crawlHistory, publisher, {
+                    maxAgeMs: 1000,
+                    dedupMaxRefs: 10,
+                    seenTtlSeconds: 604_800,
+                    dryRun: false,
+                })
         ).toThrow('fetch runner')
     })
 
@@ -368,7 +396,7 @@ describe('UrlFetchConsumer', () => {
         const fetching = new UrlFetchConsumer(
             crawlHistory,
             publisher,
-            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, seenTtlSeconds: 604_800, dryRun: false },
             runner
         )
 
