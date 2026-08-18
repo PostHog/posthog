@@ -17,8 +17,13 @@ import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '~/queries/schem
 import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
+import {
+    columnConfigurationsCreate,
+    columnConfigurationsDestroy,
+    columnConfigurationsList,
+    columnConfigurationsPartialUpdate,
+} from 'products/product_analytics/frontend/generated/api'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import { generatedColumnConfigurations } from 'products/product_analytics/frontend/generatedColumnConfigurationsApi'
 
 import type { UserType } from '../../../../types'
 
@@ -50,7 +55,7 @@ function getViewData(
     props: TableViewLogicProps,
     name?: string,
     visibility?: 'private' | 'shared'
-): Partial<ColumnConfigurationApi> {
+): Parameters<typeof columnConfigurationsCreate>[1] {
     if (!isEventsQuery(props.query)) {
         return {
             context_key: props.contextKey,
@@ -369,16 +374,17 @@ export const tableViewLogic = kea<tableViewLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async () => {
-                    const response = await generatedColumnConfigurations.list({
+                    const response = await columnConfigurationsList(String(getCurrentTeamId()), {
                         context_key: props.contextKey,
                     })
                     return response.results
                 },
 
                 saveCurrentAsView: async ({ name, visibility }) => {
-                    const response = await generatedColumnConfigurations.create({
-                        data: getViewData(props, name, visibility),
-                    })
+                    const response = await columnConfigurationsCreate(
+                        String(getCurrentTeamId()),
+                        getViewData(props, name, visibility)
+                    )
                     return [...values.views, response]
                 },
 
@@ -388,16 +394,13 @@ export const tableViewLogic = kea<tableViewLogicType>([
                         updates = getViewData(props)
                     }
 
-                    const response = await generatedColumnConfigurations.update({
-                        id,
-                        data: updates,
-                    })
+                    const response = await columnConfigurationsPartialUpdate(String(getCurrentTeamId()), id, updates)
 
                     return values.views.map((v) => (v.id === id ? response : v))
                 },
 
                 deleteView: async ({ id }) => {
-                    await generatedColumnConfigurations.delete({ id })
+                    await columnConfigurationsDestroy(String(getCurrentTeamId()), id)
                     return values.views.filter((v) => v.id !== id)
                 },
             },
@@ -479,9 +482,10 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async ({ name, visibility }) => {
-                const response = await generatedColumnConfigurations.create({
-                    data: getViewData(props, name, visibility),
-                })
+                const response = await columnConfigurationsCreate(
+                    String(getCurrentTeamId()),
+                    getViewData(props, name, visibility)
+                )
 
                 actions.loadViews()
                 actions.applyView(response)

@@ -23,7 +23,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { GroupTypeIndex } from '~/types'
 
-import { generatedColumnConfigurations } from 'products/product_analytics/frontend/generatedColumnConfigurationsApi'
+import {
+    columnConfigurationsCreate,
+    columnConfigurationsList,
+    columnConfigurationsPartialUpdate,
+} from 'products/product_analytics/frontend/generated/api'
 
 export interface ColumnConfiguratorLogicProps {
     key: string
@@ -166,8 +170,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     if (!props.contextKey) {
                         return null
                     }
-                    const response = await generatedColumnConfigurations.list({
-                        teamId: teamLogic.values.currentTeamId || undefined,
+                    const response = await columnConfigurationsList(String(teamLogic.values.currentTeamId), {
                         context_key: props.contextKey,
                     })
                     if (response.results && response.results.length > 0) {
@@ -230,18 +233,15 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             if (props.contextKey) {
                 try {
                     if (values.savedColumnConfiguration?.id) {
-                        await generatedColumnConfigurations.update({
-                            teamId: teamLogic.values.currentTeamId || undefined,
-                            id: values.savedColumnConfiguration.id,
-                            data: { columns: values.columns },
-                        })
+                        await columnConfigurationsPartialUpdate(
+                            String(teamLogic.values.currentTeamId),
+                            values.savedColumnConfiguration.id,
+                            { columns: values.columns }
+                        )
                     } else {
-                        const response = await generatedColumnConfigurations.create({
-                            teamId: teamLogic.values.currentTeamId || undefined,
-                            data: {
-                                context_key: props.contextKey,
-                                columns: values.columns,
-                            },
+                        const response = await columnConfigurationsCreate(String(teamLogic.values.currentTeamId), {
+                            context_key: props.contextKey,
+                            columns: values.columns,
                         })
                         actions.loadSavedColumnConfigurationSuccess({
                             id: response.id,

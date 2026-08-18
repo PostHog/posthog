@@ -6,15 +6,18 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import type { LinkType } from '~/types'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import { generatedLinksApi } from './generatedLinksApi'
+import { linksCreate, linksDestroy, linksPartialUpdate, linksRetrieve } from './generated/api'
+import type { LinkApi } from './generated/api.schemas'
 import { linksLogic } from './linksLogic'
+
+type LinkType = LinkApi
 
 export type AvailableDomain = 'phog.gg' | 'postho.gg' | 'hog.gg' | 'custom'
 export type DomainDefinition = {
@@ -185,7 +188,7 @@ export const linkLogic = kea<linkLogicType>([
             loadLink: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        const response = await generatedLinksApi.get(props.id)
+                        const response = await linksRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                         return response
                     } catch (error) {
                         actions.setLinkMissing()
@@ -196,9 +199,18 @@ export const linkLogic = kea<linkLogicType>([
                 return NEW_LINK as LinkType
             },
             saveLink: async (updatedLink: Partial<LinkType>) => {
-                const result: LinkType = await (props.id === 'new'
-                    ? generatedLinksApi.create(updatedLink)
-                    : generatedLinksApi.update(props.id, updatedLink))
+                if (!updatedLink.redirect_url || !updatedLink.short_link_domain || !updatedLink.short_code) {
+                    throw new Error('Link destination, domain, and short code are required')
+                }
+                const result = await (props.id === 'new'
+                    ? linksCreate(String(ApiConfig.getCurrentProjectId()), {
+                          redirect_url: updatedLink.redirect_url,
+                          short_link_domain: updatedLink.short_link_domain,
+                          short_code: updatedLink.short_code,
+                          description: updatedLink.description,
+                          _create_in_folder: updatedLink._create_in_folder,
+                      })
+                    : linksPartialUpdate(String(ApiConfig.getCurrentProjectId()), props.id, updatedLink))
                 if (props.id === 'new') {
                     router.actions.replace(urls.link(result.id))
                 }
@@ -259,7 +271,7 @@ export const linkLogic = kea<linkLogicType>([
         },
         deleteLink: async ({ linkId }) => {
             try {
-                await generatedLinksApi.delete(linkId)
+                await linksDestroy(String(ApiConfig.getCurrentProjectId()), linkId)
                 lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))
                 deleteFromTree('link', linkId)

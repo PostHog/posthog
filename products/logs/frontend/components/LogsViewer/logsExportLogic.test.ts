@@ -6,7 +6,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { initKeaTests } from '~/test/init'
 
 import { logsExportCreate } from '../../generated/api'
-import { logsQueryCreate, logsSparklineCreate } from '../../generatedApiAdapter'
+import { logsQueryCreate, logsSparklineCreate } from '../../generated/api'
 import { getExportColumns, logsExportLogic } from './logsExportLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -56,12 +56,13 @@ describe('logsExportLogic', () => {
                 logs_session_id_attribute_keys: ['posthogSessionId'],
             })
             mockedLogsQueryCreate.mockResolvedValue({
+                query: {},
                 results: [],
                 hasMore: false,
                 nextCursor: null,
                 maxExportableLogs: 10_000,
             })
-            mockedLogsSparklineCreate.mockResolvedValue([])
+            mockedLogsSparklineCreate.mockResolvedValue({ results: [] })
 
             viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()
