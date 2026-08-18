@@ -62,9 +62,9 @@ For event, destination, query, or authorization changes, map all matching produc
 template IDs, model types, generic APIs, UIs, and regex or prefix matches. A new product can own its destination
 lifecycle while another product still intentionally uses a generic HogFunction path.
 
-Do not restrict generic create, list, retrieve, update, or delete access until every matching product has an equivalent
-product-owned API for the lifecycle operations its UI needs. Preserve compatibility for any supported path until it
-migrates. Add public-interface tests for the new ownership boundary and every existing path that remains supported.
+When generic access violates an ownership or authorization boundary, restrict it immediately. Preserve generic access
+only for explicitly safe, supported paths, and migrate those paths to product-owned APIs deliberately. Add
+public-interface tests for the new ownership boundary and every existing path that remains supported.
 
 ## Current limits
 

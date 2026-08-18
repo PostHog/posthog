@@ -129,7 +129,9 @@ Verify both the shared layer and reference adopters:
 For every shared change, identify which lifecycle, delivery, destination, scheduling, authorization, frontend, and API
 contracts it affects. Add targeted tests for each affected adopter and management surface. Cover the new product-owned
 API and each product that still uses a generic API. Do not rely only on event-name or regex unit tests: exercise the
-real request path and the resulting visibility or delivery behavior.
+real request path and the resulting visibility or delivery behavior. For ownership or authorization changes, include
+negative tests that prove unauthorized users cannot list, retrieve, create, update, delete, or dispatch destinations
+across product, project, or organization boundaries.
 
 Invoke the matching mandatory skills before editing their areas:
 
