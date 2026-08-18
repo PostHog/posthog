@@ -2608,8 +2608,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            # Mark the run as failed so poll_for_turn sees a terminal status
-            # immediately instead of waiting for the inactivity timeout.
+            if workflow.patched("followup-failure-keeps-run-2026-08"):
+                # A dead-letter follow-up must not kill a healthy run: the agent
+                # keeps its current turn, and a later follow-up (for example the
+                # task creator's) can still land. Surface the failure on the
+                # stream instead of terminalizing the run.
+                await self._emit_progress(
+                    step="followup_delivery",
+                    status="failed",
+                    label="Couldn't deliver your message",
+                    group=f"followup-delivery:{message_id or workflow.uuid4()}",
+                    detail=str(cause_message or e),
+                )
+                return None
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._completion_error_type = "followup_delivery_failed"
