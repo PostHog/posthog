@@ -261,6 +261,7 @@ the row lists both.
 | financial_modelling              | HTTP                        | requests                                                        | ✅                          |
 | finnhub                          | HTTP                        | requests                                                        | ✅                          |
 | finnworlds                       | HTTP                        | requests                                                        | ✅                          |
+| firebase                         | HTTP                        | requests + `pyjwt`                                              | ✅                          |
 | firecrawl                        | HTTP                        | requests                                                        | ✅                          |
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
@@ -971,7 +972,6 @@ doesn't conflict with concurrent PRs.
 - filevine
 - finout
 - fintoc
-- firebase
 - firebolt
 - five9
 - flagsmith
