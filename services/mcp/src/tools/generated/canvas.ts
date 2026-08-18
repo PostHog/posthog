@@ -171,6 +171,86 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
     },
 })
 
+const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true })
+    .extend(CanvasesLayoutRetrieveQueryParams.shape)
+    .extend({ id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.') })
+
+const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutResponse> => ({
+    name: 'canvas-layout-get',
+    schema: CanvasLayoutGetSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasLayoutGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasLayoutResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/`,
+            query: {
+                version_id: params.version_id,
+            },
+        })
+        return result
+    },
+})
+
+const CanvasLayoutPatchSchema = CanvasesLayoutPatchCreateParams.omit({ project_id: true })
+    .extend(CanvasesLayoutPatchCreateBody.shape)
+    .extend({
+        id: CanvasesLayoutPatchCreateParams.shape['id'].describe('ID of the grid canvas whose layout to patch.'),
+    })
+
+const canvasLayoutPatch = (): ToolBase<typeof CanvasLayoutPatchSchema, Schemas.CanvasLayoutPublishResponse> => ({
+    name: 'canvas-layout-patch',
+    schema: CanvasLayoutPatchSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasLayoutPatchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.operations !== undefined) {
+            body['operations'] = params.operations
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasLayoutPublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/patch/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasLayoutPublishSchema = CanvasesLayoutPublishCreateParams.omit({ project_id: true })
+    .extend(CanvasesLayoutPublishCreateBody.shape)
+    .extend({
+        id: CanvasesLayoutPublishCreateParams.shape['id'].describe('ID of the grid canvas whose layout to publish.'),
+    })
+
+const canvasLayoutPublish = (): ToolBase<typeof CanvasLayoutPublishSchema, Schemas.CanvasLayoutPublishResponse> => ({
+    name: 'canvas-layout-publish',
+    schema: CanvasLayoutPublishSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasLayoutPublishSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.layout !== undefined) {
+            body['layout'] = params.layout
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
+        const result = await context.api.request<Schemas.CanvasLayoutPublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/publish/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasListSchema = CanvasesListQueryParams.extend({
     channel: CanvasesListQueryParams.shape['channel'].describe('Only return canvases in this channel (channel id).'),
     kind: CanvasesListQueryParams.shape['kind'].describe(
@@ -321,99 +401,19 @@ const canvasValidateCreate = (): ToolBase<typeof CanvasValidateCreateSchema, Sch
     },
 })
 
-const CanvasLayoutPatchSchema = CanvasesLayoutPatchCreateParams.omit({ project_id: true })
-    .extend(CanvasesLayoutPatchCreateBody.shape)
-    .extend({
-        id: CanvasesLayoutPatchCreateParams.shape['id'].describe('ID of the grid canvas whose layout to patch.'),
-    })
-
-const canvasLayoutPatch = (): ToolBase<typeof CanvasLayoutPatchSchema, Schemas.CanvasLayoutPublishResponse> => ({
-    name: 'canvas-layout-patch',
-    schema: CanvasLayoutPatchSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasLayoutPatchSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.operations !== undefined) {
-            body['operations'] = params.operations
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.expected_current_version_id !== undefined) {
-            body['expected_current_version_id'] = params.expected_current_version_id
-        }
-        const result = await context.api.request<Schemas.CanvasLayoutPublishResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/patch/`,
-            body,
-        })
-        return result
-    },
-})
-
-const CanvasLayoutPublishSchema = CanvasesLayoutPublishCreateParams.omit({ project_id: true })
-    .extend(CanvasesLayoutPublishCreateBody.shape)
-    .extend({
-        id: CanvasesLayoutPublishCreateParams.shape['id'].describe('ID of the grid canvas whose layout to publish.'),
-    })
-
-const canvasLayoutPublish = (): ToolBase<typeof CanvasLayoutPublishSchema, Schemas.CanvasLayoutPublishResponse> => ({
-    name: 'canvas-layout-publish',
-    schema: CanvasLayoutPublishSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasLayoutPublishSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.layout !== undefined) {
-            body['layout'] = params.layout
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.expected_current_version_id !== undefined) {
-            body['expected_current_version_id'] = params.expected_current_version_id
-        }
-        const result = await context.api.request<Schemas.CanvasLayoutPublishResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/publish/`,
-            body,
-        })
-        return result
-    },
-})
-
-const CanvasLayoutGetSchema = CanvasesLayoutRetrieveParams.omit({ project_id: true })
-    .extend(CanvasesLayoutRetrieveQueryParams.shape)
-    .extend({ id: CanvasesLayoutRetrieveParams.shape['id'].describe('ID of the grid canvas whose layout to read.') })
-
-const canvasLayoutGet = (): ToolBase<typeof CanvasLayoutGetSchema, Schemas.CanvasLayoutResponse> => ({
-    name: 'canvas-layout-get',
-    schema: CanvasLayoutGetSchema,
-    handler: async (context: Context, params: z.infer<typeof CanvasLayoutGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasLayoutResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/layout/`,
-            query: {
-                version_id: params.version_id,
-            },
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-create': canvasCreate,
     'canvas-draft-create': canvasDraftCreate,
     'canvas-drafts-retrieve': canvasDraftsRetrieve,
     'canvas-edit-create': canvasEditCreate,
+    'canvas-layout-get': canvasLayoutGet,
+    'canvas-layout-patch': canvasLayoutPatch,
+    'canvas-layout-publish': canvasLayoutPublish,
     'canvas-list': canvasList,
     'canvas-promote-create': canvasPromoteCreate,
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
     'canvas-validate-create': canvasValidateCreate,
-    'canvas-layout-patch': canvasLayoutPatch,
-    'canvas-layout-publish': canvasLayoutPublish,
-    'canvas-layout-get': canvasLayoutGet,
 }
