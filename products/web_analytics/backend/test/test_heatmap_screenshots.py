@@ -537,9 +537,21 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
 
+    @parameterized.expand([("single",), ("multi",)])
     @patch("products.web_analytics.backend.api.heatmaps_api.HEATMAP_SCREENSHOT_MAX_BYTES", 10)
-    def test_capture_rejects_oversized_image(self, _mock_task):
-        resp = self._capture()
+    def test_capture_rejects_oversized_image(self, _mock_task, _name):
+        if _name == "single":
+            payload: dict = {"image": SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg"), "width": 1440}
+        else:
+            payload = {
+                "images": [SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg") for _ in range(3)],
+                "widths": [320, 768, 1440],
+            }
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/capture/",
+            {"url": "https://app.example.com/dashboard", **payload},
+            format="multipart",
+        )
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
 
@@ -569,20 +581,6 @@ class TestHeatmapToolbarCapture(APIBaseTest):
             )
             self.assertEqual(content.status_code, 200)
             self.assertEqual(content.content, img)
-
-    @patch("products.web_analytics.backend.api.heatmaps_api.HEATMAP_SCREENSHOT_MAX_BYTES", 10)
-    def test_capture_multi_width_aborts_whole_capture_when_one_image_oversized(self, _mock_task):
-        resp = self.client.post(
-            f"/api/environments/{self.team.id}/saved/capture/",
-            {
-                "images": [SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg") for _ in range(3)],
-                "widths": [320, 768, 1440],
-                "url": "https://app.example.com/dashboard",
-            },
-            format="multipart",
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
 
     def test_regenerate_blocked_for_toolbar_capture(self, mock_task):
         saved = SavedHeatmap.objects.create(
