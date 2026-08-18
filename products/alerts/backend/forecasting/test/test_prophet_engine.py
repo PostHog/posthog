@@ -8,8 +8,10 @@ from parameterized import parameterized
 from posthog.schema import IntervalType
 
 from products.alerts.backend.forecasting.engine import (
+    MAX_FORECAST_LOOKBACK_DAYS,
     MAX_FORECAST_REACH_DAYS,
     ForecastResult,
+    bounded_training_points,
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
@@ -129,3 +131,23 @@ class TestForecastReach:
     )
     def test_forecast_reach_days_bounds_every_condition(self, _name, horizon, interval, within_cap) -> None:
         assert (forecast_reach_days(horizon, interval) <= MAX_FORECAST_REACH_DAYS) is within_cap
+
+    @parameterized.expand(
+        [
+            # Worst reachable config per interval, before bounding. Left unbounded, every scheduled
+            # check would scan years of events, and hourly would fit 17.5k rows.
+            ("hourly caps on fit cost", 17569, IntervalType.HOUR, 1000),
+            ("monthly caps on duration", 91, IntervalType.MONTH, 24),
+            ("daily caps on duration", 733, IntervalType.DAY, 730),
+            ("a small window is untouched", 91, IntervalType.DAY, 91),
+            # Never below what the interval needs to fit at all.
+            ("never below the fit minimum", 1, IntervalType.HOUR, 48),
+        ]
+    )
+    def test_bounded_training_points(self, _name, requested, interval, expected) -> None:
+        assert bounded_training_points(requested, interval) == expected
+
+    def test_no_interval_scans_more_than_two_years(self) -> None:
+        for interval in (IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH):
+            points = bounded_training_points(1_000_000, interval)
+            assert forecast_reach_days(points, interval) <= MAX_FORECAST_LOOKBACK_DAYS

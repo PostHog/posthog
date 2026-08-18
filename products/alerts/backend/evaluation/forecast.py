@@ -11,7 +11,7 @@ from posthog.models.user import User
 from posthog.schema_enums import ForecastConditionType, ForecastSensitivity, ForecastTargetDirection
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import _has_breakdown
-from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
+from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, SimulationContext
@@ -22,6 +22,7 @@ from products.alerts.backend.forecasting.engine import (
     FORECAST_LOOKBACK_POINTS,
     ForecastEngine,
     ForecastResult,
+    bounded_training_points,
     get_forecast_engine,
     horizon_for_target_date,
     min_forecast_points,
@@ -41,9 +42,21 @@ def _resolve_interval_width(forecast_config: dict[str, Any]) -> float:
     return float(forecast_config.get("interval_width") or DEFAULT_INTERVAL_WIDTH)
 
 
-def _forecast_min_samples(forecast_config: dict[str, Any]) -> int:
-    # Fetch a wide window: enough history for seasonality plus the horizon we predict past it.
-    return max(FORECAST_LOOKBACK_POINTS, 4 * _resolve_horizon(forecast_config)) + 1
+def _forecast_min_samples(forecast_config: dict[str, Any], interval: IntervalType | None = None) -> int:
+    """Enough history for seasonality plus the horizon we predict past it, bounded so the window
+    cannot grow into a multi-year scan on a coarse interval or a huge fit on a fine one."""
+    requested = max(FORECAST_LOOKBACK_POINTS, 4 * _resolve_horizon(forecast_config)) + 1
+    return bounded_training_points(requested, interval)
+
+
+def _required_points(condition: str | None, interval_type: IntervalType | None) -> int:
+    """How much history a condition needs. band_deviation holds out the latest point as the actual
+    to compare against, fitting on one fewer point than it is given, so it needs one extra to still
+    fit on a full window. Shared so the preview cannot accept a series the alert then rejects."""
+    min_points = min_forecast_points(interval_type)
+    if condition == ForecastConditionType.BAND_DEVIATION.value:
+        return min_points + 1
+    return min_points
 
 
 def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
@@ -302,10 +315,7 @@ def evaluate_with_forecast(
 
     dates, values = _clean_points(result)
     condition = forecast_config.get("condition")
-    min_points = min_forecast_points(result.interval_type)
-    # band_deviation holds out the latest point as the actual to compare against, fitting on one
-    # fewer point than it's given — so it needs one extra point to still fit on a full min_points window.
-    required_points = min_points + 1 if condition == ForecastConditionType.BAND_DEVIATION.value else min_points
+    required_points = _required_points(condition, result.interval_type)
     if len(values) < required_points:
         raise AlertExtractionError(
             f"Not enough history to forecast: need at least {required_points} completed intervals, "
@@ -353,7 +363,7 @@ class TrendsForecastExtractor:
             insight,
             alert.team,
             trends_query,
-            _forecast_min_samples(forecast_config),
+            _forecast_min_samples(forecast_config, trends_query.interval),
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
@@ -368,7 +378,7 @@ class TrendsForecastExtractor:
             insight,
             ctx.team,
             trends_query,
-            _forecast_min_samples(ctx.extractor_config),
+            _forecast_min_samples(ctx.extractor_config, trends_query.interval),
             execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
@@ -412,6 +422,8 @@ def simulate_forecast_on_insight(
     # preview is more permissive than saving: a breakdown insight would forecast series[0] and
     # present it as the whole insight.
     trends_query = TrendsQuery.model_validate(query)
+    if is_non_time_series_trend(trends_query):
+        raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     validate_forecast_interval(trends_query.interval)
@@ -428,10 +440,10 @@ def simulate_forecast_on_insight(
         raise ValueError("Not enough data points to forecast.")
 
     dates, values = _clean_points(result)
-    min_points = min_forecast_points(result.interval_type)
-    if len(values) < min_points:
+    required_points = _required_points(forecast_config.get("condition"), result.interval_type)
+    if len(values) < required_points:
         raise ValueError(
-            f"Not enough history to forecast: need at least {min_points} completed intervals, got {len(values)}."
+            f"Not enough history to forecast: need at least {required_points} completed intervals, got {len(values)}."
         )
 
     interval_width = _resolve_interval_width(forecast_config)

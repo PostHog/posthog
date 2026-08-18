@@ -1031,6 +1031,7 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+    has_forecast = OptionalBooleanField(required=False)
 
 
 class ForecastSimulateRequestSerializer(serializers.Serializer):
@@ -1191,7 +1192,15 @@ class ForecastSimulateResponseSerializer(serializers.Serializer):
                 "has_detector",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+                description="Optional. Restrict results by whether the alert uses anomaly detection. "
+                "A forecast alert has no detector, so has_detector=false includes forecast alerts as well as "
+                "plain threshold alerts. Use has_forecast to separate the two.",
+            ),
+            OpenApiParameter(
+                "has_forecast",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses a forecast.",
             ),
         ],
     ),
@@ -1234,6 +1243,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has_detector = list_filters.validated_data.get("has_detector")
         if has_detector is not None:
             queryset = queryset.filter(detector_config__isnull=not has_detector)
+
+        has_forecast = list_filters.validated_data.get("has_forecast")
+        if has_forecast is not None:
+            queryset = queryset.filter(forecast_config__isnull=not has_forecast)
 
         created_by = filters.get("created_by")
         if created_by:
