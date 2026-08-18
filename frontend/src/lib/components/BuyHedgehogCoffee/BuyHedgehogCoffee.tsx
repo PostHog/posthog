@@ -4,6 +4,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 
+import coffeeHog from 'public/hedgehog/coffee-hog.png'
+
 import { HERTS_WILDLIFE_TRUST_DONATE_URL, buyHedgehogCoffeeLogic } from './buyHedgehogCoffeeLogic'
 
 /** Self-gating wrapper, mounted in GlobalModals. Renders nothing unless the current user is a
@@ -37,7 +39,6 @@ export function BuyHedgehogCoffeeModal({
             onClose={onClose}
             inline={inline}
             width={480}
-            title="Buy a hedgehog a coffee ☕️🦔"
             data-attr="buy-hedgehog-coffee"
             footer={
                 <div className="flex flex-row justify-between items-center w-full">
@@ -52,24 +53,29 @@ export function BuyHedgehogCoffeeModal({
                         onClick={onDonate}
                         data-attr="hedgehog-coffee-donate"
                     >
-                        Donate to Herts Wildlife Trust
+                        Donate
                     </LemonButton>
                 </div>
             }
         >
-            <div className="flex flex-col gap-2 max-w-md">
-                <p className="m-0">
-                    You've been happily under the free allowance for a while now and we're fine with that, but...
-                </p>
-                <p className="m-0">
-                    If you've enjoyed using PostHog, we'd like you to consider passing it on by donating to our
-                    favourite cause: Hedgehogs. A small donation to the{' '}
-                    <Link to={HERTS_WILDLIFE_TRUST_DONATE_URL} target="_blank" disableClientSideRouting>
-                        Herts Wildlife Trust
-                    </Link>{' '}
-                    helps look after hedgehogs and the wild places they live. No pressure — this only pops up twice a
-                    year.
-                </p>
+            <div className="flex flex-col items-center text-center pt-2 pb-1">
+                <img src={coffeeHog} alt="" className="w-40 mb-3" />
+                <h2 className="text-2xl font-bold mb-2">Buy a hog a coffee</h2>
+                <div className="flex flex-col gap-2 max-w-md text-secondary">
+                    <p className="m-0">
+                        Twice a year, we ask that if you've been enjoying PostHog for free then you consider passing it
+                        on by donating to our favourite cause: hedgehog caffination.
+                    </p>
+                    <p className="m-0">
+                        The{' '}
+                        <Link to={HERTS_WILDLIFE_TRUST_DONATE_URL} target="_blank" disableClientSideRouting>
+                            Herts &amp; Middlesex Wildlife Trust
+                        </Link>{' '}
+                        has benefitted from PostHog's support since the beginning. Even small donations can help them
+                        restore natural habitats and protect local wildlife in the UK. If you'd rather donate to
+                        another cause though then you can do that too!
+                    </p>
+                </div>
             </div>
         </LemonModal>
     )
