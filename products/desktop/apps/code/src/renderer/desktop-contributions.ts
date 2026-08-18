@@ -25,10 +25,7 @@ import { provisioningUiModule } from "@posthog/ui/features/provisioning/provisio
 import { settingsUiModule } from "@posthog/ui/features/settings/settings.module";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { workspaceUiModule } from "@posthog/ui/features/workspace/workspace.module";
-import {
-  AnalyticsBootContribution,
-  InboxDemoDevContribution,
-} from "@renderer/contributions/app-boot.contributions";
+import { AnalyticsBootContribution } from "@renderer/contributions/app-boot.contributions";
 import { container } from "@renderer/di/container";
 
 export function registerDesktopContributions(): void {
@@ -64,5 +61,4 @@ export function registerDesktopContributions(): void {
   }
 
   container.bind(CONTRIBUTION).to(AnalyticsBootContribution).inSingletonScope();
-  container.bind(CONTRIBUTION).to(InboxDemoDevContribution).inSingletonScope();
 }

@@ -286,7 +286,7 @@ def finalize_report_canvas_generation(
             team_id=team_id,
             task_id=session.discussion_task_id,
             user_ids=_reviewer_user_ids(report),
-            kind="mention",
+            kind="completed",
         )
     return succeeded
 
