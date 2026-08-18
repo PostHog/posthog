@@ -944,7 +944,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if self.table is not None:
             # Must run before the S3 delete below, because it reads the synced data to find where
             # the table's history started.
-            self._stash_backfill_floor()
+            self.stash_backfill_floor()
 
             try:
                 client = get_s3_client()
@@ -962,12 +962,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
             self.update_sync_type_config_for_reset_pipeline()
 
-    def _stash_backfill_floor(self) -> None:
-        # Deleting the data clears incremental_field_last_value, so the next run looks like a first
-        # sync. A source that bounds a first sync (Google Ads windows back from a default number of
-        # days) would then restart from that default instead of the range this table already
-        # covered, dropping everything older than it without saying so. Recording the floor lets
-        # such a source resume the walk where the old data started.
+    def stash_backfill_floor(self) -> None:
+        """Record where this table's data starts, before something wipes it.
+
+        Wiping clears the incremental cursor, so the next run looks like a first sync. A source that
+        bounds a first sync (Google Ads windows back from a default number of days) would then
+        restart from that default instead of the range the table already covered, dropping
+        everything older than it without saying so. The floor lets such a source resume the walk
+        where the old data started.
+
+        Call this before the wipe: it reads the synced data.
+        """
         incremental_field = self.incremental_field
         if self.table is None or not incremental_field:
             return
@@ -976,14 +981,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if column is None:
             return
 
-        floor = self.table.get_min_value_for_column(column)
-        floor_json = self._incremental_value_as_json(floor)
+        floor_json = self._incremental_value_as_json(self.table.get_min_value_for_column(column))
         if floor_json is None:
             return
 
         # Keyed by field so a later incremental_field change can't hand a source a floor that was
         # measured against a different column.
-        self.sync_type_config["backfill_floor"] = {"field": incremental_field, "value": floor_json}
+        floor = {"field": incremental_field, "value": floor_json}
+        # Written both ways on purpose: the merge persists it for callers that don't save afterwards
+        # (the pipeline's reset path), and the in-memory copy keeps it from being dropped by callers
+        # that do save a whole config later (delete_table).
+        self.sync_type_config["backfill_floor"] = floor
+        update_sync_type_config_keys(self.id, self.team_id, updates={"backfill_floor": floor})
 
     def _resolve_synced_column(self, incremental_field: str) -> str | None:
         # An incremental field names the field as the source's API exposes it, which is not always

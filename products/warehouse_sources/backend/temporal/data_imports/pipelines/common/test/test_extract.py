@@ -609,6 +609,30 @@ class TestHandleResetOrFullRefresh:
         # streaming flip fires on the False->True transition).
         assert schema.initial_sync_complete is False
 
+    def test_reset_records_the_backfill_floor_before_wiping(self, team):
+        # A reset clears the cursor, so the next run looks like a first sync and a source that bounds
+        # one restarts inside its default window rather than the range the table held. Only
+        # delete_table recorded the floor, so a resync — which wipes without going through it — still
+        # dropped the history. It has to be recorded here too, and before the wipe leaves nothing to
+        # read it from.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+        call_order: list[str] = []
+
+        with (
+            patch.object(ExternalDataSchema, "stash_backfill_floor", autospec=True) as stash,
+            patch.object(ExternalDataSchema, "update_sync_type_config_for_reset_pipeline", autospec=True) as clear,
+        ):
+            stash.side_effect = lambda _self: call_order.append("record floor")
+            helper.reset_table.side_effect = lambda: call_order.append("wipe")
+            clear.side_effect = lambda _self: call_order.append("clear cursor")
+
+            async_to_sync(handle_reset_or_full_refresh)(
+                True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+            )
+
+        assert call_order == ["record floor", "wipe", "clear cursor"]
+
     def test_full_refresh_sync_keeps_initial_sync_complete(self, team):
         # The prod regression: routine full-refresh runs cleared the latch at extraction start,
         # and a zero-row run never reaches post-load to re-set it, so the flag read false

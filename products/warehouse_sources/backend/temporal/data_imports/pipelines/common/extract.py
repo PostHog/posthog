@@ -416,6 +416,10 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
+        # Before the wipe, because it reads the table. A reset re-imports from scratch, and for a
+        # source that bounds a first sync "from scratch" would otherwise mean that source's default
+        # window rather than the range this table held — silently dropping everything older.
+        await database_sync_to_async_pool(schema.stash_backfill_floor)()
         await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:

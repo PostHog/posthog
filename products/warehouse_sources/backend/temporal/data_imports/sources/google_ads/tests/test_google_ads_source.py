@@ -39,7 +39,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
-    GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN,
     GoogleAdsColumn,
     GoogleAdsSearchService,
     GoogleAdsTable,
@@ -1508,46 +1507,44 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert all("1970-01-01" not in q for q in queries)
 
-    def test_lookback_overlap_does_not_consume_the_window_budget(self):
+    def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # The cursor arrives already shifted back by the schema's lookback, so the first windows
-        # re-read data the table has. Charging them to the budget left a 30-day lookback against a
-        # 35-day budget advancing 5 days a run, so a schema that fell behind crawled instead of
-        # catching up. The overlap must be traversed without spending the budget for new ground.
-        with freeze_time("2026-07-17"):
-            _response, queries = self._run_source(
-                self._stats_table(),
-                should_use_incremental_field=True,
-                # A 2026-05-04 cursor, already shifted back 30 days by the caller.
-                db_incremental_field_last_value=dt.date(2026, 4, 4),
-                db_incremental_field_lookback_seconds=30 * 86400,
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-                window_rows=dict.fromkeys(
-                    (
-                        # Overlap the lookback re-reads: traversed, not charged.
-                        "2026-04-04",
-                        "2026-04-11",
-                        "2026-04-18",
-                        "2026-04-25",
-                        # New ground past the cursor, charged to the budget.
-                        "2026-05-02",
-                        "2026-05-09",
-                        "2026-05-16",
-                        "2026-05-23",
-                        "2026-05-30",
-                        "2026-06-06",
+        # re-read data the table has. A run that spends its whole budget on that overlap leaves the
+        # cursor where it started and the next run repeats it, so a schema behind by more than its
+        # lookback never advances. The budget has to buy new ground even when it's already spent.
+        clock = iter(range(0, 500))
+
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            # A budget of zero: the overlap alone would end the run before any new ground.
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    should_use_incremental_field=True,
+                    # A 2026-05-04 cursor, already shifted back 30 days by the caller.
+                    db_incremental_field_last_value=dt.date(2026, 4, 4),
+                    db_incremental_field_lookback_seconds=30 * 86400,
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    window_rows=dict.fromkeys(
+                        (
+                            # Overlap the lookback re-reads.
+                            "2026-04-04",
+                            "2026-04-11",
+                            "2026-04-18",
+                            "2026-04-25",
+                            # New ground past the cursor.
+                            "2026-05-02",
+                            "2026-05-09",
+                        ),
+                        5,
                     ),
-                    5,
-                ),
-            )
+                )
 
         assert queries[0].startswith(
             "SELECT campaign.id,segments.date FROM campaign_stats WHERE segments.date >= '2026-04-04'"
         )
-        # The four windows before the cursor are traversed unpaid, so the five charged ones carry the
-        # run through 2026-06-06. Charging the overlap stopped it at 2026-05-09, five days past the
-        # 2026-05-04 cursor.
-        assert "segments.date < '2026-06-06'" in queries[-1]
+        # Walked the four overlap windows and still landed one past the 2026-05-04 cursor.
+        assert "segments.date >= '2026-05-02'" in queries[-1]
 
     def test_re_import_with_a_recorded_floor_resumes_at_the_old_history_start(self):
         # Deleting a schema's data clears the cursor, so the next run looks like a first sync and
@@ -1588,17 +1585,42 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         ]
 
-    def test_run_stops_after_max_data_windows(self):
-        # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
-        # non-empty windows so a single run stays short enough to complete and durably advance the
-        # cursor, instead of re-extracting the whole backlog and dying to a heartbeat timeout.
+    def test_run_stops_when_the_drain_budget_is_spent(self):
+        # A run has to stop somewhere: one that keeps drawing on a shared worker until it has walked
+        # years of backlog is the unbounded scan the windows replaced. Stopping on elapsed time
+        # rather than a window count lets a run take as many windows as it can afford, so a backlog
+        # drains at the speed the work actually costs instead of a fixed 35 days a run.
         cursor = dt.date(2026, 1, 1)
         window_rows = {
-            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1
-            for i in range(GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN + 3)
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
+        }
+        # One second of drain per loop check, against a four-second budget.
+        clock = iter(range(0, 500))
+
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 4):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    window_rows=window_rows,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cursor,
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                )
+
+        assert len(queries) == 4
+        assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
+
+    def test_run_stops_at_the_window_backstop(self):
+        # The time budget can't bite on windows cheap enough to cost no measurable time (a long
+        # empty stretch), so the count still caps the walk rather than stepping to today one request
+        # at a time.
+        cursor = dt.date(2026, 1, 1)
+        window_rows = {
+            (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
 
-        with freeze_time("2026-07-17"):
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN", 6):
             _response, queries = self._run_source(
                 self._stats_table(),
                 window_rows=window_rows,
@@ -1608,35 +1630,36 @@ class TestGoogleAdsQueryConstruction:
                 incremental_field_type=IncrementalFieldType.Date,
             )
 
-        assert len(queries) == GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN
-        assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
+        assert len(queries) == 6
 
     @pytest.mark.parametrize(
-        "cursor,expected",
+        "cursor,budget,expected",
         [
             # Stopped on the budget in January with months still to import.
-            (dt.date(2026, 1, 1), True),
+            (dt.date(2026, 1, 1), 4, True),
             # Started inside the final window, so the run reached today and the table is current.
-            (dt.date(2026, 7, 15), False),
+            (dt.date(2026, 7, 15), 600, False),
         ],
     )
-    def test_run_reports_whether_range_is_left_to_import(self, cursor: dt.date, expected: bool) -> None:
+    def test_run_reports_whether_range_is_left_to_import(self, cursor: dt.date, budget: int, expected: bool) -> None:
         # A budgeted run lands a chunk, advances the cursor and succeeds while still behind. Callers
         # need to tell that apart from a run that finished the table, or a partial import gets
         # presented as a complete one.
         window_rows = {
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(30)
         }
+        clock = iter(range(0, 500))
 
-        with freeze_time("2026-07-17"):
-            response, _queries = self._run_source(
-                self._stats_table(),
-                window_rows=window_rows,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=cursor,
-                incremental_field="segments.date",
-                incremental_field_type=IncrementalFieldType.Date,
-            )
+        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
+                response, _queries = self._run_source(
+                    self._stats_table(),
+                    window_rows=window_rows,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cursor,
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                )
 
         assert response.backfill_incomplete is expected
 
