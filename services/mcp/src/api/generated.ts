@@ -10376,6 +10376,8 @@ export namespace Schemas {
       kind: AutocompleteCompletionItemKind;
       /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
       label: string;
+      /** Overrides the editor's default ordering for this item. Set when the backend can rank a suggestion, for example a function whose return type fits the comparison being written. */
+      sortText?: string | null;
     }
 
     /**
@@ -19270,6 +19272,35 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide
+     */
+    export type TileSpacingEnum = typeof TileSpacingEnum[keyof typeof TileSpacingEnum];
+
+
+    export const TileSpacingEnum = {
+      Tight: 'tight',
+      Condensed: 'condensed',
+      Standard: 'standard',
+      Relaxed: 'relaxed',
+      Wide: 'wide',
+    } as const;
+
+    export interface DashboardCustomization {
+      /** Named tile density preset.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      tile_spacing?: TileSpacingEnum;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -19337,6 +19368,16 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -39132,6 +39173,29 @@ export namespace Schemas {
     }
 
     /**
+     * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+     * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+     * them shortly after. Messages already sent are not recalled.
+     */
+    export interface HogFlowBatchJobCancelResponse {
+      /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      status: HogFlowBatchJobStatusEnum;
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+      remaining: number;
+      /** True when no in-flight runs of this batch remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `update_action` - update_action
      * * `add_action` - add_action
      * * `remove_action` - remove_action
@@ -53768,6 +53832,8 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       ci_prompt: string | null;
@@ -59692,6 +59758,14 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
@@ -91877,6 +91951,14 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering;
+    /**
      * Filter by repository organization
      * @minLength 1
      */
@@ -91930,6 +92012,14 @@ export namespace Schemas {
       True: 'true',
       False: 'false',
       All: 'all',
+    } as const;
+
+    export type TasksListOrdering = typeof TasksListOrdering[keyof typeof TasksListOrdering];
+
+
+    export const TasksListOrdering = {
+      CreatedAt: '-created_at',
+      LastActivityAt: '-last_activity_at',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
