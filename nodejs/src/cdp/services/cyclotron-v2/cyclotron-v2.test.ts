@@ -828,7 +828,7 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
             })
 
-            it('parentRunId mode: flags the run\'s resolver job and children, and nothing beyond the run', async () => {
+            it("parentRunId mode: flags the run's resolver job and children, and nothing beyond the run", async () => {
                 const functionId = uuidv7()
                 const parentRunId = uuidv7()
                 // The resolver orchestration job and its children share parent_run_id but
@@ -855,9 +855,9 @@ describe('Cyclotron V2', () => {
             })
 
             it('rejects an empty parentRunId instead of widening to the whole workflow', async () => {
-                await expect(
-                    manager.cancelJobs({ teamId: 1, functionId: uuidv7(), parentRunId: '' })
-                ).rejects.toThrow(/non-empty/)
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), parentRunId: '' })).rejects.toThrow(
+                    /non-empty/
+                )
             })
 
             it('bulkCreateAndCheckIn refuses the page when a cancel flag landed while the worker held the job', async () => {
