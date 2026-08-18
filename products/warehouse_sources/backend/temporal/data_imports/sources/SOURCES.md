@@ -96,6 +96,7 @@ the row lists both.
 | awin                             | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -834,7 +835,6 @@ doesn't conflict with concurrent PRs.
 - azure_api_management
 - azure_application_insights
 - azure_blob
-- azure_cost_management
 - azure_data_explorer
 - azure_data_factory
 - azure_log_analytics
