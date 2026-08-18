@@ -296,7 +296,9 @@ class ExperimentSummaryTool(MaxTool):
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
-            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+            summary_context, _last_refresh, pending, omitted_count = await data_service.fetch_experiment_data(
+                experiment_id
+            )
         except ValueError as e:
             return str(e), {"error": "not_found"}
 
@@ -314,6 +316,9 @@ class ExperimentSummaryTool(MaxTool):
 
         if pending:
             formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        if omitted_count:
+            formatted_data += f"\n\n**Note:** {omitted_count} metrics were omitted from this summary."
 
         return self._build_result(
             experiment,

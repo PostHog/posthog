@@ -467,7 +467,7 @@ def call_agent_for_summary(demo_org_team_user, experiment_with_mock_data):
         )
         config = RunnableConfig(configurable={"thread_id": conversation.id}, recursion_limit=48)
 
-        mock_return = (mock_context, datetime.now(tz=ZoneInfo("UTC")), False)
+        mock_return = (mock_context, datetime.now(tz=ZoneInfo("UTC")), False, 0)
         with (
             patch(
                 "products.experiments.backend.max_tools.ExperimentSummaryDataService.fetch_experiment_data",

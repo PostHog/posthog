@@ -145,10 +145,11 @@ class ExperimentSummaryDataService:
 
     async def fetch_experiment_data(
         self, experiment_id: int
-    ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool]:
+    ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool, int]:
         """
         Fetch experiment data from the database and run cached queries concurrently.
-        Returns the context data, the last refresh timestamp, and whether any calculation is pending.
+        Returns the context data, the last refresh timestamp, whether any calculation is
+        pending, and how many configured metrics were omitted by the summary cap.
         """
         team_id = self._team.id
 
@@ -300,6 +301,10 @@ class ExperimentSummaryDataService:
             else:
                 secondary_metrics.append(query)
 
+        omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
+            0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE
+        )
+
         primary_metric_tasks = [
             run_metric_query_async(metric, i) for i, metric in enumerate(primary_metrics[:MAX_METRICS_TO_SUMMARIZE])
         ]
@@ -378,6 +383,7 @@ class ExperimentSummaryDataService:
             ),
             latest_refresh,
             pending_calculation,
+            omitted_metric_count,
         )
 
     def check_data_freshness(

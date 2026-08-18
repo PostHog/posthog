@@ -638,13 +638,14 @@ class TestExperimentSummaryTool(APIBaseTest):
 
         with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False))
+            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False, 2))
 
             result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
         assert "## Experiment: Agent Discovered Experiment" in result
         assert artifact["experiment_name"] == "Agent Discovered Experiment"
         assert artifact["has_results"] is True
+        assert "**Note:** 2 metrics were omitted from this summary." in result
 
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})
