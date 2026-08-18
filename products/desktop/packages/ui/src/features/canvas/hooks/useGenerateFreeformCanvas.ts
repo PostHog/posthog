@@ -62,6 +62,9 @@ export function useGenerateFreeformCanvas(args: {
       name: string;
       templateId?: string;
       instruction: string;
+      // When set, the run fills ONE placement on a grid canvas (the agent
+      // follows the composing-grid-canvases skill instead of building-canvases).
+      placement?: { placementId: string; w: number; h: number };
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
@@ -99,6 +102,7 @@ export function useGenerateFreeformCanvas(args: {
             name,
             templateId: opts.templateId,
             instruction,
+            placement: opts.placement,
             channelId,
             channelName,
             channelContext,

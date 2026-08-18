@@ -21,13 +21,19 @@ import {
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { isPlaceholderCanvasName } from "./canvasNaming";
-import { buildCanvasGenerationPrompt } from "./generationPrompt";
+import {
+  buildCanvasGenerationPrompt,
+  buildPlacementGenerationPrompt,
+} from "./generationPrompt";
 
 export interface GenerateCanvasInput {
   dashboardId: string;
   name: string;
   templateId?: string;
   instruction: string;
+  /** When set, the run fills ONE placement on a grid canvas instead of
+   * authoring the canvas itself (composing-grid-canvases skill routing). */
+  placement?: { placementId: string; w: number; h: number };
   /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
@@ -132,13 +138,23 @@ export class CanvasApplicationService {
 
     const result = await this.taskService.createTask(
       {
-        content: buildCanvasGenerationPrompt({
-          dashboardId: input.dashboardId,
-          name: input.name,
-          channelName: input.channelName,
-          templateId: input.templateId,
-          instruction: input.instruction,
-        }),
+        content: input.placement
+          ? buildPlacementGenerationPrompt({
+              dashboardId: input.dashboardId,
+              name: input.name,
+              channelName: input.channelName,
+              instruction: input.instruction,
+              placementId: input.placement.placementId,
+              boxWidth: input.placement.w,
+              boxHeight: input.placement.h,
+            })
+          : buildCanvasGenerationPrompt({
+              dashboardId: input.dashboardId,
+              name: input.name,
+              channelName: input.channelName,
+              templateId: input.templateId,
+              instruction: input.instruction,
+            }),
         taskDescription: input.name
           ? `Generate canvas "${input.name}"`
           : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,

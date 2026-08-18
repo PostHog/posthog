@@ -1,6 +1,38 @@
 import { escapeXmlAttr } from "@posthog/shared";
 import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 
+// A generation task scoped to one placement on a grid canvas: the agent fills
+// the drawn box by placing a store component or building a new one, following
+// the composing-grid-canvases skill rather than the freeform one.
+export function buildPlacementGenerationPrompt(input: {
+  dashboardId: string;
+  name: string;
+  channelName: string;
+  instruction: string;
+  placementId: string;
+  boxWidth: number;
+  boxHeight: number;
+}): string {
+  return `${input.instruction}
+
+<canvas_generation_instructions>
+Invoke the \`composing-grid-canvases\` skill and follow it completely.
+
+You are filling ONE placement on a grid canvas. Resolve it with the skill's
+ladder: search the component store first, fork when close, build a new
+component only when nothing fits. When the placement is ready, patch it to
+status "live" with the component id and config, keeping its prompt intact.
+On failure, patch it to status "failed" instead of leaving it generating.
+
+Target:
+- grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
+- grid canvas name: "${escapeXmlAttr(input.name)}"
+- channel: "${escapeXmlAttr(input.channelName)}"
+- placement id: "${escapeXmlAttr(input.placementId)}"
+- drawn box: ${input.boxWidth}x${input.boxHeight} grid units (a small box wants a glanceable tile; a large one a full app surface)
+</canvas_generation_instructions>`;
+}
+
 export function buildCanvasGenerationPrompt(input: {
   dashboardId: string;
   name: string;
