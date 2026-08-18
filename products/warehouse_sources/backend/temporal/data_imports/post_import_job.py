@@ -1,7 +1,7 @@
 """Post-import Temporal workflow for data imports.
 
 The single home for the post-import steps that read the loaded table (signal emission,
-semantic enrichment, column statistics, table size, DuckLake copy). On V3 the
+semantic enrichment, column statistics, table size). On V3 the
 `external-data-job` workflow ends at extraction: batches land on S3 and a separate load
 consumer writes them into Delta Lake, so these steps can't run from that workflow
 without racing the load — the load consumer starts this workflow after the final batch
@@ -169,6 +169,10 @@ def _always(gate: PostImportGateContext) -> bool:
     return True
 
 
+def _retired_ducklake_copy_gate(_gate: PostImportGateContext) -> bool:
+    return False
+
+
 def _data_quality_gate(gate: PostImportGateContext) -> bool:
     return data_quality_checks_needed_for(gate.team_id, gate.schema.table_id)
 
@@ -304,13 +308,14 @@ DATA_QUALITY_CHECKS_STEP = "data-quality-checks"
 
 # Ordered registry of every post-import step. This is the future registration point for
 # product-owned steps (external_product_hooks-style), so entries stay self-contained:
-# gate on the activity side, commands on the workflow side, nothing in the workflow body.
+# gate on the activity side and commands on the workflow side. Retired steps stay
+# addressable until recorded histories drain, while a disabled gate keeps them out of new results.
 POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
     PostImportStep(key=TABLE_SIZE_STEP, enabled=_always, start=_start_table_size),
-    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
+    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_retired_ducklake_copy_gate, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
 )
 

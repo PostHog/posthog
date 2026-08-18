@@ -13,7 +13,7 @@ This page is the map; each package's own docstrings and READMEs carry the detail
 5. Post-load (`common/load.py::run_post_load_operations`): delta maintenance, publish queryable files, register the table, CDC companion handling, `POST_LOAD_STEPS`.
 6. Finalization (terminal job status, v3 lock release, post-import start) is owned per run: the workflow, or the v3 load consumer once it loads the final batch.
    The contract lives on the `PipelineResult` docstring (`core/typings.py`).
-7. The post-import workflow (`../post_import_job.py`, `data-import-post-import`) runs the load-dependent step list (table size, DuckLake copy, signals, enrichment, statistics).
+7. The post-import workflow (`../post_import_job.py`, `data-import-post-import`) runs the load-dependent step list (table size, signals, enrichment, statistics).
 
 ## The pipelines
 

@@ -246,6 +246,8 @@ async def test_post_import_fork(
     [
         # New runs dispatch from the step list the resolve activity recorded.
         pytest.param("activity", id="activity_step_list"),
+        # Runs started before retirement may already have the copy key recorded.
+        pytest.param("recorded", id="recorded_step_list"),
         # In-flight pre-deploy runs have a context without `steps`; the legacy fallback
         # must reproduce the old command sequence or their replay breaks on deploy.
         pytest.param("legacy", id="legacy_fallback"),
@@ -276,7 +278,13 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     executed: list[str] = []
 
     gated_steps = [EMIT_SIGNALS_STEP, SEMANTIC_ENRICHMENT_STEP, TABLE_STATISTICS_STEP] if gates_on else []
-    steps = None if steps_mode == "legacy" else [*gated_steps, TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
+    steps: list[str] | None
+    if steps_mode == "legacy":
+        steps = None
+    else:
+        steps = [*gated_steps, TABLE_SIZE_STEP]
+        if steps_mode == "recorded":
+            steps.append(DUCKLAKE_COPY_STEP)
 
     @activity.defn(name="resolve_post_import_context_activity")
     async def resolve_context(inputs: PostImportWorkflowInputs) -> PostImportContext:
@@ -329,9 +337,10 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     started = {prefix for prefix in gated_prefixes if any(c.startswith(prefix) for c in child_ids)}
     assert started == (set(gated_prefixes) if gates_on else set())
 
-    # Table size and the DuckLake copy run for every completed V3 import.
+    # Table size runs for every completed V3 import. Only recorded histories retain the copy child.
     assert executed == ["calculate_table_size_activity"]
-    assert any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
+    copy_started = any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
+    assert copy_started is (steps_mode != "activity")
 
 
 async def test_each_completed_sync_gets_its_own_data_quality_suite():
@@ -419,10 +428,11 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     assert ctx.source_type == "Stripe"
     assert ctx.schema_name == "Customer"
     assert ctx.last_synced_at == pre_sync
-    # The always-on steps must be recorded for a completed job (feature-gated steps are
-    # off in the test environment); a None here would send new runs down the legacy path.
+    # The always-on table-size step must be recorded for a completed job. A None here
+    # would send new runs down the legacy path, which retains the retired copy step.
     assert ctx.steps is not None
-    assert ctx.steps[-2:] == [TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
+    assert ctx.steps[-1:] == [TABLE_SIZE_STEP]
+    assert DUCKLAKE_COPY_STEP not in ctx.steps
 
 
 @pytest.mark.django_db
