@@ -89,6 +89,23 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['ai.operationId']).toBeUndefined()
         })
 
+        it('parses legacy ai.prompt.tools entries into gen_ai.tool.definitions', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.prompt.tools': [
+                    JSON.stringify({ type: 'function', name: 'get_weather', parameters: { type: 'object' } }),
+                    'not json {',
+                ],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['gen_ai.tool.definitions']).toEqual([
+                { type: 'function', name: 'get_weather', parameters: { type: 'object' } },
+                'not json {',
+            ])
+            expect(event.properties!['ai.prompt.tools']).toBeUndefined()
+        })
+
         it('strips Vercel-specific attributes', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',

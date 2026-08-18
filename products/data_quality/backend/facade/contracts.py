@@ -5,11 +5,22 @@ Frozen, framework-free values other products need. No Django imports.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypeGuard
 
 CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
 
 MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
+
+QualityAuditMode = Literal["skip", "warn", "gate"]
+
+QUALITY_AUDIT_SKIP: QualityAuditMode = "skip"
+QUALITY_AUDIT_WARN: QualityAuditMode = "warn"
+QUALITY_AUDIT_GATE: QualityAuditMode = "gate"
+
+
+def is_quality_audit_mode(value: str) -> TypeGuard[QualityAuditMode]:
+    """A recorded Temporal history can carry a mode another deploy defined and this one does not."""
+    return value in (QUALITY_AUDIT_SKIP, QUALITY_AUDIT_WARN, QUALITY_AUDIT_GATE)
 
 
 @dataclass(frozen=True)

@@ -24,11 +24,13 @@ from posthog.temporal.data_modeling.activities import (
     FailMaterializationInputs,
     MaterializeViewInputs,
     PrepareQueryableTableInputs,
+    QualityBlockMaterializationInputs,
     SucceedMaterializationInputs,
     create_data_modeling_job_activity,
     fail_materialization_activity,
     materialize_view_activity,
     prepare_queryable_table_activity,
+    quality_block_materialization_activity,
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
@@ -519,6 +521,33 @@ class TestFailMaterializationActivity:
             await database_sync_to_async(job.delete)()
 
 
+class TestQualityBlockMaterializationActivity:
+    async def test_a_blocked_publish_fails_the_node_and_job_but_starts_no_recovery(
+        self, activity_environment, ateam, anode, asaved_query, adag
+    ):
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+        inputs = QualityBlockMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(job.id),
+            blocking_failures=2,
+        )
+
+        await activity_environment.run(quality_block_materialization_activity, inputs)
+
+        await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(job.refresh_from_db)()
+        system_props = anode.properties.get("system", {})
+        assert system_props["last_run_status"] == DataModelingJobStatus.FAILED
+        assert "2 data quality checks failed" in system_props["last_run_error"]
+        assert job.status == DataModelingJob.Status.FAILED
+        assert "2 data quality checks failed" in job.error
+        assert "suspended" not in system_props
+
+        await database_sync_to_async(job.delete)()
+
+
 class TestShouldPauseScheduleForTimeout:
     async def test_returns_false_when_fewer_than_5_previous_jobs(self, ateam, asaved_query):
         from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
@@ -697,6 +726,7 @@ class TestNodeSuspension:
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
+            "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):

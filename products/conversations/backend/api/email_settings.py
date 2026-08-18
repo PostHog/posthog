@@ -2,10 +2,11 @@
 
 import uuid
 import secrets
-from datetime import timedelta
 from email.utils import formataddr, make_msgid
+from hashlib import sha256
 
-from django.core import mail
+from django.core import exceptions, mail
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -17,11 +18,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.dataclasses import frozen
+from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
+from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
@@ -47,10 +50,39 @@ from products.conversations.backend.models.team_conversations_email_config impor
     MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER,
 )
 from products.conversations.backend.permissions import IsConversationsAdmin
+from products.conversations.backend.services.email_channel_setup import (
+    CUSTOMER_EMAIL_SETUP_TTL,
+    FORWARDING_CHALLENGE_HEADER,
+    create_forwarding_challenge,
+)
 
 logger = structlog.get_logger(__name__)
 
-CUSTOMER_EMAIL_SETUP_TTL = timedelta(hours=24)
+FORWARDING_CHALLENGE_BASE_COOLDOWN_SECONDS = 30
+FORWARDING_CHALLENGE_MAX_COOLDOWN_SECONDS = 60 * 60
+FORWARDING_CHALLENGE_MAX_SEND_ATTEMPTS = 8
+
+
+@frozen
+class ForwardingChallengeRateLimitKeys:
+    cooldown: str
+    attempts: str
+
+
+def _forwarding_challenge_rate_limit_keys(recipient: str) -> ForwardingChallengeRateLimitKeys:
+    recipient_hash = sha256(recipient.strip().lower().encode()).hexdigest()
+    key_prefix = f"customer-email-forwarding-challenge:{recipient_hash}"
+    return ForwardingChallengeRateLimitKeys(
+        cooldown=f"{key_prefix}:cooldown",
+        attempts=f"{key_prefix}:attempts",
+    )
+
+
+def _forwarding_challenge_cooldown_seconds(attempt_count: int) -> int:
+    return min(
+        FORWARDING_CHALLENGE_BASE_COOLDOWN_SECONDS * (2**attempt_count),
+        FORWARDING_CHALLENGE_MAX_COOLDOWN_SECONDS,
+    )
 
 
 def _get_team_from_request(request: Request) -> tuple[User, Team] | Response:
@@ -369,7 +401,7 @@ class EmailChannelOperationResponseSerializer(serializers.Serializer):
 class EmailConfirmForwardingResponseSerializer(EmailChannelOperationResponseSerializer):
     confirmation_url = serializers.URLField(
         read_only=True,
-        help_text="Authenticated Google forwarding confirmation URL.",
+        help_text="Authenticated Google forwarding confirmation URL. Opening it does not verify forwarding to PostHog.",
     )
 
 
@@ -774,6 +806,132 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
+class EmailVerifyForwardingView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [EmailForwardingChallengeThrottle]
+
+    @extend_schema(
+        tags=["conversations"],
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+            429: OpenApiResponse(response=EmailChannelErrorSerializer),
+            502: OpenApiResponse(response=EmailChannelErrorSerializer),
+            503: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        id_serializer = ConfigIdSerializer(data=request.data)
+        id_serializer.is_valid(raise_exception=True)
+        config_id = id_serializer.validated_data["config_id"]
+
+        with transaction.atomic():
+            config = (
+                EmailChannel.objects.select_for_update()
+                .filter(
+                    id=config_id,
+                    team=team,
+                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+                    owner=user,
+                )
+                .first()
+            )
+            if config is None:
+                return Response({"error": "Email config not found"}, status=404)
+            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+
+            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
+            if setup is None:
+                return Response({"error": "This forwarding setup is no longer available."}, status=400)
+            if setup.expires_at <= timezone.now():
+                setup.delete()
+                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+                config.save(update_fields=["connection_status"])
+                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
+
+            setup_id = setup.id
+            channel_id = config.id
+            recipient = config.from_email
+
+        if not is_smtp_email_service_available():
+            return Response(
+                {"error": "Email verification is not configured on this PostHog instance."},
+                status=503,
+            )
+
+        rate_limit_keys = _forwarding_challenge_rate_limit_keys(recipient)
+        cached_attempt_count = cache.get(rate_limit_keys.attempts, 0)
+        attempt_count = (
+            cached_attempt_count
+            if isinstance(cached_attempt_count, int)
+            and not isinstance(cached_attempt_count, bool)
+            and cached_attempt_count >= 0
+            else 0
+        )
+        if attempt_count >= FORWARDING_CHALLENGE_MAX_SEND_ATTEMPTS:
+            return Response(
+                {"error": "This email has reached the verification limit. Wait 24 hours before trying again."},
+                status=429,
+            )
+        cooldown_seconds = _forwarding_challenge_cooldown_seconds(attempt_count)
+        if not cache.add(rate_limit_keys.cooldown, True, timeout=cooldown_seconds):
+            return Response(
+                {"error": "A verification email was sent recently. Wait a moment and try again."},
+                status=429,
+            )
+
+        challenge = create_forwarding_challenge(
+            team_id=team.id,
+            channel_id=channel_id,
+            setup_id=setup_id,
+        )
+        try:
+            message = EmailMessage(
+                campaign_key=challenge.campaign_key,
+                subject="Verify email forwarding to PostHog",
+                template_name="customer_email_forwarding_verification",
+                template_context={"forwarding_challenge": challenge.token},
+                headers={FORWARDING_CHALLENGE_HEADER: challenge.token},
+            )
+            message.add_recipient(email=recipient)
+            message.send()
+        except exceptions.ImproperlyConfigured:
+            cache.delete(rate_limit_keys.cooldown)
+            return Response(
+                {"error": "Email verification is not configured on this PostHog instance."},
+                status=503,
+            )
+        except Exception:
+            cache.delete(rate_limit_keys.cooldown)
+            logger.error(  # noqa: TRY400 - exception details may contain the signed challenge token
+                "customer_email_forwarding_challenge_enqueue_failed",
+                team_id=team.id,
+                config_id=str(channel_id),
+            )
+            return Response({"error": "Could not send the verification email. Try again."}, status=502)
+
+        cache.set(
+            rate_limit_keys.attempts,
+            attempt_count + 1,
+            timeout=int(CUSTOMER_EMAIL_SETUP_TTL.total_seconds()),
+        )
+        logger.info(
+            "customer_email_forwarding_challenge_enqueued",
+            team_id=team.id,
+            config_id=str(channel_id),
+            user_id=user.id,
+        )
+        return Response({"ok": True})
+
+
 class EmailConfirmForwardingView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -824,13 +982,9 @@ class EmailConfirmForwardingView(APIView):
                 return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
 
             confirmation_url = setup.confirmation_action
-            # Google provides no completion callback, so the owner's request for this authenticated action is the activation boundary.
-            setup.delete()
-            config.connection_status = EmailChannelConnectionStatus.ACTIVE
-            config.save(update_fields=["connection_status"])
 
         logger.info(
-            "customer_email_forwarding_confirmed",
+            "customer_email_forwarding_confirmation_opened",
             team_id=team.id,
             config_id=config.id,
             user_id=user.id,

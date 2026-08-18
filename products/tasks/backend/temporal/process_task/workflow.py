@@ -128,6 +128,15 @@ def _is_dead_sandbox_failure(error: BaseException) -> bool:
     return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
 
 
+def _failure_error_type(cause: BaseException | None, exc: Exception) -> str:
+    cause_type = getattr(cause, "type", None)
+    if isinstance(cause_type, temporalio.exceptions.TimeoutType):
+        return cause_type.name.lower()
+    if isinstance(cause_type, str) and cause_type:
+        return cause_type
+    return type(exc).__name__
+
+
 def _message_dedupe_key(
     message_id: str,
     actor_user_id: int | None,
@@ -1123,7 +1132,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # the UI show the persisted message, so surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
             cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else None)
-            error_type = getattr(cause, "type", None) or type(e).__name__
+            error_type = _failure_error_type(cause, e)
             error_message = truncate_error_message(cause_message or str(e))
             if self._context:
                 if self._current_progress_step is not None:
@@ -2218,7 +2227,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CreateResumeSnapshotInput(
                     sandbox_id=sandbox_id,
                     run_id=self.context.run_id,
-                    use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                     reason=reason,
                     allow_pruning=allow_pruning,
                 ),
