@@ -6167,7 +6167,7 @@ snapshots:
     scenes-app-experiments--experiment-with-funnel-metric--dark:
         hash: v1.k794b7964.fd0d0ad7569f50079a322a8901513f854823ce694796a2a24a1e6714ac9c5902.fBtAQkm1LZ7xYp6DTXoQSDqDFjsUkxMCP-aNAZJ1Fmc
     scenes-app-experiments--experiment-with-funnel-metric--light:
-        hash: v1.k794b7964.a608f24a82fc56569fb7029e98bab3121baa3fd6c5c63492fe9952aa6a43afc5.ZgTLiUZPjDNcaChht0ijSp2F7HoqRkdn__-6JKI7p4A
+        hash: v1.k794b7964.7b31570283b2f9dcb07ca30e6868c131003193c9084e2e96ad2af1e30647dc3c.CdVfMa3nRlO2awUSwS9T0P6PEh2x-dmAX8NSpCpgw94
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
         hash: v1.k794b7964.6503cdfd33ae5f9d525d14dc8d43b047e8469beca7e5e489534347904efe1dec.2CtGz-wQvIwr_SQDthwlGJI5bVcJ7bFpetJricY-Lps
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
@@ -6576,6 +6576,10 @@ snapshots:
         hash: v1.k794b7964.748be85b9907181d7eb082c40e4d4f93429073c22a34fd3ad19f010006856b4d.m6AmUOQ3eZ_Le5wuOhR7RCAT_xVrzvZJSHptyYmtTpM
     scenes-app-inbox-signalsourcespanel--tools-on-no-recent-data--light:
         hash: v1.k794b7964.ace77adbc25963a6ba9f41c77744f726165855b31c0e4486bc5fbbeeec55250f.vWRUFUczQF3fmjvF_LizkGQaBK-ddzgEIjTB8sJEFro
+    scenes-app-inbox-sourcesteeringmodal--legacy-posture--dark:
+        hash: v1.k794b7964.d8a52379e95bb0cabff2ab1ad8a4620d0f3ac91394cc057577f9a5c69cafb4d2.H8ZYcq__eOG2AMAmV26hDVqVtTuDsPY5dzZN1CkuwQk
+    scenes-app-inbox-sourcesteeringmodal--legacy-posture--light:
+        hash: v1.k794b7964.bf6f6091990326ba00969cbad23e873bce5d3454c23111851dd88249c0d66388.qFVcrcxTGmorg5nQtAU773MYkXSNFjLIcon6iS2aKlI
     scenes-app-inbox-sourcesteeringmodal--no-rules-yet--dark:
         hash: v1.k794b7964.a7e61e9e66ce92ec6002a2afab91836f3235de74eef26c450d7dafcc2da0e1c8.G6Jfi1ua7U3QyXzOg127Twg1h1nelaWDcZR13zTzs1s
     scenes-app-inbox-sourcesteeringmodal--no-rules-yet--light:
@@ -7457,9 +7461,9 @@ snapshots:
     scenes-app-sessionattributionexplorer--session-attribution-explorer--light:
         hash: v1.k794b7964.001061d4b295c8f6027e5e0a7316a65883e6c0e08277ae097d3a38d64338795d.CGXqBM7ryEQypLc9SCN1GLFuIXXf0AnFxiwLLaXeFhY
     scenes-app-settings-authentication-domains--boost-needs-upgrade--dark:
-        hash: v1.k794b7964.d2354aea8e40abfcfeb18691d15e48abc24724460dbc0118185c750d3f8ce6d1.hd_A7ve1fnL_3LEtdoDKSxqRHrLXH_6hpuXK1o1q6yY
+        hash: v1.k794b7964.0d0269acc50353c6896d712631324ccb4b7e972c4ff6efaa91def27e45efe413.8Z3CuSbci8ER7atmaVzObZX9S0cneG9iEJbbLcsIJgQ
     scenes-app-settings-authentication-domains--boost-needs-upgrade--light:
-        hash: v1.k794b7964.e3d329e84737f53476a92d2c93d7f1b252418df229158d771028c74d46818043.bhONXlHgi8Q2Fy3D78gDCNp00cYvbdRVrp46JTDdG6M
+        hash: v1.k794b7964.f2e9c2eb21a4c51655c4a3a0aa51337cfb25a148b09b2b9e287eeb8e0cb108af.t6ZC79QgERyt8zxKmk77gqilvhiKGt4Wpyo1eN3l0Fg
     scenes-app-settings-authentication-domains--enterprise-mixed--dark:
         hash: v1.k794b7964.3a79302e05dc7901dae87f7c32770b88d4fdb9e81bd889be4885bd1fb3e61efc.0-I8CGximFaHRl67GnS-U5dHTPVBFi6ewETJLCPVxKk
     scenes-app-settings-authentication-domains--enterprise-mixed--light:
