@@ -245,7 +245,7 @@ class ExperimentSummaryDataService:
                     exposure_query = ExperimentExposureQuery(
                         experiment_id=experiment_id,
                         experiment_name=experiment.name,
-                        feature_flag=feature_flag.filters,
+                        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
                         start_date=experiment.start_date.isoformat() if experiment.start_date else None,
                         end_date=experiment.end_date.isoformat() if experiment.end_date else None,
                         exposure_criteria=experiment.exposure_criteria,
@@ -294,6 +294,10 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            # The display name lives on the saved metric model, not in its query dict —
+            # without it the summary falls back to raw event names.
+            if link.saved_metric.name:
+                query = {**query, "name": link.saved_metric.name}
             metric_type = (link.metadata or {}).get("type", "primary")
             if metric_type == "primary":
                 primary_metrics.append(query)

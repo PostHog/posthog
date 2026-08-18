@@ -77,6 +77,7 @@ import {
 import { setupExternalLinkPermissionHandlers } from "./external-links";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { registerMcpSandboxProtocol } from "./protocols/mcp-sandbox";
+import { destroyQuickAskWindow, setupQuickAsk } from "./quick-ask";
 import type { AppLifecycleService } from "./services/app-lifecycle/service";
 import type { DevNetworkService } from "./services/dev-network/service";
 import { initDevToolbar } from "./services/dev-toolbar";
@@ -104,7 +105,7 @@ import {
 import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-install-guard";
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
-import { createWindow } from "./window";
+import { createWindow, onMainWindowClosed } from "./window";
 
 type FileWatcherEventsByKind = {
   [K in FileWatcherEvent["kind"]]: Extract<FileWatcherEvent, { kind: K }>;
@@ -371,6 +372,10 @@ app.whenReady().then(async () => {
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
   createWindow();
+  setupQuickAsk();
+  // The hidden quick-ask panel must not keep the app alive after the main
+  // window closes.
+  onMainWindowClosed(destroyQuickAskWindow);
 
   const wsServer = container.get<WorkspaceServerService>(
     WORKSPACE_SERVER_SERVICE,
