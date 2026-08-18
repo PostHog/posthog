@@ -480,6 +480,7 @@ def publish_source_project(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -626,6 +627,7 @@ def create_draft_version(
             prompt=prompt or None,
             created_by=created_by,
             capabilities=project.get("capabilities") or {},
+            component_meta=project.get("component"),
         )
         build = _queue_build(version)
 
@@ -795,7 +797,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             CanvasBuild.objects.for_team(team_id)
             .select_for_update()
             .filter(id=build_id)
-            .select_related("source_version")
+            .select_related("source_version", "canvas")
             .first()
         )
         if build is None:
@@ -822,7 +824,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         )
         return
 
-    diagnostics = validate_source_project(project)
+    diagnostics = validate_source_project(project, kind=build.canvas.kind)
     if has_errors(diagnostics):
         _finish_failed(build, diagnostics)
         return
