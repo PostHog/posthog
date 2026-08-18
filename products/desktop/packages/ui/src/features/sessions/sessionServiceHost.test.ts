@@ -7178,6 +7178,27 @@ describe("SessionService", () => {
       );
     });
 
+    it("keeps a non-author 404 from the previous-run fetch as its real error", async () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "failed",
+          status: "connected",
+          isTaskAuthor: false,
+        }),
+      );
+      mockAuthenticatedClient.getTaskRun.mockRejectedValue(
+        new ApiRequestError(404, "{}"),
+      );
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+
+      await expect(service.sendPrompt("task-123", "try again")).rejects.toThrow(
+        /Failed request: \[404\]/,
+      );
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+    });
+
     it("attempts automatic recovery on fatal error", async () => {
       const service = getSessionService();
       const mockSession = createMockSession({

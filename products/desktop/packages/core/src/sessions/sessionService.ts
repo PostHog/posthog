@@ -4650,38 +4650,44 @@ export class SessionService {
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
-      // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
-      updatedTask = await authCredentials.client.runTaskInCloud(
-        session.taskId,
-        previousBaseBranch,
-        {
-          adapter: runtimeOptions.adapter,
-          model: runtimeOptions.model,
-          reasoningLevel: runtimeOptions.reasoningLevel,
-          initialPermissionMode: runtimeOptions.initialPermissionMode,
-          resumeFromRunId: session.taskRunId,
-          pendingUserMessage: transport.messageText,
-          pendingUserArtifactIds:
-            artifactIds.length > 0 ? artifactIds : undefined,
-          prAuthorshipMode,
-          autoPublish: previousState.auto_publish === true || undefined,
-          rtkEnabled: this.d.settings.rtkEnabledCloud,
-          runSource: getCloudRunSource(previousState),
-          signalReportId:
-            typeof previousState.signal_report_id === "string"
-              ? previousState.signal_report_id
-              : undefined,
-        },
-      );
+      try {
+        // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
+        updatedTask = await authCredentials.client.runTaskInCloud(
+          session.taskId,
+          previousBaseBranch,
+          {
+            adapter: runtimeOptions.adapter,
+            model: runtimeOptions.model,
+            reasoningLevel: runtimeOptions.reasoningLevel,
+            initialPermissionMode: runtimeOptions.initialPermissionMode,
+            resumeFromRunId: session.taskRunId,
+            pendingUserMessage: transport.messageText,
+            pendingUserArtifactIds:
+              artifactIds.length > 0 ? artifactIds : undefined,
+            prAuthorshipMode,
+            autoPublish: previousState.auto_publish === true || undefined,
+            rtkEnabled: this.d.settings.rtkEnabledCloud,
+            runSource: getCloudRunSource(previousState),
+            signalReportId:
+              typeof previousState.signal_report_id === "string"
+                ? previousState.signal_report_id
+                : undefined,
+          },
+        );
+      } catch (error) {
+        // Only the resume call gates on authorship: non-creators of a channeled
+        // task get a 404 (not a 403) here, so on a task the app can already read
+        // it means the control gate. 404s from the upload or run fetch above
+        // mean a missing resource, so those keep their real error.
+        if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
+          throw new Error(
+            "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
+          );
+        }
+        throw error;
+      }
     } catch (error) {
       rollbackOptimisticPrompt();
-      // The backend answers non-creators of a channeled task with a 404, not
-      // a 403, so on a task the app can already read it means the control gate.
-      if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
-        throw new Error(
-          "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
-        );
-      }
       throw error;
     }
     const newRun = updatedTask.latest_run;
