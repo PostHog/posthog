@@ -95,6 +95,11 @@
             "maxLength": 160,
             "type": "string"
         },
+        "product": {
+            "description": "Billing product key to scope the alert to one product line, or blank for the organization total.",
+            "maxLength": 64,
+            "type": "string"
+        },
         "snoozed_until": {
             "anyOf": [
                 {
