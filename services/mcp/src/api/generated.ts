@@ -33287,6 +33287,11 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Column names for primary key deduplication.
+         * @nullable
+         */
+      primary_key_columns?: string[] | null;
       /** How CDC-backed tables should be exposed.
        *
        * * `consolidated` - consolidated
