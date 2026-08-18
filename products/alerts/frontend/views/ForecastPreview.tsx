@@ -4,7 +4,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { Chart } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
@@ -29,10 +29,6 @@ const FIT_QUALITY_COPY: Record<
     [ForecastFitQualityVerdictEnumApi.Unknown]: null,
 }
 
-function formatPercent(value: number | null): string | null {
-    return value == null ? null : `${Math.round(value * 100)}%`
-}
-
 function FitQualityBadge({
     fitQuality,
 }: {
@@ -42,8 +38,8 @@ function FitQualityBadge({
     if (!copy) {
         return null
     }
-    const mape = formatPercent(fitQuality.mape)
-    const coverage = formatPercent(fitQuality.coverage)
+    const mape = fitQuality.mape == null ? null : percentage(fitQuality.mape, 0)
+    const coverage = fitQuality.coverage == null ? null : percentage(fitQuality.coverage, 0)
     return (
         <div className="flex flex-wrap items-center gap-2">
             <LemonTag type={copy.type}>{copy.label}</LemonTag>

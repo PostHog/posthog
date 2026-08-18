@@ -67,6 +67,11 @@ export const supportsForecast = (config: AlertConfig | null | undefined): boolea
 /** Which evaluation strategy the alert editor is configuring. */
 export type AlertMode = 'detector' | 'threshold' | 'forecast'
 
+/** The mode an alert is in, from the config it carries. Derive it here rather than at each call
+ *  site, so adding a mode cannot leave one reader behind reporting the wrong thing. */
+export const alertModeOf = (alert: { detector_config?: object | null; forecast_config?: object | null }): AlertMode =>
+    alert.forecast_config ? 'forecast' : alert.detector_config ? 'detector' : 'threshold'
+
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
 /** Quiet hours / blocked local periods; times are HH:MM in the project timezone. */

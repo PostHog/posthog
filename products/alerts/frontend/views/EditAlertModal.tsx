@@ -46,7 +46,7 @@ import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
-import { AlertMode, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
+import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
@@ -221,11 +221,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const creatingNewAlert = alertId === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
-    const alertMode: AlertMode = alertForm.forecast_config
-        ? 'forecast'
-        : alertForm.detector_config
-          ? 'detector'
-          : 'threshold'
+    const alertMode = alertModeOf(alertForm)
     const nextPlannedEvaluationStale = useMemo(
         () =>
             isNextPlannedEvaluationStale(
@@ -350,6 +346,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             supportsForecast={forecastAlertsEnabled && !isNonTimeSeriesDisplay && supportsForecast(alertForm.config)}
+            insightInterval={trendInterval}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout
             investigationAgentEnabled={investigationAgentEnabled}

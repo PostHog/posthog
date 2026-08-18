@@ -5,23 +5,23 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 import {
-    AlertCalculationInterval,
     ForecastConditionType,
     ForecastConfig,
     ForecastEngineType,
     ForecastSensitivity,
     ForecastTargetDirection,
 } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import { forecastTargetDateError, maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
 
-const HORIZON_UNIT: Record<AlertCalculationInterval, string> = {
-    [AlertCalculationInterval.REAL_TIME]: 'intervals',
-    [AlertCalculationInterval.EVERY_15_MINUTES]: 'intervals',
-    [AlertCalculationInterval.HOURLY]: 'hours',
-    [AlertCalculationInterval.DAILY]: 'days',
-    [AlertCalculationInterval.WEEKLY]: 'weeks',
-    [AlertCalculationInterval.MONTHLY]: 'months',
+/** Labels the horizon input. Keyed by the insight's interval, since that is what the horizon counts. */
+const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
+    minute: 'minutes',
+    hour: 'hours',
+    day: 'days',
+    week: 'weeks',
+    month: 'months',
 }
 
 /** Default lookahead window for a "predicted to breach" forecast, in calculation-interval units. */
@@ -43,12 +43,22 @@ export function defaultSensitivity(condition: ForecastConditionType): ForecastSe
 /** Seeds the fields a condition needs when the user switches to it, so a target starts with a date
  *  already in range rather than an empty control the save path would reject. */
 export function withConditionDefaults(config: ForecastConfig, condition: ForecastConditionType): ForecastConfig {
-    if (condition !== ForecastConditionType.TARGET_BY_DATE) {
-        return { ...config, condition }
-    }
-    return {
+    // Each condition reads a different subset, and the unread fields still reach the engine. A
+    // horizon left over from a predicted breach inflates the query window for a condition that
+    // forecasts one interval, and a band width left over from an expected-range alert silently
+    // moves when a predicted breach fires, with no control on screen showing it.
+    const next: ForecastConfig = {
         ...config,
         condition,
+        horizon: condition === ForecastConditionType.FUTURE_BREACH ? config.horizon : undefined,
+        interval_width:
+            condition === ForecastConditionType.BAND_DEVIATION ? config.interval_width : DEFAULT_INTERVAL_WIDTH,
+    }
+    if (condition !== ForecastConditionType.TARGET_BY_DATE) {
+        return next
+    }
+    return {
+        ...next,
         target_direction: config.target_direction ?? ForecastTargetDirection.AT_LEAST,
         target_date: config.target_date ?? dayjs().add(DEFAULT_TARGET_DAYS, 'day').format('YYYY-MM-DD'),
     }
@@ -77,16 +87,16 @@ function SettingHelp({ text }: { text: string }): JSX.Element {
 interface ForecastSelectorProps {
     value: ForecastConfig | null
     onChange: (config: ForecastConfig) => void
-    calculationInterval: AlertCalculationInterval
+    /** The insight's grouping interval. The horizon counts insight buckets, not check cadence. */
+    insightInterval: IntervalType | null | undefined
 }
 
-export function ForecastSelector({ value, onChange, calculationInterval }: ForecastSelectorProps): JSX.Element {
+export function ForecastSelector({ value, onChange, insightInterval }: ForecastSelectorProps): JSX.Element {
     const config = value ?? getDefaultForecastConfig()
-    const unit = HORIZON_UNIT[calculationInterval] ?? 'intervals'
-    // The backend caps how far a forecast reaches as a duration, so this ceiling moves with the
-    // insight's interval. Clamping on change stops a horizon surviving a switch to a coarser one.
-    const maxHorizon = maxHorizonForInterval(calculationInterval)
-    const targetDateError = forecastTargetDateError(config.target_date, new Date())
+    const unit = HORIZON_UNIT[insightInterval ?? 'day'] ?? 'intervals'
+    // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
+    const maxHorizon = maxHorizonForInterval(insightInterval)
+    const targetDateError = forecastTargetDateError(config.target_date, dayjs())
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LemonSelect

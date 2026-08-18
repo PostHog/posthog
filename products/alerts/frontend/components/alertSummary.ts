@@ -2,7 +2,7 @@ import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } fr
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
+import { alertModeOf, type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
 
 export interface AlertSummaryParts {
     /** What the alert watches — e.g. "value below 100" or "anomalies". Empty when unknown. */
@@ -98,7 +98,7 @@ export function buildAlertSummary(
     subscribedCount: number,
     destinationCount = 0
 ): AlertSummaryParts {
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertModeOf(alertForm)
 
     let fires = ''
     if (alertMode === 'detector') {

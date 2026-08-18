@@ -3,6 +3,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
@@ -73,6 +74,8 @@ export interface AlertDefinitionSectionProps {
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
     supportsForecast: boolean
+    /** The insight's grouping interval, which is what a forecast horizon counts in. */
+    insightInterval: IntervalType | null | undefined
     showAnomalyGuidance?: boolean
     twoColumnLayout?: boolean
     investigationAgentEnabled: boolean
@@ -101,6 +104,7 @@ export function AlertDefinitionSection({
     hogql,
     supportsAnomalyDetection,
     supportsForecast,
+    insightInterval,
     showAnomalyGuidance = false,
     twoColumnLayout = false,
     investigationAgentEnabled,
@@ -216,13 +220,13 @@ export function AlertDefinitionSection({
                 <div className="space-y-3">
                     {alertMode === 'forecast' && (
                         <ForecastSelector
+                            insightInterval={insightInterval}
                             value={alertForm.forecast_config ?? null}
                             onChange={(config) => {
                                 onSetAlertFormValue('forecast_config', config)
                                 onClearSimulation()
                                 onClearSimulationOverlay()
                             }}
-                            calculationInterval={alertForm.calculation_interval}
                         />
                     )}
 

@@ -1,13 +1,16 @@
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
-/** Index into `forecastYhat` of the first point that crosses a threshold bound, or null if none does. */
+import { hasThresholdBounds, valueBreachesBounds } from 'products/alerts/frontend/logic/alertPreviewShared'
+
+/** Index into `forecastYhat` of the first point that crosses a threshold bound, or null if none does.
+ *  The breach predicate itself comes from alertPreviewShared, which is kept in step with the
+ *  backend comparator, so the forecast preview cannot drift from what actually fires. */
 export function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresholdBounds | null): number | null {
-    if (!bounds || (bounds.lower == null && bounds.upper == null)) {
+    if (!hasThresholdBounds(bounds)) {
         return null
     }
     for (let i = 0; i < forecastYhat.length; i++) {
-        const value = forecastYhat[i]
-        if ((bounds.upper != null && value > bounds.upper) || (bounds.lower != null && value < bounds.lower)) {
+        if (valueBreachesBounds(forecastYhat[i], bounds)) {
             return i
         }
     }

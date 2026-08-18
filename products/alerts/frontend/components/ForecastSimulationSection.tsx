@@ -1,6 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { forecastTargetDateError } from 'products/alerts/frontend/logic/forecastReach'
@@ -26,7 +28,7 @@ export function ForecastSimulationSection({
 }: ForecastSimulationSectionProps): JSX.Element {
     // The endpoint rejects an out-of-range target, so block the request rather than spending a round
     // trip to surface an error the editor already knows about.
-    const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, new Date())
+    const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, dayjs())
     return (
         <div className="flex gap-2 items-center">
             <div className="flex items-center gap-1.5">

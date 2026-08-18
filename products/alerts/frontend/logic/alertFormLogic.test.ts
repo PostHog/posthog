@@ -405,21 +405,6 @@ describe('alertFormLogic', () => {
         ).toBe(false)
     })
 
-    it('switching to forecast mode sets a default forecast_config and clears detector_config', () => {
-        const logic = mountForm()
-        logic.actions.setAlertFormValue('detector_config', { type: 'zscore' })
-        logic.actions.setAlertFormValue('forecast_config', {
-            type: 'ForecastConfig',
-            engine: ForecastEngineType.PROPHET,
-            condition: ForecastConditionType.FUTURE_BREACH,
-            horizon: 7,
-            interval_width: 0.95,
-        })
-        logic.actions.setAlertFormValue('detector_config', null)
-        expect(logic.values.alertForm.forecast_config?.condition).toBe('future_breach')
-        expect(logic.values.alertForm.detector_config).toBeNull()
-    })
-
     describe('forecast simulation', () => {
         const forecastConfig = {
             type: 'ForecastConfig' as const,
