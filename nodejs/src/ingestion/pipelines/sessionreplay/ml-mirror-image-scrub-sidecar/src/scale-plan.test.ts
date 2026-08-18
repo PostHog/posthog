@@ -49,7 +49,7 @@ describe('scale-plan', () => {
     })
 
     it.each(SHAPES)('bounds the allocated tensor for %s', (_case, width, height) => {
-        // Rule 1.2: a budget on content area does not bound the tensor once a collapsed axis is padded
+        // Rule 2: a budget on content area does not bound the tensor once a collapsed axis is padded
         // up to the stride. A 100 KB PNG allocated fifteen times the budget this way.
         const { canvas } = planScales({ width, height }, LIMITS).text
 
@@ -66,7 +66,7 @@ describe('scale-plan', () => {
     })
 
     it.each(SHAPES)('holds the ratio against EVERY detector for %s', (_case, width, height) => {
-        // Rule 1.4, and the finding that motivated the weakest-detector rule: deriving from the text
+        // Rule 4, and the finding that motivated the weakest-detector rule: deriving from the text
         // detector alone gave faces 2.15x on an ordinary 1080p frame while the docs promised 3x.
         const plan = planScales({ width, height }, LIMITS)
         const required = bindingRatio()

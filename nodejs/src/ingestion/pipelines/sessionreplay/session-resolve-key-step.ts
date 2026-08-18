@@ -25,7 +25,7 @@ type ResolveKeyStepInput = {
  * mark-seen step marks it seen (safe: its tombstone outlives the seen flag) and then drops it, so a
  * deleted session isn't re-counted against the rate limit every batch.
  *
- * This step is the encryption boundary, so it obeys the integrity rule (rule 1.2 — see {@link SessionTracker}
+ * This step is the encryption boundary, so it obeys the integrity rule (rule 2 — see {@link SessionTracker}
  * class doc): it FAILS HARD rather than ever producing a keyless recording. A transient keystore failure
  * (KMS/DynamoDB) throws so the retry wrapper re-runs it. And because the session is never marked seen
  * before its key is durably generated (see {@link createMarkSeenStep}), a retry regenerates the key

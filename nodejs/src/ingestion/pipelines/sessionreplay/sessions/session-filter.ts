@@ -43,7 +43,7 @@ export interface SessionFilterConfig {
  * ## Failure policy
  *
  * This class only does rate limiting — it never influences the encryption key — so every Redis op here
- * follows rule 1.1 (see {@link SessionTracker}'s class doc): fail OPEN. On a Redis error we degrade toward
+ * follows rule 1 (see {@link SessionTracker}'s class doc): fail OPEN. On a Redis error we degrade toward
  * under-counting / under-blocking (letting sessions through), never toward over-counting or halting the
  * pipeline. Concretely: {@link isBlocked} assumes not-blocked, {@link blockSessions} keeps the block in
  * the local cache but doesn't persist it, and the in-memory token bucket in {@link handleNewSessions}
@@ -82,7 +82,7 @@ export class SessionFilter {
      * Block sessions so all their future messages are dropped, persisting the whole set to Redis in
      * one pipelined round trip.
      *
-     * Fails open (rate-limiting rule 1.1): if Redis is unavailable, the sessions aren't persisted to the
+     * Fails open (rate-limiting rule 1): if Redis is unavailable, the sessions aren't persisted to the
      * blocklist but are still blocked locally for this consumer. The worst case is under-blocking on
      * other consumers — never over-counting, and never halting.
      *
@@ -125,7 +125,7 @@ export class SessionFilter {
      * Return which of the given sessions are blocked. Local-cache hits are answered without Redis; the
      * remaining sessions are checked in a single MGET.
      *
-     * Fails open (rate-limiting rule 1.1): if Redis is unavailable, the unknown sessions are assumed not
+     * Fails open (rate-limiting rule 1): if Redis is unavailable, the unknown sessions are assumed not
      * blocked, so a rate-limited session may slip through and record — under-enforcement, never halting.
      *
      * @returns the subset of `sessions` that are blocked (an unblocked session is simply absent)
