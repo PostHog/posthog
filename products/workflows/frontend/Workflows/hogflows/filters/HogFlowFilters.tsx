@@ -50,10 +50,8 @@ export type HogFlowFiltersProps = {
     // has no such key, so a group-based wait could never be woken and would only ever time out.
     // Used by wait conditions to keep them constrained to matcher-observable signals.
     excludeGroupProperties?: boolean
-    // Offer cohort filters in the taxonomy. Only conditional_branch supports them (membership is
-    // resolved by a realtime point lookup on arrival); waits would only notice membership changes
-    // via the polling backstop, so they must not pass this. Still gated on the
-    // workflows-cohort-conditions rollout flag, which the save path checks too.
+    // Offer cohort filters. Only conditional_branch may pass this: waits have no membership
+    // wake stream, so a cohort wait would only ever advance via the polling backstop.
     includeCohorts?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
