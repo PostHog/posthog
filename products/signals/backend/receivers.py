@@ -60,6 +60,8 @@ def mark_report_canvas_collaborative_from_version(
     # stamps its task). That is a direct edit and always claims the canvas. A version stamped with
     # this session's own generation task is the pipeline republishing, so it is excluded.
     if instance.task_id is not None:
+        if canvases.filter(generation_task_id=instance.task_id).exists():
+            return
         report_ids = canvases.values("report_id")
         task_model = apps.get_model("tasks", "Task")
         is_report_generation = task_model.objects.filter(
