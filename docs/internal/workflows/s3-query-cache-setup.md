@@ -21,10 +21,10 @@ Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CA
 
 ## Required S3 lifecycle rule
 
-One rule scoped to the `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` prefix (`query_cache/` by default): expire objects after `CACHED_RESULTS_TTL_DAYS` (7) days.
-The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated and managed in posthog-cloud-infra, `terraform/modules/s3/main.tf` (`enable_query_cache_lifecycle`).
+One rule: expire objects after `CACHED_RESULTS_TTL_DAYS` (7) days.
+The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated to this cache, so their rule is bucket-wide; it is managed in posthog-cloud-infra, `terraform/modules/s3/main.tf` (`enable_query_cache_lifecycle`).
 
-**Always scope the rule to the prefix.** `QUERY_CACHE_S3_BUCKET` falls back to the shared `OBJECT_STORAGE_BUCKET` when unset, and an unscoped expiry rule there would also delete exports, media uploads, and error-tracking source maps.
+**On a shared bucket, scope the rule to the `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` prefix** (`query_cache/` by default). `QUERY_CACHE_S3_BUCKET` falls back to the shared `OBJECT_STORAGE_BUCKET` when unset, and a bucket-wide expiry rule there would also delete exports, media uploads, and error-tracking source maps.
 
 **If `CACHED_RESULTS_TTL_DAYS` is ever raised, raise the bucket rule first**, otherwise S3 deletes blobs while their Redis pointers still live and large cache entries silently expire early. Lowering the setting is safe: blobs then just outlive their pointers by a few days before GC.
 
