@@ -7,7 +7,13 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
-from products.alerts.backend.forecasting.engine import ForecastResult, get_forecast_engine
+from products.alerts.backend.forecasting.engine import (
+    MAX_FORECAST_REACH_DAYS,
+    ForecastResult,
+    forecast_reach_days,
+    get_forecast_engine,
+    horizon_for_target_date,
+)
 
 
 def _daily_dates(n: int) -> list[str]:
@@ -88,3 +94,38 @@ class TestProphetEngine:
         assert with_history.history_upper is not None and len(with_history.history_upper) == len(values)
         # Dropping the history rows must not move the forecast itself.
         assert len(with_history.dates) == len(without.dates) == 7
+
+
+class TestForecastReach:
+    @parameterized.expand(
+        [
+            ("daily", IntervalType.DAY, datetime.date(2026, 3, 31), 30),
+            ("weekly", IntervalType.WEEK, datetime.date(2026, 3, 31), 5),
+            ("monthly", IntervalType.MONTH, datetime.date(2026, 6, 1), 4),
+            ("hourly", IntervalType.HOUR, datetime.date(2026, 3, 3), 48),
+            ("none_defaults_to_daily", None, datetime.date(2026, 3, 31), 30),
+        ]
+    )
+    def test_horizon_for_target_date(self, _name, interval, target, expected) -> None:
+        assert horizon_for_target_date(target, interval, datetime.date(2026, 3, 1)) == expected
+
+    def test_horizon_rejects_a_past_date(self) -> None:
+        with pytest.raises(ValueError, match="in the future"):
+            horizon_for_target_date(datetime.date(2026, 2, 1), IntervalType.DAY, datetime.date(2026, 3, 1))
+
+    def test_horizon_rejects_a_date_beyond_the_cap(self) -> None:
+        with pytest.raises(ValueError, match="within 6 months"):
+            horizon_for_target_date(datetime.date(2027, 3, 1), IntervalType.DAY, datetime.date(2026, 3, 1))
+
+    @parameterized.expand(
+        [
+            # The same cap now binds the interval-count horizon the other two conditions use, so
+            # 30 stops meaning 30 days on one insight and 2.5 years on another.
+            ("30 days is fine", 30, IntervalType.DAY, True),
+            ("30 weeks reaches 7 months", 30, IntervalType.WEEK, False),
+            ("30 months reaches 2.5 years", 30, IntervalType.MONTH, False),
+            ("6 months of weeks is fine", 26, IntervalType.WEEK, True),
+        ]
+    )
+    def test_forecast_reach_days_bounds_every_condition(self, _name, horizon, interval, within_cap) -> None:
+        assert (forecast_reach_days(horizon, interval) <= MAX_FORECAST_REACH_DAYS) is within_cap

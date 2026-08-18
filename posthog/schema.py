@@ -5195,7 +5195,8 @@ class ForecastConfig(BaseModel):
         default=None,
         description=(
             "How many future intervals to forecast when checking for a threshold breach"
-            " (future_breach only). Default 7, max 30."
+            " (future_breach only). Default 7. The forecast can reach at most 6 months"
+            " ahead, so the limit depends on the insight's interval."
         ),
     )
     interval_width: float | None = Field(

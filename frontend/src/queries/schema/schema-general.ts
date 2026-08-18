@@ -6105,7 +6105,7 @@ export interface ForecastConfig {
     type: 'ForecastConfig'
     engine: ForecastEngineType
     condition: ForecastConditionType
-    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30. */
+    /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval. */
     horizon?: integer
     /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
     interval_width?: number

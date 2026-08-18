@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from posthog.schema import InsightThreshold, IntervalType, TrendsQuery
+from posthog.schema import ForecastConfig, InsightThreshold, IntervalType, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -22,6 +22,7 @@ from products.alerts.backend.forecasting.engine import (
     ForecastResult,
     get_forecast_engine,
     min_forecast_points,
+    validate_forecast_horizon_and_width,
     validate_forecast_interval,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -273,6 +274,7 @@ def simulate_forecast_on_insight(
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     validate_forecast_interval(trends_query.interval)
+    validate_forecast_horizon_and_width(ForecastConfig.model_validate(forecast_config), trends_query.interval)
 
     ctx = SimulationContext(
         team=team, extractor_config=forecast_config, user=user, series_index=series_index, date_from=date_from

@@ -68,8 +68,8 @@ from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
-    validate_forecast_horizon_and_width,
 )
+from products.alerts.backend.forecasting.engine import validate_forecast_horizon_and_width
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
