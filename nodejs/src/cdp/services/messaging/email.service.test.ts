@@ -250,6 +250,33 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
             })
+
+            it('uses and logs the sender selected for this workflow invocation', async () => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 4,
+                    kind: 'email',
+                    config: {
+                        email: 'second@posthog.com',
+                        name: 'Second Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                invocation.id = 'invocation-0'
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, integrationIds: [1, 4] },
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Second Sender" <second@posthog.com>')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Email sent to test@example.com from Second Sender <second@posthog.com>'
+                )
+            })
         })
         describe('from overrides', () => {
             it.each<[string, { email?: string; name?: string }, string, string]>([

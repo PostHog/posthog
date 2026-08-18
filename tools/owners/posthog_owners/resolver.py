@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
@@ -18,6 +19,43 @@ from .schema import UNSET, OwnersFile, _Unset, parse_owners_file, parse_product_
 
 OWNERS_FILENAME = "owners.yaml"
 PRODUCT_FILENAME = "product.yaml"
+
+
+@dataclass(frozen=True)
+class TeamChannel:
+    """Where a team's Slack messages go, and how that was decided.
+
+    ``declared`` separates an explicit ``teams:`` entry from the derived ``#<slug>``: a caller
+    routing real messages usually treats a declaration as a decision to honor and a derivation as
+    a guess to verify, and cannot tell them apart from ``channel`` alone.
+    """
+
+    channel: str | None
+    declared: bool
+
+
+def team_channel(slug: str, teams: Mapping[str, str | bool]) -> TeamChannel:
+    """The Slack channel for a team slug: its registry entry, else the derived ``#<slug>``.
+
+    A registry entry of ``false`` declares that the team has no channel, which is different from
+    having no entry — the first is an answer, the second is a fallback.
+    """
+    if slug in teams:
+        entry = teams[slug]
+        # Schema only admits `slack: false`; any bool means "no channel".
+        return TeamChannel(channel=entry if isinstance(entry, str) else None, declared=True)
+    return TeamChannel(channel=f"#{slug}", declared=False)
+
+
+def teams_registry(text: str) -> dict[str, str | bool]:
+    """The root ``owners.yaml``'s ``teams:`` registry, from the file's raw contents.
+
+    For callers holding the bytes rather than a checkout; ``OwnersResolver`` reads it off disk
+    itself. An unusable document yields an empty registry rather than raising, so a malformed root
+    file degrades to derived channels instead of declaring that no team has one.
+    """
+    parsed, _errors = parse_owners_file(text, path=Path(OWNERS_FILENAME), directory="")
+    return dict(parsed.teams) if parsed is not None else {}
 
 
 @dataclass
@@ -219,13 +257,7 @@ class OwnersResolver:
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            primary = owners[0]
-            registry = self._teams_registry()
-            if primary in registry:
-                entry = registry[primary]
-                # Schema only admits `slack: false`; any bool means "no channel".
-                return entry if isinstance(entry, str) else None
-            return f"#{primary}"
+            return team_channel(owners[0], self._teams_registry()).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:
