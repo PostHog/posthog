@@ -71,16 +71,23 @@ export function resolveRightPanelSide({
  * seen, so opening a run that finished last week doesn't announce its files as
  * new. A panel already showing artifacts keeps up with them, so the mark can
  * never appear behind an open list.
+ *
+ * Until `ready`, the count has no manifest source behind it and reads as zero.
+ * Taking that zero as seen would make the real files look new the moment they
+ * load, so an unready count is neither taken as seen nor allowed to mark.
  */
 export function resolveArtifactMark({
   count,
   seen,
   isShowingArtifacts,
+  ready,
 }: {
   count: number;
   seen: number | undefined;
   isShowingArtifacts: boolean;
+  ready: boolean;
 }): { markSeen: boolean; hasNew: boolean } {
+  if (!ready) return { markSeen: false, hasNew: false };
   if (seen === undefined || isShowingArtifacts) {
     return { markSeen: true, hasNew: false };
   }
