@@ -70,7 +70,7 @@ export function MetricBreakdowns({
                                         <strong>Last touchpoint</strong>: value at the user's last step
                                     </li>
                                     <li>
-                                        <strong>All steps</strong>: behaves like first touchpoint
+                                        <strong>All steps</strong>: The property value must appear on all steps
                                     </li>
                                     {(metric as ExperimentFunnelMetric).funnel_order_type ===
                                     StepOrderValue.UNORDERED ? (
