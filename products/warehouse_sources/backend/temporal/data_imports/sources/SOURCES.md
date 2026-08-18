@@ -512,6 +512,7 @@ the row lists both.
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| power_bi_admin                   | HTTP                        | requests                                                        | ✅                          |
 | prefect_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
@@ -1238,7 +1239,6 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
-- power_bi_admin
 - practicepanther
 - preset
 - prestashop
