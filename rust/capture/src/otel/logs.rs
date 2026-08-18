@@ -1,3 +1,4 @@
+use metrics::counter;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::logs::v1::LogRecord;
 use prost::Message;
@@ -67,6 +68,11 @@ pub fn expand_into_events(
                     .len()
                     + event.event_name.len()
                     + event.distinct_id.len();
+                if event_bytes > super::MAX_EXPANDED_AI_EVENT_BYTES_PER_EVENT {
+                    counter!("capture_ai_otel_evaluation_records_dropped", "reason" => "expanded_size")
+                        .increment(1);
+                    continue;
+                }
                 expanded_bytes = expanded_bytes.checked_add(event_bytes).ok_or_else(|| {
                     CaptureError::RequestParsingError(
                         "Expanded evaluation events exceed the byte limit".to_string(),
@@ -324,6 +330,28 @@ mod tests {
 
         assert_eq!(events[0].properties["$ai_evaluation_result"], 0.9);
         assert_eq!(events[0].properties["$ai_evaluation_result_type"], "number");
+    }
+
+    #[test]
+    fn drops_oversized_evaluation_without_dropping_valid_sibling() {
+        let oversized_value = "x".repeat(super::super::MAX_EXPANDED_AI_EVENT_BYTES_PER_EVENT);
+        let oversized = LogRecord {
+            attributes: vec![
+                string_attribute(EVALUATION_NAME, "oversized"),
+                double_attribute(SCORE_VALUE, 0.9),
+                string_attribute("large.attribute", &oversized_value),
+            ],
+            ..evaluation_record()
+        };
+        let mut request = request(oversized);
+        request.resource_logs[0].scope_logs[0]
+            .log_records
+            .push(evaluation_record());
+
+        let events = expand_into_events(&request, "fallback").unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].properties["$ai_evaluation_name"], "correctness");
     }
 
     #[test]

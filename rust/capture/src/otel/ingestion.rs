@@ -225,7 +225,7 @@ fn count_resource_nodes(
     node_count: &mut usize,
     node_limit: usize,
 ) -> Result<(), CaptureError> {
-    count_repeated_key_values(resource, 1, node_count, node_limit)
+    count_repeated_key_values(resource, 1, node_count, node_limit, 0)
 }
 
 fn count_instrumentation_scope_nodes(
@@ -233,7 +233,7 @@ fn count_instrumentation_scope_nodes(
     node_count: &mut usize,
     node_limit: usize,
 ) -> Result<(), CaptureError> {
-    count_repeated_key_values(scope, 3, node_count, node_limit)
+    count_repeated_key_values(scope, 3, node_count, node_limit, 0)
 }
 
 fn count_log_record_nodes(
@@ -248,10 +248,10 @@ fn count_log_record_nodes(
             (5, prost::encoding::WireType::LengthDelimited) => {
                 increment_log_node_count(node_count, node_limit)?;
                 let mut body = take_message(record).map_err(invalid_logs_protobuf)?;
-                count_any_value_nodes(&mut body, node_count, node_limit)?;
+                count_any_value_nodes(&mut body, node_count, node_limit, 0)?;
             }
             (6, prost::encoding::WireType::LengthDelimited) => {
-                count_key_value_field(record, node_count, node_limit)?;
+                count_key_value_field(record, node_count, node_limit, 0)?;
             }
             _ => skip_protobuf_field(wire_type, tag, record)?,
         }
@@ -264,12 +264,13 @@ fn count_repeated_key_values(
     attribute_tag: u32,
     node_count: &mut usize,
     node_limit: usize,
+    depth: usize,
 ) -> Result<(), CaptureError> {
     while message.has_remaining() {
         let (tag, wire_type) =
             prost::encoding::decode_key(message).map_err(invalid_logs_protobuf)?;
         if tag == attribute_tag && wire_type == prost::encoding::WireType::LengthDelimited {
-            count_key_value_field(message, node_count, node_limit)?;
+            count_key_value_field(message, node_count, node_limit, depth)?;
         } else {
             skip_protobuf_field(wire_type, tag, message)?;
         }
@@ -281,6 +282,7 @@ fn count_key_value_field(
     message: &mut &[u8],
     node_count: &mut usize,
     node_limit: usize,
+    depth: usize,
 ) -> Result<(), CaptureError> {
     increment_log_node_count(node_count, node_limit)?;
     let mut key_value = take_message(message).map_err(invalid_logs_protobuf)?;
@@ -289,7 +291,7 @@ fn count_key_value_field(
             prost::encoding::decode_key(&mut key_value).map_err(invalid_logs_protobuf)?;
         if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
             let mut value = take_message(&mut key_value).map_err(invalid_logs_protobuf)?;
-            count_any_value_nodes(&mut value, node_count, node_limit)?;
+            count_any_value_nodes(&mut value, node_count, node_limit, depth)?;
         } else {
             skip_protobuf_field(wire_type, tag, &mut key_value)?;
         }
@@ -301,17 +303,19 @@ fn count_any_value_nodes(
     value: &mut &[u8],
     node_count: &mut usize,
     node_limit: usize,
+    depth: usize,
 ) -> Result<(), CaptureError> {
+    ensure_log_nesting_depth(depth)?;
     while value.has_remaining() {
         let (tag, wire_type) = prost::encoding::decode_key(value).map_err(invalid_logs_protobuf)?;
         match (tag, wire_type) {
             (5, prost::encoding::WireType::LengthDelimited) => {
                 let mut array = take_message(value).map_err(invalid_logs_protobuf)?;
-                count_repeated_any_values(&mut array, node_count, node_limit)?;
+                count_repeated_any_values(&mut array, node_count, node_limit, depth + 1)?;
             }
             (6, prost::encoding::WireType::LengthDelimited) => {
                 let mut list = take_message(value).map_err(invalid_logs_protobuf)?;
-                count_repeated_key_values(&mut list, 1, node_count, node_limit)?;
+                count_repeated_key_values(&mut list, 1, node_count, node_limit, depth + 1)?;
             }
             _ => skip_protobuf_field(wire_type, tag, value)?,
         }
@@ -323,13 +327,14 @@ fn count_repeated_any_values(
     array: &mut &[u8],
     node_count: &mut usize,
     node_limit: usize,
+    depth: usize,
 ) -> Result<(), CaptureError> {
     while array.has_remaining() {
         let (tag, wire_type) = prost::encoding::decode_key(array).map_err(invalid_logs_protobuf)?;
         if tag == 1 && wire_type == prost::encoding::WireType::LengthDelimited {
             increment_log_node_count(node_count, node_limit)?;
             let mut value = take_message(array).map_err(invalid_logs_protobuf)?;
-            count_any_value_nodes(&mut value, node_count, node_limit)?;
+            count_any_value_nodes(&mut value, node_count, node_limit, depth)?;
         } else {
             skip_protobuf_field(wire_type, tag, array)?;
         }
@@ -371,6 +376,7 @@ fn ensure_json_log_record_limit(body: &[u8], node_limit: usize) -> Result<(), Ca
     JsonBudgetSeed {
         node_count: &mut node_count,
         node_limit,
+        depth: 0,
     }
     .deserialize(&mut deserializer)
     .map_err(|error| CaptureError::RequestParsingError(format!("Invalid JSON: {error}")))?;
@@ -390,9 +396,20 @@ fn increment_log_node_count(node_count: &mut usize, node_limit: usize) -> Result
     Ok(())
 }
 
+fn ensure_log_nesting_depth(depth: usize) -> Result<(), CaptureError> {
+    if depth > super::MAX_RAW_OTEL_LOG_NESTING_DEPTH {
+        return Err(CaptureError::RequestParsingError(format!(
+            "OTLP log nesting depth exceeds limit of {}",
+            super::MAX_RAW_OTEL_LOG_NESTING_DEPTH
+        )));
+    }
+    Ok(())
+}
+
 struct JsonBudgetSeed<'a> {
     node_count: &'a mut usize,
     node_limit: usize,
+    depth: usize,
 }
 
 impl<'de> DeserializeSeed<'de> for JsonBudgetSeed<'_> {
@@ -402,9 +419,16 @@ impl<'de> DeserializeSeed<'de> for JsonBudgetSeed<'_> {
     where
         D: Deserializer<'de>,
     {
+        if self.depth > super::MAX_RAW_OTEL_LOG_NESTING_DEPTH {
+            return Err(serde::de::Error::custom(format!(
+                "OTLP log nesting depth exceeds limit of {}",
+                super::MAX_RAW_OTEL_LOG_NESTING_DEPTH
+            )));
+        }
         deserializer.deserialize_any(JsonBudgetVisitor {
             node_count: self.node_count,
             node_limit: self.node_limit,
+            depth: self.depth,
         })
     }
 }
@@ -412,6 +436,7 @@ impl<'de> DeserializeSeed<'de> for JsonBudgetSeed<'_> {
 struct JsonBudgetVisitor<'a> {
     node_count: &'a mut usize,
     node_limit: usize,
+    depth: usize,
 }
 
 impl<'de> Visitor<'de> for JsonBudgetVisitor<'_> {
@@ -428,6 +453,7 @@ impl<'de> Visitor<'de> for JsonBudgetVisitor<'_> {
         while let Some(()) = sequence.next_element_seed(JsonBudgetSeed {
             node_count: self.node_count,
             node_limit: self.node_limit,
+            depth: self.depth + 1,
         })? {
             increment_log_node_count(self.node_count, self.node_limit)
                 .map_err(serde::de::Error::custom)?;
@@ -445,6 +471,7 @@ impl<'de> Visitor<'de> for JsonBudgetVisitor<'_> {
             map.next_value_seed(JsonBudgetSeed {
                 node_count: self.node_count,
                 node_limit: self.node_limit,
+                depth: self.depth + 1,
             })?;
         }
         Ok(())
@@ -669,6 +696,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_logs_json_rejects_excessive_nesting_depth() {
+        let mut value = serde_json::json!({"stringValue": "leaf"});
+        for _ in 0..=super::super::MAX_RAW_OTEL_LOG_NESTING_DEPTH {
+            value = serde_json::json!({"arrayValue": {"values": [value]}});
+        }
+        let body = Bytes::from(serde_json::to_vec(&value).unwrap());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 3000).unwrap_err();
+
+        assert!(error.to_string().contains("nesting depth exceeds"));
+    }
+
+    #[test]
     fn test_parse_logs_json_rejects_too_many_empty_scope_containers() {
         let body = Bytes::from(
             serde_json::to_vec(&serde_json::json!({
@@ -814,6 +856,37 @@ mod tests {
         let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
 
         assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_protobuf_rejects_excessive_nesting_depth() {
+        let mut value = AnyValue::default();
+        for _ in 0..=super::super::MAX_RAW_OTEL_LOG_NESTING_DEPTH {
+            value = AnyValue {
+                value: Some(any_value::Value::ArrayValue(ArrayValue {
+                    values: vec![value],
+                })),
+            };
+        }
+        let request = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(Resource {
+                    attributes: vec![KeyValue {
+                        key: "nested".to_string(),
+                        value: Some(value),
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        };
+        let body = Bytes::from(request.encode_to_vec());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 3000).unwrap_err();
+
+        assert!(error.to_string().contains("nesting depth exceeds"));
     }
 
     #[test]
