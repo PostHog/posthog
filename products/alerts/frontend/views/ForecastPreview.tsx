@@ -13,7 +13,7 @@ import {
     ForecastFitQualityVerdictEnumApi,
 } from 'products/alerts/frontend/generated/api.schemas'
 
-import { findFirstCrossing } from './forecastPreviewUtils'
+import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
 import { formatSimDate } from './SimulationSummary'
 
 Chart.register(annotationPlugin)
@@ -206,6 +206,7 @@ export function ForecastPreview({
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
     const crossingIndex = hasBounds ? findFirstCrossing(result.forecast_yhat, thresholdBounds) : null
     const deviation = result.latest_deviation
+    const projection = result.target_projection
 
     return (
         <div className="space-y-2">
@@ -216,7 +217,13 @@ export function ForecastPreview({
                 crossingIndex={crossingIndex}
             />
             <div className="text-sm text-muted">
-                {hasBounds ? (
+                {projection ? (
+                    <span>
+                        {targetSummary(projection)}. Projected {humanFriendlyNumber(projection.predicted)} on{' '}
+                        {formatSimDate(projection.target_date)} against a target of{' '}
+                        {humanFriendlyNumber(projection.target)}.
+                    </span>
+                ) : hasBounds ? (
                     crossingIndex != null ? (
                         <span>
                             Predicted to cross the threshold on {formatSimDate(result.forecast_dates[crossingIndex])}

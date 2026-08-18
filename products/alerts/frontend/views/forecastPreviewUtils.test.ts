@@ -1,4 +1,4 @@
-import { findFirstCrossing } from './forecastPreviewUtils'
+import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
     // The returned index drives both the chart marker and the "predicted to cross" summary date —
@@ -19,5 +19,19 @@ describe('findFirstCrossing', () => {
 
     it('returns null bounds unchanged', () => {
         expect(findFirstCrossing([1, 2, 3], null)).toBeNull()
+    })
+})
+
+describe('targetSummary', () => {
+    // The two booleans are the two crossings the backend already computed. Rendering both is what
+    // lets a user pick a sensitivity by seeing the gap rather than reasoning about credible intervals.
+    it.each([
+        ['misses both ways', true, true, 'Falls short, and misses even in the best case'],
+        ['misses on the forecast only', true, false, 'Falls short on the current forecast'],
+        ['on track', false, false, 'On track to reach the target'],
+    ])('%s', (_name, missesOnForecast, missesOnBestCase, expected) => {
+        expect(targetSummary({ misses_on_forecast: missesOnForecast, misses_on_best_case: missesOnBestCase })).toBe(
+            expected
+        )
     })
 })

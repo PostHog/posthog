@@ -13,3 +13,15 @@ export function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresh
     }
     return null
 }
+
+/** What the forecast says about a target, in one line. Both crossings are shown because the choice
+ *  between the two sensitivities is easier to make by seeing the gap than by reading about it. */
+export function targetSummary(projection: { misses_on_forecast: boolean; misses_on_best_case: boolean }): string {
+    if (projection.misses_on_best_case) {
+        return 'Falls short, and misses even in the best case'
+    }
+    if (projection.misses_on_forecast) {
+        return 'Falls short on the current forecast'
+    }
+    return 'On track to reach the target'
+}
