@@ -1,10 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema } from '~/types'
+
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -968,7 +968,7 @@ describe('sourceWizardLogic', () => {
         })
 
         it('selects every syncable table and resolves sync defaults when set', async () => {
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({
                     table: 'Customer',
                     should_sync_default: false, // proves autoConfigureTables overrides the per-table default
@@ -1001,7 +1001,7 @@ describe('sourceWizardLogic', () => {
         })
 
         it('honours should_sync_default when not set', async () => {
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({ table: 'Product', should_sync_default: false }),
             ] as ExternalDataSourceSyncSchema[])
 
@@ -1076,16 +1076,18 @@ describe('sourceWizardLogic', () => {
             // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
             // for `issues` finds nothing and the wizard bails before creating the source. The
             // payload forces should_sync on, so an unreadable row must not reach it.
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('posthog/posthog.issues'),
                 apiSchema('posthog/posthog-js.issues'),
                 apiSchema('posthog/posthog.commits'),
                 apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
             ] as ExternalDataSourceSyncSchema[])
             const create = jest
-                .spyOn(api.externalDataSources, 'create')
-                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
-            const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
+                .spyOn(generatedExternalDataSources, 'create')
+                .mockResolvedValue({ id: 'source-1' } as Awaited<
+                    ReturnType<typeof generatedExternalDataSources.create>
+                >)
+            const createWebhook = jest.spyOn(generatedExternalDataSources, 'createWebhook')
 
             const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'])
 
@@ -1114,10 +1116,10 @@ describe('sourceWizardLogic', () => {
                 [apiSchema('posthog/posthog.issues', { permission_error: 'Requires the "Issues" permission' })],
             ],
         ])('does not create the source when %s', async (_, discoveredSchemas) => {
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue(
                 discoveredSchemas as ExternalDataSourceSyncSchema[]
             )
-            const create = jest.spyOn(api.externalDataSources, 'create')
+            const create = jest.spyOn(generatedExternalDataSources, 'create')
 
             const { logic, unmount } = mountRequiredTablesWizard(['issues'])
 
@@ -1134,14 +1136,14 @@ describe('sourceWizardLogic', () => {
         it('registers the webhook before completing when a required table is webhook-synced', async () => {
             // GitHub's workflow_runs/workflow_jobs are webhook-only: without registration the
             // tables stay empty forever, while the signal reports itself as set up.
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('posthog/posthog.workflow_runs', { supports_webhooks: true }),
             ] as ExternalDataSourceSyncSchema[])
-            jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as Awaited<
-                ReturnType<typeof api.externalDataSources.create>
+            jest.spyOn(generatedExternalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as Awaited<
+                ReturnType<typeof generatedExternalDataSources.create>
             >)
             const createWebhook = jest
-                .spyOn(api.externalDataSources, 'createWebhook')
+                .spyOn(generatedExternalDataSources, 'createWebhook')
                 .mockResolvedValue({ success: true, webhook_url: 'https://example.com/webhook' })
 
             const { logic, onComplete, unmount } = mountRequiredTablesWizard(['workflow_runs'])
@@ -1157,14 +1159,14 @@ describe('sourceWizardLogic', () => {
         })
 
         it('does not complete on webhook failure, and a resubmit retries the webhook without a duplicate source', async () => {
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+            jest.spyOn(generatedExternalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('posthog/posthog.workflow_runs', { supports_webhooks: true }),
             ] as ExternalDataSourceSyncSchema[])
-            const create = jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({
+            const create = jest.spyOn(generatedExternalDataSources, 'create').mockResolvedValue({
                 id: 'source-1',
-            } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+            } as Awaited<ReturnType<typeof generatedExternalDataSources.create>>)
             const createWebhook = jest
-                .spyOn(api.externalDataSources, 'createWebhook')
+                .spyOn(generatedExternalDataSources, 'createWebhook')
                 .mockResolvedValueOnce({
                     success: false,
                     webhook_url: '',

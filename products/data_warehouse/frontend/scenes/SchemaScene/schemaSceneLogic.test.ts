@@ -1,9 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
+
+import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { schemaSceneLogic } from './schemaSceneLogic'
 
@@ -27,7 +27,7 @@ describe('schemaSceneLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.externalDataSchemas, 'get').mockResolvedValue(makeSchema())
+        jest.spyOn(generatedExternalDataSchemas, 'get').mockResolvedValue(makeSchema())
 
         logic = schemaSceneLogic({ sourceId: 'source-1', schemaId: 'schema-1' })
         logic.mount()
@@ -43,7 +43,7 @@ describe('schemaSceneLogic', () => {
 
         let resolveResync: (() => void) | null = null
         const resyncSpy = jest
-            .spyOn(api.externalDataSchemas, 'resync')
+            .spyOn(generatedExternalDataSchemas, 'resync')
             .mockReturnValue(new Promise<void>((resolve) => (resolveResync = () => resolve())))
 
         logic.actions.resyncSchema(makeSchema())
@@ -59,7 +59,7 @@ describe('schemaSceneLogic', () => {
     it('clears the loading flag even when the resync request fails', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
-        jest.spyOn(api.externalDataSchemas, 'resync').mockRejectedValue(new Error('boom'))
+        jest.spyOn(generatedExternalDataSchemas, 'resync').mockRejectedValue(new Error('boom'))
 
         logic.actions.resyncSchema(makeSchema())
         await expectLogic(logic).toFinishAllListeners()
@@ -71,7 +71,7 @@ describe('schemaSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         // Keep the request pending so the optimistic status is observable before loadSchema refetches.
-        jest.spyOn(api.externalDataSchemas, 'resync').mockReturnValue(new Promise<void>(() => {}))
+        jest.spyOn(generatedExternalDataSchemas, 'resync').mockReturnValue(new Promise<void>(() => {}))
 
         logic.actions.resyncSchema(makeSchema())
 

@@ -8,6 +8,8 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
@@ -23,7 +25,7 @@ describe('sourceManagementLogic', () => {
         logic = sourceManagementLogic()
         databaseLogic = databaseTableListLogic()
 
-        jest.spyOn(api.externalDataSources, 'list').mockResolvedValue({
+        jest.spyOn(generatedExternalDataSources, 'list').mockResolvedValue({
             results: [],
             count: 0,
             next: null,
@@ -48,7 +50,7 @@ describe('sourceManagementLogic', () => {
         ['display label', 'Google ads'],
         ['internal source_type', 'googleads'],
     ])('finds a managed source by its %s', async (_, searchTerm) => {
-        jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({
+        jest.spyOn(generatedExternalDataSources, 'wizard').mockResolvedValue({
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads' },
         } as any)
 

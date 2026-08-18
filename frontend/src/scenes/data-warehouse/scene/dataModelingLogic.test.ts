@@ -1,11 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { generatedDataModelingEdges, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 
 import { dataModelingLogic } from './dataModelingLogic'
 import type { Edge, Node } from './modeling/types'
@@ -17,7 +18,7 @@ describe('dataModelingLogic', () => {
         localStorage.clear()
         useMocks({
             get: {
-                '/api/environments/:team_id/data_modeling_dags/': {
+                '/api/projects/:team_id/data_modeling_dags/': {
                     results: [
                         {
                             id: 'dag-123',
@@ -30,10 +31,10 @@ describe('dataModelingLogic', () => {
                         },
                     ],
                 },
-                '/api/environments/:team_id/data_modeling_nodes/': { results: [] },
-                '/api/environments/:team_id/data_modeling_edges/': { results: [] },
-                '/api/environments/:team_id/data_modeling_jobs/recent/': [],
-                '/api/environments/:team_id/data_modeling_jobs/running/': [],
+                '/api/projects/:team_id/data_modeling_nodes/': { results: [] },
+                '/api/projects/:team_id/data_modeling_edges/': { results: [] },
+                '/api/projects/:team_id/data_modeling_jobs/recent/': [],
+                '/api/projects/:team_id/data_modeling_jobs/running/': [],
             },
         })
         initKeaTests()
@@ -46,8 +47,8 @@ describe('dataModelingLogic', () => {
     // The Models scene's DagsTab links here with ?dag=<id> to open a specific DAG's graph — a
     // regression here would silently send that link to the wrong (or persisted) DAG instead.
     it('selects the DAG from a ?dag= URL param and filters node/edge loads by it', async () => {
-        const nodesSpy = jest.spyOn(api.dataModelingNodes, 'list')
-        const edgesSpy = jest.spyOn(api.dataModelingEdges, 'list')
+        const nodesSpy = jest.spyOn(generatedDataModelingNodes, 'list')
+        const edgesSpy = jest.spyOn(generatedDataModelingEdges, 'list')
 
         router.actions.push(urls.dataOps('modeling', 'dag-123'))
         logic = dataModelingLogic()

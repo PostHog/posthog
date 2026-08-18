@@ -1,30 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api, { ApiError, PaginatedResponse } from 'lib/api'
+import { ApiError, PaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
 
-import { sourcesDataLogic } from '../sourcesDataLogic'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
-// Stub the default `api` export but keep the real ApiError class so both the
-// test fixtures and the loader reference the same constructor — the loader's
-// `error instanceof ApiError` guard would otherwise never match an auto-mocked
-// ApiError instance.
-jest.mock('lib/api', () => {
-    const actual = jest.requireActual('lib/api')
-    return {
-        __esModule: true,
-        ...actual,
-        default: {
-            externalDataSources: {
-                list: jest.fn(),
-                update: jest.fn(),
-                updateRevenueAnalyticsConfig: jest.fn(),
-            },
-        },
-    }
-})
+import { sourcesDataLogic } from '../sourcesDataLogic'
 
 const emptyResponse: PaginatedResponse<ExternalDataSource> = {
     results: [],
@@ -72,7 +55,7 @@ describe('sourcesDataLogic', () => {
             previous: null,
         }
 
-        jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(mockResponse)
+        jest.spyOn(generatedExternalDataSources, 'list').mockResolvedValue(mockResponse)
 
         logic.mount()
 
@@ -85,7 +68,7 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSourcesLoading: false,
             })
 
-        expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+        expect(generatedExternalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     })
 
     it.each([
@@ -93,7 +76,7 @@ describe('sourcesDataLogic', () => {
         ['network failure (no HTTP status)', new ApiError('TypeError: Failed to fetch', undefined)],
         ['aborted request', Object.assign(new Error('aborted'), { name: 'AbortError' })],
     ])('returns an empty paginated result on %s without surfacing loader failure', async (_label, error) => {
-        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(error)
+        jest.spyOn(generatedExternalDataSources, 'list').mockRejectedValue(error)
 
         logic.mount()
 

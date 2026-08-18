@@ -4,10 +4,18 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
 import api, { ApiError, PaginatedResponse } from 'lib/api'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQueryDraft } from '~/types'
+
+import {
+    warehouseSavedQueryDraftsCreate,
+    warehouseSavedQueryDraftsDestroy,
+    warehouseSavedQueryDraftsList,
+    warehouseSavedQueryDraftsPartialUpdate,
+} from 'products/data_warehouse/frontend/generated/api'
 
 import { QueryTab } from './sqlEditorLogic'
 
@@ -144,9 +152,9 @@ export const draftsLogic = kea<draftsLogicType>([
             {} as PaginatedResponse<DataWarehouseSavedQueryDraft>,
             {
                 loadDrafts: async () => {
-                    const drafts = await api.dataWarehouseSavedQueryDrafts.list()
+                    const drafts = await warehouseSavedQueryDraftsList(String(ApiConfig.getCurrentProjectId()))
 
-                    return drafts
+                    return drafts as unknown as PaginatedResponse<DataWarehouseSavedQueryDraft>
                 },
                 loadMoreDrafts: async () => {
                     if (values.draftsResponse.next) {
@@ -188,16 +196,17 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         saveAsDraft: async ({ query, viewId, tab }) => {
             try {
-                const draft = await api.dataWarehouseSavedQueryDrafts.create({
+                const draft = await warehouseSavedQueryDraftsCreate(String(ApiConfig.getCurrentProjectId()), {
                     query,
                     saved_query_id: viewId,
                     edited_history_id: tab.view?.latest_history_id,
                 })
                 lemonToast.success('Draft saved')
 
-                const newDrafts = [...values.drafts, draft]
+                const domainDraft = draft as unknown as DataWarehouseSavedQueryDraft
+                const newDrafts = [...values.drafts, domainDraft]
                 actions.setDrafts(newDrafts)
-                actions.saveAsDraftSuccess(draft, tab)
+                actions.saveAsDraftSuccess(domainDraft, tab)
             } catch (e) {
                 const apiError = e as ApiError
                 if (apiError) {
@@ -208,9 +217,14 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         updateDraft: async ({ draft }) => {
             try {
-                const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
+                const updatedDraft = await warehouseSavedQueryDraftsPartialUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    draft.id,
+                    draft
+                )
                 lemonToast.success('Draft updated')
-                const newDrafts = values.drafts.map((d) => (d.id === draft.id ? updatedDraft : d))
+                const domainDraft = updatedDraft as unknown as DataWarehouseSavedQueryDraft
+                const newDrafts = values.drafts.map((d) => (d.id === draft.id ? domainDraft : d))
                 actions.setDrafts(newDrafts)
             } catch (e) {
                 const apiError = e as ApiError
@@ -222,7 +236,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         deleteDraft: async ({ draftId, viewName }) => {
             try {
-                await api.dataWarehouseSavedQueryDrafts.delete(draftId)
+                await warehouseSavedQueryDraftsDestroy(String(ApiConfig.getCurrentProjectId()), draftId)
                 lemonToast.success('Draft deleted')
 
                 const newDrafts = values.drafts.filter((draft) => draft.id !== draftId)
@@ -237,17 +251,22 @@ export const draftsLogic = kea<draftsLogicType>([
             }
         },
         renameDraft: async ({ draftId, name }) => {
-            await api.dataWarehouseSavedQueryDrafts.update(draftId, { name })
+            await warehouseSavedQueryDraftsPartialUpdate(String(ApiConfig.getCurrentProjectId()), draftId, { name })
             actions.setDrafts(values.drafts.map((d) => (d.id === draftId ? { ...d, name } : d)))
         },
         saveOrUpdateDraft: async ({ query, viewId, draftId, activeTab }) => {
             if (draftId) {
                 try {
-                    const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draftId, {
-                        query,
-                    })
+                    const updatedDraft = await warehouseSavedQueryDraftsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        draftId,
+                        {
+                            query,
+                        }
+                    )
                     lemonToast.success('Draft updated')
-                    const newDrafts = values.drafts.map((d) => (d.id === draftId ? updatedDraft : d))
+                    const domainDraft = updatedDraft as unknown as DataWarehouseSavedQueryDraft
+                    const newDrafts = values.drafts.map((d) => (d.id === draftId ? domainDraft : d))
                     actions.setDrafts(newDrafts)
                 } catch (e) {
                     const apiError = e as ApiError
@@ -257,7 +276,9 @@ export const draftsLogic = kea<draftsLogicType>([
                     posthog.captureException(e)
                 }
             } else {
-                const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
+                const existingDrafts = (await warehouseSavedQueryDraftsList(
+                    String(ApiConfig.getCurrentProjectId())
+                )) as unknown as PaginatedResponse<DataWarehouseSavedQueryDraft>
                 const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)
 
                 if (existingDraft) {

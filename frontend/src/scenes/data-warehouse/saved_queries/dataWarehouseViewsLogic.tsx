@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiConfig } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -16,8 +16,23 @@ import {
     DataWarehouseSavedQueryIncremental,
 } from '~/types'
 
+import {
+    warehouseSavedQueryFoldersCreate,
+    warehouseSavedQueryFoldersDestroy,
+    warehouseSavedQueryFoldersList,
+    warehouseSavedQueryFoldersPartialUpdate,
+} from 'products/data_warehouse/frontend/generated/api'
+import {
+    warehouseSavedQueriesCreate,
+    warehouseSavedQueriesDestroy,
+    warehouseSavedQueriesList,
+    warehouseSavedQueriesPartialUpdate,
+    warehouseSavedQueriesRunCreate,
+} from 'products/data_warehouse/frontend/generated/api'
 import { warehouseSavedQueriesMaterializeCreate } from 'products/data_warehouse/frontend/generated/api'
+import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
+import type { DataWarehouseSavedQueryFolderApi } from '../../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
 import type { UserType } from '../../../types'
 
@@ -91,10 +106,10 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     createDataWarehouseSavedQueryFolderSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[],
         payload?: string
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[]
         payload?: string
     }
     createDataWarehouseSavedQuerySuccess: (
@@ -166,10 +181,10 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     loadDataWarehouseSavedQueryFoldersSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolderApi[],
         payload?: any
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolderApi[]
         payload?: any
     }
     materializeDataWarehouseSavedQuery: (
@@ -234,13 +249,13 @@ export interface dataWarehouseViewsLogicActions {
         errorObject?: any
     }
     updateDataWarehouseSavedQueryFolderSuccess: (
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[],
         payload?: {
             id: string
             name: string
         }
     ) => {
-        dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
+        dataWarehouseSavedQueryFolders: (DataWarehouseSavedQueryFolder | DataWarehouseSavedQueryFolderApi)[]
         payload?: {
             id: string
             name: string
@@ -354,8 +369,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
-                    const savedQueries = await api.dataWarehouseSavedQueries.list()
-                    return savedQueries.results
+                    const savedQueries = await warehouseSavedQueriesList(String(ApiConfig.getCurrentProjectId()))
+                    return savedQueries.results as unknown as DataWarehouseSavedQuery[]
                 },
                 createDataWarehouseSavedQuery: async (
                     view: Partial<DataWarehouseSavedQuery> & {
@@ -364,7 +379,10 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         dag_id?: string
                     }
                 ) => {
-                    const newView = await api.dataWarehouseSavedQueries.create(view)
+                    const newView = (await warehouseSavedQueriesCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        view as unknown as Parameters<typeof warehouseSavedQueriesCreate>[1]
+                    )) as unknown as DataWarehouseSavedQuery
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSavedView)
@@ -373,7 +391,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
                     try {
-                        await api.dataWarehouseSavedQueries.delete(viewId)
+                        await warehouseSavedQueriesDestroy(String(ApiConfig.getCurrentProjectId()), viewId)
                     } catch (error: any) {
                         // A view that's already gone is the outcome the user asked for, so treat a
                         // 404 as success. This also covers a stale list or a double-click.
@@ -395,7 +413,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         soft_update?: boolean
                     }
                 ) => {
-                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                    const newView = (await warehouseSavedQueriesPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        view.id,
+                        view as unknown as Parameters<typeof warehouseSavedQueriesPartialUpdate>[2]
+                    )) as unknown as DataWarehouseSavedQuery
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
                             return newView
@@ -409,23 +431,29 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQueryFolder[],
             {
                 loadDataWarehouseSavedQueryFolders: async () => {
-                    return await api.dataWarehouseSavedQueryFolders.list()
+                    return await warehouseSavedQueryFoldersList(String(ApiConfig.getCurrentProjectId()))
                 },
                 createDataWarehouseSavedQueryFolder: async (name: string) => {
-                    const folder = await api.dataWarehouseSavedQueryFolders.create({ name })
+                    const folder = await warehouseSavedQueryFoldersCreate(String(ApiConfig.getCurrentProjectId()), {
+                        name,
+                    })
                     lemonToast.success('Folder created')
                     return [...values.dataWarehouseSavedQueryFolders, folder].sort((a, b) =>
                         a.name.localeCompare(b.name)
                     )
                 },
                 updateDataWarehouseSavedQueryFolder: async ({ id, name }: { id: string; name: string }) => {
-                    const updatedFolder = await api.dataWarehouseSavedQueryFolders.update(id, { name })
+                    const updatedFolder = await warehouseSavedQueryFoldersPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        id,
+                        { name }
+                    )
                     return values.dataWarehouseSavedQueryFolders
                         .map((folder) => (folder.id === id ? updatedFolder : folder))
                         .sort((a, b) => a.name.localeCompare(b.name))
                 },
                 deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
-                    await api.dataWarehouseSavedQueryFolders.delete(folderId)
+                    await warehouseSavedQueryFoldersDestroy(String(ApiConfig.getCurrentProjectId()), folderId)
                     return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
                 },
             },
@@ -532,7 +560,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
-                await api.dataWarehouseSavedQueries.run(viewId, fullRefresh)
+                await warehouseSavedQueriesRunCreate(String(ApiConfig.getCurrentProjectId()), viewId, {
+                    full_refresh: !!fullRefresh,
+                })
                 lemonToast.success(fullRefresh ? 'Rebuild started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
@@ -542,7 +572,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
-                await api.dataWarehouseSavedQueries.cancel(viewId)
+                await savedQueryApi.cancel(viewId)
                 lemonToast.success('Materialization cancelled')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
@@ -555,7 +585,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 // Persist the config first so the materialization run picks it up. Same shape as the
                 // save-as-view flow, which creates the view with the config before materializing.
                 try {
-                    await api.dataWarehouseSavedQueries.update(viewId, { incremental })
+                    await warehouseSavedQueriesPartialUpdate(String(ApiConfig.getCurrentProjectId()), viewId, {
+                        incremental,
+                    })
                 } catch (error: any) {
                     // The server names the construct blocking incremental — surface it over a generic failure.
                     lemonToast.error(error?.detail || 'Failed to save incremental settings')
@@ -582,7 +614,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         revertMaterialization: async ({ viewId }) => {
             try {
-                await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
+                await savedQueryApi.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
                 // No longer materializing — drop it so the spinner stops and we don't wait for a
                 // flag that will never flip.

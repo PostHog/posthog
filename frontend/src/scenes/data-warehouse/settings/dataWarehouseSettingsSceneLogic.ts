@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +17,8 @@ import {
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+
+import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
 
 import type {
     DatabaseSchemaDataWarehouseTable,
@@ -449,7 +450,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.setEditSchemaIsLoading(true)
 
             try {
-                await api.dataWarehouseTables.updateSchema(tableId, schemaUpdates)
+                await generatedWarehouseTablesApi.updateSchema(tableId, schemaUpdates)
                 actions.refreshDatabaseSchema()
 
                 if (values.selectedRow) {
@@ -477,7 +478,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.toggleEditSchemaMode(false)
         },
         deleteDataWarehouseTable: async ({ tableId }) => {
-            await api.dataWarehouseTables.delete(tableId)
+            await generatedWarehouseTablesApi.delete(tableId)
             actions.selectRow(null)
             lemonToast.success('Table successfully deleted')
         },
