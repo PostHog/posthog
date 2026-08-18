@@ -5,7 +5,7 @@ import type { RootLogger } from "@posthog/di/logger";
 import { describe, expect, it, vi } from "vitest";
 import {
   CanvasApplicationService,
-  type CanvasGenerationGateway,
+  type CanvasCreationGateway,
   type GenerateCanvasInput,
 } from "./canvasApplicationService";
 
@@ -37,13 +37,18 @@ function makeDeps(overrides?: {
 
 function makeGateway() {
   return {
+    createCanvas: vi.fn(
+      async (_input: { channelId: string; name: string }) => ({
+        id: "dash-new",
+      }),
+    ),
     fileTask: vi.fn(async (_channelId: string, _taskId: string) => {}),
     setGenerationTask: vi.fn(
       async (_dashboardId: string, _taskId: string) => {},
     ),
     renameCanvas: vi.fn(async (_dashboardId: string, _title: string) => {}),
     onAutoNamed: vi.fn((_taskId: string, _title: string) => {}),
-  } satisfies CanvasGenerationGateway;
+  } satisfies CanvasCreationGateway;
 }
 
 function input(
@@ -160,6 +165,62 @@ describe("CanvasApplicationService", () => {
 
     expect(generateCanvasName).not.toHaveBeenCalled();
     expect(gateway.renameCanvas).not.toHaveBeenCalled();
+  });
+
+  it("creates the canvas a prompt-first session targets, then generates into it", async () => {
+    const { service, createTask } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.startCanvasFromPrompt(
+      {
+        instruction: "build a signups chart",
+        channelId: "chan-1",
+        channelName: "growth",
+        cloudRegion: "us",
+      },
+      gateway,
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      taskId: "task-1",
+      dashboardId: "dash-new",
+    });
+    expect(gateway.createCanvas).toHaveBeenCalledWith({
+      channelId: "chan-1",
+      name: "Untitled canvas",
+      templateId: "freeform",
+    });
+    expect(createTask.mock.calls[0][0].content).toContain(
+      'canvas id: "dash-new"',
+    );
+    expect(gateway.setGenerationTask).toHaveBeenCalledWith(
+      "dash-new",
+      "task-1",
+    );
+  });
+
+  it("reports a failed canvas creation without starting a run", async () => {
+    const { service, createTask } = makeDeps();
+    const gateway = makeGateway();
+    gateway.createCanvas.mockRejectedValue(new Error("offline"));
+
+    const result = await service.startCanvasFromPrompt(
+      {
+        instruction: "build a signups chart",
+        channelId: "chan-1",
+        channelName: "growth",
+        cloudRegion: "us",
+      },
+      gateway,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "create-failed",
+      error: "offline",
+    });
+    expect(createTask).not.toHaveBeenCalled();
   });
 
   it("still starts the task when recording the generation task fails", async () => {

@@ -10,6 +10,7 @@ import type {
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
+import { QUESTION_SESSION_INSTRUCTIONS } from "@posthog/core/task-detail/questionPrompt";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
@@ -19,6 +20,7 @@ import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
 } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { useStartCanvasSession } from "@posthog/ui/features/canvas/hooks/useStartCanvasSession";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -82,7 +84,7 @@ import {
 import { skillToEditorCommand } from "../../message-editor/commands";
 import { PromptHistoryDialog } from "../../message-editor/components/PromptHistoryDialog";
 import { PromptInput } from "../../message-editor/components/PromptInput";
-import { contentToXml } from "../../message-editor/content";
+import { contentToPlainText, contentToXml } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryStore";
 import type { EditorHandle } from "../../message-editor/types";
@@ -113,6 +115,11 @@ import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
+import {
+  DEFAULT_SESSION_KIND,
+  type SessionKind,
+  SessionKindSelect,
+} from "./SessionKindSelect";
 import {
   type SuggestedPrompt,
   SuggestedPromptCard,
@@ -321,6 +328,24 @@ export function TaskInput({
   const [activeReportAssociation, setActiveReportAssociation] = useState(
     reportAssociation ?? null,
   );
+
+  // What this session produces. Canvas generation files into a space, so the
+  // picker only shows on the space composer; everywhere else stays code.
+  const [sessionKind, setSessionKind] =
+    useState<SessionKind>(DEFAULT_SESSION_KIND);
+  const canPickSessionKind = !!channelId;
+  const activeSessionKind: SessionKind = canPickSessionKind
+    ? sessionKind
+    : "code";
+  const isCanvasSession = activeSessionKind === "canvas";
+  const isQuestionSession = activeSessionKind === "question";
+  const { startCanvasSession, isStartingCanvas } = useStartCanvasSession({
+    channelId: channelId ?? "",
+    channelName: channelName ?? "",
+    // Passing the key (even undefined) marks this component as the context's
+    // owner, so the hook doesn't fetch it a second time.
+    channelContext,
+  });
 
   // Channel CONTEXT.md is included by default; the chip lets the user drop it
   // from this task's prompt. Re-include whenever the source context changes
@@ -808,6 +833,11 @@ export function TaskInput({
   const currentExecutionMode =
     getCurrentModeFromConfigOptions(modeOption ? [modeOption] : undefined) ??
     modeFallback;
+  // A question is answered, never applied — plan mode is what makes that true,
+  // rather than the prompt asking the agent nicely. Both adapters accept it.
+  const executionModeForTask = isQuestionSession
+    ? "plan"
+    : currentExecutionMode;
   const currentReasoningLevel =
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
   const currentPiModel =
@@ -996,7 +1026,7 @@ export function TaskInput({
     editorIsEmpty,
     adapter,
     runtime,
-    executionMode: runtime === "pi" ? undefined : currentExecutionMode,
+    executionMode: runtime === "pi" ? undefined : executionModeForTask,
     model: taskModel,
     reasoningLevel: taskReasoningLevel,
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
@@ -1085,9 +1115,81 @@ export function TaskInput({
     sessionId,
   ]);
 
-  const submitTask = autoresearchDraft
-    ? handleAutoresearchSubmit
-    : handleSubmit;
+  // Canvas sessions don't create a repo task at all: the prompt becomes a new
+  // canvas in the space, and its generation run opens with it.
+  const handleCanvasSubmit = useCallback(async (): Promise<boolean> => {
+    const editor = editorRef.current;
+    if (!editor || isStartingCanvas) return false;
+    const content = editor.getContent();
+    const instruction = contentToPlainText(content).trim();
+    if (!instruction) return false;
+
+    track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+      action_type: "create",
+      surface: "new_task",
+      channel_id: channelId,
+    });
+    const dashboardId = await startCanvasSession({
+      instruction,
+      // Pi models don't run canvas generation; leaving these unset lets the
+      // service resolve the adapter's cloud default.
+      adapter: runtime === "pi" ? undefined : (adapter ?? undefined),
+      model: runtime === "pi" ? undefined : currentModel,
+      reasoningLevel: runtime === "pi" ? undefined : currentReasoningLevel,
+    });
+    if (!dashboardId) return false;
+
+    useDraftStore.getState().actions.setDraft(sessionId, null);
+    try {
+      editor.clear();
+    } catch {
+      // Opening the canvas can tear the editor down first.
+    }
+    return true;
+  }, [
+    adapter,
+    channelId,
+    currentModel,
+    currentReasoningLevel,
+    isStartingCanvas,
+    runtime,
+    sessionId,
+    startCanvasSession,
+  ]);
+
+  // A question rides on the normal task path; only the trailing instructions
+  // block is added, so chips and attachments in the prompt survive.
+  const handleQuestionSubmit = useCallback(async (): Promise<boolean> => {
+    const editor = editorRef.current;
+    if (!editor || !canSubmit) return false;
+    const content = editor.getContent();
+    const override: EditorContent = {
+      segments: [
+        ...content.segments,
+        { type: "text", text: `\n\n${QUESTION_SESSION_INSTRUCTIONS}` },
+      ],
+      attachments: content.attachments,
+    };
+    return handleSubmit(override);
+  }, [canSubmit, handleSubmit]);
+
+  const isBusy = isCreatingTask || isStartingCanvas;
+  // A canvas session skips the task composer's repo checks (it never has one),
+  // and neither canvas nor question offers a mode: canvas always runs
+  // unattended, a question always runs in plan mode.
+  const canSubmitSession = isCanvasSession
+    ? !editorIsEmpty && !isBusy
+    : canSubmit;
+  const hideModePicker =
+    runtime === "pi" || isCanvasSession || isQuestionSession;
+
+  const submitTask = isCanvasSession
+    ? handleCanvasSubmit
+    : isQuestionSession
+      ? handleQuestionSubmit
+      : autoresearchDraft
+        ? handleAutoresearchSubmit
+        : handleSubmit;
 
   const handleModeChange = useCallback(
     (value: string) => {
@@ -1273,39 +1375,52 @@ export function TaskInput({
                 align="center"
                 className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
-                {spaceSelector?.({ disabled: isCreatingTask })}
-                <WorkspaceModeSelect
-                  value={workspaceMode}
-                  onChange={setWorkspaceMode}
-                  selectedCloudEnvironmentId={selectedCloudEnvId}
-                  onCloudEnvironmentChange={setSelectedCloudEnvId}
-                  selectedCustomImageId={selectedCustomImageId}
-                  onCustomImageChange={setSelectedCustomImageId}
-                  size="1"
-                />
-                {allowNoRepo && (
+                {spaceSelector?.({ disabled: isBusy })}
+                {canPickSessionKind && (
+                  <SessionKindSelect
+                    value={activeSessionKind}
+                    onChange={setSessionKind}
+                    disabled={isBusy}
+                  />
+                )}
+                {/* A canvas is always generated in the cloud without a repo,
+                    so the workspace and repository chips have nothing to say. */}
+                {!isCanvasSession && (
+                  <WorkspaceModeSelect
+                    value={workspaceMode}
+                    onChange={setWorkspaceMode}
+                    selectedCloudEnvironmentId={selectedCloudEnvId}
+                    onCloudEnvironmentChange={setSelectedCloudEnvId}
+                    selectedCustomImageId={selectedCustomImageId}
+                    onCustomImageChange={setSelectedCustomImageId}
+                    size="1"
+                  />
+                )}
+                {!isCanvasSession && allowNoRepo && (
                   <TaskRepositoryChip
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
                     hasFolder={!!taskFolder}
-                    disabled={isCreatingTask}
+                    disabled={isBusy}
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
-                {!allowNoRepo && workspaceMode === "worktree" && (
-                  <EnvironmentSelector
-                    repoPath={effectiveRepoPath ?? null}
-                    value={selectedEnvironment}
-                    onChange={setSelectedEnvironment}
-                    disabled={isCreatingTask}
-                    onCreateEnvironment={() =>
-                      openSettings("environments", {
-                        repoPath: effectiveRepoPath ?? undefined,
-                      })
-                    }
-                  />
-                )}
-                {!allowNoRepo && (
+                {!isCanvasSession &&
+                  !allowNoRepo &&
+                  workspaceMode === "worktree" && (
+                    <EnvironmentSelector
+                      repoPath={effectiveRepoPath ?? null}
+                      value={selectedEnvironment}
+                      onChange={setSelectedEnvironment}
+                      disabled={isCreatingTask}
+                      onCreateEnvironment={() =>
+                        openSettings("environments", {
+                          repoPath: effectiveRepoPath ?? undefined,
+                        })
+                      }
+                    />
+                  )}
+                {!isCanvasSession && !allowNoRepo && (
                   <ButtonGroup
                     ref={buttonGroupRef}
                     data-tour="folder-picker"
@@ -1395,14 +1510,16 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!allowNoRepo && workspaceMode !== "cloud" && (
-                  <AdditionalDirectoriesButton
-                    values={additionalDirectories}
-                    onChange={setAdditionalDirectories}
-                    primaryDirectory={selectedDirectory}
-                    disabled={isCreatingTask}
-                  />
-                )}
+                {!isCanvasSession &&
+                  !allowNoRepo &&
+                  workspaceMode !== "cloud" && (
+                    <AdditionalDirectoriesButton
+                      values={additionalDirectories}
+                      onChange={setAdditionalDirectories}
+                      primaryDirectory={selectedDirectory}
+                      disabled={isCreatingTask}
+                    />
+                  )}
                 {cloudRegion === "dev" && (
                   <Flex align="center" gap="1" className="shrink-0">
                     <span
@@ -1443,19 +1560,27 @@ export function TaskInput({
                   placeholder={
                     autoresearchDraft
                       ? "Example: Reduce memory usage measured by `pnpm bench:memory` without changing behavior."
-                      : `What do you want to ship?`
+                      : isCanvasSession
+                        ? "What do you want to build?"
+                        : isQuestionSession
+                          ? "What do you want to know?"
+                          : `What do you want to ship?`
                   }
                   editorHeight="large"
-                  disabled={isCreatingTask}
-                  isLoading={isCreatingTask}
+                  disabled={isBusy}
+                  isLoading={isBusy}
                   autoFocus
                   clearOnSubmit={false}
                   submitDisabledExternal={
-                    !canSubmit ||
-                    isCreatingTask ||
+                    isBusy ||
                     !isOnline ||
-                    (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
-                    (runtime === "pi" && !currentPiModel)
+                    (isCanvasSession
+                      ? editorIsEmpty
+                      : !canSubmit ||
+                        (runtime === "pi"
+                          ? isPiConfigLoading
+                          : isPreviewLoading) ||
+                        (runtime === "pi" && !currentPiModel))
                   }
                   tourTarget="task-input"
                   submitAdornment={
@@ -1468,11 +1593,12 @@ export function TaskInput({
                     ) : undefined
                   }
                   repoPath={selectedDirectory}
-                  modeOption={runtime === "pi" ? undefined : modeOption}
-                  onModeChange={runtime === "pi" ? undefined : handleModeChange}
+                  modeOption={hideModePicker ? undefined : modeOption}
+                  onModeChange={hideModePicker ? undefined : handleModeChange}
                   allowBypassPermissions={allowBypassPermissions}
                   autoresearch={
                     runtime !== "pi" &&
+                    activeSessionKind === "code" &&
                     autoresearchService &&
                     autoresearchEnabled
                       ? {
@@ -1538,7 +1664,7 @@ export function TaskInput({
                   onEmptyChange={handleEditorEmptyChange}
                   onSubmitClick={() => void submitTask()}
                   onSubmit={() => {
-                    if (canSubmit) void submitTask();
+                    if (canSubmitSession) void submitTask();
                   }}
                 />
                 {activeReportAssociation && (

@@ -20,7 +20,8 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
-import { isPlaceholderCanvasName } from "./canvasNaming";
+import { isPlaceholderCanvasName, UNTITLED_CANVAS_NAME } from "./canvasNaming";
+import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 import { buildCanvasGenerationPrompt } from "./generationPrompt";
 
 export interface GenerateCanvasInput {
@@ -59,8 +60,26 @@ export interface CanvasGenerationGateway {
   onAutoNamed?(taskId: string, title: string): void;
 }
 
+/**
+ * A gateway that can also create the canvas the generation targets, for the
+ * surfaces where the prompt comes first and the canvas doesn't exist yet.
+ */
+export interface CanvasCreationGateway extends CanvasGenerationGateway {
+  /** Create an empty canvas in the channel and return its id. */
+  createCanvas(input: {
+    channelId: string;
+    name: string;
+    templateId: string;
+  }): Promise<{ id: string }>;
+}
+
 export type GenerateCanvasResult =
   | { ok: true; taskId: string }
+  | { ok: false; reason: "no-model" }
+  | { ok: false; reason: "create-failed"; error: string };
+
+export type StartCanvasResult =
+  | { ok: true; taskId: string; dashboardId: string }
   | { ok: false; reason: "no-model" }
   | { ok: false; reason: "create-failed"; error: string };
 
@@ -85,6 +104,39 @@ export class CanvasApplicationService {
     @inject(ROOT_LOGGER) rootLogger: RootLogger,
   ) {
     this.log = rootLogger.scope("canvas-application");
+  }
+
+  /**
+   * Create a canvas from a prompt alone and start its generation — the
+   * composer path, where the user describes a canvas before one exists. The
+   * canvas lands unnamed so generation auto-names it from the instruction.
+   */
+  async startCanvasFromPrompt(
+    input: Omit<GenerateCanvasInput, "dashboardId" | "name">,
+    gateway: CanvasCreationGateway,
+  ): Promise<StartCanvasResult> {
+    const templateId = input.templateId ?? FREEFORM_TEMPLATE_ID;
+    let dashboardId: string;
+    try {
+      const canvas = await gateway.createCanvas({
+        channelId: input.channelId,
+        name: UNTITLED_CANVAS_NAME,
+        templateId,
+      });
+      dashboardId = canvas.id;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log.error("Canvas creation failed", { error: message });
+      return { ok: false, reason: "create-failed", error: message };
+    }
+
+    // A failed generation leaves the empty canvas behind on purpose: it has its
+    // own generate bar, so the user can retry there instead of losing the prompt.
+    const result = await this.generateCanvas(
+      { ...input, dashboardId, name: UNTITLED_CANVAS_NAME, templateId },
+      gateway,
+    );
+    return result.ok ? { ...result, dashboardId } : result;
   }
 
   async generateCanvas(

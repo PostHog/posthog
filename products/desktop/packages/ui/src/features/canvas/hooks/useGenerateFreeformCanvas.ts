@@ -1,7 +1,9 @@
 import type {
   CanvasApplicationService,
+  CanvasCreationGateway,
   CanvasGenerationGateway,
 } from "@posthog/core/canvas/canvasApplicationService";
+import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import { CANVAS_APPLICATION_SERVICE } from "@posthog/core/canvas/identifiers";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -44,7 +46,8 @@ export function useGenerateFreeformCanvas(args: {
   const queryClient = useQueryClient();
   const { invalidateTasks } = useCreateTask();
   const { fileTask } = useChannelTaskMutations();
-  const { setGenerationTask, renameDashboard } = useDashboardMutations();
+  const { createDashboard, setGenerationTask, renameDashboard } =
+    useDashboardMutations();
   // The channel's CONTEXT.md, passed to the agent as optional background so the
   // generated canvas starts with the shared context. Absent/empty is fine.
   const callerOwnsContext = "channelContext" in args;
@@ -55,6 +58,114 @@ export function useGenerateFreeformCanvas(args: {
     ? args.channelContext
     : instructions?.content;
   const [isStarting, setIsStarting] = useState(false);
+
+  const buildGateway = useCallback(
+    (): CanvasCreationGateway => ({
+      createCanvas: ({ channelId: cid, name, templateId }) =>
+        createDashboard(cid, name, templateId),
+      fileTask: async (cid, taskId) => {
+        await fileTask(cid, taskId);
+      },
+      setGenerationTask: async (id, taskId) => {
+        await setGenerationTask(id, taskId);
+      },
+      renameCanvas: async (id, title) => {
+        await renameDashboard(id, title);
+      },
+      onTaskReady: (task) => invalidateTasks(task),
+      // Keep the tracked generation's name in sync so its completion toast
+      // reads the real title, not "Untitled canvas".
+      onAutoNamed: (taskId, title) =>
+        useCanvasGenerationTrackerStore.getState().updateName(taskId, title),
+    }),
+    [
+      createDashboard,
+      fileTask,
+      setGenerationTask,
+      renameDashboard,
+      invalidateTasks,
+    ],
+  );
+
+  // Refresh the workspace cache so the new cloud workspace row appears and the
+  // task view resolves the cloud run instead of the repo-picker prompt.
+  const invalidateWorkspaces = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: trpc.workspace.getAll.queryKey(),
+    });
+  }, [queryClient, trpc]);
+
+  const reportFailure = useCallback(
+    (result: { reason: string; error?: string }) => {
+      if (result.reason === "no-model") {
+        toast.error("Couldn't start canvas generation", {
+          description: "No model is configured for cloud runs.",
+        });
+        return;
+      }
+      toastError("Couldn't start canvas generation", result.error);
+    },
+    [],
+  );
+
+  /**
+   * Create a canvas from a prompt alone and start generating it — the composer
+   * path, where the user describes a canvas before one exists. Resolves to the
+   * new canvas's ids so the caller can navigate to it.
+   */
+  const startNewCanvas = useCallback(
+    async (opts: {
+      instruction: string;
+      adapter?: Adapter;
+      model?: string;
+      reasoningLevel?: string;
+      workspaceMode?: WorkspaceMode;
+    }): Promise<{ taskId: string; dashboardId: string } | null> => {
+      setIsStarting(true);
+      try {
+        const result = await canvasApplication.startCanvasFromPrompt(
+          {
+            instruction: opts.instruction,
+            channelId,
+            channelName,
+            channelContext,
+            adapter: opts.adapter,
+            model: opts.model,
+            reasoningLevel: opts.reasoningLevel,
+            workspaceMode: opts.workspaceMode,
+            cloudRegion,
+          },
+          buildGateway(),
+        );
+
+        if (!result.ok) {
+          reportFailure(result);
+          return null;
+        }
+
+        useCanvasGenerationTrackerStore.getState().track({
+          taskId: result.taskId,
+          dashboardId: result.dashboardId,
+          channelId,
+          name: UNTITLED_CANVAS_NAME,
+        });
+        invalidateWorkspaces();
+        return { taskId: result.taskId, dashboardId: result.dashboardId };
+      } finally {
+        setIsStarting(false);
+      }
+    },
+    [
+      buildGateway,
+      canvasApplication,
+      channelContext,
+      channelId,
+      channelName,
+      cloudRegion,
+      invalidateWorkspaces,
+      reportFailure,
+    ],
+  );
 
   const generate = useCallback(
     async (opts: {
@@ -74,24 +185,7 @@ export function useGenerateFreeformCanvas(args: {
       const { dashboardId, name, instruction } = opts;
       setIsStarting(true);
       try {
-        const gateway: CanvasGenerationGateway = {
-          fileTask: async (cid, taskId) => {
-            await fileTask(cid, taskId);
-          },
-          setGenerationTask: async (id, taskId) => {
-            await setGenerationTask(id, taskId);
-          },
-          renameCanvas: async (id, title) => {
-            await renameDashboard(id, title);
-          },
-          onTaskReady: (task) => invalidateTasks(task),
-          // Keep the tracked generation's name in sync so its completion toast
-          // reads the real title, not "Untitled canvas".
-          onAutoNamed: (taskId, title) =>
-            useCanvasGenerationTrackerStore
-              .getState()
-              .updateName(taskId, title),
-        };
+        const gateway: CanvasGenerationGateway = buildGateway();
 
         const result = await canvasApplication.generateCanvas(
           {
@@ -112,13 +206,7 @@ export function useGenerateFreeformCanvas(args: {
         );
 
         if (!result.ok) {
-          if (result.reason === "no-model") {
-            toast.error("Couldn't start canvas generation", {
-              description: "No model is configured for cloud runs.",
-            });
-          } else {
-            toastError("Couldn't start canvas generation", result.error);
-          }
+          reportFailure(result);
           return null;
         }
 
@@ -130,30 +218,23 @@ export function useGenerateFreeformCanvas(args: {
           channelId,
           name,
         });
-        // Refresh the workspace cache so the new cloud workspace row appears and
-        // the task view resolves the cloud run instead of the repo-picker prompt.
-        void queryClient.invalidateQueries({
-          queryKey: trpc.workspace.getAll.queryKey(),
-        });
+        invalidateWorkspaces();
         return result.taskId;
       } finally {
         setIsStarting(false);
       }
     },
     [
+      buildGateway,
       canvasApplication,
-      cloudRegion,
-      trpc,
-      queryClient,
-      invalidateTasks,
-      fileTask,
-      setGenerationTask,
-      renameDashboard,
+      channelContext,
       channelId,
       channelName,
-      channelContext,
+      cloudRegion,
+      invalidateWorkspaces,
+      reportFailure,
     ],
   );
 
-  return { generate, isStarting };
+  return { generate, startNewCanvas, isStarting };
 }
