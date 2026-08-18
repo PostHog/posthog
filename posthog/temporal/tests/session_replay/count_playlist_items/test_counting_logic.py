@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import timedelta
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -8,6 +9,8 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.schema import (
     FilterLogicalOperator,
@@ -28,6 +31,7 @@ from posthog.temporal.session_replay.count_playlist_items.counting_logic import 
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
     fetch_playlists_to_count,
+    normalize_playlist_filters,
 )
 
 
@@ -601,3 +605,17 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
         playlist_ids = fetch_playlists_to_count()
         assert playlist.id not in playlist_ids
+
+
+class TestNormalizePlaylistFilters:
+    @parameterized.expand(
+        [
+            ("invalid_filter_group", {"filter_group": "invalid"}),
+            ("invalid_filter_group_values", {"filter_group": {"values": "invalid"}}),
+        ]
+    )
+    def test_rejects_malformed_universal_filters(self, _name: str, filters: dict[str, Any]) -> None:
+        assert normalize_playlist_filters(filters) is None
+
+    def test_rejects_deeply_nested_serialized_filters(self) -> None:
+        assert normalize_playlist_filters("[" * 2000 + "0" + "]" * 2000) is None

@@ -125,13 +125,17 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
         )
 
     duration = []
-    if filters.get("session_recording_duration"):
+    session_recording_duration = filters.get("session_recording_duration")
+    if isinstance(session_recording_duration, dict):
+        duration_key = filters.get("duration_type_filter")
+        if not isinstance(duration_key, str):
+            duration_key = session_recording_duration.get("key")
+        if not isinstance(duration_key, str):
+            duration_key = "active_seconds"
         duration.append(
             {
-                **filters["session_recording_duration"],
-                "key": filters.get(
-                    "duration_type_filter", filters.get("session_recording_duration", {}).get("key", "active_seconds")
-                ),
+                **session_recording_duration,
+                "key": duration_key,
             }
         )
 

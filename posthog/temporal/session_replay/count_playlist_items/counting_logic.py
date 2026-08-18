@@ -124,17 +124,26 @@ def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
 
 def normalize_playlist_filters(playlist_filters: Any) -> dict[str, Any] | None:
     if isinstance(playlist_filters, dict):
-        return playlist_filters
-
-    if not isinstance(playlist_filters, str):
+        parsed_filters = playlist_filters
+    elif isinstance(playlist_filters, str):
+        try:
+            parsed_filters = json.loads(playlist_filters)
+        except (json.JSONDecodeError, RecursionError):
+            return None
+    else:
         return None
 
-    try:
-        parsed_filters = json.loads(playlist_filters)
-    except json.JSONDecodeError:
+    if not isinstance(parsed_filters, dict):
         return None
 
-    return parsed_filters if isinstance(parsed_filters, dict) else None
+    filter_group = parsed_filters.get("filter_group")
+    if filter_group is not None and (
+        not isinstance(filter_group, dict)
+        or ("values" in filter_group and not isinstance(filter_group["values"], list))
+    ):
+        return None
+
+    return parsed_filters
 
 
 def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:

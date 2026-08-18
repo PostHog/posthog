@@ -5,6 +5,7 @@ from parameterized import parameterized
 from posthog.schema import FilterLogicalOperator, RecordingPropertyFilter
 
 from posthog.session_recordings.playlist_filters import (
+    DEFAULT_RECORDING_FILTERS,
     convert_filters_to_recordings_query,
     convert_legacy_filters_to_universal_filters,
 )
@@ -95,3 +96,15 @@ class TestConvertLegacyFiltersToUniversalFilters(SimpleTestCase):
         filters = convert_legacy_filters_to_universal_filters({key: {"invalid": True}})
 
         assert filters["filter_group"]["values"][0]["values"] == []
+
+    def test_ignores_non_object_duration(self) -> None:
+        filters = convert_legacy_filters_to_universal_filters({"session_recording_duration": "invalid"})
+
+        assert filters["duration"] == DEFAULT_RECORDING_FILTERS["duration"]
+
+    def test_ignores_non_string_duration_type(self) -> None:
+        filters = convert_legacy_filters_to_universal_filters(
+            {"session_recording_duration": {"key": "duration"}, "duration_type_filter": {"invalid": True}}
+        )
+
+        assert filters["duration"][0]["key"] == "duration"
