@@ -87,6 +87,37 @@ export interface BillingPeriodResponseApi {
 }
 
 /**
+ * * `type` - type
+ * * `team` - team
+ * * `multiple` - multiple
+ */
+export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
+
+export const BreakdownTypeEnumApi = {
+    Type: 'type',
+    Team: 'team',
+    Multiple: 'multiple',
+} as const
+
+export interface BillingTimeSeriesPointApi {
+    id?: number
+    label?: string
+    data?: number[]
+    dates?: string[]
+    breakdown_type?: BreakdownTypeEnumApi | null
+    breakdown_value?: unknown
+}
+
+export interface BillingTimeSeriesResponseApi {
+    status?: string
+    type?: string
+    customer_id?: number
+    results: BillingTimeSeriesPointApi[]
+    team_id_options?: number[]
+    next?: string
+}
+
+/**
  * * `spend` - Spend
  * * `projected_spend` - Projected spend
  */
@@ -616,59 +647,6 @@ export interface PaginatedBillingAlertEventListApi {
     results: BillingAlertEventApi[]
 }
 
-export type BillingAlertsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BillingAlertsEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-/**
- * * `type` - type
- * * `team` - team
- * * `multiple` - multiple
- */
-export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
-
-export const BreakdownTypeEnumApi = {
-    Type: 'type',
-    Team: 'team',
-    Multiple: 'multiple',
-} as const
-
-export interface BillingTimeSeriesPointApi {
-    id?: number
-    label?: string
-    data?: number[]
-    dates?: string[]
-    breakdown_type?: BreakdownTypeEnumApi | null
-    breakdown_value?: unknown
-}
-
-export interface BillingTimeSeriesResponseApi {
-    status?: string
-    type?: string
-    customer_id?: number
-    results: BillingTimeSeriesPointApi[]
-    team_id_options?: number[]
-    next?: string
-}
-
 export type BillingSpendRetrieveParams = {
     /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
@@ -727,4 +705,26 @@ export type BillingUsageRetrieveParams = {
      * @nullable
      */
     usage_types?: string | null
+}
+
+export type BillingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type BillingAlertsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
