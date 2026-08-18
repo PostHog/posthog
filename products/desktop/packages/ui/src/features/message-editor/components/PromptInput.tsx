@@ -510,7 +510,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
         <InputGroup
           onClick={handleContainerClick}
           onContextMenu={handleContextMenu}
-          className={`${fills ? "h-full" : "h-auto"} flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
+          className={`${fills ? "h-full items-stretch" : "h-auto"} flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
           {...(tourTarget && {
             "data-tour": `${tourTarget}-editor`,
             "data-tour-ready": !isEmpty ? "true" : undefined,
@@ -539,7 +539,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               reserves the cluster's width so a long line never runs underneath
               — measured rather than fixed, because an adornment beside the
               button makes that width depend on what's in it. */}
-          <div className="relative w-full">
+          <div className={clsx("relative w-full", fills && "h-full")}>
             <div
               // Gated on the cluster existing rather than trusting the last
               // measurement: the observer's cleanup can't clear the width, so
