@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -25,7 +26,9 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 
 
-def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stack") -> TaskProcessingContext:
+def _context_for_desktop_bootstrap(
+    *, image_name: str | None = "posthog-dev-stack", warm_enabled: bool = True
+) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -37,6 +40,7 @@ def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stac
         distinct_id="distinct-id",
         state={},
         custom_image_name=image_name,
+        desktop_workspace_warm_enabled=warm_enabled,
     )
 
 
@@ -81,6 +85,19 @@ def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_f
     sandbox.execute.assert_not_called()
 
 
+def test_skips_desktop_workspace_preparation_when_warm_flag_is_off(mocker):
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
+
+    _prepare_posthog_desktop_cloud_task(
+        _context_for_desktop_bootstrap(warm_enabled=False),
+        sandbox,
+        "posthog/posthog",
+    )
+
+    sandbox.execute.assert_not_called()
+
+
 def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
     from temporalio.exceptions import ApplicationError
 
@@ -111,6 +128,16 @@ def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
 )
 def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, expected: str) -> None:
     assert _sandbox_image_kind(image_source, custom_image_name) == expected
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
+def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+    if value is None:
+        monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
+    else:
+        monkeypatch.setenv("MODAL_SANDBOX_V2", value)
+
+    assert modal_sandbox_backend_label() == expected
 
 
 @pytest.mark.asyncio

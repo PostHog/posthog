@@ -16,7 +16,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewTrigger, ReviewVerdict
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,8 @@ class RepoConfigDTO:
     enabled: bool
     installation_id: str
     digest_enabled: bool = False
+    review_mode: str = ""
+    trigger_label: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -51,10 +53,8 @@ class PullRequestDTO:
     additions: int
     deletions: int
     changed_files: int
-    audience_key: str
     merge_commit_sha: str = ""
     merged_at: datetime | None = None
-    digest_run_id: UUID | None = None
     posted_comment_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -104,13 +104,39 @@ class ReviewRunDTO:
     repository: str
     pr_number: int
     pr_url: str
+    head_branch: str
     head_sha: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
+    # Why stamphog looked at this PR at all. Derived rather than stored — see the facade's
+    # trigger helpers, which own both the derivation and the matching filter.
+    trigger: ReviewTrigger
+    title: str = ""
+    author_login: str = ""
     delivery_id: str | None = None
     gate_result: dict | None = None
     output: dict = Field(default_factory=dict)
     error: str = ""
+    posted_review_id: int | None = None
+    verdict_posted_at: datetime | None = None
+    approval_dismissed_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class RepoAlreadyClaimedError(Exception):
+    """Another team already owns this repository under this GitHub installation."""
+
+
+class DuplicateAudienceError(Exception):
+    """A digest channel for this audience already exists on the team."""
+
+
+class StamphogGitHubError(Exception):
+    """A Stamphog GitHub API call failed for a non-rate-limit reason (auth failure, unexpected status,
+    malformed response). Rate limits raise ``GitHubRateLimitError`` from the egress layer instead."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code

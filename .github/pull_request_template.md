@@ -64,6 +64,7 @@
   ✅ feat(insights): add retention graph export
   ❌ feat: Added retention export.   (capitalized, period, no scope)
 - Description: high-level rationale, not a step-by-step replay.
+- Voice: the subject of every sentence is the change, never its author. No "I", "me" or "my" anywhere in the body. "I (actually Claude)" is worse than either half: it hands the assignee an account of work they did not do. Authorship is one stated fact in the Agent context section below.
 - Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
