@@ -51332,6 +51332,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `self_driving` - SELF_DRIVING
+     * * `label` - LABEL
+     * * `all` - ALL
+     */
+    export type ReviewRunTriggerEnum = typeof ReviewRunTriggerEnum[keyof typeof ReviewRunTriggerEnum];
+
+
+    export const ReviewRunTriggerEnum = {
+      SelfDriving: 'self_driving',
+      Label: 'label',
+      All: 'all',
+    } as const;
+
+    /**
      * * `queued` - QUEUED
      * * `gated` - GATED
      * * `reviewing` - REVIEWING
@@ -51410,6 +51424,10 @@ export namespace Schemas {
       readonly pr_number: number;
       /** Full URL to the pull request on GitHub. */
       readonly pr_url: string;
+      /** Pull request title as of the last webhook delivery applied. */
+      readonly title: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
       /** Commit SHA of the PR head at the time this run started. */
       readonly head_sha: string;
       /** Branch name of the PR head. */
@@ -51419,6 +51437,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly delivery_id: string | null;
+      /** What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.
+       *
+       * * `self_driving` - SELF_DRIVING
+       * * `label` - LABEL
+       * * `all` - ALL */
+      readonly trigger: ReviewRunTriggerEnum;
       /** Current stage of the review run's lifecycle.
        *
        * * `queued` - QUEUED
@@ -51443,6 +51467,21 @@ export namespace Schemas {
       readonly output: _ReviewOutputSummary;
       /** Error message if the run failed, blank otherwise. */
       readonly error: string;
+      /**
+         * ID of the GitHub review this run posted, null if it never posted one.
+         * @nullable
+         */
+      readonly posted_review_id: number | null;
+      /**
+         * When this run's verdict reached GitHub, null if it never did.
+         * @nullable
+         */
+      readonly verdict_posted_at: string | null;
+      /**
+         * When this run's GitHub approval was retracted because the head moved, null if it wasn't.
+         * @nullable
+         */
+      readonly approval_dismissed_at: string | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -91041,7 +91080,20 @@ export namespace Schemas {
      * Filter by review run status.
      */
     status?: string;
+    /**
+     * Filter by what caused the run: self_driving, label, or all.
+     */
+    trigger?: StamphogReviewRunsListTrigger;
     };
+
+    export type StamphogReviewRunsListTrigger = typeof StamphogReviewRunsListTrigger[keyof typeof StamphogReviewRunsListTrigger];
+
+
+    export const StamphogReviewRunsListTrigger = {
+      All: 'all',
+      Label: 'label',
+      SelfDriving: 'self_driving',
+    } as const;
 
     export type StreamlitAppsListParams = {
     /**
