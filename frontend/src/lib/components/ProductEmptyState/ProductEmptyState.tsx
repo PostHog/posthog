@@ -45,17 +45,17 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const Preview = config.Preview
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
-    // One definition for both slots: the hero CTA normally, demoted to a secondary button when the
-    // wizard terminal is the hero.
+    // One definition for both slots: the lone hero CTA without a wizard, or an equal-weight
+    // alternative under the terminal card when the wizard is present.
     const primaryActionButton = config.primaryAction ? (
         <LemonButton
-            type={showWizard ? 'secondary' : 'primary'}
+            type="primary"
             to={config.primaryAction.to}
             onClick={() => {
                 captureClick('primary action clicked')
                 config.primaryAction?.onClick?.()
             }}
-            className={showWizard ? undefined : 'self-start'}
+            className="self-start"
             data-attr="product-empty-state-primary-action"
         >
             {config.primaryAction.label}
@@ -96,11 +96,23 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
                     {showWizard ? (
-                        <TerminalCard
-                            command={wizardCommand}
-                            copyLabel={`${config.productName} wizard command`}
-                            onCopy={() => captureClick('wizard command copied')}
-                        />
+                        <>
+                            <TerminalCard
+                                command={wizardCommand}
+                                copyLabel={`${config.productName} wizard command`}
+                                onCopy={() => captureClick('wizard command copied')}
+                            />
+                            {primaryActionButton ? (
+                                <>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-px flex-1 bg-border-primary" />
+                                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                                        <div className="h-px flex-1 bg-border-primary" />
+                                    </div>
+                                    {primaryActionButton}
+                                </>
+                            ) : null}
+                        </>
                     ) : primaryActionButton ? (
                         primaryActionButton
                     ) : manualUrl ? (
@@ -119,9 +131,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
                     <div className="flex items-center gap-4">
-                        {showWizard && primaryActionButton ? (
-                            primaryActionButton
-                        ) : showWizard && manualUrl ? (
+                        {showWizard && !config.primaryAction && manualUrl ? (
                             <LemonButton
                                 type="secondary"
                                 icon={<IconGear />}
