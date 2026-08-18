@@ -2,6 +2,8 @@ import uuid
 
 import pytest
 
+from django.db import OperationalError, connection
+
 from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
@@ -32,6 +34,22 @@ def _error_type(exc_info):
     return exc_info.value.details[0]["error_type"]
 
 
+# Fails the first SELECT against `table` and passes every other query through. The statement never
+# reaches Postgres, so the retry has to re-issue the real read instead of reusing whatever the
+# failed attempt left on the instance.
+class _FailFirstRead:
+    def __init__(self, table):
+        self.table = table
+        self.reads = 0
+
+    def __call__(self, execute, sql, params, many, context):
+        if sql.lstrip().startswith("SELECT") and self.table in sql:
+            self.reads += 1
+            if self.reads == 1:
+                raise OperationalError("query_wait_timeout")
+        return execute(sql, params, many, context)
+
+
 class TestModelSpecFactory:
     def test_null_config_returns_default_spec(self):
         assert isinstance(model_spec(None), DefaultModelSpec)
@@ -53,6 +71,18 @@ class TestExplicitModelSpec:
         assert resolved.is_byok
         key.refresh_from_db()
         assert key.last_used_at is not None
+
+    def test_byok_key_lookup_recovers_from_transient_operational_error(self, team):
+        # A dropped pooled connection surfaces as a transient OperationalError, which must not
+        # fail the whole eval run when a second read on a fresh connection would succeed.
+        key = _key(team, "anthropic")
+        fail_first = _FailFirstRead(LLMProviderKey._meta.db_table)
+
+        with connection.execute_wrapper(fail_first):
+            resolved = ExplicitModelSpec("anthropic", "claude-opus-4-8", str(key.id)).resolve(team.id)
+
+        assert resolved.provider_key == key
+        assert fail_first.reads == 2
 
     def test_byok_missing_key_raises_key_not_found(self, team):
         with pytest.raises(ApplicationError) as exc_info:
@@ -98,6 +128,20 @@ class TestDefaultModelSpec:
         with pytest.raises(ApplicationError) as exc_info:
             DefaultModelSpec().resolve(team.id)
         assert _error_type(exc_info) == "provider_key_required"
+
+    def test_active_key_dereference_recovers_from_transient_operational_error(self, team):
+        # The active_provider_key FK dereference is a second read after the config load. Django
+        # caches the relation only once it resolves, so the retry must re-read the key rather
+        # than hand back whatever the failed dereference left behind.
+        key = _key(team, "anthropic")
+        EvaluationConfig.objects.create(team=team, active_provider_key=key)
+        fail_first = _FailFirstRead(LLMProviderKey._meta.db_table)
+
+        with connection.execute_wrapper(fail_first):
+            resolved = DefaultModelSpec().resolve(team.id)
+
+        assert resolved.provider_key == key
+        assert fail_first.reads == 2
 
     def test_anthropic_active_key_resolves_to_anthropic_default(self, team):
         # Regression: a null config with an Anthropic active key used to resolve to openai/gpt-5-mini
