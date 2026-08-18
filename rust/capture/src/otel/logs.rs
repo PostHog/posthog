@@ -53,8 +53,17 @@ pub fn expand_into_events(
             let dropped_records = resource_logs
                 .scope_logs
                 .iter()
-                .map(|scope_logs| scope_logs.log_records.len())
-                .sum::<usize>();
+                .flat_map(|scope_logs| &scope_logs.log_records)
+                .filter(|record| record.event_name == EVALUATION_EVENT_NAME)
+                .count();
+            charge_expanded_bytes(
+                &mut expanded_bytes,
+                resource_bytes.checked_mul(dropped_records).ok_or_else(|| {
+                    CaptureError::RequestParsingError(
+                        "Expanded evaluation events exceed the byte limit".to_string(),
+                    )
+                })?,
+            )?;
             counter!("capture_ai_otel_evaluation_records_dropped", "reason" => "expanded_size")
                 .increment(dropped_records as u64);
             continue;
@@ -72,6 +81,20 @@ pub fn expand_into_events(
                         super::MAX_AI_EVENTS_PER_REQUEST
                     )));
                 }
+                let record_attributes = attributes_to_map(&record.attributes);
+                let candidate_bytes = resource_bytes
+                    .checked_add(
+                        serde_json::to_vec(&record_attributes)
+                            .map_err(|error| CaptureError::InternalError(error.to_string()))?
+                            .len(),
+                    )
+                    .and_then(|bytes| bytes.checked_add(record.event_name.len()))
+                    .ok_or_else(|| {
+                        CaptureError::RequestParsingError(
+                            "Expanded evaluation events exceed the byte limit".to_string(),
+                        )
+                    })?;
+                charge_expanded_bytes(&mut expanded_bytes, candidate_bytes)?;
                 let Some(event) = evaluation_event(
                     record,
                     &resource_attributes,
@@ -97,16 +120,8 @@ pub fn expand_into_events(
                         .increment(1);
                     continue;
                 }
-                expanded_bytes = expanded_bytes.checked_add(event_bytes).ok_or_else(|| {
-                    CaptureError::RequestParsingError(
-                        "Expanded evaluation events exceed the byte limit".to_string(),
-                    )
-                })?;
-                if expanded_bytes > super::MAX_EXPANDED_AI_EVENT_BYTES {
-                    return Err(CaptureError::RequestParsingError(format!(
-                        "Expanded evaluation events exceed limit of {} bytes",
-                        super::MAX_EXPANDED_AI_EVENT_BYTES
-                    )));
+                if event_bytes > candidate_bytes {
+                    charge_expanded_bytes(&mut expanded_bytes, event_bytes - candidate_bytes)?;
                 }
                 events.push(event);
             }
@@ -114,6 +129,21 @@ pub fn expand_into_events(
     }
 
     Ok(events)
+}
+
+fn charge_expanded_bytes(total: &mut usize, bytes: usize) -> Result<(), CaptureError> {
+    *total = total.checked_add(bytes).ok_or_else(|| {
+        CaptureError::RequestParsingError(
+            "Expanded evaluation events exceed the byte limit".to_string(),
+        )
+    })?;
+    if *total > super::MAX_EXPANDED_AI_EVENT_BYTES {
+        return Err(CaptureError::RequestParsingError(format!(
+            "Expanded evaluation events exceed limit of {} bytes",
+            super::MAX_EXPANDED_AI_EVENT_BYTES
+        )));
+    }
+    Ok(())
 }
 
 fn evaluation_event(
@@ -188,7 +218,14 @@ fn evaluation_event(
         Value::String("otel".to_string()),
     );
 
-    properties.remove("$ai_trace_id");
+    for property in [
+        "$ai_trace_id",
+        "$ai_target_span_id",
+        "$ai_span_id",
+        "$ai_parent_id",
+    ] {
+        properties.remove(property);
+    }
     if record.trace_id.len() == 16 {
         properties.insert(
             "$ai_trace_id".to_string(),
@@ -376,16 +413,45 @@ mod tests {
     }
 
     #[test]
-    fn malformed_wire_trace_id_removes_attribute_trace_id() {
+    fn invalid_evaluations_charge_the_expansion_budget() {
+        let mut invalid = evaluation_record();
+        invalid.attributes = vec![string_attribute("large.attribute", &"x".repeat(899_000))];
+        let mut request = request(invalid.clone());
+        request.resource_logs[0].scope_logs[0]
+            .log_records
+            .extend(vec![invalid; 9]);
+
+        let Err(error) = expand_into_events(&request, "fallback") else {
+            panic!("expected expanded evaluation byte limit error");
+        };
+
+        assert!(error.to_string().contains("exceed limit"));
+    }
+
+    #[test]
+    fn malformed_wire_ids_remove_attribute_ids() {
         let mut record = evaluation_record();
         record.trace_id.clear();
-        record
-            .attributes
-            .push(string_attribute("$ai_trace_id", "forged"));
+        record.span_id.clear();
+        for property in [
+            "$ai_trace_id",
+            "$ai_target_span_id",
+            "$ai_span_id",
+            "$ai_parent_id",
+        ] {
+            record.attributes.push(string_attribute(property, "forged"));
+        }
 
         let events = expand_into_events(&request(record), "fallback").unwrap();
 
-        assert!(events[0].properties.get("$ai_trace_id").is_none());
+        for property in [
+            "$ai_trace_id",
+            "$ai_target_span_id",
+            "$ai_span_id",
+            "$ai_parent_id",
+        ] {
+            assert!(events[0].properties.get(property).is_none());
+        }
     }
 
     #[test]
@@ -411,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_oversized_resource_group_without_cloning_each_record() {
+    fn oversized_resource_group_charges_each_dropped_evaluation() {
         let mut oversized_request = request(evaluation_record());
         oversized_request.resource_logs[0]
             .resource
@@ -429,10 +495,11 @@ mod tests {
             .resource_logs
             .extend(request(evaluation_record()).resource_logs);
 
-        let events = expand_into_events(&oversized_request, "fallback").unwrap();
+        let Err(error) = expand_into_events(&oversized_request, "fallback") else {
+            panic!("expected expanded evaluation byte limit error");
+        };
 
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].properties["$ai_evaluation_name"], "correctness");
+        assert!(error.to_string().contains("exceed limit"));
     }
 
     #[test]

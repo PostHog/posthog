@@ -157,15 +157,27 @@ pub fn expand_into_events(
 
                 apply_geoip_default(&mut properties);
 
-                properties.insert(
-                    "$ai_trace_id".to_string(),
-                    Value::String(hex::encode(&span.trace_id)),
-                );
-                properties.insert(
-                    "$ai_span_id".to_string(),
-                    Value::String(hex::encode(&span.span_id)),
-                );
-                if !span.parent_span_id.is_empty() {
+                for property in [
+                    "$ai_trace_id",
+                    "$ai_target_span_id",
+                    "$ai_span_id",
+                    "$ai_parent_id",
+                ] {
+                    properties.remove(property);
+                }
+                if span.trace_id.len() == 16 {
+                    properties.insert(
+                        "$ai_trace_id".to_string(),
+                        Value::String(hex::encode(&span.trace_id)),
+                    );
+                }
+                if span.span_id.len() == 8 {
+                    properties.insert(
+                        "$ai_span_id".to_string(),
+                        Value::String(hex::encode(&span.span_id)),
+                    );
+                }
+                if span.parent_span_id.len() == 8 {
                     properties.insert(
                         "$ai_parent_id".to_string(),
                         Value::String(hex::encode(&span.parent_span_id)),
@@ -490,6 +502,38 @@ mod tests {
         let events = expand_into_events(&request, "user");
         let props = events[0].properties.as_object().unwrap();
         assert!(!props.contains_key("$ai_parent_id"));
+    }
+
+    #[test]
+    fn malformed_wire_ids_remove_attribute_ids() {
+        let forged_ids = [
+            "$ai_trace_id",
+            "$ai_target_span_id",
+            "$ai_span_id",
+            "$ai_parent_id",
+        ];
+        let mut request = make_minimal_request(
+            vec![],
+            forged_ids
+                .iter()
+                .map(|property| {
+                    make_kv(
+                        property,
+                        any_value::Value::StringValue("forged".to_string()),
+                    )
+                })
+                .collect(),
+        );
+        let span = &mut request.resource_spans[0].scope_spans[0].spans[0];
+        span.trace_id.clear();
+        span.span_id.clear();
+        span.parent_span_id.clear();
+
+        let events = expand_into_events(&request, "user");
+
+        for property in forged_ids {
+            assert!(events[0].properties.get(property).is_none());
+        }
     }
 
     #[test]

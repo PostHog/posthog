@@ -74,7 +74,7 @@ fn non_retryable_rejection(message: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
 }
 
-#[instrument(skip(state, body), fields(span_count, body_size))]
+#[instrument(skip_all, fields(span_count, body_size))]
 pub async fn otel_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
@@ -267,7 +267,7 @@ pub async fn otel_handler(
     Ok(Json(json!({})))
 }
 
-#[instrument(skip(state, body), fields(record_count, body_size))]
+#[instrument(skip_all, fields(record_count, body_size))]
 pub async fn logs_handler(
     State(state): State<AppState>,
     ip: Option<InsecureClientIp>,
@@ -429,33 +429,40 @@ async fn process_events(
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
-    // All-or-nothing quota check: reject the entire batch if any span is over quota
-    if let Err(outcome) = filtering::check_quota(&state.quota_limiter, &token, &span_events).await {
-        return match outcome {
-            filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
-            filtering::QuotaOutcome::Error(e) => {
-                report_internal_error_metrics(e.to_metric_tag(), "otel_quota");
-                Err(e.into_response())
-            }
-        };
-    }
-
-    let restrictions = match &state.event_restriction_service {
-        Some(service) => {
-            let now_ts = state.timesource.current_time().timestamp();
-            filtering::check_restrictions(service, &token, now_ts, &span_events)
-                .await
-                .map_err(|_| non_retryable_rejection("event restricted"))?
+    let span_events = match filtering::apply_quota(&state.quota_limiter, &token, span_events).await
+    {
+        Ok(events) => events,
+        Err(outcome) => {
+            return match outcome {
+                filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
+                filtering::QuotaOutcome::Error(e) => {
+                    report_internal_error_metrics(e.to_metric_tag(), "otel_quota");
+                    Err(e.into_response())
+                }
+            };
         }
-        None => Default::default(),
     };
 
+    let span_events = match &state.event_restriction_service {
+        Some(service) => {
+            let now_ts = state.timesource.current_time().timestamp();
+            filtering::apply_restrictions(service, &token, now_ts, span_events).await
+        }
+        None => span_events
+            .into_iter()
+            .map(|event| (event, Default::default()))
+            .collect(),
+    };
+
+    if span_events.is_empty() {
+        return Err(non_retryable_rejection("event restricted"));
+    }
+
     let mut processed_events =
-        filtering::build_events(span_events, &token, &client_ip, received_at, &restrictions)
-            .map_err(|e| {
-                report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
-                e.into_response()
-            })?;
+        filtering::build_events(span_events, &token, &client_ip, received_at).map_err(|e| {
+            report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
+            e.into_response()
+        })?;
 
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain
     // span in the batch before handing off to the sink. OTEL bypasses

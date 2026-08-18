@@ -656,7 +656,8 @@ async fn test_verified_gateway_logs_batch_produces_evaluation_for_each_wire_form
             .header("Content-Type", content_type)
             .header("Authorization", format!("Bearer {TOKEN}"))
             .header("PostHog-Ai-Gateway-Signature", signature)
-            .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME);
+            .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+            .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID);
         if !content_encoding.is_empty() {
             request = request.header("Content-Encoding", content_encoding);
         }
@@ -679,6 +680,58 @@ async fn test_verified_gateway_logs_batch_produces_evaluation_for_each_wire_form
         );
         assert_eq!(data["properties"]["$ai_gateway_verified"], true);
     }
+}
+
+#[tokio::test]
+async fn test_mixed_gateway_logs_quota_retains_verified_evaluation() {
+    const SECRET: &str = "test-signing-secret";
+
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![TOKEN.to_string()]));
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            redis: Some(redis),
+            ai_gateway_signing_secret: Some(SECRET.to_string()),
+            ..Default::default()
+        },
+    );
+    let traced = make_evaluation_log_record(0);
+    let mut trace_less = make_evaluation_log_record(1);
+    trace_less.trace_id.clear();
+    let body = make_logs_request(vec![traced, trace_less]).encode_to_vec();
+    let signature = sign_gateway_body_with_scope(
+        SECRET,
+        "application/x-protobuf",
+        "",
+        &body,
+        DEFAULT_TEST_TIME,
+        "otel-logs-v1",
+    );
+
+    let response = client
+        .post(LOGS_ENDPOINT)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .header("PostHog-Ai-Gateway-Signature", signature)
+        .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
+        .body(body)
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    let data = parse_event_data(&events[0]);
+    assert_eq!(data["properties"]["$ai_gateway_verified"], true);
+    assert_eq!(data["properties"]["$ai_trace_id"], hex::encode([1; 16]));
 }
 
 #[tokio::test]
@@ -794,7 +847,7 @@ async fn test_logs_batch_rejects_oversized_expanded_evaluations() {
 }
 
 #[tokio::test]
-async fn test_logs_batch_limits_only_valid_evaluation_events() {
+async fn test_logs_batch_charges_invalid_evaluation_records() {
     let sink = CapturingSink::new();
     let client = make_test_client(&sink);
     let mut records = (0..101)
@@ -814,8 +867,8 @@ async fn test_logs_batch_limits_only_valid_evaluation_events() {
         .send()
         .await;
 
-    assert_eq!(response.status().as_u16(), 200);
-    assert_eq!(sink.get_events().await.len(), 1);
+    assert_eq!(response.status().as_u16(), 400);
+    assert!(sink.get_events().await.is_empty());
 }
 
 #[tokio::test]
@@ -871,6 +924,7 @@ async fn test_logs_batch_does_not_trust_trace_signature_scope() {
         .header("Authorization", format!("Bearer {TOKEN}"))
         .header("PostHog-Ai-Gateway-Signature", signature)
         .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
         .body(body)
         .send()
         .await;
@@ -1641,6 +1695,7 @@ async fn test_invalid_gateway_signature_does_not_bypass_scoped_llm_quota() {
         .header("Authorization", format!("Bearer {}", TOKEN))
         .header("PostHog-Ai-Gateway-Signature", "00")
         .header("PostHog-Ai-Gateway-Signed-At", DEFAULT_TEST_TIME)
+        .header("PostHog-Ai-Gateway-Request-Id", GATEWAY_REQUEST_ID)
         .body(body)
         .send()
         .await;
@@ -1751,10 +1806,7 @@ async fn test_both_global_and_scoped_quota_exceeded_returns_400() {
 }
 
 #[tokio::test]
-async fn test_partial_quota_drop_rejects_entire_batch() {
-    // Use a custom scoped limiter that only matches $ai_generation (not $ai_embedding).
-    // When this limiter is exceeded, $ai_generation spans are dropped but $ai_embedding
-    // spans are retained → partial drop → all-or-nothing rejection returns 400.
+async fn test_partial_quota_drop_retains_unaffected_event() {
     let exceptions_key = format!(
         "{}{}",
         QUOTA_LIMITER_CACHE_KEY,
@@ -1784,10 +1836,11 @@ async fn test_partial_quota_drop_rejects_entire_batch() {
     // Send two spans: one $ai_generation, one $ai_embedding
     let request = make_two_span_request();
     let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 400);
+    assert_eq!(status, 200);
 
     let events = sink.get_events().await;
-    assert!(events.is_empty());
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event.event, "$ai_embedding");
 }
 
 // ----------------------------------------------------------------------------
@@ -1872,7 +1925,7 @@ async fn test_restriction_types() {
 }
 
 #[tokio::test]
-async fn test_filtered_drop_restriction_rejects_otel_batch() {
+async fn test_filtered_drop_restriction_retains_unaffected_event() {
     let mut event_names = HashSet::new();
     event_names.insert("$ai_generation".to_string());
 
@@ -1897,12 +1950,11 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 
     let request = make_two_span_request();
     let status = send_request_with_client(&client, &request).await;
-    assert_eq!(status, 400);
+    assert_eq!(status, 200);
 
-    // The $ai_generation span matches the filtered drop restriction, so the
-    // entire batch is rejected (all-or-nothing semantics).
     let events = sink.get_events().await;
-    assert!(events.is_empty());
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event.event, "$ai_embedding");
 }
 
 // ============================================================================

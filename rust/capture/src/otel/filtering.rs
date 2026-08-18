@@ -20,14 +20,13 @@ pub enum QuotaOutcome {
     Error(CaptureError),
 }
 
-/// All-or-nothing quota check: if ANY span would be dropped by quota, reject the entire batch.
-pub async fn check_quota(
+pub async fn apply_quota(
     limiter: &CaptureQuotaLimiter,
     token: &str,
-    span_events: &[SpanEvent],
-) -> Result<(), QuotaOutcome> {
+    span_events: Vec<SpanEvent>,
+) -> Result<Vec<SpanEvent>, QuotaOutcome> {
     let mut unverified = Vec::with_capacity(span_events.len());
-    let mut has_verified = false;
+    let mut verified = Vec::new();
     for event in span_events {
         if event
             .properties
@@ -35,30 +34,41 @@ pub async fn check_quota(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
         {
-            has_verified = true;
+            verified.push(event);
         } else {
             unverified.push(event);
         }
     }
 
-    if has_verified {
-        limiter
+    if !verified.is_empty()
+        && limiter
             .is_quota_limited_v1(token, &QuotaResource::Events)
-            .await;
+            .await
+    {
+        report_dropped_events(
+            "otel_quota_drop",
+            verified.len() as u64 + unverified.len() as u64,
+        );
+        return Err(QuotaOutcome::Dropped);
     }
     if unverified.is_empty() {
-        return Ok(());
+        return Ok(verified);
     }
 
     let count = unverified.len();
 
     match limiter.check_and_filter(token, unverified).await {
-        Ok(filtered) if filtered.len() == count => Ok(()),
-        Ok(filtered) => {
-            let dropped = count - filtered.len();
-            report_dropped_events("otel_quota_drop", dropped as u64);
-            report_dropped_events("otel_all_or_nothing_drop", filtered.len() as u64);
-            Err(QuotaOutcome::Dropped)
+        Ok(mut retained) => {
+            let dropped = count - retained.len();
+            if dropped > 0 {
+                report_dropped_events("otel_quota_drop", dropped as u64);
+            }
+            verified.append(&mut retained);
+            Ok(verified)
+        }
+        Err(CaptureError::BillingLimit) if !verified.is_empty() => {
+            report_dropped_events("otel_quota_drop", count as u64);
+            Ok(verified)
         }
         Err(CaptureError::BillingLimit) => {
             report_dropped_events("otel_quota_drop", count as u64);
@@ -68,19 +78,13 @@ pub async fn check_quota(
     }
 }
 
-/// Per-span restriction checks with all-or-nothing semantics: if ANY span would be dropped,
-/// reject the entire batch. Non-drop flags are OR'd across all spans — if any span triggers
-/// a flag, it applies to the whole batch.
-///
-/// Returns `Err(())` if any span has a drop restriction (entire batch should be rejected).
-pub async fn check_restrictions(
+pub async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    span_events: &[SpanEvent],
-) -> Result<AppliedRestrictions, ()> {
-    let mut merged = AppliedRestrictions::default();
-
+    span_events: Vec<SpanEvent>,
+) -> Vec<(SpanEvent, AppliedRestrictions)> {
+    let mut retained = Vec::with_capacity(span_events.len());
     for span in span_events {
         let ctx = EventContext {
             event_name: Some(&span.event_name),
@@ -89,29 +93,25 @@ pub async fn check_restrictions(
             ..Default::default()
         };
         let applied = service.get_restrictions(token, &ctx, Pipeline::Ai).await;
-        merged = merged.merge(applied);
+        if applied.should_drop() {
+            report_dropped_events("otel_restriction_drop", 1);
+        } else {
+            retained.push((span, applied));
+        }
     }
-
-    if merged.should_drop() {
-        report_dropped_events("otel_restriction_drop", span_events.len() as u64);
-        return Err(());
-    }
-
-    Ok(merged)
+    retained
 }
 
-/// Build ProcessedEvents from SpanEvents, applying restriction flags uniformly to all events.
 pub fn build_events(
-    span_events: Vec<SpanEvent>,
+    span_events: Vec<(SpanEvent, AppliedRestrictions)>,
     token: &str,
     client_ip: &str,
     received_at: DateTime<Utc>,
-    restrictions: &AppliedRestrictions,
 ) -> Result<Vec<ProcessedEvent>, CaptureError> {
     let now_rfc3339 = received_at.to_rfc3339();
     let mut processed = Vec::with_capacity(span_events.len());
 
-    for span_event in span_events {
+    for (span_event, restrictions) in span_events {
         let event_data = json!({
             "event": &span_event.event_name,
             "distinct_id": &span_event.distinct_id,
