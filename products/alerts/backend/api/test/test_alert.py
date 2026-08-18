@@ -1914,6 +1914,64 @@ class TestAlertSimulateForecast(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
+class TestForecastTargetProjection(APIBaseTest):
+    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    def test_simulate_returns_the_target_projection(self, mock_simulate) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "ActionsLineGraph"},
+                    "interval": "day",
+                }
+            },
+        ).json()
+        mock_simulate.return_value = {
+            "data": [10.0],
+            "dates": ["2026-01-01"],
+            "interval": "day",
+            "forecast_dates": ["2026-12-31"],
+            "forecast_yhat": [500.0],
+            "forecast_lower": [400.0],
+            "forecast_upper": [600.0],
+            "forecast_components": None,
+            "history_lower": [9.0],
+            "history_upper": [11.0],
+            "latest_deviation": None,
+            "target_projection": {
+                "predicted": 500.0,
+                "best_case": 600.0,
+                "target": 1000000.0,
+                "target_date": "2026-12-31",
+                "misses_on_forecast": True,
+                "misses_on_best_case": True,
+            },
+            "fit_quality": {"mape": 0.05, "coverage": 0.95, "verdict": "good"},
+        }
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 1000000,
+                        "target_direction": "at_least",
+                        "target_date": "2026-12-31",
+                    },
+                },
+            )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        projection = response.json()["target_projection"]
+        assert projection["target"] == 1000000
+        # An unreachable target: even the favorable edge falls short, which is what fires by default.
+        assert projection["misses_on_best_case"] is True
+
+
 class TestForecastFlagGate(APIBaseTest):
     def test_existing_forecast_alert_can_be_disabled_once_the_flag_is_off(self) -> None:
         """Gating an inherited forecast_config would 400 every edit to an existing alert when the

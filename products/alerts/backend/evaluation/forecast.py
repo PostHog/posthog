@@ -434,9 +434,15 @@ def simulate_forecast_on_insight(
             f"Not enough history to forecast: need at least {min_points} completed intervals, got {len(values)}."
         )
 
-    horizon = _resolve_horizon(forecast_config)
     interval_width = _resolve_interval_width(forecast_config)
     interval_type = IntervalType(interval_value) if interval_value else None
+    if forecast_config.get("condition") == ForecastConditionType.TARGET_BY_DATE.value:
+        target_date = forecast_config.get("target_date")
+        if not target_date:
+            raise ValueError("A target alert needs a target date.")
+        horizon = horizon_for_target_date(date.fromisoformat(str(target_date)), interval_type, datetime.now(UTC).date())
+    else:
+        horizon = _resolve_horizon(forecast_config)
     engine = get_forecast_engine(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type, include_history=True)
     return {
@@ -450,12 +456,37 @@ def simulate_forecast_on_insight(
         "forecast_components": forecast.components,
         "history_lower": forecast.history_lower,
         "history_upper": forecast.history_upper,
+        "target_projection": _target_projection(forecast, forecast_config),
         "latest_deviation": _latest_deviation(dates, values, forecast_config, engine, interval_width, interval_type),
         "fit_quality": {
             "mape": forecast.fit_mape,
             "coverage": forecast.fit_coverage,
             "verdict": _fit_verdict(forecast.fit_mape, forecast.fit_coverage, interval_width),
         },
+    }
+
+
+def _target_projection(forecast: ForecastResult, forecast_config: dict[str, Any]) -> dict[str, Any] | None:
+    """Both crossings for the preview: what the forecast says, and what the favorable edge says.
+    Returning both is what makes the choice between the two sensitivities visible rather than
+    theoretical, so a user can see which one their target sits between."""
+    if forecast_config.get("condition") != ForecastConditionType.TARGET_BY_DATE.value:
+        return None
+    target = forecast_config.get("target")
+    if target is None:
+        return None
+    at_least = (forecast_config.get("target_direction") or ForecastTargetDirection.AT_LEAST.value) == (
+        ForecastTargetDirection.AT_LEAST.value
+    )
+    predicted = forecast.yhat[-1]
+    best_case = forecast.upper[-1] if at_least else forecast.lower[-1]
+    return {
+        "predicted": predicted,
+        "best_case": best_case,
+        "target": float(target),
+        "target_date": str(forecast_config.get("target_date") or ""),
+        "misses_on_forecast": predicted < target if at_least else predicted > target,
+        "misses_on_best_case": best_case < target if at_least else best_case > target,
     }
 
 

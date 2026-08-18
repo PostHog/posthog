@@ -1085,6 +1085,20 @@ class ForecastFitQualitySerializer(serializers.Serializer):
     )
 
 
+class ForecastTargetProjectionSerializer(serializers.Serializer):
+    predicted = serializers.FloatField(help_text="Value the forecast predicts for the target date.")
+    best_case = serializers.FloatField(
+        help_text="Value at the favorable edge of the band for the target date: the upper edge when the target "
+        "is a floor to reach, the lower edge when it is a ceiling to stay under."
+    )
+    target = serializers.FloatField(help_text="The target value being aimed for.")
+    target_date = serializers.CharField(help_text="The date the target must be met.")
+    misses_on_forecast = serializers.BooleanField(help_text="Whether the point forecast misses the target.")
+    misses_on_best_case = serializers.BooleanField(
+        help_text="Whether even the favorable edge misses the target, which is what fires by default."
+    )
+
+
 class ForecastLatestDeviationSerializer(serializers.Serializer):
     value = serializers.FloatField(help_text="The latest completed actual value.")
     lower = serializers.FloatField(help_text="Lower bound of the expected range for that point.")
@@ -1127,6 +1141,11 @@ class ForecastSimulateResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(),
         allow_null=True,
         help_text="Upper bound of the expected range for each historical point, aligned with `dates` and `data`.",
+    )
+    target_projection = ForecastTargetProjectionSerializer(
+        allow_null=True,
+        help_text="Where the forecast lands against the target on the target date, on both the point forecast "
+        "and the favorable edge. Present only for the target_by_date condition.",
     )
     latest_deviation = ForecastLatestDeviationSerializer(
         allow_null=True,
