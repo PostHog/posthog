@@ -4,11 +4,15 @@ import json
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _compute_harness_prompt_version() -> str:
@@ -120,13 +124,47 @@ _HOW_A_RUN_WORKS_HEAD = """# How a run works
 # Rendered into the head's investigate step only when the team's data catalog is enabled, because
 # `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for flag-off teams
 # and unconditioned steering would burn those runs' budget on failing queries.
-_METRICS_CATALOG_RULE = """ When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput), check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+_METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput),"
+
+_METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. When the no-match came from a cached entry rather than an in-run lookup, open the derived query's stated context with `governed catalog consulted: no listed metric matched <measure> (noncanonical)` – the scratchpad is invisible to the trace. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+
+# Shared by both pre-fetched variants, so it has to read correctly with and without a listing above it.
+_METRICS_CATALOG_SUPERSEDES_CACHE = "What this run was handed above is the current catalog state and supersedes any `catalog:<scope>:<measure>` scratchpad entry an earlier run cached under the old probe-and-cache rule: where a cached entry disagrees, that entry is stale, so correct or forget it rather than acting on it."
+
+_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the approved, non-drifted metrics right now are: {{listing}}. Do not re-run the lookup query for a measure a listed name already covers. When a listed name matches the measure you need, read its definition (`SELECT name, description, unit FROM system.information_schema.metrics WHERE name = '<name>'` via `execute-sql`) and run it with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure that matches nothing in the catalog has no canonical definition today – derive it by hand, and open that query's stated context with `governed catalog consulted: no listed metric matched <measure> (noncanonical)`. That opening line is the only trace-visible evidence of the listing this run was handed – a bare `noncanonical` label without it leaves the derivation unauditable. {_METRICS_CATALOG_SUPERSEDES_CACHE} Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+
+_METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, open each such query's stated context with `governed catalog consulted: empty, no metric matches <measure> (noncanonical)`, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run. {_METRICS_CATALOG_SUPERSEDES_CACHE}"""
+
+_GOVERNED_METRIC_LISTING_CAP = 40
 
 
-def _how_a_run_works_head(*, data_catalog_enabled: bool) -> str:
+def _governed_metric_listing(governed_metric_names: Sequence[str]) -> str:
+    """The names, capped, with the truncation stated as the one case that still warrants a lookup.
+
+    The cap keeps the injection to a handful of tokens. Past it the listing is no longer the whole
+    catalog, so the overflow clause has to name the lookup as an exception; otherwise it would
+    contradict the paragraph's rule against re-running the query.
+    """
+    listing = ", ".join(f"`{name}`" for name in governed_metric_names[:_GOVERNED_METRIC_LISTING_CAP])
+    overflow = len(governed_metric_names) - _GOVERNED_METRIC_LISTING_CAP
+    if overflow > 0:
+        listing += (
+            f", and {overflow} more this listing omits, so when a measure matches no name above, query "
+            "`system.information_schema.metrics` for it before concluding it has no canonical definition"
+        )
+    return listing
+
+
+def _how_a_run_works_head(*, data_catalog_enabled: bool, governed_metric_names: Sequence[str] | None = None) -> str:
     if not data_catalog_enabled:
         return _HOW_A_RUN_WORKS_HEAD
-    return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
+    if governed_metric_names is None:
+        return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
+    if not governed_metric_names:
+        return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_EMPTY
+    return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_PREFETCHED.format(
+        listing=_governed_metric_listing(governed_metric_names)
+    )
 
 
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
@@ -517,7 +555,7 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
 # edit-only guidance name it exactly; the surface it describes is the section's first sentence.
 _WRITING_SUMMARY = f"""# Writing the summary
 
-Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}.
+Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}. Whatever you name by id, link it, per *Linking what you reference*.
 
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
@@ -655,6 +693,31 @@ You run this tooling end to end on a schedule, so your experience is how PostHog
 - **At most one submission per run, near close-out, mentioned in your summary.** This is a side report to the PostHog team, never a way to end your turn or skip work: finish the run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
+_LINKING_HEAD = """# Linking what you reference
+
+A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
+
+- **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
+- **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
+- **Never assemble an `/insights/new#q=…` link yourself.** Wrapping a query you ran into an insight URL only renders for the query kinds the insight editor accepts as a source; a trace, log, or session query wrapped that way opens a blank new insight with no error, so the reader sees an empty chart and has no way to tell the link is broken. Link the entity's own page instead.
+- **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
+- **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
+- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
+
+# Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
+# collision the first warns about (writing a real URL where a `chart:` target belongs, or the
+# reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
+# the signal channel would dangle. The second names report fields (`title`, the report `summary`)
+# the signal channel never writes.
+_LINKING_REPORT_CLAUSES = """
+- **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
+- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
+
+
+def _linking_section(*, report_channel: bool) -> str:
+    return f"{_LINKING_HEAD}{_LINKING_REPORT_CLAUSES}" if report_channel else _LINKING_HEAD
+
+
 _WRITING_STYLE = """# Writing style
 
 - We use American English and the Oxford comma.
@@ -674,13 +737,17 @@ Respond at end_turn with a single JSON object matching this schema:
 
 
 def _signal_tail_sections(
-    *, followup_section: str, structured_output_section: str = "", data_catalog_enabled: bool = False
+    *,
+    followup_section: str,
+    structured_output_section: str = "",
+    data_catalog_enabled: bool = False,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
     per-run composed (empty when the config carries no schema)."""
     return [
-        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
+        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
         # that read an untrusted source point back at it rather than restating the reasoning.
         _GROUND_RULES,
@@ -693,6 +760,7 @@ def _signal_tail_sections(
         _FINDING_SCHEMA,
         _TAGGING,
         _WRITING_DESCRIPTION_SIGNAL,
+        _linking_section(report_channel=False),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
@@ -710,6 +778,7 @@ def _report_tail_sections(
     github_read_access: bool = False,
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -723,7 +792,7 @@ def _report_tail_sections(
     `github_read_access` appends the `gh` evidence section only when the sandbox actually got a
     read-only GitHub token — every persona here can set reviewers (edit-only routes unrouted
     reports), so it slots in wherever reviewer guidance lives."""
-    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)
+    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)
     if can_emit and can_edit:
         how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
@@ -763,6 +832,7 @@ def _report_tail_sections(
         _RECENCY_LENS,
         *([structured_output_section] if structured_output_section else []),
         *channel_sections,
+        _linking_section(report_channel=True),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
@@ -827,6 +897,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     data_catalog_enabled: bool = False,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -864,8 +935,11 @@ def build_run_prompt(
     `gh` in a tokenless run would just burn budget on 401s.
 
     `data_catalog_enabled` must mirror the team's `product-data-catalog` flag: it renders the
-    governed-metrics catalog-first rule, and the catalog surfaces it names don't exist for
-    flag-off teams (see the note on `_METRICS_CATALOG_RULE`).
+    governed-metrics catalog-first steering, and the catalog surfaces it names don't exist for
+    flag-off teams (see the note on `_METRICS_CATALOG_RULE`). `governed_metric_names` is the
+    harness-side pre-fetch of the team's approved, non-drifted metric names: a list (even empty)
+    renders the injected listing so the run is catalog-aware without a probe query, and `None`
+    means the lookup was unavailable, falling back to the prose probe-and-cache rule.
 
     Every prompt carries the self-validation follow-ups section: the scout keeps a `followup:`
     scratchpad queue and decides for itself, run by run, whether to spend the run validating it —
@@ -893,6 +967,7 @@ def build_run_prompt(
             github_read_access=github_read_access,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
+            governed_metric_names=governed_metric_names,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
@@ -903,6 +978,7 @@ def build_run_prompt(
             followup_section=followup_section,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
+            governed_metric_names=governed_metric_names,
         )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format

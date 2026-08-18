@@ -120,6 +120,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             delivery_id=str(emission.id),
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
+            edit_note=None,
         )
 
     def test_record_emit_enqueues_dm_destination_per_recipient(self) -> None:
@@ -161,6 +162,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 delivery_id=str(emission.id),
                 integration_id=17,
                 channel="U1|@andy",
+                edit_note=None,
             ),
             call(
                 team_id=self.team.id,
@@ -171,6 +173,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
                 delivery_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{emission.id}:1")),
                 integration_id=17,
                 channel="U2|@robbie",
+                edit_note=None,
             ),
         ]
 

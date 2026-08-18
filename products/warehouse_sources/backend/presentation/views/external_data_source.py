@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
 
@@ -45,6 +45,7 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -99,13 +100,16 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ManagedWarehouseSQLMode,
     PendingSourceCredential,
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -175,6 +179,41 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
 
+
+def _canonical_legacy_managed_warehouse_source(
+    queryset: QuerySet[ExternalDataSource],
+) -> ExternalDataSource | None:
+    candidates = (
+        queryset.select_related(None)
+        .filter(ExternalDataSource.legacy_managed_warehouse_q())
+        .only(
+            "id",
+            "team_id",
+            "created_at",
+            "prefix",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        .order_by("-created_at")
+    )
+    return next(
+        (source for source in candidates if source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.EXTERNAL),
+        None,
+    )
+
+
+def _hide_noncanonical_managed_warehouse_sources(
+    queryset: QuerySet[ExternalDataSource], canonical_source: ExternalDataSource | None
+) -> QuerySet[ExternalDataSource]:
+    hidden_sources = Q(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+    if canonical_source is not None:
+        hidden_sources &= ~Q(pk=canonical_source.pk)
+    return queryset.exclude(hidden_sources)
+
+
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -219,6 +258,17 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
         return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, True
 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
+
+
+def _credentials_validation_failed(source: AnySource, team_id: int, error: Exception) -> tuple[bool, str | None]:
+    """Fallback result for an *unexpected* exception raised by a source's credential probe.
+
+    Sources are expected to catch their own errors and return ``(False, message)``. One that raises
+    instead would 500 the create/update request and show someone mid-onboarding an opaque server
+    error, so capture it for us and hand back an actionable message — the same treatment schema
+    discovery already gives an unexpected error just below the credential check."""
+    capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -277,10 +327,16 @@ def _add_name_variants(target: set[str], name: str) -> None:
         target.add(normalised)
 
 
-def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple[set[str], set[str]]:
+@frozen
+class FieldSensitivitySplit:
+    nonsensitive: set[str]
+    sensitive: set[str]
+
+
+def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> FieldSensitivitySplit:
     """Classify source config field names as nonsensitive or sensitive.
 
-    Returns (nonsensitive, sensitive) sets of field names, flattened across all nesting levels.
+    Returns the field-name sets flattened across all nesting levels.
     """
     nonsensitive: set[str] = set()
     sensitive: set[str] = set()
@@ -297,14 +353,14 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             for option in field.options:
                 if option.fields:
-                    ns, s = get_nonsensitive_and_sensitive_field_names(option.fields)
-                    nonsensitive.update(ns)
-                    sensitive.update(s)
+                    nested = get_nonsensitive_and_sensitive_field_names(option.fields)
+                    nonsensitive.update(nested.nonsensitive)
+                    sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             _add_name_variants(nonsensitive, field.name)
-            ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
-            nonsensitive.update(ns)
-            sensitive.update(s)
+            nested = get_nonsensitive_and_sensitive_field_names(field.fields)
+            nonsensitive.update(nested.nonsensitive)
+            sensitive.update(nested.sensitive)
         elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
             # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
             # GSC site_url), not a secret — keep it so the form can prefill on edit.
@@ -316,7 +372,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
-    return nonsensitive, sensitive
+    return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)
 
 
 # Config metadata keys that are always safe to include in nested dicts
@@ -477,7 +533,7 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -561,6 +617,9 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     supports_hogql = serializers.SerializerMethodField(
         help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
     )
+    is_builtin_managed_warehouse = serializers.SerializerMethodField(
+        help_text="Whether this option is the built-in PostHog managed warehouse connection.",
+    )
     description = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -574,10 +633,23 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
         return direct_supports_hogql(source)
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_builtin_managed_warehouse(self, source: ExternalDataSource) -> bool:
+        return source.pk == self.context.get("builtin_managed_warehouse_source_id")
+
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
-        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+        fields = [
+            "id",
+            "prefix",
+            "engine",
+            "source_type",
+            "access_method",
+            "supports_hogql",
+            "is_builtin_managed_warehouse",
+            "description",
+        ]
+        read_only_fields = fields
 
 
 class DirectConnectionSourceOptionSerializer(serializers.Serializer):
@@ -627,6 +699,12 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="UTC anchor time for scheduled syncs.",
+    )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
     )
     cdc_table_mode = serializers.ChoiceField(
         required=False,
@@ -908,9 +986,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
-            nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
+            split = get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
-            nonsensitive = nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
+            nonsensitive = split.nonsensitive | _CDC_EXPOSED_JOB_INPUT_KEYS
         except (ValueError, KeyError):
             representation["job_inputs"] = {}
             return representation
@@ -930,7 +1008,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
+        representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str | None:
@@ -1200,29 +1278,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         if job_inputs_were_submitted:
             effective_api_version = source.resolve_api_version(instance.api_version)
-            if isinstance(source, (PostgresSource, MySQLSource)):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config),
-                    instance.team_id,
-                    instance.access_method,
-                    api_version=effective_api_version,
-                )
-            elif isinstance(source, CustomSource):
-                # Pass the source being updated so an integration-backed OAuth2 source can only validate
-                # with the integration bound to it — not another source's, whose token the probe would
-                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
-                # an as-yet-unbound integration to its creator.
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config,
-                    instance.team_id,
-                    source_id=str(instance.pk),
-                    owner_user_id=self.context["request"].user.id,
-                    api_version=effective_api_version,
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, api_version=effective_api_version
-                )
+            try:
+                if isinstance(source, (PostgresSource, MySQLSource)):
+                    credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                        cast(Any, source_config),
+                        instance.team_id,
+                        instance.access_method,
+                        api_version=effective_api_version,
+                    )
+                elif isinstance(source, CustomSource):
+                    # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                    # with the integration bound to it — not another source's, whose token the probe would
+                    # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                    # an as-yet-unbound integration to its creator.
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config,
+                        instance.team_id,
+                        source_id=str(instance.pk),
+                        owner_user_id=self.context["request"].user.id,
+                        api_version=effective_api_version,
+                    )
+                else:
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config, instance.team_id, api_version=effective_api_version
+                    )
+            except Exception as e:
+                credentials_valid, credentials_error = _credentials_validation_failed(source, instance.team_id, e)
             if not credentials_valid:
                 raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
@@ -1757,7 +1838,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "connect_link",
         "stored_credentials",
         "webhook_info",
-        "connections",
         "cdc_status",
     ]
     queryset = ExternalDataSource.objects.all()
@@ -1794,6 +1874,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 raise PermissionDenied("You do not have editor access to every table in this source.")
 
     def dangerously_get_permissions(self):
+        if self.action == "connections":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                TeamMemberAccessPermission(),
+            ]
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
         # accounts (info disclosure). Other actions fall back to the viewset defaults.
@@ -1857,8 +1943,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return context
 
     def safely_get_queryset(self, queryset):
+        queryset = queryset.exclude(deleted=True)
+        canonical_source = _canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
+        queryset = _hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
+
         return (
-            queryset.exclude(deleted=True)
+            queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
@@ -2100,13 +2190,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
-        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
-        # Upgrade that machine-injected value when the transport identifies one of them, so their
-        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        # The setup wizard and PostHog's agent surfaces drive creation through the MCP tools, which
+        # inject `created_via=mcp` before the request reaches us — the agent can't set the field
+        # itself. Upgrade that machine-injected value when the transport identifies one of them, so
+        # their runs are distinguishable from other MCP clients. Explicit `web`/`api` values are
+        # left alone. The PostHog apps and the headless agents all map to `self_driving`: the
+        # distinction between them is an analytics one, and splitting it here would need a new
+        # stored value.
         if created_via == ExternalDataSource.CreatedVia.MCP:
             transport_created_via = {
                 EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
@@ -3095,19 +3190,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
-            # an unbound integration owned by the requester, or the probe could send another source's token
-            # to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+                # an unbound integration owned by the requester, or the probe could send another source's token
+                # to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3567,18 +3665,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Create-time validation for an integration-backed manifest may only use an unbound integration
-            # owned by the requester, so the probe can't send another source's token to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Create-time validation for an integration-backed manifest may only use an unbound integration
+                # owned by the requester, so the probe can't send another source's token to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return (
                 Response(
@@ -4567,9 +4668,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
-    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["external_data_source:read"],
+    )
     def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = (
+        connection_sources = (
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 source_type__in=direct_capable_source_types(),
@@ -4577,12 +4684,53 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Pure-direct sources are always live; synced sources only when the toggle is on.
             .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "connection_metadata", "source_type", "access_method")
+            .only(
+                "id",
+                "prefix",
+                "description",
+                "connection_metadata",
+                "source_type",
+                "access_method",
+            )
             .order_by(self.ordering)
         )
-        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
+        managed_source = None
+        if managed_warehouse_enabled:
+            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
+                "id",
+                "team_id",
+                "prefix",
+                "description",
+                "connection_metadata",
+                "source_type",
+                "access_method",
+                "direct_query_enabled",
+                "job_inputs",
+            )
+            managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+            external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        else:
+            canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)
+            external_sources = _hide_noncanonical_managed_warehouse_sources(connection_sources, canonical_source)
+        if is_service_auth(request):
+            accessible_external_sources = external_sources
+        else:
+            accessible_external_sources = self.user_access_control.filter_queryset_by_access_level(external_sources)
+            if not self.user_access_control.has_resource_access(
+                "external_data_source"
+            ) and not self.user_access_control.has_any_specific_access_for_resource(
+                "external_data_source", required_level="viewer"
+            ):
+                accessible_external_sources = accessible_external_sources.filter(created_by=cast(User, request.user))
+        accessible_sources = list(accessible_external_sources)
+        options = ([managed_source] if managed_source is not None else []) + accessible_sources
 
-        serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
+        serializer = ExternalDataSourceConnectionOptionSerializer(
+            options,
+            many=True,
+            context={"builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None},
+        )
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))

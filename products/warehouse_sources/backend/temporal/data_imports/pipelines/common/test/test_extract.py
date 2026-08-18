@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
+    trim_source_job_inputs,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -134,6 +135,42 @@ class TestPersistPrimaryKeys:
             await persist_primary_keys(schema, resource, True, logger)
 
         logger.aexception.assert_awaited_once()
+
+
+class TestTrimSourceJobInputs:
+    @parameterized.expand(
+        [
+            # A non-empty string decoded out of the EncryptedJSONField used to reach `.items()` and
+            # raise AttributeError — it must be skipped, not crash the whole import activity.
+            ("bare_string_is_skipped", "not-a-dict"),
+            ("list_is_skipped", ["a", "b"]),
+            ("none_is_skipped", None),
+            ("empty_dict_is_skipped", {}),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_non_dict_job_inputs_is_a_noop(self, _name: str, job_inputs) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            await trim_source_job_inputs(source)
+        pool.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
+        source = MagicMock(job_inputs={"host": " example.com ", "port": "5432"}, save=MagicMock())
+        saved = AsyncMock()
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+            await trim_source_job_inputs(source)
+        assert source.job_inputs["host"] == "example.com"
+        assert source.job_inputs["port"] == "5432"
+        saved.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_dict_job_inputs_without_padding_does_not_save(self) -> None:
+        source = MagicMock(job_inputs={"host": "example.com"}, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            await trim_source_job_inputs(source)
+        pool.assert_not_called()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
@@ -510,6 +547,36 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+        # An explicit reset redoes the initial sync, so the latch must drop (CDC's snapshot->
+        # streaming flip fires on the False->True transition).
+        assert schema.initial_sync_complete is False
+
+    def test_full_refresh_sync_keeps_initial_sync_complete(self, team):
+        # The prod regression: routine full-refresh runs cleared the latch at extraction start,
+        # and a zero-row run never reaches post-load to re-set it, so the flag read false
+        # between runs on ~1k schemas despite daily completed syncs.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Clickhouse"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="events",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"incremental_field_last_value": "2026-01-01T00:00:00"},
+            initial_sync_complete=True,
+        )
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            False, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+        )
+
+        helper.reset_table.assert_awaited_once()
+        assert schema.initial_sync_complete is True
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert "incremental_field_last_value" not in schema.sync_type_config
 
 
 class TestValidateIncrementalSync:

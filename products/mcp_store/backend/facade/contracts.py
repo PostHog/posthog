@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class ActiveInstallationInfo:
+class ActiveInstallation:
     """An MCP server installation that is active and ready to use."""
 
     id: str
