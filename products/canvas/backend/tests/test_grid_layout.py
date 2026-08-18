@@ -1,12 +1,19 @@
 from typing import Any
 
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
+from products.canvas.backend import welcome
 from products.canvas.backend.layout import apply_layout_ops, default_layout, validate_layout
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
+from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
 from products.tasks.backend.models import Channel
@@ -268,6 +275,48 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
         replacement = self._home()
         assert replacement.status_code == status.HTTP_201_CREATED
         assert replacement.json()["id"] != first.json()["id"]
+
+    @parameterized.expand([("without_github", False), ("with_github", True)])
+    def test_home_seeds_welcome_checklist(self, _name: str, github_connected: bool):
+        if github_connected:
+            Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        first = self._home()
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        home_id = first.json()["id"]
+
+        read = self._get_layout(home_id)
+        assert read.status_code == status.HTTP_200_OK
+        placements = read.json()["layout"]["placements"]
+        assert len(placements) == 1
+        seeded = placements[0]
+        assert seeded["status"] == "live"
+        assert (seeded["w"], seeded["h"]) == (2, 3)
+
+        with team_scope(self.team.id):
+            component = Canvas.objects.for_team(self.team.id).get(id=seeded["component"])
+            assert component.kind == Canvas.KIND_COMPONENT
+            assert component.name == welcome.WELCOME_COMPONENT_NAME
+            assert component.channel_id == Canvas.objects.for_team(self.team.id).get(id=home_id).channel_id
+            assert component.current_source_version is not None
+            assert component.current_source_version.component_meta is not None
+            state = CanvasState.objects.for_team(self.team.id).get(
+                canvas=component, scope=CanvasState.SCOPE_USER, user=self.user, key=welcome.WELCOME_STATE_KEY
+            )
+        assert state.value == {"download-desktop": True, "connect-github": github_connected}
+
+    def test_home_provisions_even_when_seeding_fails(self):
+        with patch.object(welcome, "seed_home_canvas", side_effect=RuntimeError("storage down")):
+            response = self._home()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        read = self._get_layout(response.json()["id"])
+        assert read.status_code == status.HTTP_200_OK
+        assert read.json()["layout"]["placements"] == []
+
+
+class TestWelcomeChecklistProject(SimpleTestCase):
+    def test_seed_project_passes_source_validation(self):
+        diagnostics = validate_source_project(welcome.welcome_checklist_project(), kind="component")
+        assert not has_errors(diagnostics), diagnostics
 
 
 class TestLayoutValidation(CanvasAPIBaseTest):

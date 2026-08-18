@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -25,7 +26,7 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import build_service, error_reports
+from products.canvas.backend import build_service, error_reports, welcome
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -81,6 +82,8 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+
+logger = structlog.get_logger(__name__)
 
 # The canvas's build lifecycle returns this many recent builds (the published
 # build is unioned in even when it has aged past the window).
@@ -1242,6 +1245,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             CanvasHomePreference.objects.for_team(self.team_id).update_or_create(
                 team_id=self.team_id, user=user, defaults={"canvas": canvas}
             )
+        # Starter content is best-effort: an empty home still provisions when
+        # object storage or the seed publish is unavailable.
+        try:
+            welcome.seed_home_canvas(canvas, user=user, channel_id=channel_id)
+        except Exception:
+            logger.exception("Failed to seed home canvas", canvas_id=str(canvas.id), team_id=self.team_id)
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action("canvas home provisioned", canvas)
         return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
