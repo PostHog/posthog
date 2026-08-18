@@ -1964,6 +1964,23 @@ class TaskArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskArtifactSerializer(many=True, help_text="Artifacts and canvases linked to this task.")
 
 
+class TaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+    compute_cost_usd = serializers.FloatField(
+        help_text="Estimated cloud compute cost attributed to this task in US dollars."
+    )
+    total_cost_usd = serializers.FloatField(help_text="Estimated total cost attributed to this task in US dollars.")
+
+
+class InternalTaskUsageRequestSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task identifier used to attribute model generations.")
+    task_created_at = serializers.DateTimeField(help_text="Lower timestamp bound for attributed model generations.")
+
+
+class InternalTaskUsageResponseSerializer(serializers.Serializer):
+    token_cost_usd = serializers.FloatField(help_text="Estimated model cost attributed to this task in US dollars.")
+
+
 class TaskCommentsQuerySerializer(serializers.Serializer):
     artifact_id = serializers.CharField(
         required=False, max_length=72, help_text="Artifact id returned by the artifacts endpoint."

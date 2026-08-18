@@ -199,11 +199,15 @@ class ScannerCandidateQuery:
             skip_negative_blocklists=skip_negative_blocklists,
         )
 
-    @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
         """Delegates, so the exclusion inherits the window and filters this query fetched with."""
         return self._inner.excluded_sessions_queries(session_ids)
 
+    def matches_on_events(self) -> bool:
+        """Whether `events_lookback` can cost this query candidates, so a deep pass has work to do."""
+        return self._inner.matches_on_events()
+
+    @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
         rows = execute_candidate_query(
             self.get_query(),
@@ -295,14 +299,18 @@ def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | N
     )
 
 
-class BackfillCandidateQuery:
-    """Enumerate a backfill's candidate sessions inside a closed historical window.
+class WindowedCandidateQuery:
+    """Enumerate a scanner's candidate sessions inside a closed historical window.
 
     Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
     sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
     cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
     enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
     recordings expire from retention — never grow).
+
+    Two callers walk windows this way: backfills over a user-chosen range, and the sweep's deep pass
+    over the range behind its own watermark. Each names its own reads, so a shared class cannot make
+    one path's ClickHouse cost look like the other's.
     """
 
     def __init__(
@@ -312,6 +320,8 @@ class BackfillCandidateQuery:
         query: RecordingsQuery,
         window_start: dt.datetime,
         window_end: dt.datetime,
+        # Tags this caller's reads in `system.query_log`; required so a new caller names itself.
+        query_type: str,
         sampling_rate: float,
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
@@ -342,6 +352,7 @@ class BackfillCandidateQuery:
         self._team = team
         self._window_start = window_start
         self._window_end = window_end
+        self._query_type = query_type
         self._cursor_end_time = cursor_end_time
         self._cursor_session_id = cursor_session_id
         self._exclude_observed_by_scanner = exclude_observed_by_scanner
@@ -377,19 +388,19 @@ class BackfillCandidateQuery:
         """Delegates, so the exclusion inherits the window and filters this query fetched with."""
         return self._inner.excluded_sessions_queries(session_ids)
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.run")
+    @tracer.start_as_current_span("WindowedCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
         rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
-            query_type="ReplayVisionBackfillCandidateQuery",
+            query_type=self._query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.count")
-    def count(self) -> int:
+    @tracer.start_as_current_span("WindowedCandidateQuery.count")
+    def count(self, *, query_type: str) -> int:
         counted = ast.SelectQuery(
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
@@ -397,7 +408,7 @@ class BackfillCandidateQuery:
         rows = execute_candidate_query(
             counted,
             team=self._team,
-            query_type="ReplayVisionBackfillCountQuery",
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )

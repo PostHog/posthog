@@ -206,7 +206,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Comments: never log change history or chat context in code — no "previously did X, now does Y", "per <task/PR>", "changed because…", or "AI:"/"agent:" notes. That goes in the commit message and PR description
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
-- Python: do not create empty `__init__.py` files
+- Python: do not create empty `__init__.py` files, with one exception: the package markers import tooling needs — `products/`, every product's `backend/`, and their `facade/` and `presentation/` trees. `products/` carries one so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`; that makes it a regular package, and grimp then stops descending at the first directory without a marker, silently dropping everything below it from every import-linter contract. `hogli product:lint` enforces those markers. Everywhere else — test directories, generated trees — leave the file out
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
@@ -265,6 +265,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

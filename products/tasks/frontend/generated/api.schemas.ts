@@ -2789,6 +2789,15 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
 
+export interface TaskUsageResponseApi {
+    /** Estimated model cost attributed to this task in US dollars. */
+    token_cost_usd: number
+    /** Estimated cloud compute cost attributed to this task in US dollars. */
+    compute_cost_usd: number
+    /** Estimated total cost attributed to this task in US dollars. */
+    total_cost_usd: number
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
