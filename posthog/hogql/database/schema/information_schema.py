@@ -1054,13 +1054,19 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
-    """Load the team's data quality check definitions as information_schema rows (fail-soft)."""
+    """Load the team's data quality check definitions as information_schema rows (fail-soft).
+
+    Hides checks whose subject table or view the caller is denied: the row carries the compiled
+    ``config`` and the denormalized subject name, so leaking it leaks the shape of a table the member
+    cannot read. Mirrors the metric loader's ``_references_denied_table`` pass.
+    """
     team_id = context.team_id
     if team_id is None or not _can_read_data_quality(context):
         return []
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        denied = context.database._denied_tables if context.database is not None else set()
         queryset = DataQualityCheck.objects.for_team(team_id).filter(deleted=False).order_by("-created_at")
         if allowed is not None:
             queryset = queryset.filter(name__in=allowed)
@@ -1084,17 +1090,19 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 check.created_at.isoformat(),
             ]
             for check in queryset
+            if not _references_denied_table([check.subject_name], denied)
         ]
     except Exception:
         logger.exception("information_schema: failed to load data quality checks", team_id=team_id)
         return []
 
 
-def _data_quality_check_runs(context: "HogQLContext") -> list[list[Any]]:
+def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
     """Load the team's most recent check executions as information_schema rows (fail-soft).
 
     Runs outlive their definitions on purpose: a deleted check's history stays queryable so a
-    regression can still be dated.
+    regression can still be dated. Rows for a denied subject are dropped *before* the window is
+    applied, so a member cannot read the leaked counts nor infer their number from a short page.
     """
     team_id = context.team_id
     if team_id is None or not _can_read_data_quality(context):
@@ -1102,33 +1110,46 @@ def _data_quality_check_runs(context: "HogQLContext") -> list[list[Any]]:
     from products.data_quality.backend.facade.models import DataQualityCheckRun  # noqa: PLC0415
 
     try:
-        runs = DataQualityCheckRun.objects.for_team(team_id).order_by("-created_at")[:_CHECK_RUNS_WINDOW]
-        return [
-            [
-                str(run.id),
-                str(run.quality_check_id) if run.quality_check_id else None,
-                str(run.suite_run_id),
-                run.subject_type,
-                str(run.subject_uuid),
-                run.subject_name,
-                run.check_type,
-                run.column_name or None,
-                run.status,
-                run.failed_row_count,
-                run.observed_value,
-                run.error or None,
-                run.duration_ms,
-                run.created_at.isoformat(),
-            ]
-            for run in runs
-        ]
+        denied = context.database._denied_tables if context.database is not None else set()
+        queryset = DataQualityCheckRun.objects.for_team(team_id).order_by("-created_at")
+        if allowed is not None:
+            queryset = queryset.filter(subject_name__in=allowed)
+        rows: list[list[Any]] = []
+        for run in queryset.iterator():
+            if _references_denied_table([run.subject_name], denied):
+                continue
+            rows.append(
+                [
+                    str(run.id),
+                    str(run.quality_check_id) if run.quality_check_id else None,
+                    str(run.suite_run_id),
+                    run.subject_type,
+                    str(run.subject_uuid),
+                    run.subject_name,
+                    run.check_type,
+                    run.column_name or None,
+                    run.status,
+                    run.failed_row_count,
+                    run.observed_value,
+                    run.error or None,
+                    run.duration_ms,
+                    run.created_at.isoformat(),
+                ]
+            )
+            if len(rows) >= _CHECK_RUNS_WINDOW:
+                break
+        return rows
     except Exception:
         logger.exception("information_schema: failed to load data quality check runs", team_id=team_id)
         return []
 
 
-def _data_quality_health(context: "HogQLContext") -> list[list[Any]]:
-    """Roll the team's checks up per subject (fail-soft), using the same rule as the REST endpoint."""
+def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Roll the team's checks up per subject (fail-soft), using the same rule as the REST endpoint.
+
+    Subjects the caller is denied never surface: the rollup counts (total/failing/erroring) are a
+    count oracle over rows the member cannot read otherwise.
+    """
     team_id = context.team_id
     if team_id is None or not _can_read_data_quality(context):
         return []
@@ -1136,8 +1157,14 @@ def _data_quality_health(context: "HogQLContext") -> list[list[Any]]:
     from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
 
     try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        checks_qs = DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        if allowed is not None:
+            checks_qs = checks_qs.filter(subject_name__in=allowed)
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
-        for check in DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True):
+        for check in checks_qs:
+            if _references_denied_table([check.subject_name], denied):
+                continue
             by_subject[(check.subject_type, str(check.subject_uuid))].append(check)
 
         rows: list[list[Any]] = []
@@ -1941,12 +1968,13 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "subject_name")
         return _rows_select(
             context,
             "data_quality_check_runs",
             _DATA_QUALITY_CHECK_RUNS_COLUMNS,
-            _data_quality_check_runs(context),
-            None,
+            _data_quality_check_runs(context, allowed),
+            allowed,
         )
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1985,8 +2013,13 @@ class InformationSchemaDataQualityHealthTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "subject_name")
         return _rows_select(
-            context, "data_quality_health", _DATA_QUALITY_HEALTH_COLUMNS, _data_quality_health(context), None
+            context,
+            "data_quality_health",
+            _DATA_QUALITY_HEALTH_COLUMNS,
+            _data_quality_health(context, allowed),
+            allowed,
         )
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:

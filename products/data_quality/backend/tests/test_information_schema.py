@@ -37,8 +37,10 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         self.addCleanup(flag_patch.stop)
         self.subject_uuid = uuid4()
 
-    def _context(self) -> HogQLContext:
+    def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
+        if denied_tables:
+            database._denied_tables |= denied_tables
         return HogQLContext(team=self.team, team_id=self.team.pk, database=database)
 
     def _check(self, team: Team | None = None, **kwargs) -> DataQualityCheck:
@@ -149,6 +151,24 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
                 results = self._query(f"SELECT * FROM system.information_schema.{table}")
 
         assert results == []
+
+    @parameterized.expand(
+        [
+            ("checks", "SELECT subject_name FROM system.information_schema.data_quality_checks"),
+            ("check_runs", "SELECT subject_name FROM system.information_schema.data_quality_check_runs"),
+            ("health", "SELECT subject_name FROM system.information_schema.data_quality_health"),
+        ]
+    )
+    def test_a_denied_subject_is_hidden_from_every_data_quality_table(self, _name: str, sql: str) -> None:
+        denied = self._check(subject_name="orders", subject_uuid=uuid4())
+        self._run_for(denied)
+        allowed = self._check(subject_name="customers", subject_uuid=uuid4(), column_name="id")
+        self._run_for(allowed)
+
+        rows = self._query(sql, context=self._context(denied_tables={"orders"}))
+
+        assert ("orders",) not in rows
+        assert ("customers",) in rows
 
     def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
         with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):
