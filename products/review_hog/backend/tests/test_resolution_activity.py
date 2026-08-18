@@ -15,6 +15,7 @@ from posthog.models.user import User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.constants import RESOLUTION_MAX_ATTEMPTS
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
@@ -447,7 +448,10 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             for p in self._base_patches(mock_activity, [self._thread("PRRT_9")]):
                 stack.enter_context(p)
             stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", side_effect=RuntimeError("sandbox down")))
-            for attempt, expected in ((1, ReviewReport.Status.ACTIVE), (2, ReviewReport.Status.IDLE)):
+            for attempt, expected in (
+                (1, ReviewReport.Status.ACTIVE),
+                (RESOLUTION_MAX_ATTEMPTS, ReviewReport.Status.IDLE),
+            ):
                 mock_activity.info.return_value.attempt = attempt
                 with pytest.raises(RuntimeError, match="sandbox down"):
                     async_to_sync(resolve_threads_activity)(self._input())
@@ -458,7 +462,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         # session-open dies too. With a completed turn behind it that must degrade to a skip —
         # not fail the run, which would block this PR's resolution forever.
         mock_activity = Mock()
-        mock_activity.info.return_value.attempt = 2
+        mock_activity.info.return_value.attempt = RESOLUTION_MAX_ATTEMPTS
         session = Mock()
         session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
         session.task_run.id = "run-1"

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -1319,6 +1320,7 @@ class Database(BaseModel):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
             ExternalDataSource,
+            ManagedWarehouseSQLMode,
         )
 
         with timings.measure("team", emit_span=True):
@@ -1370,6 +1372,7 @@ class Database(BaseModel):
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
             direct_connection_metadata: dict[str, Any] | None = None
+            is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
             virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
@@ -1388,6 +1391,13 @@ class Database(BaseModel):
                     direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
+                    if direct_source.has_managed_warehouse_prefix:
+                        managed_warehouse_sql_mode = direct_source.managed_warehouse_sql_mode
+                        if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                            raise QueryError(
+                                "This managed warehouse connection isn't available. Select another connection and try again."
+                            )
+                        is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
@@ -1600,11 +1610,13 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_catalog_enabled=data_catalog_enabled,
+            # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
             # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
+            or is_managed_warehouse_connection
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
@@ -2684,6 +2696,7 @@ def _settled_catalog_certifications(
         if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
             return {}, {}
 
+        record_catalog_read("schema_serialization")
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
@@ -2707,6 +2720,7 @@ def _settled_catalog_certifications(
                 by_saved_query_id[str(certification.saved_query_id)] = serialized
         return by_table_id, by_saved_query_id
     except Exception:
+        record_catalog_read_failure("schema_serialization")
         logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
         return {}, {}
 

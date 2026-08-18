@@ -195,8 +195,6 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
 # One catalog drives the list, the toggles, and the "connected" checks.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
-
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSource:
@@ -227,7 +225,6 @@ class _SourceSpec:
     # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
     # Empty when the source authorizes itself elsewhere, which is also what makes it untickable.
     pairs: tuple[tuple[str, str], ...] = ()
-    needs_ai_approval: bool = False
     # Reads the on/off state of a source that has no config row to read it from.
     enabled_check: Callable[[int], bool] | None = None
 
@@ -249,21 +246,8 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
         "bugs and UX problems scanners find in recordings",
         enabled_check=_has_emitting_replay_scanner,
     ),
-    _SourceSpec(
-        "session_replay",
-        "Session replay analysis (legacy)",
-        "problems real users hit. Replay vision covers this now",
-        (("session_replay", "session_analysis_cluster"),),
-        needs_ai_approval=True,
-    ),
 )
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
-
-
-def _ai_data_processing_approved(team_id: int) -> bool:
-    return bool(
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
-    )
 
 
 def has_enabled_source(team_id: int) -> bool:
@@ -271,7 +255,13 @@ def has_enabled_source(team_id: int) -> bool:
 
     Replay Vision is checked separately because it has no config row to find: each scanner's own
     `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
-    if SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists():
+    if (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
+        # onboarding complete on a source that emits nothing.
+        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
+        .exists()
+    ):
         return True
     return _has_emitting_replay_scanner(team_id)
 
@@ -315,29 +305,19 @@ def onboarding_sources(team_id: int) -> list[OnboardingSource]:
     ]
 
 
-def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> None:
     """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
-    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
-    enabled because AI data processing isn't approved (session replay analysis)."""
+    enabling a source sets up its SignalSourceConfig)."""
     selected = set(selected_keys)
-    ai_approved = _ai_data_processing_approved(team_id)
-    blocked: list[str] = []
     for spec in _SOURCE_CATALOG:
         if not spec.pairs:
             # Authorized elsewhere (Replay Vision, per scanner), so onboarding never offered it as a
             # checkbox and has nothing to write here.
             continue
         want_on = spec.key in selected
-        if want_on and spec.needs_ai_approval and not ai_approved:
-            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
-            # previously-approved source when the full checkbox snapshot is re-submitted.
-            blocked.append(spec.label)
-            continue
         for source_product, source_type in spec.pairs:
             if want_on:
                 defaults: dict = {"enabled": True, "created_by_id": user_id}
-                if source_type == "session_analysis_cluster":
-                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
                 obj, created = SignalSourceConfig.objects.get_or_create(
                     team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
                 )
@@ -348,7 +328,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
-    return blocked
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
@@ -363,12 +342,19 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
 # the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
+# Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
+# triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
+# but no lifecycle event needs the identity, so the scalar passthrough drops it.
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:
     if not extra:
         return {}
     props: dict = {}
     for key, value in extra.items():
+        if key in _TELEMETRY_EXCLUDED_EXTRA_KEYS:
+            continue
         if isinstance(value, str):
             props[key] = value[:_MAX_TELEMETRY_STR_LEN]
         elif isinstance(value, (bool, int, float)):

@@ -920,6 +920,23 @@ describe("buildConversationItems", () => {
     });
   });
 
+  describe("lastActivityAt", () => {
+    it("is null when the thread has no events", () => {
+      expect(buildConversationItems([], null).lastActivityAt).toBeNull();
+    });
+
+    // The footer measures silence against this, so a late-arriving event must
+    // not be able to drag it backwards and report a turn as quieter than it is.
+    it("reports the newest timestamp even when an event arrives late", () => {
+      const events = [
+        userPromptMsg(10, 1, "hello"),
+        consoleMsg(30, "second"),
+        consoleMsg(20, "late arrival"),
+      ];
+      expect(buildConversationItems(events, true).lastActivityAt).toBe(30);
+    });
+  });
+
   describe("session_update timestamps", () => {
     const toolCallMsg = (ts: number, toolCallId: string): AcpMessage => ({
       type: "acp_message",

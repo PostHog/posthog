@@ -224,19 +224,29 @@ class TestAgentThreadUpdates(TestCase):
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch(_FLAG_TARGET, return_value=True)
-    def test_inline_agent_upload_announces_created_then_revised(self, _flag, _write, _tag) -> None:
+    def test_inline_agent_upload_only_announces_output_versions(self, _flag, _write, _tag) -> None:
         from products.tasks.backend.facade.api import upload_task_run_artifacts
 
-        artifact = {"name": "summary.md", "type": "output", "content_bytes": b"v1", "content_type": "text/markdown"}
+        output = {"name": "summary.md", "type": "output", "content_bytes": b"v1", "content_type": "text/markdown"}
+        checkpoint = {
+            "name": "checkpoint.index",
+            "type": "artifact",
+            "content_bytes": b"internal state",
+            "content_type": "application/octet-stream",
+        }
         with team_scope(self.team.id):
             upload_task_run_artifacts(
-                self.task_run.id, self.task.id, self.team.id, artifacts=[artifact], uploaded_by="agent"
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                artifacts=[output, checkpoint],
+                uploaded_by="agent",
             )
             upload_task_run_artifacts(
                 self.task_run.id,
                 self.task.id,
                 self.team.id,
-                artifacts=[{**artifact, "content_bytes": b"v2"}],
+                artifacts=[{**output, "content_bytes": b"v2"}],
                 uploaded_by="agent",
             )
 
