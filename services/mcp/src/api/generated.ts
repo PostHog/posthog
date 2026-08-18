@@ -39132,6 +39132,29 @@ export namespace Schemas {
     }
 
     /**
+     * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+     * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+     * them shortly after. Messages already sent are not recalled.
+     */
+    export interface HogFlowBatchJobCancelResponse {
+      /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      status: HogFlowBatchJobStatusEnum;
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+      remaining: number;
+      /** True when no in-flight runs of this batch remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `update_action` - update_action
      * * `add_action` - add_action
      * * `remove_action` - remove_action
@@ -70849,6 +70872,20 @@ export namespace Schemas {
       readonly sessions_without_user: number;
       /** Trailing window the counts cover, in days. */
       readonly window_days: number;
+    }
+
+    /**
+     * Response of GET /vision/scanners/:id/self_driving_stats/.
+     */
+    export interface ScannerSelfDrivingStats {
+      /** Signals this scanner has pushed into the Signals inbox, all time. */
+      signals_emitted: number;
+      /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+      reports_contributed: number;
+      /** Implementation PRs opened by self-driving on those reports. */
+      prs_opened: number;
+      /** Of the opened PRs, how many have merged. */
+      prs_merged: number;
     }
 
     /**
