@@ -79,19 +79,14 @@ export function PlanApprovalSelector({
   // Only the user's own pick lives in state; everything else derives from
   // `initialMode` so it tracks `lastApprovalMode` live instead of freezing it
   // at mount — derive it, don't duplicate it.
-  const [explicitMode, setExplicitMode] = useState<string | undefined>(
-    undefined,
-  );
-  // This component can survive to a later approval request without
-  // remounting, so a pick made for the previous request must not leak into
-  // (and potentially not exist in) this one. Reset during render rather than
-  // in an effect: it takes effect before this render paints instead of one
-  // render later, avoiding a flash of the stale mode.
-  const lastToolCallIdRef = useRef(toolCall.toolCallId);
-  if (lastToolCallIdRef.current !== toolCall.toolCallId) {
-    lastToolCallIdRef.current = toolCall.toolCallId;
-    setExplicitMode(undefined);
-  }
+  const [explicitSelection, setExplicitSelection] = useState<{
+    toolCallId: string;
+    mode: string;
+  }>();
+  const explicitMode =
+    explicitSelection?.toolCallId === toolCall.toolCallId
+      ? explicitSelection.mode
+      : undefined;
   const selectedMode = explicitMode ?? initialMode;
   const reviewComments = usePlanReviewStore(
     (state) => state.comments[toolCall.toolCallId] ?? [],
@@ -322,7 +317,12 @@ export function PlanApprovalSelector({
                   <Box onClick={(e) => e.stopPropagation()}>
                     <ModeSelector
                       modeOption={modeConfigOption}
-                      onChange={(value) => setExplicitMode(value)}
+                      onChange={(mode) =>
+                        setExplicitSelection({
+                          toolCallId: toolCall.toolCallId,
+                          mode,
+                        })
+                      }
                       allowBypassPermissions
                     />
                   </Box>

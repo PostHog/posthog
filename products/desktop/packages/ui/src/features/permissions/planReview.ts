@@ -38,17 +38,36 @@ function uniqueId(value: string, seen: Set<string>): string {
 
 export function splitPlanSections(plan: string): PlanSection[] {
   const lines = plan.split("\n");
-  const headingStarts = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ line }) => /^(#{1,6})\s+\S/.test(line));
-  let starts = headingStarts;
+  const headingStarts: Array<{ line: string; index: number }> = [];
+  const stepStarts: Array<{ line: string; index: number }> = [];
+  let fence: "`" | "~" | undefined;
 
-  if (starts.length === 0) {
-    starts = lines
-      .map((line, index) => ({ line, index }))
-      .filter(({ line }) => /^\s*\d+[.)]\s+\S/.test(line));
+  for (const [index, line] of lines.entries()) {
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0] as "`" | "~";
+      if (!fence) {
+        fence = marker;
+      } else if (fence === marker) {
+        fence = undefined;
+      }
+      continue;
+    }
+
+    if (fence) {
+      continue;
+    }
+
+    if (/^(#{1,6})\s+\S/.test(line)) {
+      headingStarts.push({ line, index });
+    }
+
+    if (/^\s*\d+[.)]\s+\S/.test(line)) {
+      stepStarts.push({ line, index });
+    }
   }
 
+  const starts = headingStarts.length > 0 ? headingStarts : stepStarts;
   if (starts.length === 0) {
     return [{ id: "plan", title: "Plan", content: plan }];
   }
@@ -56,11 +75,12 @@ export function splitPlanSections(plan: string): PlanSection[] {
   const seen = new Set<string>();
   return starts.map(({ line, index }, startIndex) => {
     const nextIndex = starts[startIndex + 1]?.index ?? lines.length;
+    const contentStartIndex = startIndex === 0 ? 0 : index;
     const title = line.replace(/^\s*(?:#{1,6}\s+|\d+[.)]\s+)/, "").trim();
     return {
       id: uniqueId(title, seen),
       title: title || "Plan section",
-      content: lines.slice(index, nextIndex).join("\n").trim(),
+      content: lines.slice(contentStartIndex, nextIndex).join("\n").trim(),
     };
   });
 }

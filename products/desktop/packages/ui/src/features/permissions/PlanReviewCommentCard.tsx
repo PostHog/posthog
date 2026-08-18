@@ -1,4 +1,4 @@
-import { Flex, Text } from "@radix-ui/themes";
+import { Text } from "@posthog/quill";
 import { useState } from "react";
 import { PlanSectionComment } from "./PlanSectionComment";
 import type { PlanReviewComment } from "./planReview";
@@ -45,15 +45,13 @@ export function PlanReviewCommentCard({
       className={`mt-2 rounded-md border px-2.5 py-2 text-[13px] ${colorClasses}`}
     >
       {comment.stale && (
-        <Text as="div" size="1" color="orange" className="mb-1">
+        <Text size="xs" className="mb-1 text-orange-11">
           This comment refers to an earlier version of the plan.
         </Text>
       )}
-      <Text as="div" className="whitespace-pre-wrap text-gray-12">
-        {comment.text}
-      </Text>
+      <Text className="whitespace-pre-wrap text-gray-12">{comment.text}</Text>
       {reviewable && (
-        <Flex gap="2" className="mt-1">
+        <div className="mt-1 flex gap-2">
           {canEdit && (
             <button
               type="button"
@@ -70,7 +68,7 @@ export function PlanReviewCommentCard({
           >
             Remove
           </button>
-        </Flex>
+        </div>
       )}
     </div>
   );

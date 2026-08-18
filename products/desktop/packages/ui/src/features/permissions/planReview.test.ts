@@ -34,6 +34,41 @@ describe("plan review", () => {
     ]);
   });
 
+  it("includes content before the first section", () => {
+    expect(
+      splitPlanSections(
+        "Review every step before approval.\n\n## Update the API\nChange the endpoint.",
+      ),
+    ).toEqual([
+      {
+        id: "update-the-api",
+        title: "Update the API",
+        content:
+          "Review every step before approval.\n\n## Update the API\nChange the endpoint.",
+      },
+    ]);
+  });
+
+  it("ignores section markers inside fenced code blocks", () => {
+    expect(
+      splitPlanSections(
+        "## Update the docs\n\n```md\n# Example heading\n1. Example step\n```\n\n## Run tests",
+      ),
+    ).toEqual([
+      {
+        id: "update-the-docs",
+        title: "Update the docs",
+        content:
+          "## Update the docs\n\n```md\n# Example heading\n1. Example step\n```",
+      },
+      {
+        id: "run-tests",
+        title: "Run tests",
+        content: "## Run tests",
+      },
+    ]);
+  });
+
   it("marks a comment stale when its section changes", () => {
     const section = splitPlanSections(
       "## Update the API\nChange the endpoint.",
